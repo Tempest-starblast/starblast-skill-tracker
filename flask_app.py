@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.45.0"
+APP_VERSION = "5.46.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1449,6 +1449,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.46.0", "at": "2026-08-12T15:28:00Z", "changes": [
+        "You can message the bot directly now. Every command works in a DM with it - press Play, check your rank, set your name, report something - without posting in a channel. Useful if you would rather not have your rating discussed in public.",
+        "The commands moved from being registered in the one server to being registered everywhere, which is what makes DMs possible. If a command looks briefly missing or doubled up right after this, it is Discord catching up and it settles on its own.",
+    ]},
     {"version": "5.45.0", "at": "2026-08-12T15:17:00Z", "changes": [
         "Commands the bot mentions are clickable now. Where it used to tell you to run /setname, that is a link you press to open the command with nothing to retype - and /help is a full list of them, all clickable, grouped by what you are trying to do.",
     ]},
