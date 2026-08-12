@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.49.1"
+APP_VERSION = "5.50.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -457,6 +457,21 @@ def join_admin_names(c, sub_id, tag):
         c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (tag, name))
         joined.append(name)
     return joined, elsewhere
+
+
+def join_own_clans(c, sub_id):
+    """Put this account's names into any clan it is an admin of.
+
+    Called whenever a name appears on an account, not only when the clan
+    is claimed: somebody can be approved and claim their tag before they
+    have registered a name at all, and an admin missing from their own
+    roster reads as a bug.
+    """
+    landed = []
+    for tag in clan_admin_tags(c, sub_id):
+        got, _elsewhere = join_admin_names(c, sub_id, tag)
+        landed.extend((tag, nm) for nm in got)
+    return landed
 
 
 def curated_clans(c):
@@ -1479,6 +1494,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.50.0", "at": "2026-08-12T18:06:00Z", "changes": [
+        "A clan leader is now on their own roster. If you had not set a name yet when you claimed the clan, you are added the moment you set one rather than having to add yourself.",
+    ]},
     {"version": "5.49.1", "at": "2026-08-12T17:53:00Z", "changes": [
         "Tightened which players a new clan picks up. A tag now has to stand on its own in the name - in brackets, as the first word, or as the whole name - so claiming COV takes the players wearing [COV] and not somebody called COVID19.",
     ]},
@@ -3099,6 +3117,9 @@ def set_account_name():
         c.execute("INSERT INTO players (name, elo, wins, losses, norm_name, google_sub) "
                   "VALUES (?, ?, 0, 0, ?, ?)", (name, STARTING_ELO, key, sub_id))
         msg = f"Your account name is '{name}'."
+    landed = join_own_clans(c, sub_id)
+    if landed:
+        msg += f" You are now on the {landed[0][0]} roster."
     conn.commit()
     conn.close()
     return jsonify({"message": msg}), 200
@@ -4317,6 +4338,9 @@ def bot_set_name_route():
                   "VALUES (?, ?, 0, 0, ?, ?, ?)",
                   (name, STARTING_ELO, 'discord-bot', key, sub_id))
         msg = f"Your name is '{name}'."
+    landed = join_own_clans(c, sub_id)
+    if landed:
+        msg += f" You are now on the {landed[0][0]} roster."
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "name": name, "message": msg}), 200
@@ -4728,15 +4752,24 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     # is the roster the clan actually has, and nobody has to add them one
     # at a time.
     absorbed = absorb_unowned(c, tag)
+    c.execute("SELECT COUNT(*) FROM players WHERE google_sub = ?", (sub_id,))
+    has_name = (c.fetchone() or [0])[0] > 0
     msg = f"{tag} is yours. You are its admin."
+    if joined:
+        msg += " You are on the roster."
+    elif not has_name:
+        msg += (" You have no name on this account yet, so you are not on the roster - "
+                "set one and you will be added automatically.")
     if absorbed:
         msg += (f" {len(absorbed)} player{'' if len(absorbed) == 1 else 's'} already "
                 f"playing under {tag} joined automatically.")
-    if joined:
-        msg += " Added " + ", ".join(joined) + " to the roster."
+    if absorbed:
+        msg += (f" {len(absorbed)} player{'' if len(absorbed) == 1 else 's'} already "
+                f"playing under {tag} joined automatically.")
     if elsewhere:
         msg += " " + ", ".join(elsewhere) + " stayed in their current clan."
     return 200, {"ok": True, "message": msg, "clan": tag,
+                 "admin_on_roster": bool(joined), "admin_has_name": has_name,
                  "absorbed": absorbed[:25], "absorbed_count": len(absorbed)}
 
 
