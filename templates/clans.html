@@ -49,7 +49,7 @@
   </div>
   <div id="claimSignedIn" style="display:none">
     <div class="row">
-      <input type="text" id="tagInput" placeholder="e.g. [COV] or \u20b5\u00d8V" maxlength="24" autocomplete="off">
+      <input type="text" id="tagInput" placeholder="e.g. [COV] or &#8373;&#216;V" maxlength="24" autocomplete="off">
       <button class="primary" onclick="claimClan()">Claim it</button>
     </div>
   </div>
@@ -159,18 +159,8 @@ async function showLeaderState(){
   let d = {state: 'none', logged_in: false};
   try{ d = await (await fetch('/clan/leader/state')).json(); }catch(e){}
   leaderState = d.state;
-  const show = function(id, on){
-    const el = document.getElementById(id);
-    if (el) el.style.display = on ? 'block' : 'none';
-  };
-  const approved = d.state === 'approved';
-  show('signedOutCard', !d.logged_in);
-  show('requestCard', d.logged_in && d.state === 'none');
-  show('stateCard', d.logged_in && (d.state === 'pending' || d.state === 'denied'));
-  show('claimCard', approved);
-  show('codeCard', approved);
-  const signedIn = document.getElementById('claimSignedIn');
-  if (signedIn) signedIn.style.display = approved ? 'block' : 'none';
+  if (d.logged_in) signedIn = true;
+  applyClanCards();
   if (d.state === 'pending'){
     document.getElementById('stateText').textContent =
       'Your request is waiting on ' + (d.contact || 'the site owner')
@@ -191,24 +181,42 @@ function say(id, ok, t){
   m.className = 'msg ' + (ok ? 'ok' : 'err');
   m.textContent = t;
 }
+let signedIn = false;
+function applyClanCards(){
+  const show = function(id, on){
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? 'block' : 'none';
+  };
+  const approved = leaderState === 'approved';
+  // Already running a clan? Then claiming and redeeming are finished
+  // business, and the only thing worth showing is the clan itself.
+  const wants = approved && !myClan;
+  show('signedOutCard', !signedIn);
+  show('claimSignedOut', false);
+  show('requestCard', signedIn && !myClan && leaderState === 'none');
+  show('stateCard', signedIn && !myClan
+                    && (leaderState === 'pending' || leaderState === 'denied'));
+  show('claimCard', wants);
+  show('claimSignedIn', wants);
+  show('codeCard', wants);
+  show('manageCard', !!myClan);
+}
 window.onSignedInReady = function(){
-  document.getElementById('claimSignedOut').style.display = 'none';
-  document.getElementById('claimSignedIn').style.display = 'block';
-  document.getElementById('codeCard').style.display = 'block';
+  signedIn = true;
+  applyClanCards();
   loadMine();
 };
 window.onSignedOutReady = function(){
-  document.getElementById('claimSignedOut').style.display = 'block';
-  document.getElementById('claimSignedIn').style.display = 'none';
-  document.getElementById('codeCard').style.display = 'none';
-  document.getElementById('manageCard').style.display = 'none';
+  signedIn = false;
+  myClan = null;
+  applyClanCards();
 };
 async function loadMine(){
   try{
     const d = await (await fetch('/clan/admin/state')).json();
     const mine = d.clans || [];
     myClan = mine.length ? mine[0] : null;
-    document.getElementById('manageCard').style.display = myClan ? 'block' : 'none';
+    applyClanCards();
     if (myClan){
       document.querySelector('#manageCard h2').textContent = 'Your clan \u2014 ' + myClan.tag;
       drawRoster(myClan);

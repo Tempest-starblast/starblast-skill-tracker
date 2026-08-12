@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.58.0"
+APP_VERSION = "5.58.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1590,6 +1590,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.58.1", "at": "2026-08-12T20:10:00Z", "changes": [
+        "Fixed: claiming a clan and redeeming a code were still shown to people who already run a clan, and to people who had not been approved. Signing in was re-showing those two boxes after the page had already decided to hide them.",
+        "Fixed: the example tag under the claim box printed its own escape codes instead of the characters.",
+    ]},
     {"version": "5.58.0", "at": "2026-08-12T20:20:00Z", "changes": [
         "Clans now have ranks. A leader can appoint co-leaders and moderators, on the clan page or with /clanrole in Discord.",
         "A moderator can remove ordinary members, and nothing else - not the region, not the roster, not the clan.",
