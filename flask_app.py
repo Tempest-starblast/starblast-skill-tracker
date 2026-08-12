@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.37.0"
+APP_VERSION = "5.38.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1016,7 +1016,6 @@ def unregister():
     has no match history. Deleting a played name would be an elo reset
     button: winners are auto-registered at STARTING_ELO, so anyone could
     wipe a bad rating and be back at baseline after their next win."""
-    ip = client_ip()
     data = request.json
     if not data or 'name' not in data:
         return jsonify({"message": "No name provided"}), 400
@@ -1436,6 +1435,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.38.0", "at": "2026-08-12T03:45:00Z", "changes": [
+        "You can press Play from Discord now. /play lists the live matches with a button on each - press one and you are checked in, told which name to play under, and given a link straight into the lobby. No sign-in, because Discord already knows who you are.",
+        "Checking in from Discord means no browser connects to this site at all, so there is nothing for it to see. It is the most private way to use the tracker.",
+        "The site no longer even calculates a visitor address in the places it was still doing so and discarding the result.",
+    ]},
     {"version": "5.37.0", "at": "2026-08-11T23:30:00Z", "changes": [
         "The site no longer records IP addresses. Not when you press Play, not on reports, claims or registrations - and signing in with Google or Discord never stored one to begin with. Every address previously stored has been wiped from the database.",
         "Rate limiting - the only thing addresses were ever used for - now works on an irreversible coded tag whose key is kept outside the database, and the tags themselves expire within two days. Nothing in the database can identify your connection. See the new Privacy section on the Info tab.",
@@ -2041,7 +2045,6 @@ def rename_player():
     played: renaming carries your record with you, so it cannot be used
     to shed a bad rating. Same-network ownership is still required, and
     the new name faces the same checks a fresh registration would."""
-    ip = client_ip()
     data = request.json
     if not data or 'old_name' not in data or 'new_name' not in data:
         return jsonify({"message": "Both the current and new name are required."}), 400
@@ -2340,7 +2343,6 @@ def protection():
     the rating. It is deliberately opt-in: leaving it off keeps the
     ordinary automatic behaviour, so registering never silently costs a
     player their matches."""
-    ip = client_ip()
     if request.method == 'GET':
         name = (request.args.get('name') or '').strip()
     else:
@@ -2416,6 +2418,69 @@ def protection():
     return jsonify({"message": f"Protection is OFF for '{stored_name}'. All matches count, as normal.", "enabled": False}), 200
 
 
+def perform_checkin(c, sub_id, sys_id):
+    """Check an account into a lobby. Returns (http_status, payload).
+
+    Shared by the website's /checkin and the bot's /api/bot/checkin. Two
+    copies would drift the first time either was touched, and a check-in
+    that means something different depending on where it was pressed is
+    worse than one that lives in a single place.
+
+    Does NOT commit - the caller owns the transaction.
+    """
+    if sys_id is None:
+        return 400, {"ok": False, "message": "Which match? Pick one from the list."}
+    try:
+        sys_id = int(sys_id)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "message": "That lobby id is not valid."}
+
+    # An account with no name has nowhere to put the result, so there is
+    # nothing a check-in could achieve yet. Say so plainly rather than
+    # accepting it and silently dropping the match later.
+    who = account_name_for(c, sub_id)
+    if not who:
+        return 400, {"ok": False, "no_name": True,
+                     "message": "Set your account name first - that is the name your "
+                                "matches are recorded under."}
+
+    c.execute("SELECT age FROM live_lobbies WHERE sys_id = ?", (sys_id,))
+    lobby = c.fetchone()
+    if not lobby:
+        return 404, {"ok": False, "message": "That lobby is not in the current live list."}
+    # No window. Half elo is what stops a latecomer collecting a full win
+    # for arriving at the end, so refusing late check-ins only meant that
+    # joining a match in progress could not be rated at all.
+    lobby_age = lobby[0] or 0
+    _, min_age, _max_age, _min_players = tracker_limits(c)
+
+    # The name they will actually appear under, which is what has to be
+    # said back to them. Falls back to the account name, which is what the
+    # site assumes when no game name is set.
+    c.execute("SELECT COALESCE(NULLIF(game_name, ''), name) FROM players WHERE name = ?",
+              (who,))
+    _row = c.fetchone()
+    play_as = (_row[0] if _row else who) or who
+
+    # One live check-in per account. Without this you could check into
+    # every fresh lobby at once, watch which one is going well and join
+    # only that one - keeping every option open would cost nothing.
+    c.execute("DELETE FROM checkins WHERE sub = ? AND created_at > datetime('now', ?)",
+              (sub_id, '-' + str(CHECKIN_VALID_SECONDS) + ' seconds'))
+    c.execute("INSERT INTO checkins (player, sub, sys_id, created_at) VALUES (?,?,?,?)",
+              (who, sub_id, sys_id, time.strftime('%Y-%m-%d %H:%M:%S')))
+    late = lobby_age >= min_age
+    note = (" This match is already under way, so your result counts at half value - "
+            "and joining now only links to you if you have not already been playing."
+            if late else
+            " Play under any name you like - the first ship to appear is taken as yours.")
+    return 200, {"ok": True,
+                 "message": f"Checked in for this match as '{who}'.{note} Any earlier "
+                            f"check-in is now cancelled.",
+                 "sys_id": sys_id, "late": late,
+                 "account_name": who, "play_as": play_as}
+
+
 @app.route('/checkin', methods=['POST'])
 def check_in():
     """Declare that you are about to play a given lobby.
@@ -2427,61 +2492,20 @@ def check_in():
     lobby after this row is written gets bound to you, and from then on
     that name's results are recorded against your account.
     """
-    ip = client_ip()
     data = request.json or {}
-    sys_id = data.get('sys_id')
     sub_id = current_user()
     if not sub_id:
         return jsonify({"message": "Sign in first, then press Play on the match "
                                    "you are about to join."}), 401
-    if sys_id is None:
-        return jsonify({"message": "Which match? Pick one from the list."}), 400
-    try:
-        sys_id = int(sys_id)
-    except (TypeError, ValueError):
-        return jsonify({"message": "That lobby id is not valid."}), 400
-
     conn = db()
     c = conn.cursor()
-    # An account with no name has nowhere to put the result, so there is
-    # nothing a check-in could achieve yet. Say so plainly rather than
-    # accepting it and silently dropping the match later.
-    who = account_name_for(c, sub_id)
-    if not who:
-        conn.close()
-        return jsonify({"message": "Set your account name in Settings first - that is the "
-                                   "name your matches are recorded under."}), 400
-
-    c.execute("SELECT age FROM live_lobbies WHERE sys_id = ?", (sys_id,))
-    lobby = c.fetchone()
-    if not lobby:
-        conn.close()
-        return jsonify({"message": "That lobby is not in the current live list."}), 404
-    # No window. Half elo is what stops a latecomer collecting a full win
-    # for arriving at the end - the tracker records when each name first
-    # appeared and halves the swing accordingly - so refusing late check-ins
-    # only meant that joining a match in progress could not be rated at all.
-    lobby_age = lobby[0] or 0
-    _, min_age, _max_age, _min_players = tracker_limits(c)
-
-    # One live check-in per account. Without this you could check into
-    # every fresh lobby at once, watch which one is going well and join
-    # only that one - keeping every option open would cost nothing.
-    # Replacing any earlier check-in forces a real commitment to one match.
-    c.execute("DELETE FROM checkins WHERE sub = ? AND created_at > datetime('now', ?)",
-              (sub_id, '-' + str(CHECKIN_VALID_SECONDS) + ' seconds'))
-    c.execute("INSERT INTO checkins (player, sub, sys_id, created_at) VALUES (?,?,?,?)",
-              (who, sub_id, sys_id, time.strftime('%Y-%m-%d %H:%M:%S')))
-    conn.commit()
+    status, payload = perform_checkin(c, sub_id, data.get('sys_id'))
+    if status == 200:
+        conn.commit()
     conn.close()
-    late = lobby_age >= min_age
-    note = (" This match is already under way, so your result counts at half value - "
-            "and joining now only links to you if you have not already been playing."
-            if late else
-            " Play under any name you like - the first ship to appear is taken as yours.")
-    return jsonify({"message": f"Checked in for this match as '{who}'.{note} Any earlier "
-                               f"check-in is now cancelled.",
-                    "sys_id": sys_id, "late": late}), 200
+    return jsonify(payload), status
+
+
 
 
 @app.route('/claim', methods=['POST'])
@@ -3608,6 +3632,31 @@ def bot_compare_route():
         "b_gain": round(ELO_K * exp_a, 2),
         "b_loss": round(ELO_K * (1 - exp_a), 2),
     }}), 200
+
+
+@app.route('/api/bot/checkin', methods=['POST'])
+def bot_checkin_route():
+    """Press Play from Discord.
+
+    The point of doing this from a bot: the player is already identified by
+    their Discord account, so there is no sign-in - and no browser connects
+    here at all, so the site never sees a player's address.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    discord_id = str(data.get('discord_id', '')).strip()
+    if not discord_id:
+        return jsonify({"error": "no discord_id"}), 400
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_checkin(c, 'discord:' + discord_id, data.get('sys_id'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    # Always 200 to the bot: it shows payload["message"] either way, and a
+    # 4xx would be swallowed as a generic transport error by its client.
+    return jsonify(payload), 200
 
 
 @app.route('/api/bot/me')
