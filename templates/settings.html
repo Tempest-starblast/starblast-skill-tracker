@@ -42,6 +42,13 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
     <button class="primary" onclick="doClaim()">Claim</button>
   </div>
   <p class="msg" id="claimMsg"></p>
+  <div id="pendingClaims" style="display:none;margin-top:14px;padding-top:12px;
+       border-top:1px solid var(--line)">
+    <p class="desc">Waiting on a tracked win. Withdraw one if you asked for it by
+       mistake &mdash; you can always claim it again.</p>
+    <div id="claimList"></div>
+    <p class="msg" id="withdrawMsg"></p>
+  </div>
 </div>
 
 <div class="card" id="protCard" style="display:none">
@@ -94,6 +101,7 @@ async function loadMe(){
     myName = (d.names && d.names.length) ? d.names[0] : null;
     showName();
     loadProt();
+    loadClaims();
   }catch(e){}
 }
 
@@ -121,6 +129,34 @@ async function saveName(){
   }catch(e){ say('nameMsg',false,'Server connection error.'); }
 }
 
+async function loadClaims(){
+  try{
+    const d = await (await fetch('/claim/mine')).json();
+    const list = document.getElementById('claimList');
+    const box = document.getElementById('pendingClaims');
+    list.textContent = '';
+    const claims = d.claims || [];
+    box.style.display = claims.length ? 'block' : 'none';
+    claims.forEach(function(c){
+      const row = el('div', 'clanrow');
+      const who = el('div', 'ctag');
+      who.textContent = c.name;
+      const btn = el('button', 'ghost');
+      btn.textContent = 'Withdraw';
+      btn.onclick = function(){ withdrawClaim(c.name); };
+      row.appendChild(who);
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+  }catch(e){}
+}
+async function withdrawClaim(name){
+  try{
+    const [r, d] = await post('/claim/withdraw', {name: name});
+    say('withdrawMsg', d.ok, d.message);
+    if (d.ok) loadClaims();
+  }catch(e){ say('withdrawMsg', false, 'Server connection error.'); }
+}
 async function doClaim(){
   const n=document.getElementById('claimName').value.trim();
   const note=document.getElementById('claimNote').value.trim();
@@ -128,6 +164,7 @@ async function doClaim(){
   try{
     const [r,d]=await post('/claim',{name:n,note:note});
     say('claimMsg',r.ok,d.message);
+    if(r.ok) loadClaims();
     if(r.ok){ document.getElementById('claimName').value=''; document.getElementById('claimNote').value=''; }
   }catch(e){ say('claimMsg',false,'Server connection error.'); }
 }

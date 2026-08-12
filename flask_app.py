@@ -13,7 +13,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.59.0"
+APP_VERSION = "5.61.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -958,6 +958,10 @@ def init_db():
         # approval bind to a person rather than to whatever address they
         # happened to be on - phones change theirs constantly.
         c.execute("ALTER TABLE claim_requests ADD COLUMN google_sub TEXT")
+    try:
+        c.execute("ALTER TABLE claim_requests ADD COLUMN notified INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     c.execute("PRAGMA table_info(players)")
     existing_cols = [row[1] for row in c.fetchall()]
     if 'reg_ip' not in existing_cols:
@@ -1591,6 +1595,15 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.61.0", "at": "2026-08-12T21:05:00Z", "changes": [
+        "The site owner can now grant a name claim straight from the Discord message, instead of the claimant having to win a tracked match first. Claims still complete on their own that way - this is a shortcut, not a replacement.",
+        "Granting by hand makes every check the automatic path makes: the name must not already belong to someone, and the account must be under its name limit.",
+    ]},
+    {"version": "5.60.0", "at": "2026-08-12T20:55:00Z", "changes": [
+        "New claims are now sent to the site owner on Discord as they are filed. Nothing has to be approved - a claim still completes on its own when the name next wins a tracked match - but it is now visible while it is happening.",
+        "A claim on a name can now be withdrawn while it is still waiting, on Settings or with /claimwithdraw in Discord. Until now a claim sent by mistake could only be waited out.",
+        "Settings shows the claims you have waiting, which it never did before - you had to remember what you had asked for.",
+    ]},
     {"version": "5.59.0", "at": "2026-08-12T20:30:00Z", "changes": [
         "The site can now be read in Spanish, French, German, Italian, Russian, Vietnamese and Chinese as well as English. Pick a language at the bottom of any page; it is remembered, and the site also follows your browser's language the first time you arrive.",
         "Buttons, table headings and labels are translated. The longer explanations stay in English for now, so that there is one copy of them to keep accurate.",
@@ -2836,6 +2849,126 @@ def perform_claim(c, me_sub, raw_name, raw_note, rate_src=None):
                             f"name and it becomes yours automatically. The claim is shown "
                             f"on that player's page while it is open, so the real owner "
                             f"can report it."}
+
+
+def perform_claim_decide(c, claim_id, approve, decided_by=""):
+    """The site owner granting a claim without waiting for the tracked win.
+
+    Every check the automatic path makes is made here too - the name must
+    be unheld, the account must be under its cap, and a placeholder row
+    with no record is discarded so the claimed row can take its place.
+    Skipping them here would let a hand-approval do what the automatic
+    path is careful never to do: hand somebody a name that is already
+    someone else's. Does NOT commit.
+    """
+    c.execute("SELECT name, google_sub, status FROM claim_requests WHERE id = ?",
+              (claim_id,))
+    row = c.fetchone()
+    if not row:
+        return 404, {"ok": False, "message": "No such claim."}
+    name, claimant, status = row
+    if status != 'pending':
+        return 400, {"ok": False, "name": name,
+                     "message": f"That claim was already {status}."}
+    if not approve:
+        c.execute("UPDATE claim_requests SET status = 'declined' WHERE id = ?",
+                  (claim_id,))
+        return 200, {"ok": True, "approved": False, "name": name,
+                     "sub_id": claimant,
+                     "message": f"Claim on '{name}' declined."}
+    if not claimant:
+        return 400, {"ok": False, "name": name,
+                     "message": f"'{name}' was claimed without signing in, so there "
+                                f"is no account to give it to. It can only complete "
+                                f"the usual way."}
+    key = normalize_name(name)
+    c.execute("SELECT google_sub FROM players WHERE norm_name = ?", (key,))
+    held = (c.fetchone() or [None])[0]
+    if held and held != claimant:
+        c.execute("UPDATE claim_requests SET status = 'declined' WHERE id = ?",
+                  (claim_id,))
+        return 200, {"ok": False, "name": name,
+                     "message": f"'{name}' already belongs to another account, so "
+                                f"the claim was declined instead."}
+    c.execute("SELECT COUNT(*) FROM players WHERE google_sub = ?", (claimant,))
+    if c.fetchone()[0] > MAX_NAMES_PER_ACCOUNT:
+        return 400, {"ok": False, "name": name,
+                     "message": f"That account already holds {MAX_NAMES_PER_ACCOUNT} "
+                                f"names."}
+    c.execute("SELECT name, COALESCE(wins, 0) + COALESCE(losses, 0) "
+              "FROM players WHERE google_sub = ?", (claimant,))
+    mine = c.fetchone()
+    if mine and normalize_name(mine[0]) != key:
+        if mine[1] > 0:
+            return 400, {"ok": False, "name": name,
+                         "message": f"That account already plays as '{mine[0]}', which "
+                                    f"has a record of its own."}
+        c.execute("DELETE FROM players WHERE name = ?", (mine[0],))
+    c.execute("UPDATE players SET google_sub = ? WHERE norm_name = ?", (claimant, key))
+    c.execute("UPDATE claim_requests SET status = 'approved' WHERE id = ?", (claim_id,))
+    # Anyone else waiting on the same name is answered by the same decision.
+    c.execute("UPDATE claim_requests SET status = 'declined' WHERE status = 'pending' "
+              "AND id != ? AND name IN (SELECT name FROM players WHERE norm_name = ?)",
+              (claim_id, key))
+    return 200, {"ok": True, "approved": True, "name": name, "sub_id": claimant,
+                 "message": f"'{name}' now belongs to that account."}
+
+
+def perform_claim_withdraw(c, sub_id, name=None):
+    """Take back a claim you have not had answered yet. Does NOT commit.
+
+    Withdrawn rather than deleted: the row is what shows a name was asked
+    for and by whom, and a claim that vanishes without trace is how the
+    same argument gets had twice.
+    """
+    if not sub_id:
+        return 401, {"ok": False, "message": "Sign in first."}
+    want = str(name or '').strip()
+    c.execute("SELECT id, name FROM claim_requests WHERE google_sub = ? "
+              "AND status = 'pending' ORDER BY id", (sub_id,))
+    rows = c.fetchall()
+    if want:
+        key = normalize_name(want)
+        rows = [r for r in rows if normalize_name(r[1]) == key]
+    if not rows:
+        return 404, {"ok": False,
+                     "message": f"You have no claim waiting on '{want}'." if want
+                                else "You have no claim waiting."}
+    c.executemany("UPDATE claim_requests SET status = 'withdrawn' WHERE id = ?",
+                  [(r[0],) for r in rows])
+    names = ", ".join(r[1] for r in rows)
+    return 200, {"ok": True, "withdrawn": [r[1] for r in rows],
+                 "message": f"Claim on '{names}' withdrawn. You can claim it again "
+                            f"whenever you like."}
+
+
+@app.route('/claim/mine')
+def claim_mine():
+    """The claims this account is waiting on, so they can be taken back."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"claims": []}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, created_at FROM claim_requests WHERE google_sub = ? "
+              "AND status = 'pending' ORDER BY id", (sub_id,))
+    out = [{"name": r[0], "at": r[1]} for r in c.fetchall()]
+    conn.close()
+    return jsonify({"claims": out}), 200
+
+
+@app.route('/claim/withdraw', methods=['POST'])
+def claim_withdraw():
+    """Take back a claim that has not been decided."""
+    sub_id = current_user()
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_claim_withdraw(c, sub_id,
+                                             (request.json or {}).get('name'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
 
 
 @app.route('/claim', methods=['POST'])
@@ -4505,6 +4638,89 @@ def bot_clan_app_decide_route():
     c = conn.cursor()
     status, payload = perform_clan_app_decide(c, sub_id, data.get('id'),
                                               data.get('decision') == 'accept')
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
+@app.route('/api/bot/claims/undelivered')
+def bot_claims_undelivered():
+    """Claims the bot has not yet told the owner about.
+
+    There is nothing to approve: a claim completes on its own once the name
+    wins a tracked match after it was filed. This is so the owner can see
+    who is claiming what, and step in if it looks wrong.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT id, name, note, google_sub, created_at FROM claim_requests "
+              "WHERE status = 'pending' AND COALESCE(notified, 0) = 0 "
+              "ORDER BY id LIMIT 25")
+    out = []
+    for cid, name, note, claimant, created in c.fetchall():
+        row = applicant_stats(c, name)
+        c.execute("SELECT google_sub FROM players WHERE norm_name = ?",
+                  (normalize_name(name),))
+        owner = (c.fetchone() or [None])[0]
+        row.update({"id": cid, "claim_name": name, "note": note or "",
+                    "handle": discord_handle(c, claimant) or "",
+                    "signed_in": bool(claimant), "taken": bool(owner),
+                    "created_at": created})
+        out.append(row)
+    conn.close()
+    return jsonify({"claims": out}), 200
+
+
+@app.route('/api/bot/claims/delivered', methods=['POST'])
+def bot_claims_delivered():
+    """Mark claims as reported, so the owner hears about each one once."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(i) for i in (request.json or {}).get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({"ok": True, "marked": 0}), 200
+    conn = db()
+    c = conn.cursor()
+    c.executemany("UPDATE claim_requests SET notified = 1 WHERE id = ?",
+                  [(i,) for i in ids])
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "marked": len(ids)}), 200
+
+
+@app.route('/api/bot/claim/decide', methods=['POST'])
+def bot_claim_decide_route():
+    """Grant or refuse a claim from Discord. The bot checks it is the owner
+    pressing the button; the site trusts the bot's key, as everywhere else."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_claim_decide(c, data.get('id'),
+                                           data.get('decision') == 'approve',
+                                           str(data.get('decided_by', ''))[:80])
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
+@app.route('/api/bot/claim/withdraw', methods=['POST'])
+def bot_claim_withdraw_route():
+    """Take back a pending claim, from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_claim_withdraw(c, sub_id,
+                                             (request.json or {}).get('name'))
     if status == 200:
         conn.commit()
     conn.close()
