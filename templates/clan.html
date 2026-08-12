@@ -27,6 +27,46 @@
 <p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
    added together. A match won by two clanmates therefore counts twice.</p></div>
 
+{% if clan.applications %}
+<div class="card" id="appsCard" style="display:none">
+  <h2>Waiting to join</h2>
+  <p class="desc">Anyone can ask to join. Accepting puts them on the roster and puts
+     {{ clan.tag }} on the front of the name they say they play as.</p>
+  <div class="tablewrap">
+  <table>
+  <thead><tr>
+    <th>Player</th><th class="rank">Rank</th><th class="mid">Record</th>
+    <th class="mid">Win%</th><th class="num">Skill</th><th class="mid"></th>
+  </tr></thead>
+  <tbody>
+  {% for a in clan.applications %}
+  <tr>
+    <td><a class="pname" href="/player/{{ a.name|urlencode }}">{{ a.name }}</a></td>
+    <td class="rank">#{{ a.rank }}</td>
+    <td class="mid">{{ a.wins }}-{{ a.losses }}</td>
+    <td class="mid">{{ a.winrate }}</td>
+    <td class="skill">{{ a.elo }}</td>
+    <td class="mid" style="white-space:nowrap">
+      <button class="primary" onclick="decideApp({{ a.id }}, true)">Accept</button>
+      <button class="danger" onclick="decideApp({{ a.id }}, false)">Deny</button>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  </table>
+  </div>
+  <p class="msg" id="appMsg"></p>
+</div>
+{% endif %}
+
+<div class="card" id="applyCard" style="display:none">
+  <h2>Join {{ clan.tag }}</h2>
+  <p class="desc">Your application goes to whoever runs the clan. They see your rank,
+     record and skill, and decide.</p>
+  <button class="primary" onclick="applyToClan()">Apply to join</button>
+  <p class="msg" id="applyMsg"></p>
+</div>
+
 <div class="card" id="adminCard" style="display:none">
   <h2>Manage {{ clan.tag }}</h2>
   <p class="desc">Adding someone who has an account sends them an invitation to accept.
@@ -104,7 +144,7 @@ Remove clan tag, or ask {{ contact }} on Discord.</p>
 
 <script>
 const TAG = {{ clan.tag|tojson }};
-let amAdmin = false, myNames = [];
+let amAdmin = false, myNames = [], MY_NAME = '';
 async function post(u, b){
   const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
                             body: JSON.stringify(b || {})});
@@ -116,6 +156,8 @@ function say(id, ok, t){
 }
 function showAdminBits(on){
   document.getElementById('adminCard').style.display = on ? 'block' : 'none';
+  const apps = document.getElementById('appsCard');
+  if (apps) apps.style.display = on ? 'block' : 'none';
   document.getElementById('actionHead').style.display = on ? '' : 'none';
   document.querySelectorAll('.actioncell').forEach(function(td){
     td.style.display = on ? '' : 'none';
@@ -127,6 +169,7 @@ async function refresh(){
     const me = await (await fetch('/me')).json();
     if (!me.logged_in) return;
     myNames = me.names || [];
+    MY_NAME = me.account_name || myNames[0] || '';
     const st = await (await fetch('/clan/admin/state')).json();
     amAdmin = (st.clans || []).some(function(x){ return x.tag === TAG; });
     showAdminBits(amAdmin);
@@ -135,6 +178,9 @@ async function refresh(){
     document.querySelectorAll('tr[data-name]').forEach(function(tr){
       if (myNames.indexOf(tr.dataset.name) !== -1){ tr.classList.add('me'); onRoster = true; }
     });
+    if (MY_NAME && !amAdmin && !onRoster && !(me.clan)){
+      document.getElementById('applyCard').style.display = 'block';
+    }
     if (amAdmin || onRoster){
       document.getElementById('meCard').style.display = 'block';
       document.getElementById('leaveBtn').style.display = onRoster ? 'inline-block' : 'none';
@@ -144,6 +190,19 @@ async function refresh(){
                     : 'You are not on the roster - set a name and you will be added.');
     }
   }catch(e){}
+}
+async function decideApp(id, accept){
+  try{
+    const [r, d] = await post('/clan/application/respond', {id: id, accept: accept});
+    say('appMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('appMsg', false, 'Server connection error.'); }
+}
+async function applyToClan(){
+  try{
+    const [r, d] = await post('/clan/apply', {clan: TAG, name: MY_NAME});
+    say('applyMsg', r.ok, d.message);
+  }catch(e){ say('applyMsg', false, 'Server connection error.'); }
 }
 async function saveRegion(){
   const key = document.getElementById('regionSel').value;

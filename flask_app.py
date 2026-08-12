@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.53.0"
+APP_VERSION = "5.55.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -714,29 +714,6 @@ def init_db():
                     created_at TEXT
                 )''')
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_admins ON clan_admins(clan, google_sub)")
-    # Stamp the moment somebody joins a clan, from wherever it happens -
-    # the website, the bot, or the tracker's own tag detection. A trigger
-    # rather than a line at each of the seven places that write
-    # players.clan, because the one that forgot would leave a member with
-    # no date and nothing would notice.
-    #
-    # The inner UPDATE touches only clan_joined_at, and the trigger fires
-    # on UPDATE OF clan, so it cannot set itself off again.
-    c.execute("""CREATE TRIGGER IF NOT EXISTS trg_clan_joined_update
-                 AFTER UPDATE OF clan ON players FOR EACH ROW
-                 WHEN NEW.clan IS NOT NULL
-                  AND (OLD.clan IS NULL OR OLD.clan <> NEW.clan)
-                 BEGIN
-                   UPDATE players SET clan_joined_at = datetime('now')
-                    WHERE rowid = NEW.rowid;
-                 END""")
-    c.execute("""CREATE TRIGGER IF NOT EXISTS trg_clan_joined_insert
-                 AFTER INSERT ON players FOR EACH ROW
-                 WHEN NEW.clan IS NOT NULL
-                 BEGIN
-                   UPDATE players SET clan_joined_at = datetime('now')
-                    WHERE rowid = NEW.rowid;
-                 END""")
     # One-time codes are how admin is handed out. The site owner cannot see
     # anyone's Google account id, so there has to be something to pass along
     # out of band - a code sent on Discord is that something.
@@ -758,6 +735,15 @@ def init_db():
                     created_at TEXT,
                     status TEXT DEFAULT 'pending'
                 )''')
+    # Whether the bot has already put an application in front of a leader.
+    # An application can be made on the website, where there is nothing to
+    # reach Discord with, so the bot asks for the ones it has not sent yet
+    # rather than the site pushing them and losing any made while the bot
+    # was restarting.
+    try:
+        c.execute("ALTER TABLE clan_invites ADD COLUMN notified INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     # Individual matches. Only aggregate totals were ever stored before, so
     # there was no way to answer "did my game count?" without reading the
     # tracker's logs by hand, and no way to rebuild a clan's record or repair
@@ -1525,6 +1511,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.55.0", "at": "2026-08-12T19:30:00Z", "changes": [
+        "You can apply to join a clan, and its leader decides. Applications show up on the clan page and are sent to the leader on Discord with the applicant's rank, skill, record and win rate, with Accept and Deny on the message itself.",
+        "Being accepted puts the clan tag on the front of the name you say you play as, and it stays there: change your name while in the clan and the tag goes back on the front automatically.",
+        "The tag is added to your declared name only. Your leaderboard name is whatever the tracker read out of the game, and rewriting that here would stop your matches landing on your account - so to wear the tag in game you still have to change it in Starblast.",
+    ]},
     {"version": "5.53.0", "at": "2026-08-12T19:10:00Z", "changes": [
         "Clan leaders can now say which region their clan plays in - North America, Europe or Asia. It shows on the clan page and in the clan table, and clicking it opens that region's leaderboard.",
         "The region is set by the leader on the clan page or with /clanregion in Discord, and can be cleared again. It is never guessed from where members happen to have played: it is the clan's own statement about itself.",
@@ -3054,6 +3045,14 @@ def perform_set_game_name(c, sub_id, raw_name):
     if name and is_blocked_word(name):
         return 400, {"ok": False,
                      "message": "That name isn't allowed. Please choose another."}
+    if name:
+        # In a clan, the tag stays on the front whatever they type - that is
+        # what being in the clan means, and a member who could drop it would
+        # quietly stop being detected as one.
+        c.execute("SELECT clan FROM players WHERE name = ?", (who,))
+        member_of = (c.fetchone() or [None])[0]
+        if member_of:
+            name = clan_tagged_name(name, member_of)
     c.execute("UPDATE players SET game_name = ? WHERE name = ?", (name or None, who))
     if not name:
         return 200, {"ok": True, "game_name": "",
@@ -3191,6 +3190,14 @@ def me():
     c = conn.cursor()
     c.execute("SELECT name FROM players WHERE google_sub = ? ORDER BY name", (sub_id,))
     names = [row[0] for row in c.fetchall()]
+    # The name results are recorded under, and the clan it is in. The clan
+    # page needs both to know whether to offer applying: you cannot apply
+    # without a name, and you cannot apply while already in a clan.
+    account_name = account_name_for(c, sub_id)
+    my_clan = None
+    if account_name:
+        c.execute("SELECT clan FROM players WHERE name = ?", (account_name,))
+        my_clan = (c.fetchone() or [None])[0]
 
     # Which provider signed you in, so the header can say so. The Google
     # flow labels itself from the browser; Discord has to be told from here
@@ -3224,7 +3231,7 @@ def me():
         _c2.close()
     except sqlite3.Error:
         pass
-    return jsonify({"logged_in": True, "names": names, "checkin": checkin,
+    return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin,
                     # Defaults to the account name: that is what most
                     # people are called in game, and a blank box on Play
                     # reads as "unknown" rather than "same as my name".
@@ -3275,6 +3282,7 @@ def clan_page(tag):
     c.execute("SELECT COALESCE(SUM(won), 0), COALESCE(SUM(1 - won), 0) "
               "FROM clan_results WHERE clan = ?", (known,))
     clan_wins, clan_losses = c.fetchone()
+    apps = clan_applications(c, known)
     c.execute("SELECT region FROM clans WHERE tag = ?", (known,))
     region_key = (c.fetchone() or [None])[0] or ""
     conn.close()
@@ -3319,6 +3327,7 @@ def clan_page(tag):
         "winrate": f"{round(100 * clan_wins / played)}%" if played else "-",
         "played": played,
     }
+    clan["applications"] = apps
     clan["region"] = region_key
     clan["region_label"] = REGION_LABELS.get(region_key, "")
     clan["regions"] = REGIONS
@@ -4238,6 +4247,87 @@ def bot_clan_redeem_route():
     return jsonify({"ok": True, "clan": clan, "message": msg}), 200
 
 
+@app.route('/api/bot/clan/applications/undelivered')
+def bot_clan_apps_undelivered():
+    """Applications the bot has not yet put in front of a leader.
+
+    Pulled by the bot rather than pushed by the site: an application can be
+    made on the website, which has no way to reach Discord, and one made
+    while the bot was restarting must not be lost.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT id, clan, name FROM clan_invites "
+              "WHERE direction = 'application' AND status = 'pending' "
+              "AND COALESCE(notified, 0) = 0 ORDER BY created_at LIMIT 25")
+    pending = c.fetchall()
+    out = []
+    for app_id, clan, name in pending:
+        row = applicant_stats(c, name)
+        # Only leaders who signed in through Discord can be sent a DM.
+        c.execute("SELECT google_sub FROM clan_admins WHERE clan = ?", (clan,))
+        leaders = [r[0][8:] for r in c.fetchall()
+                   if r[0] and r[0].startswith('discord:')]
+        row.update({"id": app_id, "clan": clan, "leaders": leaders})
+        out.append(row)
+    conn.close()
+    return jsonify({"applications": out}), 200
+
+
+@app.route('/api/bot/clan/applications/delivered', methods=['POST'])
+def bot_clan_apps_delivered():
+    """Mark applications as sent, so a leader is asked once and not again."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(i) for i in (request.json or {}).get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({"ok": True, "marked": 0}), 200
+    conn = db()
+    c = conn.cursor()
+    c.executemany("UPDATE clan_invites SET notified = 1 WHERE id = ?", [(i,) for i in ids])
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "marked": len(ids)}), 200
+
+
+@app.route('/api/bot/clan/applications')
+def bot_clan_apps_route():
+    """Everyone waiting on the clans this Discord account runs."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    conn = db()
+    c = conn.cursor()
+    out = []
+    for tag in clan_admin_tags(c, sub_id):
+        out.extend(clan_applications(c, tag))
+    conn.close()
+    return jsonify({"applications": out}), 200
+
+
+@app.route('/api/bot/clan/application/decide', methods=['POST'])
+def bot_clan_app_decide_route():
+    """A leader deciding an application from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_app_decide(c, sub_id, data.get('id'),
+                                              data.get('decision') == 'accept')
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
 @app.route('/api/bot/clan/region', methods=['POST'])
 def bot_clan_region_route():
     """Set where a clan is based, from Discord."""
@@ -4719,34 +4809,24 @@ def clan_apply():
 
 @app.route('/clan/application/respond', methods=['POST'])
 def clan_application_respond():
-    """Accept or decline someone applying to a clan you run."""
-    sub_id = current_user()
-    data = request.json or {}
-    app_id = data.get('id')
-    accept = bool(data.get('accept'))
+    """Accept or decline someone applying to a clan you run.
 
+    The decision itself lives in perform_clan_app_decide, shared with the
+    bot, so accepting on the website and accepting in Discord cannot come
+    to mean different things.
+    """
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
     conn = db()
     c = conn.cursor()
-    c.execute("SELECT clan, name, status FROM clan_invites WHERE id = ? "
-              "AND direction = 'application'", (app_id,))
-    row = c.fetchone()
-    if not row or row[2] != 'pending':
-        conn.close()
-        return jsonify({"message": "That application is no longer open."}), 404
-
-    clan, stored_name, _ = row
-    if clan not in clan_admin_tags(c, sub_id):
-        conn.close()
-        return jsonify({"message": "You are not an admin of that clan."}), 403
-
-    if accept:
-        c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, stored_name))
-    c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
-              ('approved' if accept else 'declined', app_id))
-    conn.commit()
+    status, payload = perform_clan_app_decide(c, sub_id, data.get('id'),
+                                              bool(data.get('accept')))
+    if status == 200:
+        conn.commit()
     conn.close()
-    return jsonify({"message": (f"'{stored_name}' joined {clan}." if accept
-                                else f"Application from '{stored_name}' declined.")}), 200
+    return jsonify(payload), status
 
 
 @app.route('/clan/create', methods=['POST'])
@@ -4897,6 +4977,107 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     return 200, {"ok": True, "message": msg, "clan": tag,
                  "admin_on_roster": bool(joined), "admin_has_name": has_name,
                  "absorbed": absorbed[:25], "absorbed_count": len(absorbed)}
+
+
+def clan_tagged_name(base, tag):
+    """`NAME` in clan `Ł7` reads `Ł7 NAME`.
+
+    Any tag already on the front is taken off first, bracketed or bare, so
+    changing your name while in a clan cannot end up as `Ł7 Ł7 NAME`. A
+    bare leading token is what detect_clan already treats as wearing the
+    tag, so this form is one the rest of the site already understands.
+    """
+    text = str(base or "").strip()
+    if not tag:
+        return text[:32]
+    text = re.sub(r'^\s*[\[\(\{<]?\s*' + re.escape(tag) + r'\s*[\]\)\}>]?\s*',
+                  '', text, flags=re.IGNORECASE).strip()
+    return ("%s %s" % (tag, text)).strip()[:32]
+
+
+def stamp_clan_tag(c, player_name, tag):
+    """Put the clan tag on the front of what a member says they play as.
+
+    Only game_name - the declared, changeable one. players.name is the key
+    every match result is matched against and is whatever the tracker read
+    out of the game, so rewriting it here would quietly stop their matches
+    landing on their account until they renamed in Starblast too.
+    """
+    c.execute("SELECT COALESCE(game_name, name) FROM players WHERE name = ?",
+              (player_name,))
+    row = c.fetchone()
+    if not row:
+        return None
+    tagged = clan_tagged_name(row[0], tag)
+    c.execute("UPDATE players SET game_name = ? WHERE name = ?", (tagged, player_name))
+    return tagged
+
+
+def applicant_stats(c, name):
+    """The few numbers a leader wants before saying yes."""
+    c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) FROM players WHERE name = ?",
+              (name,))
+    row = c.fetchone()
+    if not row:
+        return {"name": name, "elo": "0.0", "wins": 0, "losses": 0,
+                "winrate": "-", "rank": 0, "played": 0}
+    elo, wins, losses = row
+    c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
+    rank = (c.fetchone() or [0])[0]
+    played = wins + losses
+    return {"name": name, "elo": "%.1f" % elo, "wins": wins, "losses": losses,
+            "winrate": ("%d%%" % round(100 * wins / played)) if played else "-",
+            "rank": rank, "played": played}
+
+
+def clan_applications(c, tag):
+    """Everyone waiting on this clan, with the numbers a leader wants."""
+    c.execute("SELECT id, name, created_at FROM clan_invites "
+              "WHERE clan = ? AND direction = 'application' AND status = 'pending' "
+              "ORDER BY created_at", (tag,))
+    out = []
+    for app_id, name, created in c.fetchall():
+        row = applicant_stats(c, name)
+        row.update({"id": app_id, "clan": tag, "created_at": created,
+                    "joined": join_date(created)})
+        out.append(row)
+    return out
+
+
+def perform_clan_app_decide(c, sub_id, app_id, accept, trusted=False):
+    """Accept or turn down an application. Shared by site and bot.
+
+    Accepting stamps the clan tag on the front of the name the member says
+    they play as, which is what being in the clan looks like from outside.
+    Does NOT commit.
+    """
+    c.execute("SELECT clan, name, status FROM clan_invites WHERE id = ? "
+              "AND direction = 'application'", (app_id,))
+    row = c.fetchone()
+    if not row:
+        return 404, {"ok": False, "message": "No such application."}
+    clan, name, status = row
+    if status != 'pending':
+        return 400, {"ok": False, "clan": clan, "name": name,
+                     "message": f"That application was already {status}."}
+    if not trusted and clan not in clan_admin_tags(c, sub_id):
+        return 403, {"ok": False, "message": "You are not an admin of that clan."}
+    c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
+              ('approved' if accept else 'declined', app_id))
+    if not accept:
+        return 200, {"ok": True, "accepted": False, "clan": clan, "name": name,
+                     "message": f"Application from '{name}' declined."}
+    c.execute("SELECT clan FROM players WHERE name = ?", (name,))
+    already = (c.fetchone() or [None])[0]
+    if already:
+        return 200, {"ok": True, "accepted": False, "clan": clan, "name": name,
+                     "message": f"'{name}' joined {already} in the meantime, "
+                                f"so nothing changed."}
+    c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, name))
+    tagged = stamp_clan_tag(c, name, clan)
+    return 200, {"ok": True, "accepted": True, "clan": clan, "name": name,
+                 "game_name": tagged or "",
+                 "message": f"'{name}' joined {clan}, and now plays as '{tagged}'."}
 
 
 def perform_clan_region(c, sub_id, raw_tag, region, trusted=False):
