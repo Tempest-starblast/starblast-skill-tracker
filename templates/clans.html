@@ -66,19 +66,50 @@
 <div class="card">
   <h2>Every clan</h2>
   {% if clans %}
+  <table class="board">
+  <thead><tr>
+    <th class="rank">#</th><th>Clan</th>
+    <th class="mid">Members</th><th class="mid">Record</th>
+    <th class="mid">Win%</th><th class="num">Avg skill</th>
+  </tr></thead>
+  <tbody>
+  {% for c in clans %}
+  <tr>
+    <td class="rank">
+      {%- if c.place == 1 %}&#129351;{% elif c.place == 2 %}&#129352;
+      {%- elif c.place == 3 %}&#129353;{% else %}{{ c.place }}{% endif -%}
+    </td>
+    <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.tag }}</a></td>
+    <td class="mid">{{ c.size }}</td>
+    <td class="mid">{{ c.wins }}-{{ c.losses }}</td>
+    <td class="mid">{{ c.winrate }}</td>
+    <td class="skill">{{ c.avg_elo }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  </table>
+  <p class="desc">Ranked by the average skill of everyone in the clan, so a clan
+     climbs by having good players rather than many. Adding a weak player lowers
+     the average &mdash; that is the trade.</p>
+  {% elif not small %}
+  <p class="empty">No clans yet. Claim the first one above.</p>
+  {% endif %}
+  {% if small %}
+  <h3 class="sub">Not yet ranked</h3>
+  <p class="desc">A clan is ranked once it has {{ rank_min }} members. With one
+     member the average is just that person's rating, which would put a single
+     strong player above every real clan.</p>
   <div id="dir">
-    {% for c in clans %}
+    {% for c in small %}
     <div class="clanrow">
       <div>
-        <div class="ctag">{{ c.tag }}</div>
+        <a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.tag }}</a>
         <div class="cmeta">{{ c.size }} member{{ '' if c.size == 1 else 's' }}
-          &middot; average skill {{ c.avg_elo }}</div>
+          &middot; skill {{ c.avg_elo }}</div>
       </div>
     </div>
     {% endfor %}
   </div>
-  {% else %}
-  <p class="empty">No clans yet. Claim the first one above.</p>
   {% endif %}
 </div>
 

@@ -41,6 +41,7 @@
 <thead><tr>
   <th class="rank">#</th><th>Player</th>
   <th class="mid">Record</th><th class="mid">Win%</th><th class="num">Skill</th>
+  <th class="mid">Joined</th>
   <th class="mid" id="actionHead" style="display:none"></th>
 </tr></thead>
 <tbody>
@@ -56,6 +57,7 @@
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
+  <td class="mid">{{ m.joined or '&mdash;'|safe }}</td>
   <td class="mid actioncell" style="display:none">
     <button class="ghost kick" onclick="removeMember(this)">Remove</button>
   </td>

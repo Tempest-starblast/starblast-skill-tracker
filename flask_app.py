@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.51.0"
+APP_VERSION = '5.52.0'
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -646,7 +646,8 @@ def init_db():
     # collect its matches. The check-in binding is what actually decides
     # whose result is whose.
     for _ddl in ("ALTER TABLE players ADD COLUMN game_name TEXT",
-                 "ALTER TABLE players ADD COLUMN name_changes INTEGER DEFAULT 0"):
+                 "ALTER TABLE players ADD COLUMN name_changes INTEGER DEFAULT 0",
+                 "ALTER TABLE players ADD COLUMN clan_joined_at TEXT"):
         try:
             c.execute(_ddl)
         except sqlite3.OperationalError:
@@ -706,6 +707,29 @@ def init_db():
                     created_at TEXT
                 )''')
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_admins ON clan_admins(clan, google_sub)")
+    # Stamp the moment somebody joins a clan, from wherever it happens -
+    # the website, the bot, or the tracker's own tag detection. A trigger
+    # rather than a line at each of the seven places that write
+    # players.clan, because the one that forgot would leave a member with
+    # no date and nothing would notice.
+    #
+    # The inner UPDATE touches only clan_joined_at, and the trigger fires
+    # on UPDATE OF clan, so it cannot set itself off again.
+    c.execute("""CREATE TRIGGER IF NOT EXISTS trg_clan_joined_update
+                 AFTER UPDATE OF clan ON players FOR EACH ROW
+                 WHEN NEW.clan IS NOT NULL
+                  AND (OLD.clan IS NULL OR OLD.clan <> NEW.clan)
+                 BEGIN
+                   UPDATE players SET clan_joined_at = datetime('now')
+                    WHERE rowid = NEW.rowid;
+                 END""")
+    c.execute("""CREATE TRIGGER IF NOT EXISTS trg_clan_joined_insert
+                 AFTER INSERT ON players FOR EACH ROW
+                 WHEN NEW.clan IS NOT NULL
+                 BEGIN
+                   UPDATE players SET clan_joined_at = datetime('now')
+                    WHERE rowid = NEW.rowid;
+                 END""")
     # One-time codes are how admin is handed out. The site owner cannot see
     # anyone's Google account id, so there has to be something to pass along
     # out of band - a code sent on Discord is that something.
@@ -1494,6 +1518,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.52.0", "at": "2026-08-12T18:55:00Z", "changes": [
+        "Clans are now ranked against each other by the average skill of their members, in the same kind of table as everything else on the site - medals for the top three, size, combined record and win rate, and every row opens the clan.",
+        "Ranking starts at two members. A one-person clan's average is only that person's rating, so a single strong player would sit above every real clan and the table would say nothing. Smaller clans are still listed underneath, just not placed.",
+        "Every member now shows the date they joined the clan. The date is stamped wherever the joining happens - the site, the Discord bot, or the tracker spotting a tag in someone's name - so no route can forget it.",
+        "Members who were already in a clan before dates were kept show a dash rather than an invented date.",
+    ]},
     {"version": "5.51.0", "at": "2026-08-12T18:17:00Z", "changes": [
         "A clan page is now something you can use, not just read. Members are ranked by skill and clicking one opens their profile, admins are marked, and if you run the clan the controls to add and remove members are on the page itself.",
         "You can leave a clan you are in, including if you run it - running a clan and being on its roster are separate things, so leaving does not cost you the clan.",
@@ -3192,6 +3222,22 @@ def me():
                     "provider": provider, "label": label}), 200
 
 
+def join_date(stamp):
+    """`2026-08-12 18:20:04` as `12 Aug 2026`.
+
+    A day is as precise as this needs to be, and an empty string for the
+    members who were already in a clan before dates were kept - showing
+    them a made-up date would be worse than showing them none.
+    """
+    months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    try:
+        year, month, day = str(stamp or "")[:10].split("-")
+        return "%d %s %s" % (int(day), months[int(month) - 1], year)
+    except (ValueError, IndexError):
+        return ""
+
+
 @app.route('/clan/<tag>')
 def clan_page(tag):
     """Everyone currently carrying one clan tag, ranked as the leaderboard
@@ -3204,7 +3250,8 @@ def clan_page(tag):
 
     conn = db()
     c = conn.cursor()
-    c.execute("SELECT name, elo, wins, losses, google_sub FROM players WHERE clan = ?", (known,))
+    c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at "
+              "FROM players WHERE clan = ?", (known,))
     rows = c.fetchall()
     c.execute("SELECT google_sub FROM clan_admins WHERE clan = ?", (known,))
     admin_subs = {r[0] for r in c.fetchall() if r[0]}
@@ -3223,7 +3270,7 @@ def clan_page(tag):
 
     members = []
     total_wins = total_losses = total_elo = 0
-    for name, elo, wins, losses, owner_sub in rows:
+    for name, elo, wins, losses, owner_sub, joined in rows:
         wins = wins or 0
         losses = losses or 0
         played = wins + losses
@@ -3236,6 +3283,7 @@ def clan_page(tag):
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "rank": ranks[name],
+            "joined": join_date(joined),
         })
 
     # The sum of the members' own records, which is every match they have
@@ -4906,26 +4954,50 @@ CLANS_NOTICE = ("Clans are under construction. The tracker now reads names from 
                 "will be rebuilt from real data.")
 
 
+# A clan is ranked from this many members up. One person's "average" is
+# just their own rating, so a single strong player would sit above every
+# real clan forever and the table would mean nothing. Smaller clans are
+# still listed, just not placed.
+CLAN_RANK_MIN = 2
+
+
 @app.route('/clans')
 def clans_page():
-    """Public directory of every clan."""
+    """Public directory of every clan, ranked by average skill."""
     conn = db()
     c = conn.cursor()
     curated = curated_clans(c)
     rows = []
     for tag in sorted(all_clan_tags(c)):
-        c.execute("SELECT elo FROM players WHERE clan = ?", (tag,))
-        elos = [r[0] for r in c.fetchall()]
+        c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) "
+                  "FROM players WHERE clan = ?", (tag,))
+        got = c.fetchall()
+        elos = [r[0] for r in got]
+        wins = sum(r[1] for r in got)
+        losses = sum(r[2] for r in got)
+        played = wins + losses
+        avg = sum(elos) / len(elos) if elos else 0.0
         rows.append({
             "tag": tag,
             "size": len(elos),
-            "avg_elo": f"{sum(elos) / len(elos):.1f}" if elos else "0.0",
+            "avg": avg,
+            "avg_elo": f"{avg:.1f}",
+            "wins": wins,
+            "losses": losses,
+            "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "curated": tag in curated,
         })
     conn.close()
-    # Biggest first, so a busy clan is not buried under empty ones.
-    rows.sort(key=lambda r: (-r["size"], r["tag"]))
-    return render_template('clans.html', clans=rows, total=len(rows),
+    ranked = [r for r in rows if r["size"] >= CLAN_RANK_MIN]
+    small = [r for r in rows if r["size"] < CLAN_RANK_MIN]
+    # Highest average first. Size breaks a tie: holding an average across
+    # more people is the harder thing to have done.
+    ranked.sort(key=lambda r: (-r["avg"], -r["size"], r["tag"]))
+    for place, row in enumerate(ranked, 1):
+        row["place"] = place
+    small.sort(key=lambda r: (-r["size"], r["tag"]))
+    return render_template('clans.html', clans=ranked, small=small,
+                           total=len(rows), rank_min=CLAN_RANK_MIN,
                            version=APP_VERSION, contact=CONTACT_HANDLE, page='clans',
                            notice=CLANS_NOTICE)
 
