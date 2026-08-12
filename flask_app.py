@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.56.0"
+APP_VERSION = "5.57.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -873,6 +873,13 @@ def init_db():
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_leader_req "
               "ON clan_leader_requests(google_sub, status)")
+    # Whether the bot has shown this to the owner yet. A request made on the
+    # website has no way to reach Discord by itself, so the bot collects
+    # them the same way it collects applications.
+    try:
+        c.execute("ALTER TABLE clan_leader_requests ADD COLUMN notified INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     c.execute("PRAGMA table_info(claim_requests)")
     claim_cols = [row[1] for row in c.fetchall()]
     if 'verify_from' not in claim_cols:
@@ -1518,6 +1525,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.57.0", "at": "2026-08-12T20:00:00Z", "changes": [
+        "The Clans page now starts with requesting a clan rather than claiming one. You ask, the site owner approves it on Discord, and only then do you name your tag - which is how it already worked in Discord, so the two now match.",
+        "A request made on the website reaches the owner on Discord by itself. The bot collects new requests and shows them with Approve and Deny on the message.",
+        "Claiming a tag and redeeming a one-time code are still there, but only appear once you have been approved - they were the first thing on the page before, for people who could not yet use them.",
+    ]},
     {"version": "5.56.0", "at": "2026-08-12T19:40:00Z", "changes": [
         "A clan member's leaderboard name now carries the clan tag in front of it, everywhere the name is shown - the leaderboard, their profile, and the clan roster. The tag is a link to the clan.",
         "The tag is put on when the name is displayed, from the clan the player is in, rather than written into the name itself. Join a clan and it appears; leave and it goes. The stored name stays exactly as the game reported it, which is what every match result is matched against.",
@@ -4000,31 +4012,53 @@ def bot_clan_leader_request_route():
     data = request.json or {}
     conn = db()
     c = conn.cursor()
-    state = clan_leader_state(c, sub_id)
-    if state == 'approved':
-        conn.close()
-        return jsonify({"ok": False, "state": state,
-                        "message": "You are already approved to run a clan."}), 200
-    if state == 'pending':
-        conn.close()
-        return jsonify({"ok": False, "state": state,
-                        "message": "You already have a request waiting."}), 200
-    if state == 'denied':
-        conn.close()
-        return jsonify({"ok": False, "state": state,
-                        "message": "Your last request was turned down. Ask "
-                                   f"{CONTACT_HANDLE} on Discord before trying again."}), 200
-    c.execute("INSERT INTO clan_leader_requests (google_sub, handle, tag, note, "
-              "created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
-              (sub_id, str(data.get('handle', ''))[:80],
-               clean_clan_tag(data.get('tag')), str(data.get('note', ''))[:300],
-               time.strftime('%Y-%m-%d %H:%M:%S')))
-    rid = c.lastrowid
+    _status, payload = perform_leader_request(c, sub_id, data.get('handle'),
+                                              data.get('tag'), data.get('note'))
+    if payload.get("ok"):
+        # Sent straight from Discord, so the bot is about to show the owner
+        # itself and does not need to collect this one later.
+        c.execute("UPDATE clan_leader_requests SET notified = 1 WHERE id = ?",
+                  (payload["id"],))
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
+@app.route('/api/bot/clan/leader/undelivered')
+def bot_leader_reqs_undelivered():
+    """Leader requests the bot has not yet shown the owner.
+
+    Requests made on the website land here; the bot collects them and DMs
+    the owner, exactly as it does with clan applications.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT id, handle, tag, note FROM clan_leader_requests "
+              "WHERE status = 'pending' AND COALESCE(notified, 0) = 0 "
+              "ORDER BY id LIMIT 25")
+    out = [{"id": r[0], "handle": r[1] or "someone", "tag": r[2] or "",
+            "note": r[3] or ""} for r in c.fetchall()]
+    conn.close()
+    return jsonify({"requests": out}), 200
+
+
+@app.route('/api/bot/clan/leader/delivered', methods=['POST'])
+def bot_leader_reqs_delivered():
+    """Mark leader requests as shown, so the owner is asked once."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(i) for i in (request.json or {}).get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({"ok": True, "marked": 0}), 200
+    conn = db()
+    c = conn.cursor()
+    c.executemany("UPDATE clan_leader_requests SET notified = 1 WHERE id = ?",
+                  [(i,) for i in ids])
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "id": rid,
-                    "message": "Request sent. The site owner will approve or turn it "
-                               "down, and you will hear either way."}), 200
+    return jsonify({"ok": True, "marked": len(ids)}), 200
 
 
 @app.route('/api/bot/clan/leader/decide', methods=['POST'])
@@ -4741,6 +4775,38 @@ def report_name():
                                f"hand - nothing changes automatically."}), 200
 
 
+@app.route('/clan/leader/request', methods=['POST'])
+def clan_leader_request():
+    """Ask to run a clan, from the website. The owner still decides in Discord."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    handle = discord_handle(c, sub_id) or account_name_for(c, sub_id) or ''
+    status, payload = perform_leader_request(c, sub_id, handle,
+                                             data.get('tag'), data.get('note'))
+    if payload.get("ok"):
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+@app.route('/clan/leader/state')
+def clan_leader_state_route():
+    """Where the signed-in account stands, so the page can show one thing."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"state": "none", "logged_in": False}), 200
+    conn = db()
+    c = conn.cursor()
+    state = clan_leader_state(c, sub_id)
+    conn.close()
+    return jsonify({"state": state, "logged_in": True,
+                    "contact": CONTACT_HANDLE}), 200
+
+
 @app.route('/clan/apply', methods=['POST'])
 def clan_apply():
     """Ask a clan to take you. Its admin decides.
@@ -4855,6 +4921,34 @@ def clan_create():
         conn.commit()
     conn.close()
     return jsonify(payload), status
+
+
+def perform_leader_request(c, sub_id, handle, tag, note):
+    """Ask to be allowed to run a clan. Shared by the website and the bot.
+
+    Does NOT commit. A denial is sticky, so this refuses rather than
+    quietly stacking up a second request behind the first.
+    """
+    if not sub_id:
+        return 401, {"ok": False, "state": "none", "message": "Sign in first."}
+    state = clan_leader_state(c, sub_id)
+    if state == 'approved':
+        return 200, {"ok": False, "state": state,
+                     "message": "You are already approved to run a clan."}
+    if state == 'pending':
+        return 200, {"ok": False, "state": state,
+                     "message": "You already have a request waiting."}
+    if state == 'denied':
+        return 200, {"ok": False, "state": state,
+                     "message": "Your last request was turned down. Ask "
+                                f"{CONTACT_HANDLE} on Discord before trying again."}
+    c.execute("INSERT INTO clan_leader_requests (google_sub, handle, tag, note, "
+              "created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+              (sub_id, str(handle or '')[:80], clean_clan_tag(tag),
+               str(note or '')[:300], time.strftime('%Y-%m-%d %H:%M:%S')))
+    return 200, {"ok": True, "id": c.lastrowid, "state": "pending",
+                 "message": "Request sent. The site owner decides, and you will hear "
+                            "either way - on Discord if your account is linked."}
 
 
 def clan_leader_state(c, sub_id):

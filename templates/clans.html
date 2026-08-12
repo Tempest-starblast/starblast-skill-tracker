@@ -17,12 +17,34 @@
 <h1 class="ptitle">Clans</h1>
 <p class="psub">{{ total }} clan{{ '' if total == 1 else 's' }} claimed.</p>
 
-<div class="card" id="claimCard">
+<div class="card" id="requestCard" style="display:none">
+  <h2>Request a clan</h2>
+  <p class="desc">Clans are handed out by hand. Ask here and {{ contact }} approves or
+     turns it down on Discord &mdash; you will hear back there if your account is linked,
+     and this page will say so either way.</p>
+  <div class="row">
+    <input type="text" id="reqTag" placeholder="Tag you want to run, e.g. [COV]"
+           maxlength="24" autocomplete="off">
+  </div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="reqNote" placeholder="Anything worth saying (optional)"
+           maxlength="200" autocomplete="off">
+    <button class="primary" onclick="requestClan()">Send request</button>
+  </div>
+  <p class="msg" id="reqMsg"></p>
+</div>
+
+<div class="card" id="stateCard" style="display:none">
+  <h2>Your request</h2>
+  <p class="desc" id="stateText"></p>
+</div>
+
+<div class="card" id="claimCard" style="display:none">
   <h2>Claim your clan</h2>
   <p class="desc">Paste your tag exactly as it appears in your name &mdash; brackets and
      symbols are fine, they are ignored. You need a name of your own that already plays
      under the tag, which is what stops anyone claiming a clan that is not theirs.</p>
-  <div id="claimSignedOut">
+  <div id="claimSignedOut" style="display:none">
     <p class="desc">Sign in at the top of the page first.</p>
   </div>
   <div id="claimSignedIn" style="display:none">
@@ -32,6 +54,11 @@
     </div>
   </div>
   <p class="msg" id="claimMsg"></p>
+</div>
+
+<div class="card" id="signedOutCard" style="display:none">
+  <h2>Clans</h2>
+  <p class="desc">Sign in at the top of the page to request a clan of your own.</p>
 </div>
 
 <div class="card" id="codeCard" style="display:none">
@@ -118,6 +145,42 @@
 
 <script>
 let myClan = null;
+let leaderState = 'none';
+async function requestClan(){
+  const tag = document.getElementById('reqTag').value.trim();
+  try{
+    const [r, d] = await post('/clan/leader/request',
+                              {tag: tag, note: document.getElementById('reqNote').value.trim()});
+    say('reqMsg', d.ok, d.message);
+    if (d.ok) setTimeout(function(){ location.reload(); }, 1500);
+  }catch(e){ say('reqMsg', false, 'Server connection error.'); }
+}
+async function showLeaderState(){
+  let d = {state: 'none', logged_in: false};
+  try{ d = await (await fetch('/clan/leader/state')).json(); }catch(e){}
+  leaderState = d.state;
+  const show = function(id, on){
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? 'block' : 'none';
+  };
+  const approved = d.state === 'approved';
+  show('signedOutCard', !d.logged_in);
+  show('requestCard', d.logged_in && d.state === 'none');
+  show('stateCard', d.logged_in && (d.state === 'pending' || d.state === 'denied'));
+  show('claimCard', approved);
+  show('codeCard', approved);
+  const signedIn = document.getElementById('claimSignedIn');
+  if (signedIn) signedIn.style.display = approved ? 'block' : 'none';
+  if (d.state === 'pending'){
+    document.getElementById('stateText').textContent =
+      'Your request is waiting on ' + (d.contact || 'the site owner')
+      + '. Once it is approved this page will let you claim your tag.';
+  } else if (d.state === 'denied'){
+    document.getElementById('stateText').textContent =
+      'Your request was turned down. Ask ' + (d.contact || 'the site owner')
+      + ' on Discord if you think that is a mistake.';
+  }
+}
 async function post(u, b){
   const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
                             body: JSON.stringify(b)});
@@ -221,6 +284,10 @@ async function deleteClan(){
   }catch(e){ say('deleteMsg', false, 'Server connection error.'); }
 }
 window.addEventListener('DOMContentLoaded', function(){
+  // Which of the clan cards to show is decided by the request state, not
+  // by being signed in: an approved leader and a hopeful one need
+  // different pages.
+  showLeaderState();
   fetch('/me').then(function(r){ return r.json(); }).then(function(d){
     if (d.logged_in) window.onSignedInReady();
   }).catch(function(){});
