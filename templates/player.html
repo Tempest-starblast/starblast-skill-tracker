@@ -3,10 +3,16 @@
 {% block css %}
 .halfmark{font-size:11px;color:var(--muted);border:1px solid #3a3a3a;border-radius:4px;
   padding:1px 5px;margin-left:5px;font-weight:600;cursor:default}
+.leads{display:inline-flex;align-items:center;gap:5px;margin-left:8px;padding:2px 9px;
+  border-radius:12px;background:#2b2617;border:1px solid #6b5320;color:#f0c04a;
+  font-size:11.5px;font-weight:700;text-decoration:none;vertical-align:middle}
+.leads:hover{background:#3a3320;color:#ffd76a}
 {% endblock %}
 {% block body %}
 {% if player %}
-<h1 class="ptitle">{{ player.display }}{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan }}</a>{% endif %}</h1>
+<h1 class="ptitle">{{ player.display }}{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan }}</a>{% endif %}
+{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}"
+   title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}</h1>
 <p class="psub">Rank #{{ player.rank }} of {{ player.rank_of }}{% if primary %} &middot;
    {% if primary.only %}Plays in <b>{{ primary.label }}</b>{% else %}Mainly
    <b>{{ primary.label }}</b> ({{ primary.share }}% of matches){% endif %}{% endif %}

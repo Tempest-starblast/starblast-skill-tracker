@@ -4,45 +4,169 @@
 .crown{margin-left:7px;color:#fbbf24;font-size:14px;cursor:default;vertical-align:middle}
 .legend{font-size:12px;color:var(--dim);margin:10px 0 0}
 .legend .crown{margin:0 4px 0 0}
+.kick{padding:5px 11px;font-size:12px}
+.medal{display:inline-block;width:20px}
+.me{background:#1b2a1a}
+.adminbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 {% endblock %}
 {% block body %}
 {% if clan %}
 <h1 class="ptitle">{{ clan.tag }}</h1>
-<p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %} on the leaderboard &middot;
+<p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %}
+  {%- if clan.admins %} &middot; run by {{ clan.admins|join(', ') }}{% endif %} &middot;
   <a href="/clans">All clans</a></p>
 
 <div class="card"><div class="grid">
   <div class="stat"><div class="label">Members</div><div class="value">{{ clan.size }}</div></div>
   <div class="stat"><div class="label">Average skill</div><div class="value" style="color:var(--blue)">{{ clan.avg_elo }}</div></div>
-  <div class="stat"><div class="label">Clan record</div><div class="value">{{ clan.wins }}-{{ clan.losses }}</div></div>
+  <div class="stat"><div class="label">Combined record</div><div class="value">{{ clan.wins }}-{{ clan.losses }}</div></div>
   <div class="stat"><div class="label">Win rate</div><div class="value" style="color:var(--green)">{{ clan.winrate }}</div></div>
 </div>
 <p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
    added together. A match won by two clanmates therefore counts twice.</p></div>
 
+<div class="card" id="adminCard" style="display:none">
+  <h2>Manage {{ clan.tag }}</h2>
+  <p class="desc">Adding someone who has an account sends them an invitation to accept.
+     A player with no account joins straight away if the tag is in their name.</p>
+  <div class="row">
+    <input type="text" id="memberInput" placeholder="Player name" maxlength="32" autocomplete="off">
+    <button class="primary" onclick="addMember()">Add member</button>
+  </div>
+  <p class="msg" id="adminMsg"></p>
+</div>
+
 <div class="tablewrap">
 <table>
-<thead><tr><th class="rank">#</th><th>Player</th><th class="mid">Record</th><th class="mid">Win%</th><th class="num">Skill</th></tr></thead>
+<thead><tr>
+  <th class="rank">#</th><th>Player</th>
+  <th class="mid">Record</th><th class="mid">Win%</th><th class="num">Skill</th>
+  <th class="mid" id="actionHead" style="display:none"></th>
+</tr></thead>
 <tbody>
 {% for m in clan.members %}
-<tr>
-  <td class="rank">{{ m.rank }}</td>
-  <td><a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>{% if m.admin %}<span class="crown" title="Clan admin">&#9812;</span>{% endif %}</td>
+<tr data-name="{{ m.name }}">
+  <td class="rank">
+    {%- if loop.index == 1 %}<span class="medal">&#129351;</span>
+    {%- elif loop.index == 2 %}<span class="medal">&#129352;</span>
+    {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
+    {%- else %}{{ loop.index }}{% endif -%}
+  </td>
+  <td><a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>{% if m.admin %}<span class="crown" title="Runs this clan">&#9812;</span>{% endif %}</td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
+  <td class="mid actioncell" style="display:none">
+    <button class="ghost kick" onclick="removeMember(this)">Remove</button>
+  </td>
 </tr>
 {% else %}
-<tr><td colspan="5" class="empty">Nobody is in {{ clan.tag }} right now.</td></tr>
+<tr><td colspan="6" class="empty">Nobody is in {{ clan.tag }} right now.</td></tr>
 {% endfor %}
 </tbody>
 </table>
 </div>
 
-<p class="legend"><span class="crown">&#9812;</span> Clan admin &mdash; decides who is in this clan.</p>
-<p class="foot" style="margin-top:18px">The # column is each player's rank on the whole leaderboard.
-Players on the same skill share a rank.<br>
-Listed here by mistake? Open your player page and use Remove clan tag, or ask {{ contact }} on Discord.</p>
+<p class="legend"><span class="crown">&#9812;</span> Runs this clan &mdash; decides who is in it.
+  The # column is the member's place within {{ clan.tag }}; open a player to see their rank
+  on the whole leaderboard.</p>
+
+<div class="card" id="meCard" style="display:none;margin-top:18px">
+  <h2>You</h2>
+  <p class="desc" id="meText"></p>
+  <div class="adminbar">
+    <button class="ghost" id="leaveBtn" onclick="leaveClan()" style="display:none">Leave {{ clan.tag }}</button>
+    <button class="danger" id="deleteBtn" onclick="deleteClan()" style="display:none">Delete {{ clan.tag }}</button>
+  </div>
+  <p class="msg" id="meMsg"></p>
+</div>
+
+<p class="foot" style="margin-top:18px">Listed here by mistake? Open your player page and use
+Remove clan tag, or ask {{ contact }} on Discord.</p>
+
+<script>
+const TAG = {{ clan.tag|tojson }};
+let amAdmin = false, myNames = [];
+async function post(u, b){
+  const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
+                            body: JSON.stringify(b || {})});
+  return [r, await r.json()];
+}
+function say(id, ok, t){
+  const m = document.getElementById(id);
+  m.className = 'msg ' + (ok ? 'ok' : 'err'); m.textContent = t;
+}
+function showAdminBits(on){
+  document.getElementById('adminCard').style.display = on ? 'block' : 'none';
+  document.getElementById('actionHead').style.display = on ? '' : 'none';
+  document.querySelectorAll('.actioncell').forEach(function(td){
+    td.style.display = on ? '' : 'none';
+  });
+  document.getElementById('deleteBtn').style.display = on ? 'inline-block' : 'none';
+}
+async function refresh(){
+  try{
+    const me = await (await fetch('/me')).json();
+    if (!me.logged_in) return;
+    myNames = me.names || [];
+    const st = await (await fetch('/clan/admin/state')).json();
+    amAdmin = (st.clans || []).some(function(x){ return x.tag === TAG; });
+    showAdminBits(amAdmin);
+    // Highlight your own row, and offer to leave if you are on the roster.
+    let onRoster = false;
+    document.querySelectorAll('tr[data-name]').forEach(function(tr){
+      if (myNames.indexOf(tr.dataset.name) !== -1){ tr.classList.add('me'); onRoster = true; }
+    });
+    if (amAdmin || onRoster){
+      document.getElementById('meCard').style.display = 'block';
+      document.getElementById('leaveBtn').style.display = onRoster ? 'inline-block' : 'none';
+      document.getElementById('meText').textContent =
+        (amAdmin ? 'You run ' + TAG + '. ' : 'You are in ' + TAG + '. ')
+        + (onRoster ? 'Your row is highlighted below.'
+                    : 'You are not on the roster - set a name and you will be added.');
+    }
+  }catch(e){}
+}
+async function addMember(){
+  const who = document.getElementById('memberInput').value.trim();
+  if (!who) return say('adminMsg', false, 'Enter a player name.');
+  try{
+    const [r, d] = await post('/clan/add', {clan: TAG, name: who});
+    say('adminMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('adminMsg', false, 'Server connection error.'); }
+}
+async function removeMember(btn){
+  const row = btn.closest('tr');
+  const name = row.dataset.name;
+  if (!window.confirm('Remove ' + name + ' from ' + TAG + '?')) return;
+  try{
+    const [r, d] = await post('/clan/remove', {name: name});
+    say('adminMsg', r.ok, d.message);
+    if (r.ok) row.remove();
+  }catch(e){ say('adminMsg', false, 'Server connection error.'); }
+}
+async function leaveClan(){
+  if (!window.confirm('Leave ' + TAG + '?' + (amAdmin ?
+      ' You will still run the clan - only your name comes off the roster.' : ''))) return;
+  try{
+    const [r, d] = await post('/clan/leave', {});
+    say('meMsg', r.ok && d.ok, d.message);
+    if (d.ok) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('meMsg', false, 'Server connection error.'); }
+}
+async function deleteClan(){
+  const typed = window.prompt('This cannot be undone. Type ' + TAG + ' to delete it.');
+  if (typed === null) return;
+  try{
+    const [r, d] = await post('/clan/delete', {clan: TAG, confirm: typed.trim()});
+    say('meMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.href = '/clans'; }, 1500);
+  }catch(e){ say('meMsg', false, 'Server connection error.'); }
+}
+window.onSignedInReady = refresh;
+window.addEventListener('DOMContentLoaded', refresh);
+</script>
 {% else %}
 <h1 class="ptitle">Not found</h1>
 <div class="card"><p class="empty">There is no clan tagged &ldquo;{{ query }}&rdquo;.<br>

@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.50.0"
+APP_VERSION = "5.51.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1494,6 +1494,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.51.0", "at": "2026-08-12T18:17:00Z", "changes": [
+        "A clan page is now something you can use, not just read. Members are ranked by skill and clicking one opens their profile, admins are marked, and if you run the clan the controls to add and remove members are on the page itself.",
+        "You can leave a clan you are in, including if you run it - running a clan and being on its roster are separate things, so leaving does not cost you the clan.",
+        "Clan leaders are shown as such on their own profile page.",
+    ]},
     {"version": "5.50.0", "at": "2026-08-12T18:06:00Z", "changes": [
         "A clan leader is now on their own roster. If you had not set a name yet when you claimed the clan, you are added the moment you set one rather than having to add yourself.",
     ]},
@@ -2088,6 +2093,9 @@ def player_profile(name):
               "AND name IN (SELECT name FROM players WHERE norm_name = ?)",
               (normalize_name(name),))
     pending_claim = c.fetchone()[0] > 0
+    # Which clans this player's account runs. Shown on the profile so a
+    # leader is identifiable away from the clan page itself.
+    admin_of = clan_admin_tags(c, owner_sub) if owner_sub else []
 
     c.execute("SELECT m.played_at, mp.won, mp.delta, mp.half, mp.score, mp.played_as "
               "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
@@ -2144,6 +2152,7 @@ def player_profile(name):
               "losses": losses or 0, "rank": rank, "rank_of": rank_of,
               "winrate": winrate,
               "clan": clan, "pending_claim": pending_claim,
+              "admin_of": admin_of,
               "owned": bool(owner_sub), "protected": bool(protected)}
     return render_template('player.html', player=player,
                            region_ranks=region_ranks, version=APP_VERSION,
@@ -3249,8 +3258,42 @@ def clan_page(tag):
         "winrate": f"{round(100 * clan_wins / played)}%" if played else "-",
         "played": played,
     }
+    clan["admins"] = [m["name"] for m in members if m["admin"]]
     return render_template('clan.html', clan=clan, version=APP_VERSION,
-                           contact=CONTACT_HANDLE, page='clans')
+                           contact=CONTACT_HANDLE, page='clans',
+                           client_id=GOOGLE_CLIENT_ID)
+
+
+@app.route('/clan/leave', methods=['POST'])
+def clan_leave():
+    """Take yourself out of your own clan.
+
+    Separate from /clan/remove so nobody has to name themselves correctly
+    to leave, and so an admin leaving is an ordinary act rather than an
+    admin action against a member. Admin rights are kept: running a clan
+    and appearing on its roster are different things, and a leader who is
+    between names should not lose the clan.
+    """
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
+              "AND clan != ''", (sub_id,))
+    rows = c.fetchall()
+    if not rows:
+        conn.close()
+        return jsonify({"ok": False, "message": "You are not in a clan."}), 200
+    # clan_locked = 1: this was a deliberate choice, so detection must not
+    # quietly put them back next time they are seen wearing the tag.
+    for name, _clan in rows:
+        c.execute("UPDATE players SET clan = NULL, clan_locked = 1 WHERE name = ?", (name,))
+    conn.commit()
+    conn.close()
+    left = rows[0][1]
+    return jsonify({"ok": True, "clan": left,
+                    "message": f"You have left {left}."}), 200
 
 
 @app.route('/clan/remove', methods=['POST'])
