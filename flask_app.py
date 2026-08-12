@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.57.0"
+APP_VERSION = "5.58.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -436,6 +436,64 @@ def canonical_clan_tag(text, tags=None):
     return None
 
 
+# What each role is allowed to do. Ordered, so "outranks" is a comparison
+# rather than a table of special cases.
+CLAN_ROLES = ('moderator', 'coleader', 'leader')
+CLAN_ROLE_LABELS = {'leader': 'Leader', 'coleader': 'Co-leader',
+                    'moderator': 'Moderator'}
+
+
+def clan_rank(role):
+    """How senior a role is. 0 means no role at all."""
+    return CLAN_ROLES.index(role) + 1 if role in CLAN_ROLES else 0
+
+
+def clan_role(c, sub_id, tag):
+    """This account's role in one clan, or None."""
+    if not sub_id or not tag:
+        return None
+    c.execute("SELECT COALESCE(role, 'leader') FROM clan_admins "
+              "WHERE google_sub = ? AND clan = ?", (sub_id, tag))
+    row = c.fetchone()
+    return row[0] if row else None
+
+
+def player_clan_role(c, name, tag):
+    """The role of a member, found by their player name. None for the rank
+    and file - most members have no account at all."""
+    c.execute("SELECT google_sub FROM players WHERE name = ?", (name,))
+    row = c.fetchone()
+    if not row or not row[0]:
+        return None
+    return clan_role(c, row[0], tag)
+
+
+def may_kick(actor_role, target_role):
+    """Whether one role may take another out of the clan.
+
+    Strictly outrank: a moderator cannot kick a moderator and a co-leader
+    cannot kick a co-leader. Only that rule stops two equals removing each
+    other, and it is why the leader - who outranks everyone - is safe.
+    """
+    return clan_rank(actor_role) > 0 and clan_rank(actor_role) > clan_rank(target_role)
+
+
+def may_manage(c, sub_id, tag):
+    """Roster work: inviting, accepting applications, setting the region.
+    Leaders and co-leaders. A moderator is there to remove people, not to
+    reshape the clan."""
+    return clan_rank(clan_role(c, sub_id, tag)) >= clan_rank('coleader')
+
+
+def is_clan_leader(c, sub_id, tag):
+    """Deleting the clan, and handing out co-leader. Leader only.
+
+    A co-leader may not appoint another co-leader: they cannot kick one
+    either, so they could otherwise create power they are unable to undo.
+    """
+    return clan_role(c, sub_id, tag) == 'leader'
+
+
 def clan_admin_tags(c, sub_id):
     """Every clan tag this signed-in account is an admin of."""
     if not sub_id:
@@ -721,6 +779,13 @@ def init_db():
                     created_at TEXT
                 )''')
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_admins ON clan_admins(clan, google_sub)")
+    # leader, coleader or moderator. Everyone who ran a clan before roles
+    # existed was its leader, which is what the default gives them.
+    try:
+        c.execute("ALTER TABLE clan_admins ADD COLUMN role TEXT DEFAULT 'leader'")
+    except sqlite3.OperationalError:
+        pass
+    c.execute("UPDATE clan_admins SET role = 'leader' WHERE role IS NULL OR role = ''")
     # One-time codes are how admin is handed out. The site owner cannot see
     # anyone's Google account id, so there has to be something to pass along
     # out of band - a code sent on Discord is that something.
@@ -1525,6 +1590,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.58.0", "at": "2026-08-12T20:20:00Z", "changes": [
+        "Clans now have ranks. A leader can appoint co-leaders and moderators, on the clan page or with /clanrole in Discord.",
+        "A moderator can remove ordinary members, and nothing else - not the region, not the roster, not the clan.",
+        "A co-leader can do everything the leader can except delete the clan, remove another co-leader, or appoint one. Appointing co-leaders stays with the leader, because a co-leader cannot remove one - they would be creating power they could not take back.",
+        "Nobody can remove someone of their own rank or above, which is what keeps the leader safe and stops two equals removing each other.",
+    ]},
     {"version": "5.57.0", "at": "2026-08-12T20:00:00Z", "changes": [
         "The Clans page now starts with requesting a clan rather than claiming one. You ask, the site owner approves it on Discord, and only then do you name your tag - which is how it already worked in Discord, so the two now match.",
         "A request made on the website reaches the owner on Discord by itself. The bot collects new requests and shows them with Approve and Deny on the message.",
@@ -3287,8 +3358,10 @@ def clan_page(tag):
     c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at "
               "FROM players WHERE clan = ?", (known,))
     rows = c.fetchall()
-    c.execute("SELECT google_sub FROM clan_admins WHERE clan = ?", (known,))
-    admin_subs = {r[0] for r in c.fetchall() if r[0]}
+    c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
+              (known,))
+    roles = {r[0]: r[1] for r in c.fetchall() if r[0]}
+    admin_subs = set(roles)
     # Rank is the player's place on the WHOLE leaderboard, not within the
     # clan: a member shown as #12 has to mean the same thing on both pages.
     ranks = {}
@@ -3317,6 +3390,8 @@ def clan_page(tag):
         members.append({
             "name": name, "display": display_name(name, known),
             "admin": bool(owner_sub) and owner_sub in admin_subs,
+            "role": roles.get(owner_sub, ""),
+            "role_label": CLAN_ROLE_LABELS.get(roles.get(owner_sub), ""),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "rank": ranks[name],
@@ -3347,7 +3422,16 @@ def clan_page(tag):
     clan["region"] = region_key
     clan["region_label"] = REGION_LABELS.get(region_key, "")
     clan["regions"] = REGIONS
-    clan["admins"] = [m["name"] for m in members if m["admin"]]
+    # "run by" means the leader. Co-leaders and moderators are shown on
+    # their own rows rather than in the heading, or a big clan's heading
+    # would be a list of staff.
+    clan["admins"] = [m["name"] for m in members if m["role"] == 'leader']
+    conn2 = db()
+    c2 = conn2.cursor()
+    clan["your_role"] = clan_role(c2, current_user(), known) or ""
+    clan["can_manage"] = clan_rank(clan["your_role"]) >= clan_rank('coleader')
+    clan["is_leader"] = clan["your_role"] == 'leader'
+    conn2.close()
     return render_template('clan.html', clan=clan, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='clans',
                            client_id=GOOGLE_CLIENT_ID)
@@ -3417,7 +3501,12 @@ def clan_remove():
     # currently in, or the player themselves.
     by_admin = False
     if not api_key_ok(request.headers.get('X-API-Key')):
-        if clan and clan in clan_admin_tags(c, current_user()):
+        actor = clan_role(c, current_user(), clan) if clan else None
+        if actor and not may_kick(actor, player_clan_role(c, stored_name, clan)):
+            conn.close()
+            return jsonify({"message": "You cannot remove someone of your own rank or "
+                                       "above in the clan."}), 403
+        if actor:
             by_admin = True
         else:
             ok, err = owner_check(c, stored_name, reg_ip)
@@ -4366,6 +4455,25 @@ def bot_clan_app_decide_route():
     return jsonify(payload), 200
 
 
+@app.route('/api/bot/clan/role', methods=['POST'])
+def bot_clan_role_route():
+    """Appoint or unappoint a co-leader or moderator, from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_role(c, sub_id, data.get('clan'), data.get('name'),
+                                        data.get('role'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
 @app.route('/api/bot/clan/region', methods=['POST'])
 def bot_clan_region_route():
     """Set where a clan is based, from Discord."""
@@ -5140,8 +5248,9 @@ def perform_clan_app_decide(c, sub_id, app_id, accept, trusted=False):
     if status != 'pending':
         return 400, {"ok": False, "clan": clan, "name": name,
                      "message": f"That application was already {status}."}
-    if not trusted and clan not in clan_admin_tags(c, sub_id):
-        return 403, {"ok": False, "message": "You are not an admin of that clan."}
+    if not trusted and not may_manage(c, sub_id, clan):
+        return 403, {"ok": False,
+                     "message": "Only the leader or a co-leader can decide who joins."}
     c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
               ('approved' if accept else 'declined', app_id))
     if not accept:
@@ -5159,6 +5268,61 @@ def perform_clan_app_decide(c, sub_id, app_id, accept, trusted=False):
                             f"'{clan_tagged_name(name, clan)}' on the leaderboard."}
 
 
+def perform_clan_role(c, sub_id, raw_tag, name, role, trusted=False):
+    """Make someone a co-leader or moderator, or take it back.
+
+    An empty role removes it. The target has to have an account: a role is
+    held by an account, and most members have never signed in. Does NOT
+    commit.
+    """
+    known = canonical_clan_tag(raw_tag, all_clan_tags(c))
+    if not known:
+        return 404, {"ok": False, "message": "No clan with that tag."}
+    want = str(role or "").strip().lower()
+    if want and want not in ('coleader', 'moderator'):
+        return 400, {"ok": False,
+                     "message": "A role is co-leader, moderator, or nothing."}
+    actor = 'leader' if trusted else clan_role(c, sub_id, known)
+    if not actor:
+        return 403, {"ok": False, "message": "You have no role in that clan."}
+    c.execute("SELECT name, google_sub, clan FROM players WHERE norm_name = ?",
+              (normalize_name(str(name or '')),))
+    row = c.fetchone()
+    if not row:
+        return 404, {"ok": False, "message": f"'{name}' is not on the leaderboard."}
+    stored_name, target_sub, their_clan = row
+    if not target_sub:
+        return 400, {"ok": False,
+                     "message": f"'{stored_name}' has no account, so there is nothing "
+                                f"to give a role to. They have to sign in first."}
+    if their_clan != known:
+        return 400, {"ok": False,
+                     "message": f"'{stored_name}' is not in {known}."}
+    if target_sub == sub_id and not trusted:
+        return 400, {"ok": False, "message": "You cannot change your own role."}
+    current = clan_role(c, target_sub, known)
+    if current == 'leader':
+        return 403, {"ok": False, "message": "The clan's leader keeps their role."}
+    # Co-leader is the leader's to give: a co-leader cannot kick one, so
+    # letting them appoint one would create power they could not undo.
+    if (want == 'coleader' or current == 'coleader') and actor != 'leader':
+        return 403, {"ok": False,
+                     "message": "Only the clan's leader can appoint or remove a co-leader."}
+    if actor == 'moderator':
+        return 403, {"ok": False, "message": "Moderators cannot hand out roles."}
+    if not want:
+        c.execute("DELETE FROM clan_admins WHERE clan = ? AND google_sub = ?",
+                  (known, target_sub))
+        return 200, {"ok": True, "clan": known, "name": stored_name, "role": "",
+                     "message": f"'{stored_name}' is an ordinary member of {known} again."}
+    c.execute("INSERT INTO clan_admins (clan, google_sub, role, created_at) "
+              "VALUES (?, ?, ?, ?) ON CONFLICT(clan, google_sub) DO UPDATE SET role = ?",
+              (known, target_sub, want, time.strftime('%Y-%m-%d %H:%M:%S'), want))
+    return 200, {"ok": True, "clan": known, "name": stored_name, "role": want,
+                 "message": f"'{stored_name}' is now a {CLAN_ROLE_LABELS[want].lower()} "
+                            f"of {known}."}
+
+
 def perform_clan_region(c, sub_id, raw_tag, region, trusted=False):
     """Set - or clear - where a clan is based. Shared by site and bot.
 
@@ -5168,8 +5332,9 @@ def perform_clan_region(c, sub_id, raw_tag, region, trusted=False):
     known = canonical_clan_tag(raw_tag, all_clan_tags(c))
     if not known:
         return 404, {"ok": False, "message": "No clan with that tag."}
-    if not trusted and known not in clan_admin_tags(c, sub_id):
-        return 403, {"ok": False, "message": "You are not an admin of that clan."}
+    if not trusted and not may_manage(c, sub_id, known):
+        return 403, {"ok": False,
+                     "message": "Only the leader or a co-leader can set the region."}
     key = str(region or "").strip().lower()
     if key and key not in REGION_KEYS:
         return 400, {"ok": False,
@@ -5194,8 +5359,9 @@ def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
     known = canonical_clan_tag(raw_tag, all_clan_tags(c))
     if not known:
         return 404, {"ok": False, "message": "No clan with that tag."}
-    if not trusted and known not in clan_admin_tags(c, sub_id):
-        return 403, {"ok": False, "message": "You are not an admin of that clan."}
+    if not trusted and not is_clan_leader(c, sub_id, known):
+        return 403, {"ok": False,
+                     "message": "Only the clan's leader can delete it."}
 
     c.execute("SELECT COUNT(*) FROM players WHERE clan = ?", (known,))
     members = (c.fetchone() or [0])[0]
@@ -5210,6 +5376,24 @@ def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
                  "message": f"{known} deleted. {members} member"
                             f"{'' if members == 1 else 's'} released - their ratings and "
                             f"match history are untouched."}
+
+
+@app.route('/clan/role', methods=['POST'])
+def clan_role_route():
+    """Appoint or unappoint a co-leader or moderator."""
+    sub_id = current_user()
+    trusted = api_key_ok(request.headers.get('X-API-Key'))
+    if not sub_id and not trusted:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_role(c, sub_id, data.get('clan'), data.get('name'),
+                                        data.get('role'), trusted=trusted)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
 
 
 @app.route('/clan/region', methods=['POST'])

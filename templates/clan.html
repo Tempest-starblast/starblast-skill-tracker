@@ -67,6 +67,13 @@
   <p class="msg" id="applyMsg"></p>
 </div>
 
+<style>
+.rolechip{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;
+  font-weight:700;letter-spacing:.02em;border:1px solid var(--line);color:var(--dim)}
+.role-leader{color:#e8c153;border-color:#6b5320}
+.role-coleader{color:#7fc4ff;border-color:#2d4a63}
+.role-moderator{color:#9adf9a;border-color:#2f5a34}
+</style>
 <div class="card" id="adminCard" style="display:none">
   <h2>Manage {{ clan.tag }}</h2>
   <p class="desc">Adding someone who has an account sends them an invitation to accept.
@@ -76,6 +83,25 @@
     <button class="primary" onclick="addMember()">Add member</button>
   </div>
   <p class="msg" id="adminMsg"></p>
+  {% if clan.can_manage %}
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+    <h3 class="sub">Ranks</h3>
+    <p class="desc">A <b>moderator</b> can remove ordinary members and nothing else.
+       A <b>co-leader</b> can do everything you can except delete the clan, remove
+       another co-leader, or appoint one. Nobody can remove someone of their own rank
+       or above. The player needs an account on the site to hold a rank.</p>
+    <div class="row">
+      <input type="text" id="roleName" placeholder="Player name" maxlength="32" autocomplete="off">
+      <select id="roleSel">
+        {% if clan.is_leader %}<option value="coleader">Co-leader</option>{% endif %}
+        <option value="moderator">Moderator</option>
+        <option value="">Ordinary member</option>
+      </select>
+      <button class="primary" onclick="setRole()">Set rank</button>
+    </div>
+    <p class="msg" id="roleMsg"></p>
+  </div>
+  {% endif %}
   <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
     <p class="desc">Where this clan plays. It is shown on the clan table and links to
        that region's leaderboard. Leave it blank if the clan is spread across regions.</p>
@@ -97,12 +123,12 @@
 <thead><tr>
   <th class="rank">#</th><th>Player</th>
   <th class="mid">Record</th><th class="mid">Win%</th><th class="num">Skill</th>
-  <th class="mid">Joined</th>
+  <th class="mid">Joined</th><th class="mid">Rank</th>
   <th class="mid" id="actionHead" style="display:none"></th>
 </tr></thead>
 <tbody>
 {% for m in clan.members %}
-<tr data-name="{{ m.name }}">
+<tr data-role="{{ m.role }}" data-name="{{ m.name }}">
   <td class="rank">
     {%- if loop.index == 1 %}<span class="medal">&#129351;</span>
     {%- elif loop.index == 2 %}<span class="medal">&#129352;</span>
@@ -114,6 +140,7 @@
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
   <td class="mid">{{ m.joined or '&mdash;'|safe }}</td>
+  <td class="mid">{% if m.role_label %}<span class="rolechip role-{{ m.role }}">{{ m.role_label }}</span>{% endif %}</td>
   <td class="mid actioncell" style="display:none">
     <button class="ghost kick" onclick="removeMember(this)">Remove</button>
   </td>
@@ -160,9 +187,15 @@ function showAdminBits(on){
   if (apps) apps.style.display = on ? 'block' : 'none';
   document.getElementById('actionHead').style.display = on ? '' : 'none';
   document.querySelectorAll('.actioncell').forEach(function(td){
+    const row = td.closest('tr');
+    const mayKick = on && outranks(MY_ROLE, row ? row.dataset.role : '');
     td.style.display = on ? '' : 'none';
+    td.querySelectorAll('button').forEach(function(b){
+      b.style.display = mayKick ? '' : 'none';
+    });
   });
-  document.getElementById('deleteBtn').style.display = on ? 'inline-block' : 'none';
+  document.getElementById('deleteBtn').style.display =
+    (on && MY_ROLE === 'leader') ? 'inline-block' : 'none';
 }
 async function refresh(){
   try{
@@ -190,6 +223,21 @@ async function refresh(){
                     : 'You are not on the roster - set a name and you will be added.');
     }
   }catch(e){}
+}
+const MY_ROLE = {{ (clan.your_role or '')|tojson }};
+const RANKS = {leader: 3, coleader: 2, moderator: 1, '': 0};
+function outranks(mine, theirs){
+  return (RANKS[mine] || 0) > (RANKS[theirs] || 0);
+}
+async function setRole(){
+  const who = document.getElementById('roleName').value.trim();
+  if (!who) return say('roleMsg', false, 'Enter a player name.');
+  try{
+    const [r, d] = await post('/clan/role', {clan: TAG, name: who,
+                                             role: document.getElementById('roleSel').value});
+    say('roleMsg', d.ok, d.message);
+    if (d.ok) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('roleMsg', false, 'Server connection error.'); }
 }
 async function decideApp(id, accept){
   try{
