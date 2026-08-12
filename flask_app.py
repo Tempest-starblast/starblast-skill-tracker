@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.44.1"
+APP_VERSION = "5.45.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1449,6 +1449,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.45.0", "at": "2026-08-12T15:17:00Z", "changes": [
+        "Commands the bot mentions are clickable now. Where it used to tell you to run /setname, that is a link you press to open the command with nothing to retype - and /help is a full list of them, all clickable, grouped by what you are trying to do.",
+    ]},
     {"version": "5.44.1", "at": "2026-08-12T05:22:00Z", "changes": [
         "Rank numbers on the leaderboard sat off to one side of their little grey box. The box was being padded from the inside, which pushed the number to its right edge.",
     ]},
