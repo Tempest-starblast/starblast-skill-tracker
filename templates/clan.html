@@ -11,7 +11,7 @@
 {% endblock %}
 {% block body %}
 {% if clan %}
-<h1 class="ptitle">{{ clan.tag }}</h1>
+<h1 class="ptitle">{{ clan.display or clan.tag }}</h1>
 <p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %}
   {%- if clan.admins %} &middot; run by {{ clan.admins|join(', ') }}{% endif %}
   {%- if clan.region_label %} &middot; based in
@@ -75,7 +75,7 @@
 .role-moderator{color:#9adf9a;border-color:#2f5a34}
 </style>
 <div class="card" id="adminCard" style="display:none">
-  <h2>Manage {{ clan.tag }}</h2>
+  <h2>Manage {{ clan.display or clan.tag }}</h2>
   <p class="desc">Adding someone who has an account sends them an invitation to accept.
      A player with no account joins straight away if the tag is in their name.</p>
   <div class="row">

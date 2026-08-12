@@ -108,7 +108,7 @@
       {%- if c.place == 1 %}&#129351;{% elif c.place == 2 %}&#129352;
       {%- elif c.place == 3 %}&#129353;{% else %}{{ c.place }}{% endif -%}
     </td>
-    <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.tag }}</a></td>
+    <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a></td>
     <td class="mid">{{ c.size }}</td>
     <td class="mid">{% if c.region_label %}<a href="/?region={{ c.region }}">{{ c.region_label }}</a>{% else %}&mdash;{% endif %}</td>
     <td class="mid">{{ c.wins }}-{{ c.losses }}</td>
@@ -133,7 +133,7 @@
     {% for c in small %}
     <div class="clanrow">
       <div>
-        <a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.tag }}</a>
+        <a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a>
         <div class="cmeta">{{ c.size }} member{{ '' if c.size == 1 else 's' }}
           &middot; skill {{ c.avg_elo }}</div>
       </div>

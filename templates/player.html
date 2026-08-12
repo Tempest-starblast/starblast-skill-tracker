@@ -10,7 +10,7 @@
 {% endblock %}
 {% block body %}
 {% if player %}
-<h1 class="ptitle">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan }}</a>{% endif %}{{ player.display }}
+<h1 class="ptitle">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}
 {%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}"
    title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}</h1>
 <p class="psub">Rank #{{ player.rank }} of {{ player.rank_of }}{% if primary %} &middot;

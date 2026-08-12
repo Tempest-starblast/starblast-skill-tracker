@@ -13,7 +13,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.61.0"
+APP_VERSION = "5.62.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -407,6 +407,30 @@ def detect_clan(raw_name, tags=None):
     return None
 
 
+# Letters people write with symbols. Starblast names are full of these -
+# the tag pasted as ₣ⱠⱤ⇝ is F, L, R with an arrow stuck on the end -
+# and treating a currency sign as punctuation threw the letter away, so
+# ₣ⱠⱤ⇝ became ⱠⱤ and ₵ØV became ØV. Uppercase keys: the text is
+# upper-cased before this is applied.
+TAG_FOLD = {
+    "₣": "F", "₤": "L", "£": "L", "Ⱡ": "L", "Ł": "L",
+    "₵": "C", "¢": "C", "₡": "C",
+    "Ø": "O", "Ɵ": "O", "Ő": "O",
+    "₦": "N", "Ñ": "N", "Ń": "N",
+    "₱": "P", "Ᵽ": "P", "ᵽ": "P",
+    "₮": "T", "Ŧ": "T", "Ⱦ": "T",
+    "₴": "S", "Ꞩ": "S", "Ş": "S", "Š": "S",
+    "₭": "K", "Ꝁ": "K",
+    "¥": "Y", "Ɏ": "Y",
+    "€": "E", "Ɇ": "E",
+    "₹": "R", "Ɽ": "R",
+    "Ƀ": "B", "฿": "B",
+    "Đ": "D", "Ð": "D",
+    "Ħ": "H", "Ɨ": "I", "ᵹ": "G", "Ǥ": "G",
+    "Ꞷ": "W", "₩": "W", "Ʉ": "U", "Ʌ": "A",
+}
+
+
 def clean_clan_tag(text):
     """A clan tag as stored: alphanumerics only, uppercased, Unicode kept.
 
@@ -417,7 +441,15 @@ def clean_clan_tag(text):
     Latin-extended letter counts as a letter, while brackets, arrows and
     currency signs are still dropped.
     """
-    return ''.join(ch for ch in str(text or '').upper() if ch.isalnum())
+    raw = ''.join(TAG_FOLD.get(ch, ch) for ch in str(text or '').upper())
+    # NFKD takes the accents off everything ordinary, so É and E are one clan.
+    raw = unicodedata.normalize('NFKD', raw)
+    plain = ''.join(ch for ch in raw if ch.isalnum() and ch.isascii())
+    if plain:
+        return plain
+    # A tag with no Latin letters in it at all - Cyrillic, Chinese - keeps
+    # whatever letters it does have rather than becoming nothing.
+    return ''.join(ch for ch in raw if ch.isalnum())
 
 
 def canonical_clan_tag(text, tags=None):
@@ -493,6 +525,22 @@ def is_clan_leader(c, sub_id, tag):
     either, so they could otherwise create power they are unable to undo.
     """
     return clan_role(c, sub_id, tag) == 'leader'
+
+
+def clan_display_map(c):
+    """{key: what to show}, for every clan that styles its tag."""
+    c.execute("SELECT tag, display_tag FROM clans WHERE display_tag IS NOT NULL "
+              "AND display_tag != '' AND display_tag != tag")
+    return {r[0]: r[1] for r in c.fetchall()}
+
+
+def clan_display(c, tag):
+    """One clan's tag as its leader wrote it."""
+    if not tag:
+        return tag
+    c.execute("SELECT display_tag FROM clans WHERE tag = ?", (tag,))
+    row = c.fetchone()
+    return (row[0] if row and row[0] else tag)
 
 
 def clan_admin_tags(c, sub_id):
@@ -770,6 +818,13 @@ def init_db():
     # guessed from the regions its members happen to have played in.
     try:
         c.execute("ALTER TABLE clans ADD COLUMN region TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # The tag as its leader wrote it. The tag column is a key - folded to
+    # plain letters so every styling of a clan is the same clan - and a key
+    # is a poor thing to show people.
+    try:
+        c.execute("ALTER TABLE clans ADD COLUMN display_tag TEXT")
     except sqlite3.OperationalError:
         pass
     # A clan admin is a Google account trusted to decide who is in one clan.
@@ -1595,6 +1650,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.62.0", "at": "2026-08-12T21:20:00Z", "changes": [
+        "Fixed: a clan tag written with symbol letters lost them. ₣ⱠⱤ⇝ was read as ⱠⱤ and ₵ØV as ØV, because a currency sign is punctuation as far as the computer is concerned - so the F and the C were thrown away with the brackets.",
+        "Symbol letters are now read as the letters they stand for, so ₣ⱠⱤ⇝ is the clan FLR and ₵ØV is COV. Tags written in Cyrillic or Chinese are kept as they are.",
+        "A clan is now shown the way its leader wrote it. The plain-letter form is still what the site matches on, so every styling of a tag is one clan, but what you see is what was typed.",
+    ]},
     {"version": "5.61.0", "at": "2026-08-12T21:05:00Z", "changes": [
         "The site owner can now grant a name claim straight from the Discord message, instead of the claimant having to win a tracked match first. Claims still complete on their own that way - this is a shortcut, not a replacement.",
         "Granting by hand makes every check the automatic path makes: the name must not already belong to someone, and the account must be under its name limit.",
@@ -2300,6 +2360,7 @@ def player_profile(name):
     played = (wins or 0) + (losses or 0)
     winrate = f"{round(100 * (wins or 0) / played)}%" if played else "-"
     player = {"name": stored_name, "display": display_name(stored_name, clan),
+              "clan_display": clan_display(c, clan) if clan else "",
               "elo": f"{elo:.1f}", "wins": wins or 0,
               "losses": losses or 0, "rank": rank, "rank_of": rank_of,
               "winrate": winrate,
@@ -3617,6 +3678,7 @@ def clan_page(tag):
     clan["admins"] = [m["name"] for m in members if m["role"] == 'leader']
     conn2 = db()
     c2 = conn2.cursor()
+    clan["display"] = clan_display(c2, known)
     clan["your_role"] = clan_role(c2, current_user(), known) or ""
     clan["can_manage"] = clan_rank(clan["your_role"]) >= clan_rank('coleader')
     clan["is_leader"] = clan["your_role"] == 'leader'
@@ -4135,6 +4197,7 @@ def bot_top_route():
     conn = db()
     c = conn.cursor()
     rows = board_rows(c, period, region)
+    shown = clan_display_map(c)
     conn.close()
     rows.sort(key=leaderboard_sort_key)
     out = []
@@ -4142,6 +4205,7 @@ def bot_top_route():
             rows[offset:offset + n], start=offset + 1):
         played = wins + losses
         out.append({"place": i, "name": name, "display": display_name(name, clan),
+                    "clan_display": shown.get(clan, clan),
                     # Over a window this is rating gained, not a standing -
                     # the bot labels the column from `gain`.
                     "elo": round(elo if gain
@@ -5762,6 +5826,7 @@ def clans_page():
     curated = curated_clans(c)
     c.execute("SELECT tag, region FROM clans")
     regions = {r[0]: (r[1] or "") for r in c.fetchall()}
+    shown = clan_display_map(c)
     rows = []
     for tag in sorted(all_clan_tags(c)):
         c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) "
@@ -5780,6 +5845,7 @@ def clans_page():
             "wins": wins,
             "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
+            "display": shown.get(tag, tag),
             "region": regions.get(tag, ""),
             "region_label": REGION_LABELS.get(regions.get(tag, ""), ""),
             "curated": tag in curated,
