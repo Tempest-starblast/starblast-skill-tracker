@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.47.0"
+APP_VERSION = "5.48.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1462,6 +1462,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.48.0", "at": "2026-08-12T16:25:00Z", "changes": [
+        "Clan leaders who cannot pass the usual check - your name has to already carry the tag - can now be given a one-time code instead. Redeem it on the Clans page or with /clanredeem and the clan is yours, no matter what your name says.",
+        "A clan can be deleted by whoever runs it, from the website or Discord. Members are released and keep their ratings and match history in full; only the clan itself goes.",
+    ]},
     {"version": "5.47.0", "at": "2026-08-12T16:07:00Z", "changes": [
         "Clans are reopening, and you claim yours yourself: paste your tag on the Clans page or use /clanclaim in Discord. To claim a tag you need a name of your own that already plays under it, so nobody can take a clan that is not theirs.",
         "Once a clan is yours you can add and remove members from either the website or Discord. Anyone with an account gets an invitation they have to accept rather than being put in a clan without being asked.",
@@ -3279,14 +3283,28 @@ def clan_code():
     """
     if not api_key_ok(request.headers.get('X-API-Key')):
         return jsonify({"message": "Unauthorized"}), 401
-    known = canonical_clan_tag((request.json or {}).get('clan'))
-    if not known:
-        return jsonify({"message": "Unknown clan tag. Known tags: "
-                                   + ", ".join(sorted(all_clan_tags()))}), 400
-
-    code = known + "-" + secrets.token_hex(3).upper()
+    raw = (request.json or {}).get('clan')
+    known = canonical_clan_tag(raw)
     conn = db()
     c = conn.cursor()
+    if not known:
+        # A code for a clan that does not exist yet is the normal case:
+        # this is how a leader who cannot pass the play-under-the-tag test
+        # gets their clan at all. Mint it here, unowned, so the code is
+        # what hands it over.
+        tag = clean_clan_tag(raw)
+        if not 2 <= len(tag) <= 6 or not any(ch.isalpha() for ch in tag):
+            conn.close()
+            return jsonify({"message": "A clan tag is 2 to 6 letters or numbers, "
+                                       "with at least one letter."}), 400
+        if is_blocked_word(tag):
+            conn.close()
+            return jsonify({"message": "That tag isn't allowed."}), 400
+        c.execute("INSERT OR IGNORE INTO clans (tag, created_by, created_at) VALUES (?, ?, ?)",
+                  (tag, None, time.strftime('%Y-%m-%d %H:%M:%S')))
+        known = tag
+
+    code = known + "-" + secrets.token_hex(3).upper()
     c.execute("INSERT INTO clan_codes (code, clan, created_at) VALUES (?, ?, ?)",
               (code, known, time.strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
@@ -3929,6 +3947,66 @@ def bot_clan_members_route():
     return jsonify({"ok": True, "message": f"'{stored_name}' added to {tag}."}), 200
 
 
+@app.route('/api/bot/clan/redeem', methods=['POST'])
+def bot_clan_redeem_route():
+    """Turn a one-time code into admin rights, from Discord.
+
+    This is the way round the play-under-the-tag rule: the code is issued
+    by the site owner, so the check it skips has already been made by a
+    person.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    code = str((request.json or {}).get('code', '')).strip().upper()
+    if not code:
+        return jsonify({"ok": False, "message": "Enter the code you were given."}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT clan, used_at FROM clan_codes WHERE code = ?", (code,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"ok": False, "message": "That code is not valid."}), 200
+    clan, used_at = row
+    if used_at:
+        conn.close()
+        return jsonify({"ok": False, "message": "That code has already been used."}), 200
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) "
+              "VALUES (?, ?, ?)", (clan, sub_id, now))
+    c.execute("UPDATE clan_codes SET used_at = ?, used_by = ? WHERE code = ?",
+              (now, sub_id, code))
+    joined, elsewhere = join_admin_names(c, sub_id, clan)
+    conn.commit()
+    conn.close()
+    msg = f"You are now an admin of {clan}."
+    if joined:
+        msg += " Added " + ", ".join(joined) + " to the roster."
+    if elsewhere:
+        msg += " " + ", ".join(elsewhere) + " stayed in their current clan."
+    return jsonify({"ok": True, "clan": clan, "message": msg}), 200
+
+
+@app.route('/api/bot/clan/delete', methods=['POST'])
+def bot_clan_delete_route():
+    """Delete a clan you are an admin of, from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_delete(c, sub_id, (request.json or {}).get('clan'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
 @app.route('/api/bot/clan/mine')
 def bot_clan_mine_route():
     """The clans this Discord account runs, with their rosters."""
@@ -4472,6 +4550,56 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     if elsewhere:
         msg += " " + ", ".join(elsewhere) + " stayed in their current clan."
     return 200, {"ok": True, "message": msg, "clan": tag}
+
+
+def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
+    """Delete a clan outright. Shared by the website and the bot.
+
+    Revoking admin leaves the clan sitting there with no one running it;
+    this removes the thing itself - the tag, its admins, its codes, its
+    outstanding invitations, and the tag on every member's name. Does NOT
+    commit.
+    """
+    known = canonical_clan_tag(raw_tag, all_clan_tags(c))
+    if not known:
+        return 404, {"ok": False, "message": "No clan with that tag."}
+    if not trusted and known not in clan_admin_tags(c, sub_id):
+        return 403, {"ok": False, "message": "You are not an admin of that clan."}
+
+    c.execute("SELECT COUNT(*) FROM players WHERE clan = ?", (known,))
+    members = (c.fetchone() or [0])[0]
+    # clan_locked stays 0 so a name can be tagged again later; the clan is
+    # gone, not the players.
+    c.execute("UPDATE players SET clan = NULL WHERE clan = ?", (known,))
+    c.execute("DELETE FROM clan_admins WHERE clan = ?", (known,))
+    c.execute("DELETE FROM clan_codes WHERE clan = ?", (known,))
+    c.execute("DELETE FROM clan_invites WHERE clan = ?", (known,))
+    c.execute("DELETE FROM clans WHERE tag = ?", (known,))
+    return 200, {"ok": True, "clan": known,
+                 "message": f"{known} deleted. {members} member"
+                            f"{'' if members == 1 else 's'} released - their ratings and "
+                            f"match history are untouched."}
+
+
+@app.route('/clan/delete', methods=['POST'])
+def clan_delete():
+    """Delete your own clan, or any clan with the site's API key."""
+    sub_id = current_user()
+    trusted = api_key_ok(request.headers.get('X-API-Key'))
+    if not sub_id and not trusted:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    # Deleting is irreversible, so the tag has to be typed back rather than
+    # arriving from a button alone.
+    if clean_clan_tag(data.get('confirm')) != clean_clan_tag(data.get('clan')):
+        return jsonify({"message": "Type the clan tag to confirm."}), 400
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_delete(c, sub_id, data.get('clan'), trusted=trusted)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
 
 
 @app.route('/clan/revoke', methods=['POST'])
