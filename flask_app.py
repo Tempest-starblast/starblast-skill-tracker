@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.38.0"
+APP_VERSION = "5.39.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -555,19 +555,33 @@ except OSError:
     IP_HASH_SECRET = secrets.token_hex(32)
 
 
-def ip_source():
-    """An opaque, irreversible tag for the visitor's network."""
-    return hmac.new(IP_HASH_SECRET.encode(), client_ip().encode(),
+def source_tag(value):
+    """An opaque, irreversible tag for a rate-limit subject.
+
+    Hashed rather than stored plainly so rate_events can never be joined
+    back to a person, whatever the subject happens to be.
+    """
+    return hmac.new(IP_HASH_SECRET.encode(), str(value).encode(),
                     hashlib.sha256).hexdigest()[:32]
 
 
-def rate_hit(c, kind, limit, window):
+def ip_source():
+    """An opaque, irreversible tag for the visitor's network."""
+    return source_tag(client_ip())
+
+
+def rate_hit(c, kind, limit, window, src=None):
     """Record one event for this source; True when it is over the limit.
 
     The table holds (kind, tag, time) and nothing else - no account, no
     name, nothing to join a person to. Entries expire within two days.
+
+    A src must be given for anything arriving through the bot: those
+    requests all come from one machine, so the network default would put
+    every Discord user in one bucket and let any of them use up the
+    limit for everybody.
     """
-    src = ip_source()
+    src = src or ip_source()
     c.execute("DELETE FROM rate_events WHERE created_at < datetime('now', '-2 days')")
     c.execute("SELECT COUNT(*) FROM rate_events WHERE kind = ? AND src = ? "
               "AND created_at > datetime('now', ?)", (kind, src, window))
@@ -1435,6 +1449,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.39.0", "at": "2026-08-12T04:08:00Z", "changes": [
+        "Three more things you can do from Discord instead of the site: /gamename sets the name you actually play under, /claim files a claim on a name already on the board, and /report sends a bug report.",
+        "These follow exactly the same rules as the website, because both now run the same code instead of two copies that could drift apart.",
+        "Limits on claims and reports count per account when they arrive from Discord. Counting them per network would have let one person use up everyone else\u2019s allowance.",
+    ]},
     {"version": "5.38.0", "at": "2026-08-12T03:45:00Z", "changes": [
         "You can press Play from Discord now. /play lists the live matches with a button on each - press one and you are checked in, told which name to play under, and given a link straight into the lobby. No sign-in, because Discord already knows who you are.",
         "Checking in from Discord means no browser connects to this site at all, so there is nothing for it to see. It is the most private way to use the tracker.",
@@ -2508,6 +2527,74 @@ def check_in():
 
 
 
+def perform_claim(c, me_sub, raw_name, raw_note, rate_src=None):
+    """File a claim on an unowned leaderboard name.
+
+    Shared by the website and the bot. Does NOT commit.
+    """
+    name = str(raw_name or '').strip()
+    if not name:
+        return 400, {"ok": False, "message": "No name provided."}
+    note = str(raw_note or '').strip()[:200]
+
+    # One name per account, the same rule registering follows. Without this
+    # an account could register one name and then claim as many more as it
+    # liked, which is the cap in name only.
+    c.execute("SELECT name FROM players WHERE google_sub = ? "
+              "AND (COALESCE(wins, 0) + COALESCE(losses, 0)) > 0", (me_sub,))
+    held = [r[0] for r in c.fetchall()]
+    if len(held) >= MAX_NAMES_PER_ACCOUNT:
+        return 403, {"ok": False,
+                     "message": f"Your account already has a name: '{held[0]}'. "
+                                f"Remove it first if you want to claim a different one."}
+
+    c.execute("SELECT name, google_sub FROM players WHERE norm_name = ?",
+              (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        return 404, {"ok": False, "message": f"'{name}' is not on the leaderboard."}
+
+    stored_name, owner_sub = row
+    if owner_sub == me_sub:
+        return 400, {"ok": False, "message": f"'{stored_name}' is already yours."}
+    if owner_sub:
+        return 400, {"ok": False,
+                     "message": "That name already belongs to an account. If it is really "
+                                "yours, report it and it will be looked at by hand."}
+
+    c.execute("SELECT id FROM claim_requests WHERE name = ? AND google_sub = ? "
+              "AND status = 'pending'", (stored_name, me_sub))
+    if c.fetchone():
+        return 400, {"ok": False,
+                     "message": "You already have a pending claim for that name."}
+
+    # Cap how many can be open at once. Each claim raises an alert, so an
+    # unlimited supply is both a way to bury the genuine ones and a way to
+    # flood the channel they are reported in.
+    c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' "
+              "AND google_sub = ?", (me_sub,))
+    pending_mine = (c.fetchone() or [0])[0]
+    if pending_mine >= MAX_PENDING_CLAIMS \
+            or rate_hit(c, 'claim', MAX_PENDING_CLAIMS, '-1 day', src=rate_src):
+        return 429, {"ok": False,
+                     "message": f"You already have {MAX_PENDING_CLAIMS} claims waiting. "
+                                f"Wait for those to be looked at first."}
+
+    c.execute("SELECT COALESCE(MAX(id), 0) FROM matches")
+    from_match = c.fetchone()[0]
+    c.execute("INSERT INTO claim_requests (name, ip, note, created_at, status, "
+              "google_sub, verify_from) VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+              (stored_name, None, note, time.strftime('%Y-%m-%d %H:%M:%S'),
+               me_sub, from_match))
+    n = CLAIM_WINS_REQUIRED
+    return 200, {"ok": True, "name": stored_name,
+                 "message": f"Claim started for '{stored_name}'. Now win "
+                            f"{n} tracked match{'' if n == 1 else 'es'} playing as that "
+                            f"name and it becomes yours automatically. The claim is shown "
+                            f"on that player's page while it is open, so the real owner "
+                            f"can report it."}
+
+
 @app.route('/claim', methods=['POST'])
 def claim_name():
     """Request ownership of a name that has no owner.
@@ -2517,76 +2604,18 @@ def claim_name():
     own once the name wins a tracked match after filing, and while it is
     open it is shown publicly on that player's page so the real owner
     can see it and report it."""
-    data = request.json
-    if not data or 'name' not in data:
-        return jsonify({"message": "No name provided"}), 400
-
-    name = data['name'].strip()
-    note = (data.get('note') or '').strip()[:200]
-
-    conn = db()
-    c = conn.cursor()
+    data = request.json or {}
     me_sub = current_user()
     if not me_sub:
-        conn.close()
-        return jsonify({"message": "Sign in with Google first - use the button at the top of the page."}), 401
-
-    # One name per account, the same rule registering follows. Without this
-    # an account could register one name and then claim as many more as it
-    # liked, which is the cap in name only.
-    c.execute("SELECT name FROM players WHERE google_sub = ? "
-              "AND (COALESCE(wins, 0) + COALESCE(losses, 0)) > 0", (me_sub,))
-    held = [r[0] for r in c.fetchall()]
-    if len(held) >= MAX_NAMES_PER_ACCOUNT:
-        conn.close()
-        return jsonify({"message": f"Your account already has a name: '{held[0]}'. "
-                                   f"Remove it first if you want to claim a different one."}), 403
-
-    c.execute("SELECT name, google_sub FROM players WHERE norm_name = ?", (normalize_name(name),))
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({"message": f"'{name}' is not on the leaderboard."}), 404
-
-    stored_name, owner_sub = row
-    if owner_sub == me_sub:
-        conn.close()
-        return jsonify({"message": f"'{stored_name}' is already yours."}), 400
-    if owner_sub:
-        conn.close()
-        return jsonify({"message": "That name already belongs to an account. If it is really "
-                                   "yours, report it and it will be looked at by hand."}), 400
-
-    c.execute("SELECT id FROM claim_requests WHERE name = ? AND google_sub = ? AND status = 'pending'",
-              (stored_name, me_sub))
-    if c.fetchone():
-        conn.close()
-        return jsonify({"message": "You already have a pending claim for that name."}), 400
-
-    # Cap how many can be open at once. Each claim raises an alert, so an
-    # unlimited supply is both a way to bury the genuine ones and a way to
-    # flood the channel they are reported in.
-    c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' "
-              "AND google_sub = ?", (me_sub,))
-    pending_mine = (c.fetchone() or [0])[0]
-    if pending_mine >= MAX_PENDING_CLAIMS \
-            or rate_hit(c, 'claim', MAX_PENDING_CLAIMS, '-1 day'):
-        conn.close()
-        return jsonify({"message": f"You already have {MAX_PENDING_CLAIMS} claims waiting. "
-                                   f"Wait for those to be looked at first."}), 429
-
-    c.execute("SELECT COALESCE(MAX(id), 0) FROM matches")
-    from_match = c.fetchone()[0]
-    c.execute("INSERT INTO claim_requests (name, ip, note, created_at, status, google_sub, verify_from) "
-              "VALUES (?, ?, ?, ?, 'pending', ?, ?)",
-              (stored_name, None, note, time.strftime('%Y-%m-%d %H:%M:%S'), me_sub, from_match))
-    conn.commit()
+        return jsonify({"message": "Sign in first - use the button at the top "
+                                   "of the page."}), 401
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_claim(c, me_sub, data.get('name'), data.get('note'))
+    if status == 200:
+        conn.commit()
     conn.close()
-    n = CLAIM_WINS_REQUIRED
-    return jsonify({"message": f"Claim started for '{stored_name}'. Now win "
-                               f"{n} tracked match{'' if n == 1 else 'es'} playing as that name "
-                               f"and it becomes yours automatically. The claim is shown on that "
-                               f"player's page while it is open, so the real owner can report it."}), 200
+    return jsonify(payload), status
 
 
 def account_name_for(c, sub_id):
@@ -2865,6 +2894,30 @@ def auth_discord_callback():
     return redirect('/?signin=ok')
 
 
+def perform_set_game_name(c, sub_id, raw_name):
+    """Set (or clear) the name this account currently plays under.
+
+    Shared by the website and the bot so both enforce the same rules.
+    Does NOT commit - the caller owns the transaction.
+    """
+    name = str(raw_name or '').strip()[:32]
+    who = account_name_for(c, sub_id)
+    if not who:
+        return 400, {"ok": False, "no_name": True,
+                     "message": "Set your account name first - that is the name your "
+                                "matches are recorded under."}
+    if name and is_blocked_word(name):
+        return 400, {"ok": False,
+                     "message": "That name isn't allowed. Please choose another."}
+    c.execute("UPDATE players SET game_name = ? WHERE name = ?", (name or None, who))
+    if not name:
+        return 200, {"ok": True, "game_name": "",
+                     "message": "Cleared. Your profile no longer says what you play as."}
+    return 200, {"ok": True, "game_name": name,
+                 "message": f"Noted - you play as '{name}'. Your results still appear "
+                            f"under '{who}' whenever you press Play."}
+
+
 @app.route('/account/gamename', methods=['POST'])
 def set_game_name():
     """Set the name this account currently plays under in Starblast.
@@ -2878,26 +2931,13 @@ def set_game_name():
     sub_id = current_user()
     if not sub_id:
         return jsonify({"message": "Sign in first."}), 401
-    name = str((request.json or {}).get('name', '')).strip()[:32]
     conn = db()
     c = conn.cursor()
-    who = account_name_for(c, sub_id)
-    if not who:
-        conn.close()
-        return jsonify({"message": "Set your account name first - that is the name your "
-                                   "matches are recorded under."}), 400
-    if name and is_blocked_word(name):
-        conn.close()
-        return jsonify({"message": "That name isn't allowed. Please choose another."}), 400
-    c.execute("UPDATE players SET game_name = ? WHERE name = ?", (name or None, who))
-    conn.commit()
+    status, payload = perform_set_game_name(c, sub_id, (request.json or {}).get('name', ''))
+    if status == 200:
+        conn.commit()
     conn.close()
-    if not name:
-        return jsonify({"message": "Cleared. Your profile no longer says what you play as.",
-                        "game_name": ""}), 200
-    return jsonify({"message": f"Noted - you play as '{name}'. Your results still appear "
-                               f"under '{who}' whenever you press Play.",
-                    "game_name": name}), 200
+    return jsonify(payload), status
 
 
 @app.route('/account/name', methods=['POST'])
@@ -3659,6 +3699,68 @@ def bot_checkin_route():
     return jsonify(payload), 200
 
 
+def _bot_sub():
+    """The account behind a bot request, or None."""
+    discord_id = str((request.json or {}).get('discord_id', '')).strip()
+    return ('discord:' + discord_id) if discord_id else None
+
+
+@app.route('/api/bot/gamename', methods=['POST'])
+def bot_gamename_route():
+    """Set the name this account plays under, from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_set_game_name(c, sub_id, (request.json or {}).get('name', ''))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
+@app.route('/api/bot/claim', methods=['POST'])
+def bot_claim_route():
+    """File a claim from Discord, rate limited per account rather than per
+    network - every bot request arrives from the same machine."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_claim(c, sub_id, data.get('name'), data.get('note'),
+                                    rate_src=source_tag(sub_id))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
+@app.route('/api/bot/report', methods=['POST'])
+def bot_report_route():
+    """File a bug report from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_report(c, sub_id, data.get('kind'), data.get('body'),
+                                     data.get('contact'), rate_src=source_tag(sub_id))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
 @app.route('/api/bot/me')
 def bot_me_route():
     if not bot_authorised():
@@ -4279,6 +4381,32 @@ def _players_page_unused():
                            version=APP_VERSION, page='players')
 
 
+def perform_report(c, sub_id, raw_kind, raw_body, raw_contact, rate_src=None):
+    """File a bug report. Shared by the website and the bot. Does NOT commit."""
+    body = str(raw_body or '').strip()
+    kind = str(raw_kind or 'bug').strip()
+    who = str(raw_contact or '').strip()[:120]
+    if kind not in dict(REPORT_KINDS):
+        kind = 'other'
+    if len(body) < 10:
+        return 400, {"ok": False,
+                     "message": "Please say a little more about what happened - "
+                                "a sentence or two is enough."}
+    body = body[:4000]
+    if rate_hit(c, 'bug_report', MAX_REPORTS_PER_DAY, '-1 day', src=rate_src):
+        return 429, {"ok": False,
+                     "message": f"That is {MAX_REPORTS_PER_DAY} reports from here today, "
+                                f"which is the limit. If there is more to say, "
+                                f"message {CONTACT_HANDLE} on Discord."}
+    c.execute("INSERT INTO bug_reports (kind, body, contact, google_sub, ip, created_at) "
+              "VALUES (?,?,?,?,?,?)",
+              (kind, body, who or None, sub_id, None,
+               time.strftime('%Y-%m-%d %H:%M:%S')))
+    return 200, {"ok": True,
+                 "message": "Thank you - that has been logged. If you left a way to "
+                            "reach you, you may get a reply."}
+
+
 @app.route('/reports', methods=['GET', 'POST'])
 def reports_page():
     """File a bug report, or read what to include in one.
@@ -4294,31 +4422,14 @@ def reports_page():
                                client_id=GOOGLE_CLIENT_ID)
 
     data = request.json or {}
-    body = str(data.get('body', '')).strip()
-    kind = str(data.get('kind', 'bug')).strip()
-    who = str(data.get('contact', '')).strip()[:120]
-    if kind not in dict(REPORT_KINDS):
-        kind = 'other'
-    if len(body) < 10:
-        return jsonify({"message": "Please say a little more about what happened - "
-                                   "a sentence or two is enough."}), 400
-    body = body[:4000]
-
     conn = db()
     c = conn.cursor()
-    if rate_hit(c, 'bug_report', MAX_REPORTS_PER_DAY, '-1 day'):
-        conn.close()
-        return jsonify({"message": f"That is {MAX_REPORTS_PER_DAY} reports from here today, "
-                                   f"which is the limit. If there is more to say, "
-                                   f"message {CONTACT_HANDLE} on Discord."}), 429
-    c.execute("INSERT INTO bug_reports (kind, body, contact, google_sub, ip, created_at) "
-              "VALUES (?,?,?,?,?,?)",
-              (kind, body, who or None, current_user(), None,
-               time.strftime('%Y-%m-%d %H:%M:%S')))
-    conn.commit()
+    status, payload = perform_report(c, current_user(), data.get('kind'),
+                                     data.get('body'), data.get('contact'))
+    if status == 200:
+        conn.commit()
     conn.close()
-    return jsonify({"message": "Thank you - that has been logged. If you left a way to "
-                               "reach you, you may get a reply."}), 200
+    return jsonify(payload), status
 
 
 @app.route('/api/reports')
