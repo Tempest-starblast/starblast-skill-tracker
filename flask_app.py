@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.43.0"
+APP_VERSION = "5.44.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1449,6 +1449,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.44.0", "at": "2026-08-12T04:54:00Z", "changes": [
+        "/play, /gamename, /claim and /report now look like the rest of the bot. The match list shows a green or amber dot and the region flag for each game, and replies are proper cards - green when something worked, red when it did not.",
+        "/play was offering buttons for the wrong matches. The list arrives with games already being watched at the top, so the four buttons were going to half-elo matches while the full-elo ones - worth twice as much - got none. Full elo now comes first, and there are more buttons.",
+    ]},
     {"version": "5.43.0", "at": "2026-08-12T04:42:00Z", "changes": [
         "The bot\u2019s cards were redrawn properly. A player card leads with the rating, shows recent form as a row of green and red squares, and lists each region with its flag. The stripe down the side turns green or red with how the last few matches went.",
         "The leaderboard shows medals for the top three and reads as a list rather than a cramped grid, which is far easier on a phone.",
