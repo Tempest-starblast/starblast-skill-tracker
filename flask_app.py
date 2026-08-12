@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.41.0"
+APP_VERSION = "5.42.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1449,6 +1449,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.42.0", "at": "2026-08-12T04:33:00Z", "changes": [
+        "The bot looks like a 2026 bot now. Player lookups, match history and the leaderboard are drawn with Discord\u2019s newer message layout - a proper card with an accent stripe, sections and separators - instead of the old plain box.",
+        "Nothing about what they show has changed, only how they look. The leaderboard and the region breakdown are still lined-up tables, because Discord has no real table and a monospace block is the only thing that stays aligned on every device.",
+    ]},
     {"version": "5.41.0", "at": "2026-08-12T04:23:00Z", "changes": [
         "/rank in Discord now shows where someone actually plays - their record and rating in each region, the same split the profile page has - and has buttons to open their recent matches or their full profile.",
     ]},
