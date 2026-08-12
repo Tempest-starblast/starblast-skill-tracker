@@ -17,6 +17,17 @@ data. The short version, checkable in this code:
 - Ratings move by the Elo-style rules in the game-end handler
   (`/api/game_end`); the changelog on the site records every behavior change.
 
+## How this repository stays current
+
+This is a **backup, not the source of truth.** The live site runs on
+PythonAnywhere; a scheduled task there copies what is actually running into
+this repository once a day and pushes it, so the history reflects the code
+that really served players rather than an intention. Commits titled
+"Snapshot of live site X.Y.Z" come from that task.
+
+The snapshot refuses to run if it finds a literal secret in `flask_app.py`,
+and the key files and database can never be committed (see `.gitignore`).
+
 ## Layout
 
 - `flask_app.py` — the whole site: routes, rating math, moderation,
