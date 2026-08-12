@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.46.0"
+APP_VERSION = "5.47.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -399,6 +399,19 @@ def detect_clan(raw_name, tags=None):
     return None
 
 
+def clean_clan_tag(text):
+    """A clan tag as stored: alphanumerics only, uppercased, Unicode kept.
+
+    Real tags on this leaderboard are not ASCII - [G\u039e], \u20b5\u00d8V, \u0141S and
+    \u2325\u0191\u1566 are all live clans. Stripping to A-Z0-9 reduced those to a single
+    letter or to nothing, which made them fail the length check and be
+    impossible to claim at all. isalnum() is Unicode-aware, so a Greek or
+    Latin-extended letter counts as a letter, while brackets, arrows and
+    currency signs are still dropped.
+    """
+    return ''.join(ch for ch in str(text or '').upper() if ch.isalnum())
+
+
 def canonical_clan_tag(text, tags=None):
     """The existing clan tag this text refers to, or None.
 
@@ -407,7 +420,7 @@ def canonical_clan_tag(text, tags=None):
     would otherwise render an empty roster and read as a real clan that
     simply has no members yet.
     """
-    key = re.sub(r'[^A-Z0-9]', '', str(text or '').upper())
+    key = clean_clan_tag(text)
     if tags is None:
         tags = all_clan_tags()
     for known in tags:
@@ -1449,6 +1462,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.47.0", "at": "2026-08-12T16:07:00Z", "changes": [
+        "Clans are reopening, and you claim yours yourself: paste your tag on the Clans page or use /clanclaim in Discord. To claim a tag you need a name of your own that already plays under it, so nobody can take a clan that is not theirs.",
+        "Once a clan is yours you can add and remove members from either the website or Discord. Anyone with an account gets an invitation they have to accept rather than being put in a clan without being asked.",
+        "Tags that are not plain English letters work now. [G\u039e], \u20b5\u00d8V, \u0141S and similar were being cut down to a single letter and could not be claimed at all.",
+    ]},
     {"version": "5.46.0", "at": "2026-08-12T15:28:00Z", "changes": [
         "You can message the bot directly now. Every command works in a DM with it - press Play, check your rank, set your name, report something - without posting in a channel. Useful if you would rather not have your rating discussed in public.",
         "The commands moved from being registered in the one server to being registered everywhere, which is what makes DMs possible. If a command looks briefly missing or doubled up right after this, it is Discord catching up and it settles on its own.",
@@ -3787,6 +3805,153 @@ def _bot_sub():
     return ('discord:' + discord_id) if discord_id else None
 
 
+@app.route('/api/bot/clan/claim', methods=['POST'])
+def bot_clan_claim_route():
+    """Claim a clan tag from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_create(c, sub_id, (request.json or {}).get('tag'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
+@app.route('/api/bot/clan/members', methods=['POST'])
+def bot_clan_members_route():
+    """Add or remove a player, as an admin of that clan.
+
+    One endpoint for both so the admin check lives in a single place; the
+    website's own routes enforce exactly the same rules.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    action = str(data.get('action', '')).strip().lower()
+    name = str(data.get('name', '')).strip()
+    if action not in ('add', 'remove'):
+        return jsonify({"ok": False, "message": "Unknown action."}), 200
+    if not name:
+        return jsonify({"ok": False, "message": "A player name is required."}), 200
+
+    conn = db()
+    c = conn.cursor()
+    mine = clan_admin_tags(c, sub_id)
+    if not mine:
+        conn.close()
+        return jsonify({"ok": False, "no_clan": True,
+                        "message": "You do not run a clan yet. Claim your tag first."}), 200
+    # An admin of exactly one clan never has to name it; anyone running two
+    # says which, and a wrong name is refused rather than guessed at.
+    tag = clean_clan_tag(data.get('clan')) or (mine[0] if len(mine) == 1 else None)
+    if not tag or tag not in mine:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": ("Say which clan - you are an admin of "
+                                    + ", ".join(mine) + ".") if len(mine) > 1
+                                   else "You are not an admin of that clan."}), 200
+
+    c.execute("SELECT name, google_sub, clan FROM players WHERE norm_name = ?",
+              (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"'{name}' is not on the leaderboard."}), 200
+    stored_name, owner_sub, current_clan = row
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+
+    if action == 'remove':
+        if current_clan != tag:
+            conn.close()
+            return jsonify({"ok": False,
+                            "message": f"'{stored_name}' is not in {tag}."}), 200
+        # clan_locked stays 0: an admin's clan is curated, so detection
+        # already skips it, and locking would stop the player ever being
+        # tagged into another clan.
+        c.execute("UPDATE players SET clan = NULL, clan_locked = 0 WHERE name = ?",
+                  (stored_name,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True,
+                        "message": f"'{stored_name}' removed from {tag}."}), 200
+
+    if current_clan == tag:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"'{stored_name}' is already in {tag}."}), 200
+    if current_clan:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"'{stored_name}' is in {current_clan} and has to leave "
+                                   f"that first."}), 200
+
+    # A player with an account is invited, never added. Being put in a clan
+    # by somebody else is the complaint the whole system exists to avoid,
+    # so anyone with an account gets to say no.
+    if owner_sub:
+        c.execute("SELECT id FROM clan_invites WHERE clan = ? AND name = ? "
+                  "AND status = 'pending' AND direction = 'invite'", (tag, stored_name))
+        if c.fetchone():
+            conn.close()
+            return jsonify({"ok": False,
+                            "message": f"'{stored_name}' already has an invitation from "
+                                       f"{tag} waiting."}), 200
+        c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, "
+                  "direction) VALUES (?, ?, ?, ?, 'pending', 'invite')",
+                  (tag, stored_name, sub_id, now))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True, "invited": True,
+                        "message": f"Invitation sent to '{stored_name}'. It does nothing "
+                                   f"until they accept it."}), 200
+
+    # Nobody to ask. Allowed only when the tag really is in the name the
+    # tracker read - the same evidence detection used - so an admin can
+    # tidy their own roster but cannot rope in unrelated players.
+    if not clean_clan_tag(stored_name).startswith(tag):
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"'{stored_name}' has no account to ask, and {tag} is not "
+                                   f"in their name, so they cannot be added. Ask them to "
+                                   f"sign in and claim the name first."}), 200
+    c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (tag, stored_name))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "message": f"'{stored_name}' added to {tag}."}), 200
+
+
+@app.route('/api/bot/clan/mine')
+def bot_clan_mine_route():
+    """The clans this Discord account runs, with their rosters."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    discord_id = str(request.args.get('discord_id', '')).strip()
+    if not discord_id:
+        return jsonify({"error": "no discord_id"}), 400
+    sub_id = 'discord:' + discord_id
+    conn = db()
+    c = conn.cursor()
+    out = []
+    for tag in clan_admin_tags(c, sub_id):
+        c.execute("SELECT name, elo FROM players WHERE clan = ? ORDER BY elo DESC", (tag,))
+        members = [{"name": r[0], "elo": round(r[1], 2)} for r in c.fetchall()]
+        c.execute("SELECT name FROM clan_invites WHERE clan = ? AND status = 'pending' "
+                  "AND direction = 'invite' ORDER BY id", (tag,))
+        out.append({"tag": tag, "members": members,
+                    "pending": [r[0] for r in c.fetchall()]})
+    conn.close()
+    return jsonify({"clans": out}), 200
+
+
 @app.route('/api/bot/gamename', methods=['POST'])
 def bot_gamename_route():
     """Set the name this account plays under, from Discord."""
@@ -4248,56 +4413,65 @@ def clan_create():
     """
     sub_id = current_user()
     if not sub_id:
-        return jsonify({"message": "Sign in with Google first."}), 401
-
-    tag = re.sub(r'[^A-Z0-9]', '', str((request.json or {}).get('tag', '')).upper())
-    if not 2 <= len(tag) <= 4:
-        return jsonify({"message": "A clan tag is 2 to 4 letters or numbers."}), 400
-    if not any(ch.isalpha() for ch in tag):
-        return jsonify({"message": "A clan tag needs at least one letter."}), 400
-    if is_blocked_word(tag):
-        return jsonify({"message": "That tag isn't allowed. Please choose another."}), 400
-
+        return jsonify({"message": "Sign in first."}), 401
     conn = db()
     c = conn.cursor()
+    status, payload = perform_clan_create(
+        c, sub_id, (request.json or {}).get('tag'),
+        trusted=api_key_ok(request.headers.get('X-API-Key')))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+def perform_clan_create(c, sub_id, raw_tag, trusted=False):
+    """Claim a clan tag. Shared by the website and the bot. Does NOT commit."""
+    tag = clean_clan_tag(raw_tag)
+    if not 2 <= len(tag) <= 6:
+        return 400, {"ok": False,
+                     "message": "A clan tag is 2 to 6 letters or numbers."}
+    if not any(ch.isalpha() for ch in tag):
+        return 400, {"ok": False, "message": "A clan tag needs at least one letter."}
+    if is_blocked_word(tag):
+        return 400, {"ok": False,
+                     "message": "That tag isn't allowed. Please choose another."}
+
     c.execute("SELECT tag FROM clans WHERE tag = ?", (tag,))
     if c.fetchone():
-        conn.close()
-        return jsonify({"message": f"{tag} already exists."}), 400
+        return 400, {"ok": False, "message": f"{tag} has already been claimed."}
 
-    # You must already play under the tag to mint it. Creating a clan makes
-    # it curated, which switches automatic detection off for that tag - so
+    # You must already play under the tag to claim it. Claiming makes the
+    # clan curated, which switches automatic detection off for that tag - so
     # without this check anyone could grab a real clan's tag before its
     # leader did and then decide who counts as a member. The API key skips
     # the test so the site owner can still set a clan up on request.
-    if not api_key_ok(request.headers.get('X-API-Key')):
+    if not trusted:
         c.execute("SELECT name FROM players WHERE google_sub = ?", (sub_id,))
-        owned = [normalize_name(r[0]) for r in c.fetchall()]
-        if not any(n == tag or (n.startswith(tag) and len(n) > len(tag)) for n in owned):
-            conn.close()
-            return jsonify({"message": f"To start {tag} you need a name of your own that plays "
-                                       f"under it. Claim your name on Settings first, then try "
-                                       f"again - or ask {CONTACT_HANDLE} on Discord."}), 403
+        owned = [clean_clan_tag(r[0]) for r in c.fetchall()]
+        if not any(n.startswith(tag) for n in owned if n):
+            return 403, {"ok": False, "need_name": True,
+                         "message": f"To claim {tag} you need a name of your own that plays "
+                                    f"under it. Set or claim your name first, then try "
+                                    f"again - or ask {CONTACT_HANDLE} on Discord."}
 
     c.execute("SELECT COUNT(*) FROM clans WHERE created_by = ?", (sub_id,))
     if c.fetchone()[0] >= MAX_CLANS_PER_ACCOUNT:
-        conn.close()
-        return jsonify({"message": f"You have already started {MAX_CLANS_PER_ACCOUNT} clans. "
-                                   f"Ask {CONTACT_HANDLE} on Discord if you need another."}), 400
+        return 400, {"ok": False,
+                     "message": f"You have already claimed {MAX_CLANS_PER_ACCOUNT} clans. "
+                                f"Ask {CONTACT_HANDLE} on Discord if you need another."}
 
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     c.execute("INSERT INTO clans (tag, created_by, created_at) VALUES (?, ?, ?)", (tag, sub_id, now))
     c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) VALUES (?, ?, ?)",
               (tag, sub_id, now))
     joined, elsewhere = join_admin_names(c, sub_id, tag)
-    conn.commit()
-    conn.close()
-    msg = f"{tag} created. You are its admin - invite your members below."
+    msg = f"{tag} is yours. You are its admin - add your members next."
     if joined:
         msg += " Added " + ", ".join(joined) + " to the roster."
     if elsewhere:
         msg += " " + ", ".join(elsewhere) + " stayed in their current clan."
-    return jsonify({"message": msg, "clan": tag}), 200
+    return 200, {"ok": True, "message": msg, "clan": tag}
 
 
 @app.route('/clan/revoke', methods=['POST'])
@@ -4359,8 +4533,8 @@ def clans_page():
     conn.close()
     # Biggest first, so a busy clan is not buried under empty ones.
     rows.sort(key=lambda r: (-r["size"], r["tag"]))
-    return render_template('clans.html', clans=rows, version=APP_VERSION,
-                           contact=CONTACT_HANDLE, page='clans',
+    return render_template('clans.html', clans=rows, total=len(rows),
+                           version=APP_VERSION, contact=CONTACT_HANDLE, page='clans',
                            notice=CLANS_NOTICE)
 
 

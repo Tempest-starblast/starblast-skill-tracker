@@ -1,22 +1,158 @@
 {% extends "base.html" %}
 {% block title %}Clans - Starblast Skill Tracker{% endblock %}
 {% block css %}
-.hard{background:rgba(214,182,86,.10);border:1px solid rgba(214,182,86,.42);border-radius:9px;
-  padding:18px 20px;margin-bottom:18px}
-.hard h2{margin:0 0 8px;font-size:16px;color:#d6b656}
-.hard p{margin:0 0 10px;font-size:13.5px;color:var(--muted);line-height:1.65}
-.hard p:last-child{margin-bottom:0}
+.clanrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:11px 0;border-bottom:1px solid var(--line)}
+.clanrow:last-of-type{border-bottom:none}
+.ctag{font-weight:700;color:var(--text);font-size:15px}
+.cmeta{font-size:12px;color:var(--muted);margin-top:2px}
+.memrow{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.memrow:last-child{border-bottom:none}
+.memrow button{padding:6px 12px;font-size:12px}
+.pill2{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:10px;font-size:10.5px;
+  font-weight:700;background:#3a3320;border:1px solid #6b5320;color:#f0c04a}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Clans</h1>
-<p class="psub">Under construction.</p>
+<p class="psub">{{ total }} clan{{ '' if total == 1 else 's' }} claimed.</p>
 
-<div class="hard">
-  <h2>Clans are switched off for now</h2>
-  <p>{{ notice }}</p>
-  <p>If you run a clan and want it set up again once this reopens, say so to
-     {{ contact }} on Discord and it will be near the front of the queue.</p>
+<div class="card" id="claimCard">
+  <h2>Claim your clan</h2>
+  <p class="desc">Paste your tag exactly as it appears in your name &mdash; brackets and
+     symbols are fine, they are ignored. You need a name of your own that already plays
+     under the tag, which is what stops anyone claiming a clan that is not theirs.</p>
+  <div id="claimSignedOut">
+    <p class="desc">Sign in at the top of the page first.</p>
+  </div>
+  <div id="claimSignedIn" style="display:none">
+    <div class="row">
+      <input type="text" id="tagInput" placeholder="e.g. [COV] or \u20b5\u00d8V" maxlength="24" autocomplete="off">
+      <button class="primary" onclick="claimClan()">Claim it</button>
+    </div>
+  </div>
+  <p class="msg" id="claimMsg"></p>
+</div>
+
+<div class="card" id="manageCard" style="display:none">
+  <h2>Your clan</h2>
+  <p class="desc">Add someone and, if they have an account, they get an invitation to
+     accept &mdash; nobody is put in a clan without being asked.</p>
+  <div class="row">
+    <input type="text" id="memberInput" placeholder="Player name" maxlength="32" autocomplete="off">
+    <button class="primary" onclick="member('add')">Add</button>
+  </div>
+  <p class="msg" id="memberMsg"></p>
+  <div id="roster"></div>
+</div>
+
+<div class="card">
+  <h2>Every clan</h2>
+  {% if clans %}
+  <div id="dir">
+    {% for c in clans %}
+    <div class="clanrow">
+      <div>
+        <div class="ctag">{{ c.tag }}</div>
+        <div class="cmeta">{{ c.size }} member{{ '' if c.size == 1 else 's' }}
+          &middot; average skill {{ c.avg_elo }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No clans yet. Claim the first one above.</p>
+  {% endif %}
 </div>
 
 <p class="foot">Questions? Ask {{ contact }} on Discord.</p>
+
+<script>
+let myClan = null;
+async function post(u, b){
+  const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
+                            body: JSON.stringify(b)});
+  return [r, await r.json()];
+}
+function say(id, ok, t){
+  const m = document.getElementById(id);
+  m.className = 'msg ' + (ok ? 'ok' : 'err');
+  m.textContent = t;
+}
+window.onSignedInReady = function(){
+  document.getElementById('claimSignedOut').style.display = 'none';
+  document.getElementById('claimSignedIn').style.display = 'block';
+  loadMine();
+};
+window.onSignedOutReady = function(){
+  document.getElementById('claimSignedOut').style.display = 'block';
+  document.getElementById('claimSignedIn').style.display = 'none';
+  document.getElementById('manageCard').style.display = 'none';
+};
+async function loadMine(){
+  try{
+    const d = await (await fetch('/clan/admin/state')).json();
+    const mine = d.clans || [];
+    myClan = mine.length ? mine[0] : null;
+    document.getElementById('manageCard').style.display = myClan ? 'block' : 'none';
+    if (myClan){
+      document.querySelector('#manageCard h2').textContent = 'Your clan \u2014 ' + myClan.tag;
+      drawRoster(myClan);
+    }
+  }catch(e){}
+}
+function drawRoster(clan){
+  const box = document.getElementById('roster');
+  box.innerHTML = '';
+  const rows = (clan.members || []).map(function(m){ return {name: m.name, pending: false}; })
+    .concat((clan.pending || []).map(function(p){ return {name: p.name, pending: true}; }));
+  if (!rows.length){
+    box.innerHTML = '<p class="desc" style="margin-top:12px">Nobody on the roster yet.</p>';
+    return;
+  }
+  rows.forEach(function(m){
+    const row = document.createElement('div');
+    row.className = 'memrow';
+    const left = document.createElement('span');
+    left.textContent = m.name;
+    if (m.pending){
+      const tagEl = document.createElement('span');
+      tagEl.className = 'pill2';
+      tagEl.textContent = 'invited';
+      left.appendChild(tagEl);
+    }
+    const btn = document.createElement('button');
+    btn.className = 'ghost';
+    btn.textContent = 'Remove';
+    btn.onclick = function(){ member('remove', m.name); };
+    row.appendChild(left); row.appendChild(btn);
+    box.appendChild(row);
+  });
+}
+async function claimClan(){
+  const tag = document.getElementById('tagInput').value.trim();
+  if (!tag) return say('claimMsg', false, 'Paste your clan tag first.');
+  try{
+    const [r, d] = await post('/clan/create', {tag: tag});
+    say('claimMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('claimMsg', false, 'Server connection error.'); }
+}
+async function member(action, name){
+  const who = name || document.getElementById('memberInput').value.trim();
+  if (!who) return say('memberMsg', false, 'Enter a player name.');
+  const url = action === 'add' ? '/clan/add' : '/clan/remove';
+  const body = action === 'add' ? {clan: myClan.tag, name: who} : {name: who};
+  try{
+    const [r, d] = await post(url, body);
+    say('memberMsg', r.ok, d.message);
+    if (r.ok){ document.getElementById('memberInput').value = ''; loadMine(); }
+  }catch(e){ say('memberMsg', false, 'Server connection error.'); }
+}
+window.addEventListener('DOMContentLoaded', function(){
+  fetch('/me').then(function(r){ return r.json(); }).then(function(d){
+    if (d.logged_in) window.onSignedInReady();
+  }).catch(function(){});
+});
+</script>
 {% endblock %}
