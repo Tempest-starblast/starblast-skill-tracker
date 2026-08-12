@@ -13,7 +13,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.62.0"
+APP_VERSION = "5.62.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1650,6 +1650,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.62.1", "at": "2026-08-12T22:05:00Z", "changes": [
+        "Fixed the last few places on a clan page that printed the plain-letter form of a tag instead of the way its leader wrote it - the Join heading and the line telling you which clan you are in.",
+    ]},
     {"version": "5.62.0", "at": "2026-08-12T21:20:00Z", "changes": [
         "Fixed: a clan tag written with symbol letters lost them. ₣ⱠⱤ⇝ was read as ⱠⱤ and ₵ØV as ØV, because a currency sign is punctuation as far as the computer is concerned - so the F and the C were thrown away with the brackets.",
         "Symbol letters are now read as the letters they stand for, so ₣ⱠⱤ⇝ is the clan FLR and ₵ØV is COV. Tags written in Cyrillic or Chinese are kept as they are.",

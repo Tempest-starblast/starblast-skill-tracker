@@ -60,7 +60,7 @@
 {% endif %}
 
 <div class="card" id="applyCard" style="display:none">
-  <h2>Join {{ clan.tag }}</h2>
+  <h2>Join {{ clan.display or clan.tag }}</h2>
   <p class="desc">Your application goes to whoever runs the clan. They see your rank,
      record and skill, and decide.</p>
   <button class="primary" onclick="applyToClan()">{{ t('Apply to join') }}</button>
@@ -171,6 +171,8 @@ Remove clan tag, or ask {{ contact }} on Discord.</p>
 
 <script>
 const TAG = {{ clan.tag|tojson }};
+// What to print. TAG is the key: it goes in requests, never on screen.
+const SHOWN = {{ (clan.display or clan.tag)|tojson }};
 let amAdmin = false, myNames = [], MY_NAME = '';
 async function post(u, b){
   const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
@@ -218,7 +220,7 @@ async function refresh(){
       document.getElementById('meCard').style.display = 'block';
       document.getElementById('leaveBtn').style.display = onRoster ? 'inline-block' : 'none';
       document.getElementById('meText').textContent =
-        (amAdmin ? 'You run ' + TAG + '. ' : 'You are in ' + TAG + '. ')
+        (amAdmin ? 'You run ' + SHOWN + '. ' : 'You are in ' + SHOWN + '. ')
         + (onRoster ? 'Your row is highlighted below.'
                     : 'You are not on the roster - set a name and you will be added.');
     }
