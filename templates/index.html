@@ -105,7 +105,7 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 {% for p in leaderboard %}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}">
   <td class="rank">{{ loop.index }}</td>
-  <td><a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan }}</a>{% endif %}{% if p.protected %}<span class="tick" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
+  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.protected %}<span class="tick" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
     href="/?period={{ period }}&amp;region={{ p.region }}#p-{{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}

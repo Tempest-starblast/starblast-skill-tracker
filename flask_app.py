@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.55.0"
+APP_VERSION = "5.56.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -272,9 +272,16 @@ def display_name(name, clan):
     """
     if not name or not clan:
         return name
-    if len(name) > len(clan) and name.upper().startswith(clan.upper()):
-        return name[len(clan):]
-    return name
+    # Bracketed as well as bare: "(Ł7) Tempest" and "Ł7 Tempest" both wear
+    # the tag, and only stripping the bare form left the tag printed twice
+    # once it was also shown in front of the name.
+    stripped = re.sub(r'^\s*[\[\(\{<\u3010\u3016\u300c\u300e]?\s*'
+                      + re.escape(clan)
+                      + r'\s*[\]\)\}>\u3011\u3017\u300d\u300f]?[\s:_-]*',
+                      '', name, flags=re.IGNORECASE)
+    # Never hand back nothing: a player whose whole name is the tag still
+    # needs something to click on.
+    return stripped or name
 
 
 # Names that are ordinary words or real given names in their own right.
@@ -1511,6 +1518,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.56.0", "at": "2026-08-12T19:40:00Z", "changes": [
+        "A clan member's leaderboard name now carries the clan tag in front of it, everywhere the name is shown - the leaderboard, their profile, and the clan roster. The tag is a link to the clan.",
+        "The tag is put on when the name is displayed, from the clan the player is in, rather than written into the name itself. Join a clan and it appears; leave and it goes. The stored name stays exactly as the game reported it, which is what every match result is matched against.",
+        "Joining a clan no longer changes the name you declare you play as. That was the wrong place for it.",
+    ]},
     {"version": "5.55.0", "at": "2026-08-12T19:30:00Z", "changes": [
         "You can apply to join a clan, and its leader decides. Applications show up on the clan page and are sent to the leader on Discord with the applicant's rank, skill, record and win rate, with Accept and Deny on the message itself.",
         "Being accepted puts the clan tag on the front of the name you say you play as, and it stays there: change your name while in the clan and the tag goes back on the front automatically.",
@@ -3045,14 +3057,6 @@ def perform_set_game_name(c, sub_id, raw_name):
     if name and is_blocked_word(name):
         return 400, {"ok": False,
                      "message": "That name isn't allowed. Please choose another."}
-    if name:
-        # In a clan, the tag stays on the front whatever they type - that is
-        # what being in the clan means, and a member who could drop it would
-        # quietly stop being detected as one.
-        c.execute("SELECT clan FROM players WHERE name = ?", (who,))
-        member_of = (c.fetchone() or [None])[0]
-        if member_of:
-            name = clan_tagged_name(name, member_of)
     c.execute("UPDATE players SET game_name = ? WHERE name = ?", (name or None, who))
     if not name:
         return 200, {"ok": True, "game_name": "",
@@ -4995,24 +4999,6 @@ def clan_tagged_name(base, tag):
     return ("%s %s" % (tag, text)).strip()[:32]
 
 
-def stamp_clan_tag(c, player_name, tag):
-    """Put the clan tag on the front of what a member says they play as.
-
-    Only game_name - the declared, changeable one. players.name is the key
-    every match result is matched against and is whatever the tracker read
-    out of the game, so rewriting it here would quietly stop their matches
-    landing on their account until they renamed in Starblast too.
-    """
-    c.execute("SELECT COALESCE(game_name, name) FROM players WHERE name = ?",
-              (player_name,))
-    row = c.fetchone()
-    if not row:
-        return None
-    tagged = clan_tagged_name(row[0], tag)
-    c.execute("UPDATE players SET game_name = ? WHERE name = ?", (tagged, player_name))
-    return tagged
-
-
 def applicant_stats(c, name):
     """The few numbers a leader wants before saying yes."""
     c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) FROM players WHERE name = ?",
@@ -5074,10 +5060,9 @@ def perform_clan_app_decide(c, sub_id, app_id, accept, trusted=False):
                      "message": f"'{name}' joined {already} in the meantime, "
                                 f"so nothing changed."}
     c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, name))
-    tagged = stamp_clan_tag(c, name, clan)
     return 200, {"ok": True, "accepted": True, "clan": clan, "name": name,
-                 "game_name": tagged or "",
-                 "message": f"'{name}' joined {clan}, and now plays as '{tagged}'."}
+                 "message": f"'{name}' joined {clan}, and now shows as "
+                            f"'{clan_tagged_name(name, clan)}' on the leaderboard."}
 
 
 def perform_clan_region(c, sub_id, raw_tag, region, trusted=False):
