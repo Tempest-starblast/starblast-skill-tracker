@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.42.0"
+APP_VERSION = "5.43.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1449,6 +1449,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.43.0", "at": "2026-08-12T04:42:00Z", "changes": [
+        "The bot\u2019s cards were redrawn properly. A player card leads with the rating, shows recent form as a row of green and red squares, and lists each region with its flag. The stripe down the side turns green or red with how the last few matches went.",
+        "The leaderboard shows medals for the top three and reads as a list rather than a cramped grid, which is far easier on a phone.",
+        "A rank now says what it is out of - #4 of 1990 rather than just #4.",
+    ]},
     {"version": "5.42.0", "at": "2026-08-12T04:33:00Z", "changes": [
         "The bot looks like a 2026 bot now. Player lookups, match history and the leaderboard are drawn with Discord\u2019s newer message layout - a proper card with an accent stripe, sections and separators - instead of the old plain box.",
         "Nothing about what they show has changed, only how they look. The leaderboard and the region breakdown are still lined-up tables, because Discord has no real table and a monospace block is the only thing that stays aligned on every device.",
@@ -3529,6 +3534,9 @@ def bot_player(c, row, history=0, regions=0):
     played = wins + losses
     c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
     rank = c.fetchone()[0]
+    # "#4" means nothing without the size of the field it is out of.
+    c.execute("SELECT COUNT(*) FROM players")
+    rank_of = c.fetchone()[0]
     out = {
         "name": stored_name,
         "display": display_name(stored_name, clan),
@@ -3537,6 +3545,7 @@ def bot_player(c, row, history=0, regions=0):
         "losses": losses,
         "played": played,
         "rank": rank,
+        "rank_of": rank_of,
         "winrate": (round(100 * wins / played) if played else None),
         "clan": clan,
         "owned": bool(owner_sub),
