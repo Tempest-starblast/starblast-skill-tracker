@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.40.0"
+APP_VERSION = "5.41.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1449,6 +1449,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.41.0", "at": "2026-08-12T04:23:00Z", "changes": [
+        "/rank in Discord now shows where someone actually plays - their record and rating in each region, the same split the profile page has - and has buttons to open their recent matches or their full profile.",
+    ]},
     {"version": "5.40.0", "at": "2026-08-12T04:17:00Z", "changes": [
         "/top in Discord can now show the combined board across every region, the same view the website opens on, and pages through it with Next and Back instead of stopping at the first handful.",
         "/changelog in Discord shows what changed recently, so you do not have to open the site to find out.",
@@ -3490,7 +3493,29 @@ def bot_authorised():
     return api_key_ok(request.headers.get('X-API-Key'))
 
 
-def bot_player(c, row, history=0):
+def region_split(c, name):
+    """A player's record broken down by region, every region listed.
+
+    The same query the profile page runs. "No matches in Europe" is a real
+    answer, so a region appears even when empty - otherwise the three
+    boards look like one.
+    """
+    c.execute("SELECT COALESCE(m.region, 'america'), "
+              "SUM(CASE WHEN mp.won = 1 THEN 1 ELSE 0 END), "
+              "SUM(CASE WHEN mp.won = 1 THEN 0 ELSE 1 END), "
+              "SUM(COALESCE(mp.delta, 0)) "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? GROUP BY 1", (normalize_name(name),))
+    split = {r[0]: (r[1] or 0, r[2] or 0, r[3] or 0) for r in c.fetchall()}
+    out = []
+    for key, label in REGIONS:
+        w, l, gained = split.get(key, (0, 0, 0))
+        out.append({"key": key, "label": label, "wins": w, "losses": l,
+                    "played": w + l, "gained": round(gained, 2)})
+    return out
+
+
+def bot_player(c, row, history=0, regions=0):
     """One player as the bot wants them: the same numbers the player page
     shows, formatted once here so the bot never recomputes a rank or a win
     rate and drifts away from the site."""
@@ -3523,6 +3548,8 @@ def bot_player(c, row, history=0):
              "half": bool(r[3])}
             for r in c.fetchall()
         ]
+    if regions:
+        out["by_region"] = region_split(c, stored_name)
     return out
 
 
@@ -3547,7 +3574,8 @@ def bot_player_route():
     if not row:
         conn.close()
         return jsonify({"found": False, "query": name}), 200
-    payload = bot_player(c, row, history=history)
+    payload = bot_player(c, row, history=history,
+                         regions=request.args.get('regions') in ('1', 'true', 'yes'))
     c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' AND name = ?",
               (row[0],))
     payload["pending_claim"] = c.fetchone()[0] > 0
