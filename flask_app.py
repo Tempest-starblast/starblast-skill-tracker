@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.48.0"
+APP_VERSION = "5.49.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -817,6 +817,23 @@ def init_db():
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_rate_events "
               "ON rate_events(kind, src, created_at)")
+    # Permission to run a clan at all. Requested by a player, decided by
+    # the site owner in Discord. Kept separate from clans/clan_admins
+    # because it is about the person, not any one tag - a denial has to
+    # survive them trying again with a different clan.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_leader_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    google_sub TEXT NOT NULL,
+                    handle TEXT,
+                    tag TEXT,
+                    note TEXT,
+                    created_at TEXT,
+                    status TEXT DEFAULT 'pending',
+                    decided_at TEXT,
+                    decided_by TEXT
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_leader_req "
+              "ON clan_leader_requests(google_sub, status)")
     c.execute("PRAGMA table_info(claim_requests)")
     claim_cols = [row[1] for row in c.fetchall()]
     if 'verify_from' not in claim_cols:
@@ -1462,6 +1479,14 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.49.1", "at": "2026-08-12T17:53:00Z", "changes": [
+        "Tightened which players a new clan picks up. A tag now has to stand on its own in the name - in brackets, as the first word, or as the whole name - so claiming COV takes the players wearing [COV] and not somebody called COVID19.",
+    ]},
+    {"version": "5.49.0", "at": "2026-08-12T17:47:00Z", "changes": [
+        "Running a clan is now something you ask for. Use /clanrequest in Discord and the site owner gets it as a message with an approve or deny button; you hear back either way. Until you are approved you cannot create a clan, and a refusal stands until it is looked at again.",
+        "When an approved leader creates their clan, every player already using that tag who has no account joins it automatically - the roster is there from the start. Anyone who does have an account is still invited and has to accept.",
+        "All existing clans have been cleared so the new system starts from nothing.",
+    ]},
     {"version": "5.48.0", "at": "2026-08-12T16:25:00Z", "changes": [
         "Clan leaders who cannot pass the usual check - your name has to already carry the tag - can now be given a one-time code instead. Redeem it on the Clans page or with /clanredeem and the clan is yours, no matter what your name says.",
         "A clan can be deleted by whoever runs it, from the website or Discord. Members are released and keep their ratings and match history in full; only the clan itself goes.",
@@ -3823,6 +3848,101 @@ def _bot_sub():
     return ('discord:' + discord_id) if discord_id else None
 
 
+@app.route('/api/bot/clan/leader/request', methods=['POST'])
+def bot_clan_leader_request_route():
+    """Ask to be allowed to run a clan. The owner decides in Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    state = clan_leader_state(c, sub_id)
+    if state == 'approved':
+        conn.close()
+        return jsonify({"ok": False, "state": state,
+                        "message": "You are already approved to run a clan."}), 200
+    if state == 'pending':
+        conn.close()
+        return jsonify({"ok": False, "state": state,
+                        "message": "You already have a request waiting."}), 200
+    if state == 'denied':
+        conn.close()
+        return jsonify({"ok": False, "state": state,
+                        "message": "Your last request was turned down. Ask "
+                                   f"{CONTACT_HANDLE} on Discord before trying again."}), 200
+    c.execute("INSERT INTO clan_leader_requests (google_sub, handle, tag, note, "
+              "created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+              (sub_id, str(data.get('handle', ''))[:80],
+               clean_clan_tag(data.get('tag')), str(data.get('note', ''))[:300],
+               time.strftime('%Y-%m-%d %H:%M:%S')))
+    rid = c.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "id": rid,
+                    "message": "Request sent. The site owner will approve or turn it "
+                               "down, and you will hear either way."}), 200
+
+
+@app.route('/api/bot/clan/leader/decide', methods=['POST'])
+def bot_clan_leader_decide_route():
+    """Approve or deny a request. Only the bot calls this, and only after
+    the owner has pressed a button in their DMs."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    try:
+        rid = int(data.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Which request?"}), 200
+    decision = str(data.get('decision', '')).strip().lower()
+    if decision not in ('approved', 'denied'):
+        return jsonify({"ok": False, "message": "Unknown decision."}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT google_sub, handle, tag, status FROM clan_leader_requests WHERE id = ?",
+              (rid,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"ok": False, "message": "That request no longer exists."}), 200
+    who, handle, tag, status = row
+    if status != 'pending':
+        conn.close()
+        return jsonify({"ok": False, "already": status,
+                        "message": f"That request was already {status}."}), 200
+    c.execute("UPDATE clan_leader_requests SET status = ?, decided_at = ?, decided_by = ? "
+              "WHERE id = ?", (decision, time.strftime('%Y-%m-%d %H:%M:%S'),
+                               str(data.get('decided_by', ''))[:80], rid))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "decision": decision, "google_sub": who,
+                    "handle": handle, "tag": tag,
+                    "discord_id": who.split(':', 1)[1] if who.startswith('discord:') else None,
+                    "message": f"Request {decision}."}), 200
+
+
+@app.route('/api/bot/clan/leader/state')
+def bot_clan_leader_state_route():
+    """Whether this account may run a clan, and any requests still waiting."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    discord_id = str(request.args.get('discord_id', '')).strip()
+    conn = db()
+    c = conn.cursor()
+    state = clan_leader_state(c, 'discord:' + discord_id) if discord_id else 'none'
+    c.execute("SELECT id, google_sub, handle, tag, note, created_at "
+              "FROM clan_leader_requests WHERE status = 'pending' ORDER BY id")
+    pending = [{"id": r[0],
+                "discord_id": r[1].split(':', 1)[1] if r[1].startswith('discord:') else None,
+                "handle": r[2], "tag": r[3], "note": r[4], "at": r[5]}
+               for r in c.fetchall()]
+    conn.close()
+    return jsonify({"state": state, "pending": pending}), 200
+
+
 @app.route('/api/bot/clan/claim', methods=['POST'])
 def bot_clan_claim_route():
     """Claim a clan tag from Discord."""
@@ -4503,6 +4623,64 @@ def clan_create():
     return jsonify(payload), status
 
 
+def clan_leader_state(c, sub_id):
+    """Where this account stands on being allowed to run a clan.
+
+    Returns one of: 'approved', 'pending', 'denied', 'none'. A denial is
+    sticky on purpose - it has to mean something, or a refused request is
+    just an invitation to ask again immediately.
+    """
+    if not sub_id:
+        return 'none'
+    c.execute("SELECT status FROM clan_leader_requests WHERE google_sub = ? "
+              "ORDER BY CASE status WHEN 'approved' THEN 0 WHEN 'pending' THEN 1 "
+              "ELSE 2 END, id DESC LIMIT 1", (sub_id,))
+    row = c.fetchone()
+    return row[0] if row else 'none'
+
+
+def worn_tags(name):
+    """The clan tag a name is actually WEARING, if any.
+
+    A plain prefix match is not good enough and never was: COVID19 starts
+    with COV, GERRIT starts with GE, VIETNAM starts with VIE, and none of
+    those players are in a clan. That mistake is what got clan detection
+    switched off in the first place.
+
+    A tag counts only where it stands on its own - inside brackets at the
+    front, as the first word, or as the whole name.
+    """
+    raw = str(name or '')
+    out = set()
+    m = re.match(r'^\s*[\[\(\{\u3010\u3016\u300c\u300e<]\s*([^\]\)\}\u3011\u3017\u300d\u300f>]{1,12})',
+                 raw)
+    if m:
+        out.add(clean_clan_tag(m.group(1)))
+    m = re.match(r'^\s*(\S+)\s', raw)
+    if m:
+        out.add(clean_clan_tag(m.group(1)))
+    out.add(clean_clan_tag(raw))          # the name IS the tag
+    return {t for t in out if t}
+
+
+def absorb_unowned(c, tag):
+    """Give a new clan every unowned player already wearing its tag.
+
+    An unowned name has no account behind it, so there is nobody to ask,
+    and the tag is genuinely in the name the tracker read. Players WITH
+    accounts are never swept in - they get an invitation and accept it.
+    """
+    taken = []
+    c.execute("SELECT name FROM players WHERE (google_sub IS NULL OR google_sub = '') "
+              "AND (clan IS NULL OR clan = '') AND COALESCE(clan_locked, 0) = 0")
+    for (nm,) in c.fetchall():
+        if tag in worn_tags(nm):
+            taken.append(nm)
+    for nm in taken:
+        c.execute("UPDATE players SET clan = ? WHERE name = ?", (tag, nm))
+    return taken
+
+
 def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     """Claim a clan tag. Shared by the website and the bot. Does NOT commit."""
     tag = clean_clan_tag(raw_tag)
@@ -4519,19 +4697,21 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     if c.fetchone():
         return 400, {"ok": False, "message": f"{tag} has already been claimed."}
 
-    # You must already play under the tag to claim it. Claiming makes the
-    # clan curated, which switches automatic detection off for that tag - so
-    # without this check anyone could grab a real clan's tag before its
-    # leader did and then decide who counts as a member. The API key skips
-    # the test so the site owner can still set a clan up on request.
+    # Running a clan is a permission, granted once by the site owner, not
+    # something a name can prove on its own. It is checked before anything
+    # else because it is about the person rather than the tag.
     if not trusted:
-        c.execute("SELECT name FROM players WHERE google_sub = ?", (sub_id,))
-        owned = [clean_clan_tag(r[0]) for r in c.fetchall()]
-        if not any(n.startswith(tag) for n in owned if n):
-            return 403, {"ok": False, "need_name": True,
-                         "message": f"To claim {tag} you need a name of your own that plays "
-                                    f"under it. Set or claim your name first, then try "
-                                    f"again - or ask {CONTACT_HANDLE} on Discord."}
+        state = clan_leader_state(c, sub_id)
+        if state != 'approved':
+            return 403, {"ok": False, "leader_state": state,
+                         "message": {
+                             'pending': "Your request to run a clan is still waiting to be "
+                                        "looked at. You will hear as soon as it is decided.",
+                             'denied': f"Your request to run a clan was turned down. Ask "
+                                       f"{CONTACT_HANDLE} on Discord if that was a mistake.",
+                         }.get(state,
+                               "You need to be approved to run a clan first. Ask for it "
+                               "and the site owner decides.")}
 
     c.execute("SELECT COUNT(*) FROM clans WHERE created_by = ?", (sub_id,))
     if c.fetchone()[0] >= MAX_CLANS_PER_ACCOUNT:
@@ -4544,12 +4724,20 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) VALUES (?, ?, ?)",
               (tag, sub_id, now))
     joined, elsewhere = join_admin_names(c, sub_id, tag)
-    msg = f"{tag} is yours. You are its admin - add your members next."
+    # Every unowned name already wearing the tag joins on creation - that
+    # is the roster the clan actually has, and nobody has to add them one
+    # at a time.
+    absorbed = absorb_unowned(c, tag)
+    msg = f"{tag} is yours. You are its admin."
+    if absorbed:
+        msg += (f" {len(absorbed)} player{'' if len(absorbed) == 1 else 's'} already "
+                f"playing under {tag} joined automatically.")
     if joined:
         msg += " Added " + ", ".join(joined) + " to the roster."
     if elsewhere:
         msg += " " + ", ".join(elsewhere) + " stayed in their current clan."
-    return 200, {"ok": True, "message": msg, "clan": tag}
+    return 200, {"ok": True, "message": msg, "clan": tag,
+                 "absorbed": absorbed[:25], "absorbed_count": len(absorbed)}
 
 
 def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
