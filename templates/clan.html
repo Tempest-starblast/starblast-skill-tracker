@@ -13,7 +13,9 @@
 {% if clan %}
 <h1 class="ptitle">{{ clan.tag }}</h1>
 <p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %}
-  {%- if clan.admins %} &middot; run by {{ clan.admins|join(', ') }}{% endif %} &middot;
+  {%- if clan.admins %} &middot; run by {{ clan.admins|join(', ') }}{% endif %}
+  {%- if clan.region_label %} &middot; based in
+  <a href="/?region={{ clan.region }}">{{ clan.region_label }}</a>{% endif %} &middot;
   <a href="/clans">All clans</a></p>
 
 <div class="card"><div class="grid">
@@ -34,6 +36,20 @@
     <button class="primary" onclick="addMember()">Add member</button>
   </div>
   <p class="msg" id="adminMsg"></p>
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+    <p class="desc">Where this clan plays. It is shown on the clan table and links to
+       that region's leaderboard. Leave it blank if the clan is spread across regions.</p>
+    <div class="row">
+      <select id="regionSel">
+        <option value="">Not set</option>
+        {% for key, label in clan.regions %}
+        <option value="{{ key }}"{% if clan.region == key %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="primary" onclick="saveRegion()">Save region</button>
+    </div>
+    <p class="msg" id="regionMsg"></p>
+  </div>
 </div>
 
 <div class="tablewrap">
@@ -128,6 +144,14 @@ async function refresh(){
                     : 'You are not on the roster - set a name and you will be added.');
     }
   }catch(e){}
+}
+async function saveRegion(){
+  const key = document.getElementById('regionSel').value;
+  try{
+    const [r, d] = await post('/clan/region', {clan: TAG, region: key});
+    say('regionMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('regionMsg', false, 'Server connection error.'); }
 }
 async function addMember(){
   const who = document.getElementById('memberInput').value.trim();

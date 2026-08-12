@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.52.0"
+APP_VERSION = "5.53.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -699,6 +699,13 @@ def init_db():
     for builtin in BUILTIN_CLAN_TAGS:
         c.execute("INSERT OR IGNORE INTO clans (tag, created_by, created_at) VALUES (?, NULL, NULL)",
                   (builtin,))
+    # Where the clan plays. Set by its leader and nothing else - this is a
+    # statement about the clan, not a measurement of it, so it is never
+    # guessed from the regions its members happen to have played in.
+    try:
+        c.execute("ALTER TABLE clans ADD COLUMN region TEXT")
+    except sqlite3.OperationalError:
+        pass
     # A clan admin is a Google account trusted to decide who is in one clan.
     c.execute('''CREATE TABLE IF NOT EXISTS clan_admins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1518,6 +1525,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.53.0", "at": "2026-08-12T19:10:00Z", "changes": [
+        "Clan leaders can now say which region their clan plays in - North America, Europe or Asia. It shows on the clan page and in the clan table, and clicking it opens that region's leaderboard.",
+        "The region is set by the leader on the clan page or with /clanregion in Discord, and can be cleared again. It is never guessed from where members happen to have played: it is the clan's own statement about itself.",
+    ]},
     {"version": "5.52.0", "at": "2026-08-12T18:55:00Z", "changes": [
         "Clans are now ranked against each other by the average skill of their members, in the same kind of table as everything else on the site - medals for the top three, size, combined record and win rate, and every row opens the clan.",
         "Ranking starts at two members. A one-person clan's average is only that person's rating, so a single strong player would sit above every real clan and the table would say nothing. Smaller clans are still listed underneath, just not placed.",
@@ -3264,6 +3275,8 @@ def clan_page(tag):
     c.execute("SELECT COALESCE(SUM(won), 0), COALESCE(SUM(1 - won), 0) "
               "FROM clan_results WHERE clan = ?", (known,))
     clan_wins, clan_losses = c.fetchone()
+    c.execute("SELECT region FROM clans WHERE tag = ?", (known,))
+    region_key = (c.fetchone() or [None])[0] or ""
     conn.close()
 
     rows.sort(key=leaderboard_sort_key)
@@ -3306,6 +3319,9 @@ def clan_page(tag):
         "winrate": f"{round(100 * clan_wins / played)}%" if played else "-",
         "played": played,
     }
+    clan["region"] = region_key
+    clan["region_label"] = REGION_LABELS.get(region_key, "")
+    clan["regions"] = REGIONS
     clan["admins"] = [m["name"] for m in members if m["admin"]]
     return render_template('clan.html', clan=clan, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='clans',
@@ -4222,6 +4238,25 @@ def bot_clan_redeem_route():
     return jsonify({"ok": True, "clan": clan, "message": msg}), 200
 
 
+@app.route('/api/bot/clan/region', methods=['POST'])
+def bot_clan_region_route():
+    """Set where a clan is based, from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_region(c, sub_id, data.get('clan'),
+                                          data.get('region'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
 @app.route('/api/bot/clan/delete', methods=['POST'])
 def bot_clan_delete_route():
     """Delete a clan you are an admin of, from Discord."""
@@ -4864,6 +4899,30 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
                  "absorbed": absorbed[:25], "absorbed_count": len(absorbed)}
 
 
+def perform_clan_region(c, sub_id, raw_tag, region, trusted=False):
+    """Set - or clear - where a clan is based. Shared by site and bot.
+
+    An empty region clears it rather than failing, so a leader who set the
+    wrong one can take it back off. Does NOT commit.
+    """
+    known = canonical_clan_tag(raw_tag, all_clan_tags(c))
+    if not known:
+        return 404, {"ok": False, "message": "No clan with that tag."}
+    if not trusted and known not in clan_admin_tags(c, sub_id):
+        return 403, {"ok": False, "message": "You are not an admin of that clan."}
+    key = str(region or "").strip().lower()
+    if key and key not in REGION_KEYS:
+        return 400, {"ok": False,
+                     "message": "Pick one of: " + ", ".join(REGION_LABELS[k]
+                                                            for k in REGION_KEYS)}
+    c.execute("UPDATE clans SET region = ? WHERE tag = ?", (key or None, known))
+    label = REGION_LABELS.get(key)
+    return 200, {"ok": True, "clan": known, "region": key or "",
+                 "region_label": label or "",
+                 "message": f"{known} is now based in {label}." if key else
+                            f"{known} no longer says where it is based."}
+
+
 def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
     """Delete a clan outright. Shared by the website and the bot.
 
@@ -4891,6 +4950,24 @@ def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
                  "message": f"{known} deleted. {members} member"
                             f"{'' if members == 1 else 's'} released - their ratings and "
                             f"match history are untouched."}
+
+
+@app.route('/clan/region', methods=['POST'])
+def clan_region():
+    """A leader saying where their clan is based."""
+    sub_id = current_user()
+    trusted = api_key_ok(request.headers.get('X-API-Key'))
+    if not sub_id and not trusted:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_region(c, sub_id, data.get('clan'),
+                                          data.get('region'), trusted=trusted)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
 
 
 @app.route('/clan/delete', methods=['POST'])
@@ -4967,6 +5044,8 @@ def clans_page():
     conn = db()
     c = conn.cursor()
     curated = curated_clans(c)
+    c.execute("SELECT tag, region FROM clans")
+    regions = {r[0]: (r[1] or "") for r in c.fetchall()}
     rows = []
     for tag in sorted(all_clan_tags(c)):
         c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) "
@@ -4985,6 +5064,8 @@ def clans_page():
             "wins": wins,
             "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
+            "region": regions.get(tag, ""),
+            "region_label": REGION_LABELS.get(regions.get(tag, ""), ""),
             "curated": tag in curated,
         })
     conn.close()

@@ -69,7 +69,7 @@
   <table class="board">
   <thead><tr>
     <th class="rank">#</th><th>Clan</th>
-    <th class="mid">Members</th><th class="mid">Record</th>
+    <th class="mid">Members</th><th class="mid">Region</th><th class="mid">Record</th>
     <th class="mid">Win%</th><th class="num">Avg skill</th>
   </tr></thead>
   <tbody>
@@ -81,6 +81,7 @@
     </td>
     <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.tag }}</a></td>
     <td class="mid">{{ c.size }}</td>
+    <td class="mid">{% if c.region_label %}<a href="/?region={{ c.region }}">{{ c.region_label }}</a>{% else %}&mdash;{% endif %}</td>
     <td class="mid">{{ c.wins }}-{{ c.losses }}</td>
     <td class="mid">{{ c.winrate }}</td>
     <td class="skill">{{ c.avg_elo }}</td>
