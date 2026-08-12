@@ -76,6 +76,8 @@
   <h2>Your clan</h2>
   <p class="desc">Add someone and, if they have an account, they get an invitation to
      accept &mdash; nobody is put in a clan without being asked.</p>
+  <p class="desc">Ranks, the region, and everything else are on the clan's own page:
+     <a id="manageLink" style="color:var(--green);font-weight:600" href="/clans">open your clan &rarr;</a></p>
   <div class="row">
     <input type="text" id="memberInput" placeholder="Player name" maxlength="32" autocomplete="off">
     <button class="primary" onclick="member('add')">Add</button>
@@ -216,6 +218,11 @@ async function loadMine(){
     const d = await (await fetch('/clan/admin/state')).json();
     const mine = d.clans || [];
     myClan = mine.length ? mine[0] : null;
+    const link = document.getElementById('manageLink');
+    if (link && myClan){
+      link.href = '/clan/' + encodeURIComponent(myClan.tag);
+      link.textContent = 'open ' + myClan.tag + ' \u2192';
+    }
     applyClanCards();
     if (myClan){
       document.querySelector('#manageCard h2').textContent = 'Your clan \u2014 ' + myClan.tag;
