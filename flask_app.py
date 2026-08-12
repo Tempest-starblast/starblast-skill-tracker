@@ -12,7 +12,7 @@ from datetime import timedelta
 
 app = Flask(__name__)
 
-APP_VERSION = "5.39.0"
+APP_VERSION = "5.40.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1449,6 +1449,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.40.0", "at": "2026-08-12T04:17:00Z", "changes": [
+        "/top in Discord can now show the combined board across every region, the same view the website opens on, and pages through it with Next and Back instead of stopping at the first handful.",
+        "/changelog in Discord shows what changed recently, so you do not have to open the site to find out.",
+    ]},
     {"version": "5.39.0", "at": "2026-08-12T04:08:00Z", "changes": [
         "Three more things you can do from Discord instead of the site: /gamename sets the name you actually play under, /claim files a claim on a name already on the board, and /report sends a bug report.",
         "These follow exactly the same rules as the website, because both now run the same code instead of two copies that could drift apart.",
@@ -3559,6 +3563,12 @@ def bot_top_route():
         n = min(25, max(1, int(request.args.get('n', 10))))
     except (TypeError, ValueError):
         n = 10
+    # Paging. Without this the bot could only ever show the first page,
+    # which on a board of a couple of thousand is most of it hidden.
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+    except (TypeError, ValueError):
+        offset = 0
     region = str(request.args.get('region', ALL_REGIONS)).strip().lower()
     period = str(request.args.get('period', 'all')).strip().lower()
     if region not in REGION_KEYS and region != ALL_REGIONS:
@@ -3581,7 +3591,8 @@ def bot_top_route():
     conn.close()
     rows.sort(key=leaderboard_sort_key)
     out = []
-    for i, (name, elo, wins, losses, clan, protected) in enumerate(rows[:n], start=1):
+    for i, (name, elo, wins, losses, clan, protected) in enumerate(
+            rows[offset:offset + n], start=offset + 1):
         played = wins + losses
         out.append({"place": i, "name": name, "display": display_name(name, clan),
                     # Over a window this is rating gained, not a standing -
@@ -3592,8 +3603,24 @@ def bot_top_route():
                     "winrate": (round(100 * wins / played) if played else None),
                     "clan": clan, "protected": protected})
     return jsonify({"players": out, "total": len(rows), "gain": gain,
+                    "offset": offset, "count": n,
                     "region": region, "region_label": REGION_LABELS[region],
                     "period": period, "period_label": dict(PERIODS)[period]}), 200
+
+
+@app.route('/api/bot/changelog')
+def bot_changelog_route():
+    """The most recent changelog entries, so players can read what moved
+    without leaving Discord. Public information - it is on the site - but
+    key-gated like the rest of the bot API for consistency."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        n = min(5, max(1, int(request.args.get('n', 3))))
+    except (TypeError, ValueError):
+        n = 3
+    return jsonify({"version": APP_VERSION,
+                    "entries": CHANGELOG[:n]}), 200
 
 
 @app.route('/api/bot/clan')
