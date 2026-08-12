@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Report a problem - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.kinds{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.kind{padding:8px 14px;font-size:13px;font-weight:600;border-radius:20px;
+  background:#2a2a2a;border:1px solid #3a3a3a;color:var(--muted)}
+.kind:hover{background:#333;color:var(--text)}
+.kind.on{background:var(--green);border-color:var(--green);color:#10240f}
+textarea{width:100%;min-height:130px;padding:12px 14px;font-size:15px;background:#2a2a2a;
+  border:1px solid #3a3a3a;border-radius:7px;color:#fff;outline:none;font-family:inherit;
+  resize:vertical;line-height:1.5}
+textarea:focus{border-color:var(--green)}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Report a problem</h1>
+<div class="card">
+  <h2>What is it about?</h2>
+  <div class="kinds" id="kinds">
+    {% for key, label in kinds %}
+    <button type="button" class="kind{% if loop.first %} on{% endif %}"
+            data-kind="{{ key }}" onclick="pick('{{ key }}')">{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  <textarea id="body" maxlength="4000" placeholder="What happened, and what did you expect instead?"></textarea>
+
+  <div class="row" style="margin-top:11px">
+    <input type="text" id="contact" maxlength="120" autocomplete="off"
+           placeholder="How to reach you - Discord handle (optional)">
+    <button class="primary" onclick="send()">Send report</button>
+  </div>
+  <p class="msg" id="msg"></p>
+</div>
+
+<p class="foot">Urgent, or would rather talk it through? Ask {{ contact }} on Discord.</p>
+
+<script>
+let kind = {{ kinds[0][0]|tojson }};
+function pick(k){
+  kind = k;
+  document.querySelectorAll('.kind').forEach(function(b){
+    b.classList.toggle('on', b.dataset.kind === k);
+  });
+}
+async function send(){
+  const body = document.getElementById('body').value.trim();
+  const contact = document.getElementById('contact').value.trim();
+  const m = document.getElementById('msg');
+  if(body.length < 10){
+    m.className='msg err'; m.textContent='Please say a little more about what happened.';
+    return;
+  }
+  try{
+    const r = await fetch('/reports', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({kind:kind, body:body, contact:contact})});
+    const d = await r.json();
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err');
+    m.textContent = d.message;
+    if(r.ok){
+      document.getElementById('body').value='';
+      document.getElementById('contact').value='';
+    }
+  }catch(e){ m.className='msg err'; m.textContent='Server connection error.'; }
+}
+</script>
+{% endblock %}

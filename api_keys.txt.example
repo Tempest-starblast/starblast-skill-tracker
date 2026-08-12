@@ -1,0 +1,4 @@
+# One key per line. Every listed key is accepted, so a new key can be added
+# and the old one removed after all clients have switched - rotation with no
+# gap. Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+replace-me-with-a-long-random-value

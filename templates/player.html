@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}{% if player %}{{ player.display }}{% else %}Player not found{% endif %} - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.halfmark{font-size:11px;color:var(--muted);border:1px solid #3a3a3a;border-radius:4px;
+  padding:1px 5px;margin-left:5px;font-weight:600;cursor:default}
+{% endblock %}
+{% block body %}
+{% if player %}
+<h1 class="ptitle">{{ player.display }}{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan }}</a>{% endif %}</h1>
+<p class="psub">Rank #{{ player.rank }} of {{ player.rank_of }}{% if primary %} &middot;
+   {% if primary.only %}Plays in <b>{{ primary.label }}</b>{% else %}Mainly
+   <b>{{ primary.label }}</b> ({{ primary.share }}% of matches){% endif %}{% endif %}
+   &middot; <a href="/">Leaderboard</a></p>
+
+<div class="card"><div class="grid">
+  <div class="stat"><div class="label">Skill</div><div class="value" style="color:var(--blue)">{{ player.elo }}</div></div>
+  <div class="stat"><div class="label">Win rate</div><div class="value">{{ player.winrate }}</div></div>
+  <div class="stat"><div class="label">Wins</div><div class="value" style="color:var(--green)">{{ player.wins }}</div></div>
+  <div class="stat"><div class="label">Losses</div><div class="value" style="color:var(--red)">{{ player.losses }}</div></div>
+</div></div>
+
+<div class="card">
+  <h2>Where these matches were played</h2>
+  <div class="tablewrap">
+  <table class="rgn">
+    <thead><tr><th>Region</th><th class="mid">Rank</th><th class="mid">Record</th>
+      <th class="mid">Win%</th><th class="num">Rating gained</th></tr></thead>
+    <tbody>
+    {% for r in by_region %}
+      <tr>
+        <td>{{ r.label }}</td>
+        {% if r.played %}
+        <td class="mid">{% if region_ranks.get(r.key) %}#{{ region_ranks[r.key].rank }}<span
+          style="color:var(--dim)"> of {{ region_ranks[r.key].of }}</span>{% else %}-{% endif %}</td>
+        <td class="mid">{{ r.wins }}-{{ r.losses }}</td>
+        <td class="mid">{{ r.winrate }}</td>
+        <td class="num" style="color:{{ 'var(--green)' if r.gained >= 0 else 'var(--red)' }}">
+          {{ '%+.2f'|format(r.gained) }}</td>
+        {% else %}
+        <td class="mid none" colspan="4">No tracked matches here yet</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% if player.pending_claim %}
+<div class="card" style="border-color:#5a4a1e;background:#221f14">
+  <h2 style="color:var(--amber,#fbbf24)">Someone is claiming this name</h2>
+  <p class="desc">A signed-in account has claimed <b>{{ player.display }}</b>. It transfers to
+     them automatically once this name wins a tracked match. <b>If this is your name and you
+     did not do this, report it</b> &mdash; nothing is undone automatically, but it will be
+     looked at by hand.</p>
+  <button class="danger" onclick="reportName()">This is my name, report it</button>
+  <p class="msg" id="reportMsg"></p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Recent matches</h2>
+  {% if history %}
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>When</th><th>Played as</th><th>Result</th><th class="num">Score</th>
+      <th class="num">Skill change</th></tr></thead>
+    <tbody>
+    {% for h in history %}
+      <tr>
+        <td><time class="lt" datetime="{{ h.at_utc }}">{{ h.at }}</time></td>
+        <td style="color:var(--muted)">{{ h.played_as or '&mdash;'|safe }}</td>
+        <td style="color:{{ 'var(--green)' if h.won else 'var(--red)' }};font-weight:600">
+          {{ 'Won' if h.won else 'Lost' }}{% if h.half %} <span class="halfmark"
+          title="Joined in the second half of the match, so this counted half">half</span>{% endif %}</td>
+        <td class="num" style="color:var(--muted)">{{ h.score }}</td>
+        <td class="num" style="color:{{ 'var(--green)' if h.won else 'var(--red)' }}">{{ h.delta }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="empty">No tracked matches yet. Ratings were reset, so every record starts here
+     &mdash; press Play before a game and it will be counted.</p>
+  {% endif %}
+</div>
+
+{% if not player.pending_claim %}
+<div class="card">
+  <h2>Is this you?</h2>
+  <button onclick="reportName()">Report this name</button>
+  <p class="msg" id="reportMsg"></p>
+</div>
+{% endif %}
+
+{% if player.clan %}
+<div class="card">
+  <h2>Clan tag</h2>
+  <p class="desc">Listed in <a href="/clan/{{ player.clan }}">{{ player.clan }}</a>.</p>
+  <button id="clanBtn" class="danger" onclick="removeClan()">Remove clan tag</button>
+  <p class="msg" id="clanMsg"></p>
+</div>
+{% endif %}
+
+<script>
+async function reportName(){
+  const msg=document.getElementById('reportMsg');
+  const why=window.prompt("What's wrong? (optional - e.g. 'this is my name, I did not claim it')");
+  if(why===null) return;
+  msg.className='msg'; msg.textContent='Sending...';
+  try{
+    const res=await fetch('/report',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:{{ player.name|tojson }}, note: why || ''})});
+    const d=await res.json();
+    msg.textContent=d.message; msg.className='msg '+(res.ok?'ok':'err');
+  }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; }
+}
+
+async function removeClan(){
+  const btn=document.getElementById('clanBtn'), msg=document.getElementById('clanMsg');
+  btn.disabled=true; msg.className='msg'; msg.textContent='Removing...';
+  try{
+    const res=await fetch('/clan/remove',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:{{ player.name|tojson }}})});
+    const d=await res.json();
+    msg.textContent=d.message; msg.className='msg '+(res.ok?'ok':'err');
+    if(res.ok){ setTimeout(function(){location.reload();},1400); } else { btn.disabled=false; }
+  }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; btn.disabled=false; }
+}
+</script>
+{% else %}
+<h1 class="ptitle">Not found</h1>
+<div class="card"><p class="empty">No player named &ldquo;{{ query }}&rdquo; is tracked.<br>
+Players appear once they win a tracked match. Try <a href="/players" style="color:var(--green)">searching</a>.</p></div>
+{% endif %}
+{% endblock %}

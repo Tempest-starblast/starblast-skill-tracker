@@ -1,0 +1,4412 @@
+from flask import Flask, request, jsonify, render_template, session, redirect
+import re
+import unicodedata
+import random
+import sqlite3
+import os
+import time
+import secrets
+import hmac
+import hashlib
+from datetime import timedelta
+
+app = Flask(__name__)
+
+APP_VERSION = "5.37.0"
+
+# Shown wherever a player needs to reach a human.
+CONTACT_HANDLE = "justtempest"
+
+# One name per Google account. A network was never a person - everyone
+# behind one home, school or mobile connection shared a single address, so
+# the old per-network cap both let one player take several names from
+# different networks and stopped several real players sharing one.
+MAX_NAMES_PER_ACCOUNT = 1
+
+# Protection can only be flipped once a day. Without a cooldown it is a
+# switch you could throw the moment a match looked like going badly: leave
+# it off while winning, turn it on to void the losses. The rating only means
+# something if the choice is made in advance and lived with.
+PROTECTION_COOLDOWN_HOURS = 24
+
+# A claim is unproven by definition, so an unlimited supply of them is just
+# a way to bury the real ones - and every new claim raises an alert.
+MAX_PENDING_CLAIMS = 3
+
+# How many times an account name may be changed after it is first set. The
+# name is an identity other players recognise on the board, so it is not a
+# thing to churn - but one correction for a typo or a rethink is fair.
+MAX_ACCOUNT_NAME_CHANGES = 1
+
+# Bug reports allowed from one address per day. High enough that somebody
+# working through several real problems is never blocked, low enough that
+# the page cannot be used to flood the review queue.
+MAX_REPORTS_PER_DAY = 10
+
+# What a report can be about. The kind is only a label to sort by - every
+# one of them lands in the same list.
+REPORT_KINDS = [
+    ("bug", "Something is broken"),
+    ("result", "A match result is wrong"),
+    ("name", "Someone is using my name"),
+    ("idea", "Suggestion"),
+    ("other", "Something else"),
+]
+
+# Wins needed, AFTER the claim is filed, before a name is handed over.
+# This is a cost, not a proof: a Starblast name is not a credential, so
+# nothing observed in game can tell the real owner from somebody wearing
+# their name. What it does is make taking someone's name require actually
+# playing as them and winning, while the claim sits publicly on that
+# player's page for the real owner to see and report.
+CLAIM_WINS_REQUIRED = 1
+
+# A match the tracker gave up on may still have been running when it walked
+# away, so scoring it is a judgement call. Late games fill up with bots as
+# real players drift off, and a game thinned out to a handful of genuine
+# players is effectively over - calling that one by score is safe. One that
+# still has a real crowd in it is very much alive, and guessing a winner
+# there would hand out ratings for a match nobody had finished.
+ABANDON_MAX_REAL_PLAYERS = 10
+
+STARTING_ELO = 5
+ELO_K = 2      # max elo swing for a single match, approached as the result gets more lopsided
+ELO_SCALE = 20  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
+
+# Anchored to this file's own directory rather than a bare relative path,
+# since different hosts (PythonAnywhere vs the droplet) run this with
+# different working directories.
+# How long a request will wait for the write lock before giving up. The
+# tracker writes every few seconds, so a user's write regularly has to
+# queue behind one; five seconds - sqlite3's default - was short enough
+# that saving a name failed outright during a busy push.
+DB_TIMEOUT_SECONDS = 30
+
+# What the tracker's own lobby push will wait. It re-sends the complete
+# state every sweep, so a push that cannot get the lock has lost nothing
+# by giving up - whereas holding on past the tracker's 10-second client
+# timeout means the reply is thrown away AND a web worker was blocked for
+# the whole time. Must stay comfortably under that client timeout.
+PUSH_TIMEOUT_SECONDS = 4
+
+
+def db(timeout=None):
+    """A connection that waits its turn instead of failing.
+
+    Pass a shorter timeout for anything that runs on a schedule and will
+    be retried anyway. Blocking such a request only ties up a web worker
+    while its caller has already given up on it.
+    """
+    if timeout is None:
+        timeout = DB_TIMEOUT_SECONDS
+    conn = sqlite3.connect(DB_PATH, timeout=timeout)
+    # timeout= covers the driver's own retry loop; busy_timeout covers
+    # locks hit inside a statement SQLite is already executing. Both are
+    # needed, and they are cheap.
+    conn.execute("PRAGMA busy_timeout = %d" % int(timeout * 1000))
+    return conn
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'players.db')
+
+# Only the tracker bot should be able to report match results - this
+# endpoint is reachable by anyone on the internet, so require a shared
+# secret to prevent random visitors from POSTing fake match results.
+#
+# Keys live in api_keys.txt beside this file, one per line - never in the
+# source, which is public. Several keys are valid at once, so a key can
+# be rotated with no window in which real match reports are dropped.
+def _load_api_keys():
+    try:
+        with open(os.path.join(BASE_DIR, 'api_keys.txt')) as _f:
+            return {ln.strip() for ln in _f if ln.strip()}
+    except OSError:
+        return set()
+
+
+def api_key_ok(key):
+    return bool(key) and key in _load_api_keys()
+
+
+
+# Format-only validation (letters, length) isn't content moderation -
+# this is a public site, so also screen the name's content.
+#
+# Two lists, because a blanket substring match causes real false
+# positives on an 8-character namespace: "SPIC" is inside "SPICY",
+# "COON" inside "RACCOON", "RAPE" inside "GRAPE", "ANAL" inside
+# "ANALOG". So only unambiguous terms are matched anywhere in the name;
+# short words with innocent uses are rejected only as the entire name.
+BLOCKED_SUBSTRINGS = {
+    # racial / ethnic
+    'NIGG', 'NIGA', 'NIBBA', 'NEGRO', 'NEGRIT', 'CHINK', 'GOOK', 'WETBACK',
+    'BEANER', 'JIGABOO', 'DARKIE', 'DARKY', 'SAMBO', 'RAGHEAD',
+    'GYPPO', 'HONKY', 'ZIPPERHEAD',
+    # homophobic / transphobic / ableist
+    'FAGG', 'FAGOT', 'TRANNY', 'SHEMALE', 'RETARD', 'MONGOLOID',
+    # hate movements
+    'NAZI', 'HITLER', 'HEIL', 'KKK',
+    # sexual violence / exploitation
+    'RAPIST', 'MOLEST', 'PEDO',
+    # profanity
+    'FUCK', 'SHIT', 'CUNT', 'BITCH', 'WHORE', 'SLUT', 'PISS',
+    # FOREIGN-LANGUAGE profanity. Only ever applied to names typed
+    # into /register, never to auto-registered winners.
+    'PUTA', 'PUTO', 'MIERDA', 'MERDA', 'CARALHO', 'PENDEJO',
+    'CABRON', 'CHINGA', 'TANGINA',
+    'SIBAL', 'SHIBAL', 'SSIBAL', 'GAESAEKI', 'BYUNGSIN',
+    'CAONIMA', 'WOCAO', 'DIAOSI',
+    'BLYAT', 'BLYAD', 'PIZDA', 'MUDAK', 'KURWA', 'CHUJ', 'JEBAC',
+    'MERDE', 'CONNARD', 'SALOPE', 'ENCULE',
+    'SCHEISS', 'FOTZE', 'WICHSER',
+    'CAZZO', 'STRONZO', 'VAFFAN',
+    'OROSPU', 'SIKTIR', 'AMCIK',
+    'KUSO', 'CHUTIYA', 'BHENCHOD', 'SHARMUTA',
+    'TWAT', 'WANK', 'JIZZ', 'PORN', 'PENIS', 'VAGINA',
+}
+
+# Rejected only when they make up the whole name.
+BLOCKED_EXACT = {
+    'SPIC', 'COON', 'KIKE', 'PAKI', 'JAP', 'WOP', 'MICK', 'CHING',
+    'DYKE', 'HOMO', 'FAG', 'TARD', 'SPAZ',
+    'RAPE', 'ANAL', 'SEX', 'CUM', 'DICK', 'COCK', 'TITS', 'ASS',
+    # Foreign terms that collide with innocent words/names as
+    # substrings: VERGA<-VERGARA, SUKA<-ASUKA, SHABI<-SHABIR,
+    # SIK<-SIKH, PIC<-PICTURE, GAND<-GANDHI, CAO is a Chinese surname.
+    'VERGA', 'SUKA', 'SHABI', 'SIK', 'PIC', 'GAND', 'FIGA', 'KUS',
+}
+
+
+def normalize_name(name):
+    """Identity key for a player name.
+
+    OCR reads the same person inconsistently - BERU has appeared as
+    ".BERU", "BE R U" and "BERU" in one day, and BEL RIOSE / BELRIOSE split
+    almost 50/50. Without collapsing those, whether you are rated for a
+    match depends on how the pixels happened to read that time, which makes
+    the leaderboard a coin flip. Case, spaces and punctuation are ignored
+    when deciding WHO someone is; the name as typed is still displayed.
+
+    Letters and digits are judged by str.isalnum(), which is Unicode-aware,
+    so Chinese, Cyrillic, Arabic, Korean and Greek names keep their
+    characters. Stripping to A-Z0-9 used to reduce every one of them to the
+    empty string, which made them all look like the same player and pushed
+    their results onto whichever single row happened to hold that key.
+
+    Accents are folded away first, because OCR is not reliable about them:
+    JOSE and JOSE with an accent are one player, not two. Decomposing and
+    recomposing leaves Hangul and Chinese untouched."""
+    decomposed = unicodedata.normalize('NFD', name or '')
+    stripped = ''.join(ch for ch in decomposed if not unicodedata.combining(ch))
+    recomposed = unicodedata.normalize('NFC', stripped)
+    return ''.join(ch for ch in recomposed if ch.isalnum()).upper()
+
+
+# The 44 names Starblast hands out to anyone who joins without typing
+# one. They are NOT bots - they are ordinary players who left the field
+# blank - which is exactly why they must never be rated: dozens of
+# different people share each one, so the record would belong to nobody.
+# It also closes an obvious exploit, since registering "Vader" would
+# otherwise collect the elo of every anonymous Vader on the servers.
+# Matched on the normalised key, so "R.D. Olivaw" and "RD OLIVAW" both hit.
+DEFAULT_NAMES = {normalize_name(n) for n in [
+    "Arkady Darell", "Bel Riose", "Cleon I", "Dors Venabili", "Ebling Mis",
+    "Gaal Dornick", "Hari Seldon", "Hober Mallow", "Janov Pelorat",
+    "The Mule", "Preem Palver", "R.D. Olivaw", "R.G. Reventlov",
+    "Raych Seldon", "Salvor Hardin", "Wanda Seldon", "Yugo Amaryl",
+    "James T. Kirk", "Leonard McCoy", "Hikaru Sulu", "Montgomery Scott",
+    "Spock", "Picard", "Christine Chapel", "Nyota Uhura", "Pavel Chekov",
+    "Ford", "Zaphod", "Marvin", "Anakin", "Luke", "Leia", "Ackbar",
+    "Tarkin", "Jabba", "Rey", "Kylo", "Han", "Vader", "D.A.R.Y.L.",
+    "HAL 9000", "HAL", "Lyta Alexander", "Stephen Franklin", "Lennier",
+]}
+
+
+def is_default_name(name):
+    """True for a Starblast default nickname - shared by many anonymous
+    players, so it can never identify one person."""
+    return normalize_name(name) in DEFAULT_NAMES
+
+
+# Clans are player-declared tags, not something Starblast exposes, so this
+# is a curated list rather than anything auto-detected. Guessing would be
+# worse than useless: MR MEESEEKS and MRNUKE share a prefix and are not a
+# clan. Add tags here as the community reports them.
+# Empty while clans are rebuilt by hand. init_db seeds this list into the
+# clans table on every import, so leaving the old tags here would restore
+# them the next time the site reloaded - and because all_clan_tags reads
+# that table, emptying it also stops detect_clan tagging anybody
+# automatically, which is the whole point: the old tags were matched
+# against names read off the screen and were often wrong.
+BUILTIN_CLAN_TAGS = []
+
+# One account cannot mint tags indefinitely, or the short ones would all be
+# squatted within a day.
+MAX_CLANS_PER_ACCOUNT = 2
+
+
+def all_clan_tags(c=None):
+    """Every clan tag that exists, longest first.
+
+    Longest first is what makes SRW beat SR when both could match a name,
+    so it is done here rather than left to each caller to remember.
+    """
+    own = c is None
+    if own:
+        conn = db()
+        c = conn.cursor()
+    tags = [r[0] for r in c.execute("SELECT tag FROM clans").fetchall()]
+    if own:
+        conn.close()
+    return sorted(tags, key=len, reverse=True)
+
+
+def display_name(name, clan):
+    """What a visitor sees, with the clan tag taken off the front.
+
+    COVHADE in COV reads as HADE, because the tag is already shown beside
+    it as a badge and printing it twice is just noise. Only the display
+    changes - the stored name stays exactly as it was, since that is the
+    key every match result is matched against.
+    """
+    if not name or not clan:
+        return name
+    if len(name) > len(clan) and name.upper().startswith(clan.upper()):
+        return name[len(clan):]
+    return name
+
+
+# Names that are ordinary words or real given names in their own right.
+# detect_clan's fused-prefix pass is weak evidence - ISAAC begins with IS
+# exactly the way ISCABYBARA does - so a name that is simply a real name is
+# never auto-tagged from a prefix alone. Deliberately consulted ONLY by the
+# prefix pass: a tag set apart as its own token ("[IS] AAC") is strong
+# evidence and stays trusted, and a clan admin can add anyone by hand, so a
+# real member who happens to be called Isaac is one click away rather than
+# permanently excluded.
+COMMON_PERSONAL_NAMES = {
+    "AARON", "ABBY", "ABEL", "ABIGAIL", "ADAM", "ADRIAN", "AIDEN", "ALAN", "ALBERT", "ALEX",
+    "ALEXA", "ALEXANDER", "ALEXIS", "ALFRED", "ALICE", "ALICIA", "ALLAN", "ALLEN", "ALLISON",
+    "ALMA", "ALVIN", "AMANDA", "AMBER", "AMELIA", "AMY", "ANA", "ANDRE", "ANDREA", "ANDREW",
+    "ANGEL", "ANGELA", "ANGELO", "ANITA", "ANNA", "ANNE", "ANNIE", "ANTHONY", "ANTONIO",
+    "APRIL", "ARIA", "ARIANA", "ARIEL", "ARNOLD", "ARTHUR", "ASHLEY", "ASHTON", "AUBREY",
+    "AUDREY", "AUGUST", "AURORA", "AUSTIN", "AVA", "AVERY", "BAILEY", "BARBARA", "BARRY",
+    "BEATRICE", "BECKY", "BELLA", "BENJAMIN", "BERNARD", "BETH", "BETTY", "BEVERLY", "BILL",
+    "BILLY", "BLAKE", "BOB", "BOBBY", "BRAD", "BRADLEY", "BRANDON", "BRENDA", "BRENDAN",
+    "BRENT", "BRETT", "BRIAN", "BRIANA", "BRIDGET", "BROOKE", "BRUCE", "BRUNO", "BRYAN",
+    "CALEB", "CALVIN", "CAMERON", "CAMILA", "CANDACE", "CARL", "CARLA", "CARLOS", "CARMEN",
+    "CAROL", "CAROLINE", "CARRIE", "CARTER", "CASEY", "CASSIE", "CATHERINE", "CECIL", "CEDRIC",
+    "CELIA", "CHAD", "CHARLES", "CHARLIE", "CHARLOTTE", "CHASE", "CHELSEA", "CHERYL",
+    "CHESTER", "CHLOE", "CHRIS", "CHRISTIAN", "CHRISTINA", "CHRISTINE", "CHRISTOPHER",
+    "CLAIRE", "CLARA", "CLARENCE", "CLARK", "CLAUDIA", "CLAYTON", "CLIFFORD", "CLINT", "CODY",
+    "COLE", "COLIN", "CONNOR", "CONRAD", "CORY", "COURTNEY", "COVEN", "COVENANT", "COVER",
+    "COVERT", "COVID", "CRAIG", "CRYSTAL", "CURTIS", "CYNTHIA", "DAISY", "DAKOTA", "DALE",
+    "DALTON", "DAMIAN", "DAN", "DANA", "DANIEL", "DANIELLE", "DANNY", "DARIUS", "DARREN",
+    "DARRYL", "DAVE", "DAVID", "DAWN", "DEAN", "DEBBIE", "DEBORAH", "DELIA", "DENISE",
+    "DENNIS", "DEREK", "DERRICK", "DESMOND", "DEVIN", "DIANA", "DIANE", "DIEGO", "DILLON",
+    "DOMINIC", "DON", "DONALD", "DONNA", "DORIS", "DOROTHY", "DOUGLAS", "DREW", "DUANE",
+    "DUSTIN", "DYLAN", "EARL", "EDDIE", "EDGAR", "EDITH", "EDUARDO", "EDWARD", "EDWIN",
+    "ELAINE", "ELEANOR", "ELENA", "ELI", "ELIAS", "ELIJAH", "ELISE", "ELIZABETH", "ELLA",
+    "ELLEN", "ELLIE", "ELLIOT", "ELSIE", "EMANUEL", "EMILIO", "EMILY", "EMMA", "EMMANUEL",
+    "ENRIQUE", "ERIC", "ERICA", "ERIK", "ERIN", "ERNEST", "ESTHER", "ETHAN", "EUGENE", "EVA",
+    "EVAN", "EVELYN", "EZRA", "FAITH", "FELIPE", "FELIX", "FERNANDO", "FIONA", "FLORA",
+    "FLOYD", "FOREST", "FORREST", "FRANCES", "FRANCIS", "FRANK", "FRANKLIN", "FRED", "FREDDIE",
+    "FREDERICK", "FROST", "FUSION", "GABRIEL", "GABRIELA", "GAIL", "GALAXY", "GAMER",
+    "GARRETT", "GARY", "GAVIN", "GENE", "GEORGE", "GERALD", "GHOST", "GIANT", "GILBERT",
+    "GINA", "GLADYS", "GLEN", "GLENN", "GLITCH", "GLORIA", "GOBLIN", "GOFER", "GOFISH",
+    "GOLDEN", "GORDON", "GRACE", "GRACIE", "GRANT", "GRAVITY", "GREG", "GREGORY", "GRIFFIN",
+    "GUSTAVO", "GWEN", "HAILEY", "HANNAH", "HAROLD", "HARRY", "HARVEY", "HAYDEN", "HAZEL",
+    "HEATHER", "HECTOR", "HEIDI", "HELEN", "HENRY", "HERBERT", "HERMAN", "HOLLY", "HOMER",
+    "HOPE", "HOWARD", "HUGO", "HUNTER", "IAN", "ICEBERG", "IDA", "IGNACIO", "IMOGEN", "IMPACT",
+    "INES", "INFERNO", "INGRID", "IRENE", "IRIS", "IRMA", "IRVIN", "ISAAC", "ISABEL",
+    "ISABELLA", "ISABELLE", "ISADORA", "ISAIAH", "ISAIAS", "ISHAAN", "ISHAN", "ISLA", "ISLAM",
+    "ISLAND", "ISLANDS", "ISLE", "ISMAEL", "ISOLATE", "ISOTOPE", "ISSAC", "ISSUE", "ISSUES",
+    "IVAN", "IVY", "JACK", "JACKIE", "JACKSON", "JACOB", "JADE", "JAIME", "JAKE", "JAMES",
+    "JAMIE", "JANE", "JANET", "JANICE", "JARED", "JASMINE", "JASON", "JAVIER", "JAY", "JAYDEN",
+    "JEAN", "JEFF", "JEFFREY", "JENNA", "JENNIFER", "JENNY", "JEREMY", "JEROME", "JERRY",
+    "JESSE", "JESSICA", "JESUS", "JILL", "JIM", "JIMMY", "JOAN", "JOANNA", "JOE", "JOEL",
+    "JOEY", "JOHN", "JOHNNY", "JON", "JONAS", "JONATHAN", "JORDAN", "JORGE", "JOSE", "JOSEPH",
+    "JOSH", "JOSHUA", "JOYCE", "JUAN", "JUDITH", "JUDY", "JULIA", "JULIAN", "JULIE", "JULIO",
+    "JUNE", "JUSTIN", "KAI", "KAITLYN", "KAREN", "KARL", "KARLA", "KATE", "KATHERINE",
+    "KATHLEEN", "KATHRYN", "KATHY", "KATIE", "KATRINA", "KAY", "KAYLA", "KEITH", "KELLY",
+    "KELVIN", "KEN", "KENDRA", "KENNETH", "KENT", "KERRY", "KEVIN", "KIM", "KIMBERLY", "KIRK",
+    "KRIS", "KRISTEN", "KRISTIN", "KYLE", "KYLIE", "LANCE", "LARRY", "LAURA", "LAUREN",
+    "LAWRENCE", "LEAH", "LEE", "LEO", "LEON", "LEONARD", "LEROY", "LESLIE", "LESTER", "LEWIS",
+    "LIAM", "LILA", "LILIAN", "LILY", "LINDA", "LINDSAY", "LIONEL", "LISA", "LLOYD", "LOGAN",
+    "LOIS", "LOLA", "LORENZO", "LORI", "LOUIS", "LOUISE", "LUCAS", "LUCIA", "LUCILLE", "LUCY",
+    "LUIS", "LUKE", "LYDIA", "LYNN", "MABEL", "MACK", "MADDIE", "MADELINE", "MADISON",
+    "MAGGIE", "MALCOLM", "MANUEL", "MARC", "MARCEL", "MARCO", "MARCOS", "MARCUS", "MARGARET",
+    "MARIA", "MARIAN", "MARIE", "MARILYN", "MARIO", "MARION", "MARISA", "MARISOL", "MARK",
+    "MARLENE", "MARSHALL", "MARTHA", "MARTIN", "MARVIN", "MARY", "MASON", "MATEO", "MATTHEW",
+    "MAURICE", "MAX", "MAXWELL", "MAYA", "MEGAN", "MELANIE", "MELISSA", "MELVIN", "MERCEDES",
+    "MEREDITH", "MIA", "MICHAEL", "MICHELLE", "MIGUEL", "MIKE", "MILDRED", "MILES", "MILO",
+    "MIRANDA", "MITCHELL", "MOLLY", "MONICA", "MORGAN", "MURIEL", "MURRAY", "MYRA", "NADIA",
+    "NANCY", "NAOMI", "NATALIE", "NATASHA", "NATHAN", "NATHANIEL", "NEIL", "NELLIE", "NELSON",
+    "NICHOLAS", "NICK", "NICOLE", "NIGEL", "NINA", "NOAH", "NOEL", "NOELLE", "NORA", "NORMA",
+    "NORMAN", "OCTAVIO", "OLGA", "OLIVER", "OLIVIA", "OMAR", "OPAL", "ORLANDO", "OSCAR",
+    "OSWALD", "OWEN", "PABLO", "PAIGE", "PAM", "PAMELA", "PATRICIA", "PATRICK", "PAUL",
+    "PAULA", "PEARL", "PEDRO", "PEGGY", "PENELOPE", "PERCY", "PERRY", "PETE", "PETER",
+    "PHILIP", "PHILLIP", "PHOEBE", "PIERCE", "PRESTON", "PRISCILLA", "QUENTIN", "QUINN",
+    "RACHEL", "RAFAEL", "RALPH", "RAMON", "RANDALL", "RANDY", "RAOUL", "RAUL", "RAY",
+    "RAYMOND", "REBECCA", "REGINA", "REGINALD", "RENE", "REUBEN", "REX", "RHONDA", "RICARDO",
+    "RICHARD", "RICK", "RICKY", "RILEY", "RITA", "ROB", "ROBERT", "ROBERTA", "ROBIN", "RODNEY",
+    "RODOLFO", "ROGER", "ROLAND", "ROMAN", "RONALD", "RONNIE", "ROSA", "ROSE", "ROSEMARY",
+    "ROSS", "ROWAN", "ROXANNE", "ROY", "RUBEN", "RUBY", "RUSSELL", "RUTH", "RYAN", "SABRINA",
+    "SADIE", "SALLY", "SALVADOR", "SAM", "SAMANTHA", "SAMUEL", "SANDRA", "SANTIAGO", "SARA",
+    "SARAH", "SASHA", "SAWYER", "SCARLETT", "SCOTT", "SEAN", "SEBASTIAN", "SELENA", "SERGIO",
+    "SETH", "SHANE", "SHANNON", "SHARON", "SHAUN", "SHAWN", "SHEILA", "SHELBY", "SHELDON",
+    "SHERRY", "SHIRLEY", "SIDNEY", "SIENNA", "SIERRA", "SILAS", "SIMON", "SKYLAR", "SOFIA",
+    "SOLOMON", "SONIA", "SOPHIA", "SOPHIE", "SPENCER", "SRSLY", "STACY", "STAN", "STANLEY",
+    "STELLA", "STEPHANIE", "STEPHEN", "STEVE", "STEVEN", "STEWART", "STUART", "SUE", "SUSAN",
+    "SYDNEY", "SYLVIA", "TABITHA", "TAMARA", "TANYA", "TARA", "TAYLOR", "TED", "TERESA",
+    "TERRENCE", "TERRY", "THEO", "THEODORE", "THERESA", "THOMAS", "TIFFANY", "TIM", "TIMOTHY",
+    "TINA", "TOBY", "TODD", "TOM", "TOMMY", "TONI", "TONY", "TRACY", "TRAVIS", "TREVOR",
+    "TRICIA", "TRISTAN", "TROY", "TYLER", "TYRONE", "ULYSSES", "URSULA", "VALERIE", "VANESSA",
+    "VERA", "VERNON", "VERONICA", "VICTOR", "VICTORIA", "VINCENT", "VIOLA", "VIOLET", "VIRGIL",
+    "VIRGINIA", "VIVIAN", "WADE", "WALLACE", "WALTER", "WANDA", "WARREN", "WAYNE", "WENDY",
+    "WESLEY", "WHITNEY", "WILBUR", "WILEY", "WILLIAM", "WILLIE", "WILSON", "WINSTON", "WYATT",
+    "XAVIER", "YOLANDA", "YVETTE", "YVONNE", "ZACHARY", "ZANE", "ZOE", "ZOEY",
+}
+
+
+def detect_clan(raw_name, tags=None):
+    """Clan tag for a name as the tracker actually read it, or None.
+
+    Must run on the RAW OCR name: the stored name is already normalised,
+    and normalising destroys the brackets and spaces that make a tag
+    unambiguous ("F4 * YISUS" and "[SR] BOB" both lose their separator).
+
+    Two passes, strongest evidence first. A tag standing alone as its own
+    token is near-certain. A fused prefix (F4ISAAC) is likely but not
+    safe - SRSLY starts with SR and belongs to nobody - so longer tags win
+    ties and the prefix pass is deliberately last.
+    """
+    if not raw_name:
+        return None
+    if tags is None:
+        tags = all_clan_tags()
+    upper = str(raw_name).upper()
+    for tag in tags:
+        if re.search(r'(?<![A-Z0-9])' + re.escape(tag) + r'(?![A-Z0-9])', upper):
+            return tag
+    key = normalize_name(raw_name)
+    if key.upper() in COMMON_PERSONAL_NAMES:
+        return None
+    for tag in tags:
+        if key.startswith(tag) and len(key) > len(tag):
+            return tag
+    return None
+
+
+def canonical_clan_tag(text, tags=None):
+    """The existing clan tag this text refers to, or None.
+
+    Lets /clan/f4 and /clan/F4 reach the same page. Anything not on the
+    curated list resolves to nothing on purpose: an arbitrary /clan/XYZ
+    would otherwise render an empty roster and read as a real clan that
+    simply has no members yet.
+    """
+    key = re.sub(r'[^A-Z0-9]', '', str(text or '').upper())
+    if tags is None:
+        tags = all_clan_tags()
+    for known in tags:
+        if known == key:
+            return known
+    return None
+
+
+def clan_admin_tags(c, sub_id):
+    """Every clan tag this signed-in account is an admin of."""
+    if not sub_id:
+        return []
+    return [r[0] for r in c.execute(
+        "SELECT clan FROM clan_admins WHERE google_sub = ? ORDER BY clan",
+        (sub_id,)).fetchall()]
+
+
+def join_admin_names(c, sub_id, tag):
+    """Put an admin's own names into the clan they now run.
+
+    An admin missing from their own roster reads as a mistake, and without
+    this every one of them would have to add themselves by hand. Names
+    already in another clan are left where they are: being handed one clan
+    is not a reason to pull someone out of a different one.
+    """
+    c.execute("SELECT name, clan FROM players WHERE google_sub = ?", (sub_id,))
+    joined, elsewhere = [], []
+    for name, clan in c.fetchall():
+        if clan == tag:
+            continue
+        if clan:
+            elsewhere.append(name)
+            continue
+        c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (tag, name))
+        joined.append(name)
+    return joined, elsewhere
+
+
+def curated_clans(c):
+    """Clans that have at least one admin.
+
+    Their rosters are decided by a person, so automatic tag detection must
+    not add anyone to them. Detection reads the tag out of whatever name the
+    player typed in game, which means anyone can put a clan's tag in their
+    name and land on its page - that is the whole problem admins exist to
+    fix, and it would keep happening if detection stayed on.
+    """
+    return {r[0] for r in c.execute("SELECT DISTINCT clan FROM clan_admins").fetchall()}
+
+
+def is_valid_name_format(name):
+    """Shape only, judged on the normalised form so that "BEL RIOSE" and
+    "BELRIOSE" are the same 8-letter name. Applied to BOTH manual
+    registration and auto-registered winners, because it is what keeps OCR
+    garbage (long fragments, stray dialog text) out of the table."""
+    key = normalize_name(name)
+    if not key or len(key) > 16:
+        return False
+    if len(key) == 1:
+        # A lone narrow character is nearly always a misread roster - the
+        # stray "f" that ended up on the board came in that way. A lone wide
+        # one is different: a single Chinese, Japanese or Korean character is
+        # an ordinary whole name, so those are let through. A single Latin,
+        # Cyrillic or Greek letter is not, since it carries no more meaning
+        # than a smudge and is far more likely to be one.
+        if unicodedata.east_asian_width(key) not in ('W', 'F'):
+            return False
+    # At least one letter, so a bare number is never a name.
+    if not any(ch.isalpha() for ch in key):
+        return False
+    # Digits used to be banned at the end of a name. That guarded against
+    # the dominant OCR failure - the score column bleeding into the name,
+    # which always landed as trailing digits (COMMANDER BERU10031,
+    # HANGRYHIPPO9117). Nothing is read off the screen any more, so a
+    # trailing digit is just what the player typed, and the rule was
+    # turning away real names like Tempest1.
+    return True
+
+
+def is_blocked_word(name):
+    """Content moderation, applied ONLY to names typed into /register.
+
+    Deliberately NOT applied to auto-registration: those names are ones
+    starblast.io already allowed the player to use in-game, and silently
+    dropping them would erase real players from a leaderboard meant to
+    rank them. Refusing a typed name is harmless by comparison - the
+    player simply picks another one."""
+    upper_name = name.upper()
+    if upper_name in BLOCKED_EXACT:
+        return True
+    return any(bad in upper_name for bad in BLOCKED_SUBSTRINGS)
+
+
+# Sign in with Google. This client ID is public by design - it is
+# embedded in the page the browser loads - so it belongs in the source.
+# There is deliberately no client secret: the ID token flow never uses
+# one, which means there is no credential here that could leak.
+GOOGLE_CLIENT_ID = "260312209654-l622tb8126pfmhc1nued92r1d1a8mlvv.apps.googleusercontent.com"
+
+# Discord is a second sign-in provider alongside Google. Its identities are
+# namespaced "discord:<id>" and stored in the very same google_sub column,
+# so every comparison already written against that column keeps working
+# untouched - no migration, no schema change, and a bare value still means
+# a Google account. Only the numeric id decides who you are; the username
+# is kept alongside it purely so a human reviewing a claim can see who
+# filed it, and is refreshed on every sign-in because people rename.
+DISCORD_CLIENT_ID = "1535552558376943686"
+DISCORD_REDIRECT_URI = "https://starblastelo.pythonanywhere.com/auth/discord/callback"
+DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
+DISCORD_API = "https://discord.com/api/v10"
+
+# Unlike the Google flow - which verifies a token the browser already holds
+# and so needs no secret at all - the Discord code exchange is server to
+# server and must prove who it is. Kept in a file for the same reason as
+# the session key: it never rides along in a backup or a pasted console
+# line. Missing means Discord sign-in is simply offered as unavailable.
+try:
+    with open(os.path.join(BASE_DIR, 'discord_secret.txt')) as _f:
+        DISCORD_CLIENT_SECRET = _f.read().strip()
+except OSError:
+    DISCORD_CLIENT_SECRET = ""
+
+# Signing key for session cookies, kept in a file rather than in this
+# source so it is never carried along in a backup or pasted into a
+# console. If it is ever lost everyone is simply signed out again; no
+# player data depends on it.
+try:
+    with open(os.path.join(BASE_DIR, 'flask_secret.txt')) as _f:
+        app.secret_key = _f.read().strip()
+except OSError:
+    # Never take the leaderboard down over a missing key. Sign-ins just
+    # will not survive a restart until the file is put back.
+    app.secret_key = secrets.token_hex(32)
+
+# Rate limiting needs "is this the same source as before?", never the
+# address itself. What is stored is a keyed one-way hash; the key lives
+# beside the code, not in the database, so the stored tag cannot be
+# turned back into an address even by someone holding the whole database.
+try:
+    with open(os.path.join(BASE_DIR, 'ip_hash_secret.txt')) as _f:
+        IP_HASH_SECRET = _f.read().strip()
+except OSError:
+    # No key file means tags do not survive a restart. Rate limiting
+    # degrades gracefully; nothing identifying is ever written.
+    IP_HASH_SECRET = secrets.token_hex(32)
+
+
+def ip_source():
+    """An opaque, irreversible tag for the visitor's network."""
+    return hmac.new(IP_HASH_SECRET.encode(), client_ip().encode(),
+                    hashlib.sha256).hexdigest()[:32]
+
+
+def rate_hit(c, kind, limit, window):
+    """Record one event for this source; True when it is over the limit.
+
+    The table holds (kind, tag, time) and nothing else - no account, no
+    name, nothing to join a person to. Entries expire within two days.
+    """
+    src = ip_source()
+    c.execute("DELETE FROM rate_events WHERE created_at < datetime('now', '-2 days')")
+    c.execute("SELECT COUNT(*) FROM rate_events WHERE kind = ? AND src = ? "
+              "AND created_at > datetime('now', ?)", (kind, src, window))
+    if (c.fetchone() or [0])[0] >= limit:
+        return True
+    c.execute("INSERT INTO rate_events (kind, src, created_at) VALUES (?,?,?)",
+              (kind, src, time.strftime('%Y-%m-%d %H:%M:%S')))
+    return False
+
+app.config.update(
+    SESSION_COOKIE_SECURE=True,    # the site is HTTPS-only
+    SESSION_COOKIE_HTTPONLY=True,  # page scripts cannot read the cookie
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
+
+
+def init_db():
+    conn = db()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS players (
+                    name TEXT PRIMARY KEY,
+                    elo INTEGER DEFAULT ''' + str(STARTING_ELO) + ''',
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0
+                )''')
+    # Existing databases predate this column, so add it in place rather
+    # than requiring a manual migration or a wipe.
+    # An account has two names now. `name` is the account name - the
+    # identity on the leaderboard, deliberately hard to change. `game_name`
+    # is what they currently type into Starblast, which they change as
+    # often as they like and which is declarative only: it never routes a
+    # result on its own, or anyone could claim to be playing as a name and
+    # collect its matches. The check-in binding is what actually decides
+    # whose result is whose.
+    for _ddl in ("ALTER TABLE players ADD COLUMN game_name TEXT",
+                 "ALTER TABLE players ADD COLUMN name_changes INTEGER DEFAULT 0"):
+        try:
+            c.execute(_ddl)
+        except sqlite3.OperationalError:
+            pass
+
+    c.execute('''CREATE TABLE IF NOT EXISTS checkins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player TEXT NOT NULL,
+                    sys_id INTEGER NOT NULL,
+                    ip TEXT,
+                    created_at TEXT
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS live_lobbies (
+                    sys_id INTEGER PRIMARY KEY,
+                    name TEXT,
+                    players INTEGER,
+                    age INTEGER,
+                    updated_at TEXT
+                )''')
+    # Whatever the tracker last told us about itself. Kept as a tiny
+    # key/value table so the site never has to keep its own copy of the
+    # tracker's settings in sync by hand.
+    c.execute('''CREATE TABLE IF NOT EXISTS tracker_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )''')
+    c.execute("PRAGMA table_info(live_lobbies)")
+    if 'watching' not in [row[1] for row in c.fetchall()]:
+        # Whether a worker is actually on this lobby. The site can see which
+        # lobbies are live but only the tracker knows which it is watching,
+        # and that is the difference between a game that will be scored and
+        # one that will not.
+        c.execute("ALTER TABLE live_lobbies ADD COLUMN watching INTEGER DEFAULT 0")
+    c.execute('''CREATE TABLE IF NOT EXISTS claim_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    ip TEXT,
+                    note TEXT,
+                    created_at TEXT,
+                    status TEXT DEFAULT 'pending'
+                )''')
+    # Clan tags live here rather than in the source, so players can start
+    # their own without a code change.
+    c.execute('''CREATE TABLE IF NOT EXISTS clans (
+                    tag TEXT PRIMARY KEY,
+                    created_by TEXT,
+                    created_at TEXT
+                )''')
+    for builtin in BUILTIN_CLAN_TAGS:
+        c.execute("INSERT OR IGNORE INTO clans (tag, created_by, created_at) VALUES (?, NULL, NULL)",
+                  (builtin,))
+    # A clan admin is a Google account trusted to decide who is in one clan.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_admins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    clan TEXT NOT NULL,
+                    google_sub TEXT NOT NULL,
+                    created_at TEXT
+                )''')
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_admins ON clan_admins(clan, google_sub)")
+    # One-time codes are how admin is handed out. The site owner cannot see
+    # anyone's Google account id, so there has to be something to pass along
+    # out of band - a code sent on Discord is that something.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_codes (
+                    code TEXT PRIMARY KEY,
+                    clan TEXT NOT NULL,
+                    created_at TEXT,
+                    used_at TEXT,
+                    used_by TEXT
+                )''')
+    # A player with an account is invited, not added. See clan_add().
+    # direction: 'invite' (admin asked player) or 'application' (player asked
+    # clan). Who has to approve depends on which way round it is.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_invites (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    clan TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    invited_by TEXT,
+                    created_at TEXT,
+                    status TEXT DEFAULT 'pending'
+                )''')
+    # Individual matches. Only aggregate totals were ever stored before, so
+    # there was no way to answer "did my game count?" without reading the
+    # tracker's logs by hand, and no way to rebuild a clan's record or repair
+    # a rating that had been polluted. match_id is unique so the same match
+    # arriving twice cannot be written down twice.
+    c.execute('''CREATE TABLE IF NOT EXISTS matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_id TEXT UNIQUE,
+                    sys_id INTEGER,
+                    played_at TEXT
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS match_players (
+                    match_row INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    norm_name TEXT NOT NULL,
+                    won INTEGER NOT NULL,
+                    delta REAL,
+                    half INTEGER DEFAULT 0
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_mp_norm ON match_players(norm_name)")
+    # The name actually used in that match. Rosters are rewritten to account
+    # names at the door, so without this the name someone played under is
+    # lost the moment the result is credited.
+    try:
+        c.execute("ALTER TABLE match_players ADD COLUMN played_as TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # The player's final in-game score for that match, straight off the
+    # game's own scoreboard. NULL for matches recorded before this existed,
+    # and for a player the board had already dropped by match end.
+    try:
+        c.execute("ALTER TABLE match_players ADD COLUMN score INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    # Which region a match was played in - the leaderboard filters on it and
+    # the site cannot infer it after the fact.
+    try:
+        c.execute("ALTER TABLE matches ADD COLUMN region TEXT DEFAULT 'america'")
+    except sqlite3.OperationalError:
+        pass
+    c.execute("CREATE INDEX IF NOT EXISTS idx_matches_region ON matches(region, played_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_mp_row ON match_players(match_row)")
+
+    # One row per clan per match, so a clan that fielded five players in a
+    # winning match still records exactly one win. Summing members' individual
+    # win columns counted the same match once per member, which made a clan's
+    # record scale with its size rather than its results.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_results (
+                    clan TEXT NOT NULL,
+                    sys_id INTEGER NOT NULL,
+                    won INTEGER NOT NULL,
+                    created_at TEXT
+                )''')
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_results ON clan_results(clan, sys_id)")
+    c.execute("PRAGMA table_info(clan_invites)")
+    inv_cols = [row[1] for row in c.fetchall()]
+    if 'direction' not in inv_cols:
+        c.execute("ALTER TABLE clan_invites ADD COLUMN direction TEXT DEFAULT 'invite'")
+    c.execute("""CREATE TABLE IF NOT EXISTS bug_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT,
+                    body TEXT NOT NULL,
+                    contact TEXT,
+                    google_sub TEXT,
+                    ip TEXT,
+                    created_at TEXT,
+                    status TEXT DEFAULT 'open'
+                )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_bug_open ON bug_reports(status, id)")
+    # Results that were deliberately NOT counted, kept anyway. Protection
+    # tells the site to ignore matches its owner did not check into, and
+    # until now those simply evaporated - so if protection was ever wrong,
+    # or a name turned out to be held by the wrong person, there was
+    # nothing left to look at. These are never shown on the site and never
+    # touch a rating; they are a record that the match happened.
+    c.execute("""CREATE TABLE IF NOT EXISTS held_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_id TEXT,
+                    sys_id INTEGER,
+                    region TEXT,
+                    name TEXT NOT NULL,
+                    norm_name TEXT NOT NULL,
+                    played_as TEXT,
+                    won INTEGER NOT NULL,
+                    score INTEGER,
+                    reason TEXT NOT NULL,
+                    played_at TEXT
+                )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_held_norm ON held_results(norm_name, id)")
+    c.execute('''CREATE TABLE IF NOT EXISTS name_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    reported_by TEXT,
+                    ip TEXT,
+                    note TEXT,
+                    created_at TEXT,
+                    status TEXT DEFAULT 'open'
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS rate_events (
+                    kind TEXT NOT NULL,
+                    src TEXT NOT NULL,
+                    created_at TEXT
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_rate_events "
+              "ON rate_events(kind, src, created_at)")
+    c.execute("PRAGMA table_info(claim_requests)")
+    claim_cols = [row[1] for row in c.fetchall()]
+    if 'verify_from' not in claim_cols:
+        # The match id the claim was filed at. Wins only count from here on,
+        # so filing a claim on a name that has already won a hundred games
+        # does not instantly hand it over.
+        c.execute("ALTER TABLE claim_requests ADD COLUMN verify_from INTEGER DEFAULT 0")
+    if 'google_sub' not in claim_cols:
+        # Capturing the claimant's account at claim time is what lets an
+        # approval bind to a person rather than to whatever address they
+        # happened to be on - phones change theirs constantly.
+        c.execute("ALTER TABLE claim_requests ADD COLUMN google_sub TEXT")
+    c.execute("PRAGMA table_info(players)")
+    existing_cols = [row[1] for row in c.fetchall()]
+    if 'reg_ip' not in existing_cols:
+        c.execute("ALTER TABLE players ADD COLUMN reg_ip TEXT")
+    if 'norm_name' not in existing_cols:
+        c.execute("ALTER TABLE players ADD COLUMN norm_name TEXT")
+    if 'strict_mode' not in existing_cols:
+        # Off by default on purpose: registering a name must NOT quietly
+        # change how it is rated. Protection is something a player turns
+        # on, not something that happens to them.
+        c.execute("ALTER TABLE players ADD COLUMN strict_mode INTEGER DEFAULT 0")
+    if 'clan' not in existing_cols:
+        c.execute("ALTER TABLE players ADD COLUMN clan TEXT")
+    if 'prot_changed_at' not in existing_cols:
+        c.execute("ALTER TABLE players ADD COLUMN prot_changed_at TEXT")
+    if 'clan_locked' not in existing_cols:
+        # Set when a tag is taken off a name by hand. Without it the backfill
+        # in /api/game_end would put the tag straight back the next time that
+        # player was read, so every correction would quietly undo itself.
+        c.execute("ALTER TABLE players ADD COLUMN clan_locked INTEGER DEFAULT 0")
+    if 'google_sub' not in existing_cols:
+        # Proof of ownership is moving from "same network" to "same Google
+        # account". An IP is not an identity: phones change theirs
+        # constantly, and everyone behind one home or school connection
+        # shares a single address.
+        c.execute("ALTER TABLE players ADD COLUMN google_sub TEXT")
+
+    # One row per identity. Without this a manually registered "Tempest"
+    # and an auto-added "TEMPEST" would coexist as two players.
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_norm ON players(norm_name)")
+    # Live lobbies now carry the region they were played in.
+    try:
+        c.execute("ALTER TABLE live_lobbies ADD COLUMN region TEXT DEFAULT 'america'")
+    except sqlite3.OperationalError:
+        pass
+    c.execute("CREATE INDEX IF NOT EXISTS idx_players_google_sub ON players(google_sub)")
+
+    # Which in-game name belongs to which account, and how we know. A
+    # binding is created when a Play check-in is followed by that ship id
+    # appearing in the lobby - the ship id is what makes this exact, since
+    # a name alone cannot separate two players who share one.
+    c.execute('''CREATE TABLE IF NOT EXISTS name_bindings (
+        sub TEXT NOT NULL,
+        in_game_name TEXT NOT NULL,
+        sys_id INTEGER,
+        ship_id INTEGER,
+        region TEXT,
+        bound_at TEXT,
+        PRIMARY KEY (sub, in_game_name)
+    )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_bind_name ON name_bindings(in_game_name)")
+    # A binding is per match, so the match has to be part of its key. An
+    # earlier build keyed on (sub, in_game_name) alone, which meant playing
+    # under the same name in a second lobby REPLACED the first lobby's
+    # binding - losing credit for a match that had not been scored yet.
+    c.execute("PRAGMA table_info(name_bindings)")
+    _nb = c.fetchall()
+    if _nb and not any(col[1] == 'sys_id' and col[5] for col in _nb):
+        c.execute("""CREATE TABLE IF NOT EXISTS name_bindings_v2 (
+            sub TEXT NOT NULL,
+            in_game_name TEXT NOT NULL,
+            sys_id INTEGER,
+            ship_id INTEGER,
+            region TEXT,
+            bound_at TEXT,
+            PRIMARY KEY (sub, in_game_name, sys_id)
+        )""")
+        c.execute("INSERT OR IGNORE INTO name_bindings_v2 "
+                  "(sub, in_game_name, sys_id, ship_id, region, bound_at) "
+                  "SELECT sub, in_game_name, sys_id, ship_id, region, bound_at "
+                  "FROM name_bindings")
+        c.execute("DROP TABLE name_bindings")
+        c.execute("ALTER TABLE name_bindings_v2 RENAME TO name_bindings")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bind_name ON name_bindings(in_game_name)")
+
+    # Raw sightings from the tracker: this ship id appeared under this name
+    # at this moment. Kept briefly - only long enough to match a check-in.
+    c.execute('''CREATE TABLE IF NOT EXISTS appearances (
+        sys_id INTEGER,
+        ship_id INTEGER,
+        name TEXT,
+        region TEXT,
+        at TEXT
+    )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_appear_sys ON appearances(sys_id, at)")
+
+    # A check-in is now made by an ACCOUNT, not by a name - the whole point
+    # is that we do not yet know which name you will play under.
+    try:
+        c.execute("ALTER TABLE checkins ADD COLUMN sub TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE checkins ADD COLUMN bound INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    # Discord handles, one row per identity. Deliberately its own table
+    # rather than a players column: the handle belongs to the account, not
+    # to any one name, and keeping it out of players means nothing that
+    # reads the leaderboard ever touches it.
+    # What OCR used to read, and who the game says it actually was. One
+    # row per distinct pairing, with a count - a misreading that repeats is
+    # a real mapping, a one-off is noise. Collected only; renaming players
+    # from this is a deliberate migration, never automatic.
+    c.execute('''CREATE TABLE IF NOT EXISTS name_map (
+        ocr_name TEXT NOT NULL,
+        real_name TEXT NOT NULL,
+        seen INTEGER DEFAULT 0,
+        first_seen TEXT,
+        last_seen TEXT,
+        PRIMARY KEY (ocr_name, real_name)
+    )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_name_map_real ON name_map(real_name)")
+
+    c.execute('''CREATE TABLE IF NOT EXISTS discord_users (
+        sub TEXT PRIMARY KEY,
+        username TEXT,
+        display TEXT,
+        updated_at TEXT
+    )''')
+
+    # Keep the identity key in step with every row.
+    for (row_name,) in c.execute("SELECT name FROM players").fetchall():
+        c.execute("UPDATE players SET norm_name = ? WHERE name = ?",
+                  (normalize_name(row_name), row_name))
+    conn.commit()
+    conn.close()
+
+
+def client_ip():
+    """The visitor's real network address, from a header they cannot forge.
+
+    PythonAnywhere's proxy sets X-Real-IP itself, overwriting anything the
+    visitor sends, so it can be believed. X-Forwarded-For cannot: the proxy
+    appends the real address to whatever the visitor chose to put there, so
+    [0] is entirely attacker-controlled and only [-1] is trustworthy.
+    Reading [0] previously let anyone impersonate another network - renaming
+    or removing a name that was not theirs, and bypassing the per-network cap.
+
+    request.remote_addr is never a valid fallback here: it is the internal
+    load balancer (10.0.x.x), identical for every visitor to the site, so
+    using it would make the whole internet look like one shared owner.
+    """
+    real = (request.headers.get('X-Real-IP') or '').strip()
+    if real:
+        return real
+    xff = (request.headers.get('X-Forwarded-For') or '').strip()
+    if xff:
+        return xff.split(',')[-1].strip()
+    return ''
+
+
+@app.context_processor
+def inject_auth():
+    """The sign-in control sits in the shared header, so every template needs
+    the client id and whether somebody is signed in."""
+    return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user())}
+
+
+@app.route('/register', methods=['POST'])
+def register():
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in with Google or Discord first - use the buttons at the top of the page. Names are tied to an account so nobody else can take yours."}), 401
+    data = request.json
+    if not data or 'name' not in data:
+        return jsonify({"message": "No name provided"}), 400
+
+    name = data['name'].strip()
+    if not is_valid_name_format(name):
+        return jsonify({"message": "Name must be 1-16 letters or digits, and cannot end in a digit."}), 400
+    if is_blocked_word(name):
+        return jsonify({"message": "That name isn't allowed. Please choose another."}), 400
+    if is_default_name(name):
+        return jsonify({"message": "That is one of Starblast's default names, given to anyone who joins without typing one. Too many players share it for it to be tracked. Pick a name of your own in game."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    # Two registrations arriving together could both pass the count check
+    # below and both insert, putting a network over the cap. Taking the
+    # write lock up front serialises them.
+    c.execute("BEGIN IMMEDIATE")
+
+    # One name per account. Only a successful registration takes the slot,
+    # so a rejected name (already taken, blocked word, bad format) costs
+    # nothing and the player can just try another. Removing a name via
+    # /unregister frees the slot again.
+    c.execute("SELECT name FROM players WHERE google_sub = ?", (sub_id,))
+    already = [row[0] for row in c.fetchall()]
+    if len(already) >= MAX_NAMES_PER_ACCOUNT:
+        conn.close()
+        return jsonify({"message": f"Your account already has a name: '{already[0]}'. Remove it first if you want a different one."}), 403
+
+    c.execute("SELECT name FROM players WHERE norm_name = ?", (normalize_name(name),))
+    if c.fetchone():
+        conn.close()
+        return jsonify({"message": f"'{name}' is already registered."}), 400
+
+    c.execute(
+        "INSERT INTO players (name, elo, wins, losses, reg_ip, norm_name, google_sub) VALUES (?, ?, 0, 0, ?, ?, ?)",
+        (name, STARTING_ELO, None, normalize_name(name), current_user())
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"'{name}' registered successfully!"}), 200
+
+
+@app.route('/unregister', methods=['POST'])
+def unregister():
+    """Remove a name you registered - your account only, and only while it
+    has no match history. Deleting a played name would be an elo reset
+    button: winners are auto-registered at STARTING_ELO, so anyone could
+    wipe a bad rating and be back at baseline after their next win."""
+    ip = client_ip()
+    data = request.json
+    if not data or 'name' not in data:
+        return jsonify({"message": "No name provided"}), 400
+    name = data['name'].strip()
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, wins, losses, reg_ip FROM players WHERE norm_name = ?", (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{name}' is not registered."}), 404
+
+    stored_name, wins, losses, reg_ip = row
+    if (wins or 0) > 0 or (losses or 0) > 0:
+        conn.close()
+        return jsonify({"message": "That name has already played matches, so it can no longer be removed."}), 403
+    ok, err = owner_check(c, stored_name, reg_ip)
+    if not ok:
+        conn.close()
+        return jsonify({"message": err}), 403
+
+    c.execute("DELETE FROM players WHERE name = ?", (stored_name,))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"'{stored_name}' has been removed."}), 200
+
+
+def team_rating(names, elo_map):
+    """A roster's strength: average elo of its top 2 rated players. Missing/
+    unregistered players are assumed to be at STARTING_ELO, and if fewer
+    than 2 names are given the rest are padded with STARTING_ELO too - so
+    an unknown/average opposing side reads as a rating of STARTING_ELO."""
+    values = [elo_map.get(normalize_name(n), STARTING_ELO) for n in names]
+    while len(values) < 2:
+        values.append(STARTING_ELO)
+    values.sort(reverse=True)
+    return (values[0] + values[1]) / 2
+
+
+def expected_score(own_elo, opponent_rating):
+    """Classic elo win probability: how likely `own_elo` was to beat
+    `opponent_rating`, given their current ratings."""
+    return 1 / (1 + 10 ** ((opponent_rating - own_elo) / ELO_SCALE))
+
+
+@app.route('/api/game_end', methods=['POST'])
+def game_end():
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    # Send every name through the bindings BEFORE anything else looks at
+    # it, so a result played under any name lands on the right account.
+    # Done at the door on purpose: nothing below here has to know that
+    # accounts exist, so the rating rules are untouched.
+    try:
+        _conn = db()
+        _c = _conn.cursor()
+        _seen = {}
+        _played_as = {}
+        _sys = data.get('sys_id')
+
+        def _to_account(nm):
+            if nm not in _seen:
+                _seen[nm] = account_for_ingame_name(_c, nm, _sys) or nm
+            acct = _seen[nm]
+            # Keep the original spelling against the account it was
+            # credited to, so the match can show what they were called
+            # even though the rating went somewhere else.
+            if acct != nm:
+                _played_as[acct] = nm
+            return acct
+
+        for _key in ('winning_team', 'losing_team_1', 'losing_team_2',
+                     'all_players', 'half_elo', 'ambiguous'):
+            _val = data.get(_key)
+            if isinstance(_val, list):
+                data[_key] = [_to_account(str(x)) for x in _val]
+        # Scores are keyed by the same in-game names, and have to land on
+        # the same account rows the results do.
+        _sc = data.get('scores')
+        if isinstance(_sc, dict):
+            data['scores'] = {_to_account(str(k)): v for k, v in _sc.items()}
+        data['played_as_map'] = _played_as
+        _conn.close()
+    except sqlite3.Error:
+        pass
+
+    winning_team = data.get('winning_team', [])
+    losing_team_1 = data.get('losing_team_1', [])
+    losing_team_2 = data.get('losing_team_2', [])
+    losing_all = losing_team_1 + losing_team_2
+    sys_id = data.get('sys_id')
+    ambiguous = {normalize_name(n) for n in data.get('ambiguous', [])}
+    # Players the tracker first saw in the back half of a match. They used
+    # to be dropped from the result entirely, which meant somebody who
+    # joined late and won came out level with somebody who never played.
+    # Now they earn half. The winning team's top five are never in here -
+    # the tracker exempts them before sending, because the roster panel is
+    # ordered by score and those are the players who decided it.
+    half_elo = {normalize_name(n) for n in data.get('half_elo', [])}
+
+    def scaled(raw, key):
+        """Half the swing for a late arrival, full for everyone else.
+
+        No rounding. Ratings are stored with decimals precisely so that half
+        a swing is a real half - while these were whole numbers, an even
+        match was worth one point and half of it rounded straight back to
+        one, which made the rule do nothing at all."""
+        if key in half_elo:
+            raw *= 0.5
+        return raw
+
+    conn = db()
+    c = conn.cursor()
+
+    # Only names whose owner switched protection ON are restricted to
+    # lobbies they checked into. Everyone else - including registered
+    # players who left it off - is rated automatically as always. That defeats impersonation, because an
+    # impersonator cannot check in - doing so needs control of the owning
+    # network. Names with no owner keep the old automatic behaviour, so
+    # the leaderboard still grows on its own.
+    c.execute("SELECT name FROM players WHERE strict_mode = 1")
+    protected = {normalize_name(row[0]) for row in c.fetchall()}
+    checked_in = set()
+    if sys_id is not None and protected:
+        c.execute("SELECT player FROM checkins WHERE sys_id = ? AND created_at > datetime('now', ?)",
+                  (sys_id, f'-{CHECKIN_VALID_SECONDS} seconds'))
+        checked_in = {normalize_name(row[0]) for row in c.fetchall()}
+
+    def protected_without_checkin(player_name):
+        key = normalize_name(player_name)
+        return key in protected and key not in checked_in
+
+    # What the game's own scoreboard said each player finished with.
+    # Rewritten to account names at the door along with the rosters, so
+    # the keys here match the names skip() will be asked about.
+    final_scores = data.get('scores') if isinstance(data.get('scores'), dict) else {}
+
+    # The tracker flags a name it saw more than once in the same lobby.
+    # Two identical names means one is an impersonator and there is no way
+    # to tell which, so neither is rated.
+    def skip_reason(player_name):
+        """Why this player is not rated, or None if they are.
+
+        Split out from skip() so a drop can be recorded with its cause.
+        The order matters and matches the original: the cheapest and most
+        certain tests come first.
+        """
+        if not normalize_name(player_name):
+            return 'unreadable-name'
+        if is_default_name(player_name):
+            return 'default-name'
+        if final_scores.get(player_name) == 0:
+            return 'zero-score'
+        if normalize_name(player_name) in ambiguous:
+            return 'duplicate-name'
+        if protected_without_checkin(player_name):
+            return 'protected'
+        return None
+
+    def skip(player_name):
+        # A name that normalises to nothing - one written entirely in
+        # characters this strips, so Chinese, Cyrillic, Arabic, Korean or
+        # Greek - would otherwise be looked up as the empty string, and match
+        # whichever single row happens to hold it. Every such player's result
+        # landed on one unrelated player. They cannot be told apart from each
+        # other either, so the only honest thing is to rate none of them.
+        if not normalize_name(player_name):
+            return True
+        if is_default_name(player_name):
+            return True
+        # Finished on exactly 0 points: present, but never played. Rating
+        # them hands wins to spectators idling in small lobbies - and a
+        # 0-score "player" should not count towards the abandoned-match
+        # real-player threshold either, which this shares.
+        if final_scores.get(player_name) == 0:
+            return True
+        return normalize_name(player_name) in ambiguous or protected_without_checkin(player_name)
+
+    _in_w, _in_l = list(winning_team), list(losing_all)
+    # Anyone whose result is being withheld by PROTECTION specifically.
+    # The other reasons are noise (bots, unreadable names) or genuinely
+    # unknowable (two people using one name), but a protected player is a
+    # real person whose real match is being set aside on purpose - that is
+    # worth being able to look up later.
+    _held = [(p, 1) for p in _in_w if skip_reason(p) == 'protected']
+    _held += [(p, 0) for p in _in_l if skip_reason(p) == 'protected']
+    winning_team = [p for p in winning_team if not skip(p)]
+    losing_all = [p for p in losing_all if not skip(p)]
+    _lost = [p for p in _in_l if p not in losing_all]
+    print("[game_end] sys=%s region=%s got W=%d L=%d -> kept W=%d L=%d%s"
+          % (sys_id, data.get('region'), len(_in_w), len(_in_l),
+             len(winning_team), len(losing_all),
+             ("  DROPPED LOSERS: %r" % (_lost[:8],)) if _lost else ""),
+          flush=True)
+
+    # skip() has already dropped the game's own default nicknames, names read
+    # twice in one lobby, and anything normalising to nothing - so what is
+    # left is the count of genuine, distinct players.
+    if data.get('abandoned'):
+        real_players = len({normalize_name(p) for p in winning_team + losing_all})
+        if real_players >= ABANDON_MAX_REAL_PLAYERS:
+            conn.close()
+            return jsonify({
+                "status": "not_scored",
+                "real_players": real_players,
+                "reason": (f"abandoned mid-match with {real_players} real players still in it - "
+                           f"{ABANDON_MAX_REAL_PLAYERS} or more means it was still being played"),
+            }), 200
+
+    # Winners get auto-registered at STARTING_ELO if they aren't already
+    # in the table, so they have a pre-match rating to base the strength
+    # calculation on - then the elo change below is applied on top.
+    # Losers are still never inserted.
+    # Clans with an admin are off limits to automatic tagging - their roster
+    # is whatever their admin says it is.
+    curated = curated_clans(c)
+    known_tags = all_clan_tags(c)
+    for player in winning_team + losing_all:
+        if is_valid_name_format(player):
+            tag = detect_clan(player, known_tags)
+            c.execute(
+                "INSERT OR IGNORE INTO players (name, elo, wins, losses, norm_name, clan) VALUES (?, ?, 0, 0, ?, ?)",
+                (player, STARTING_ELO, normalize_name(player),
+                 None if tag in curated else tag)
+            )
+    # An existing row predates clan tracking, or the tag was unreadable last
+    # time. Fill it in when we finally see one, but never overwrite a tag we
+    # already have with nothing - and never re-tag a name whose tag was taken
+    # off by hand, or the correction would be undone on that player's next match.
+    for player in winning_team + losing_all:
+        tag = detect_clan(player, known_tags)
+        if tag and tag not in curated:
+            c.execute("UPDATE players SET clan = ? WHERE norm_name = ? "
+                      "AND (clan IS NULL OR clan = '') "
+                      "AND (clan_locked IS NULL OR clan_locked = 0)",
+                      (tag, normalize_name(player)))
+    conn.commit()
+
+    # Snapshot pre-match elo for everyone involved, so both sides' elo
+    # changes are based on ratings as they stood before this match.
+    all_names = list(set(winning_team + losing_all))
+    elo_map = {}
+    if all_names:
+        placeholders = ",".join("?" for _ in all_names)
+        keys = [normalize_name(n) for n in all_names]
+        placeholders = ",".join("?" for _ in keys)
+        c.execute(f"SELECT norm_name, elo FROM players WHERE norm_name IN ({placeholders})", keys)
+        elo_map = dict(c.fetchall())
+
+    losing_team_rating = team_rating(losing_all, elo_map)
+    winning_team_rating = team_rating(winning_team, elo_map)
+
+    # Expected-outcome elo: the swing depends on how surprising the result
+    # was for THIS player, using their own current elo vs the opposing
+    # side's strength - not a flat amount for the whole team. A big
+    # underdog win nets close to ELO_K; beating clearly weaker opponents
+    # nets close to 0. Losing as a big favorite costs close to ELO_K;
+    # losing as a big underdog (an "expected" loss) costs close to 0.
+    # (name, won, delta) for every player the result actually moved, so the
+    # match is written down exactly as it was applied.
+    applied = []
+
+    updated_winners = []
+    for player in winning_team:
+        own_elo = elo_map.get(normalize_name(player), STARTING_ELO)
+        gain = scaled(ELO_K * (1 - expected_score(own_elo, losing_team_rating)),
+                      normalize_name(player))
+        c.execute(
+            "UPDATE players SET elo = ROUND(elo + ?, 2), wins = wins + 1 WHERE norm_name = ?",
+            (gain, normalize_name(player))
+        )
+        if c.rowcount > 0:
+            updated_winners.append(player)
+            applied.append((player, 1, round(gain, 2)))
+
+    updated_losers = []
+    for player in losing_all:
+        own_elo = elo_map.get(normalize_name(player), STARTING_ELO)
+        loss = scaled(ELO_K * expected_score(own_elo, winning_team_rating),
+                      normalize_name(player))
+        c.execute(
+            "UPDATE players SET elo = ROUND(MAX(0, elo - ?), 2), losses = losses + 1 WHERE norm_name = ?",
+            (loss, normalize_name(player))
+        )
+        if c.rowcount > 0:
+            updated_losers.append(player)
+            applied.append((player, 0, -round(loss, 2)))
+
+    # Write the match itself down. INSERT OR IGNORE plus the empty check
+    # means a match reported twice is stored once, matching the elo guard.
+    if applied:
+        match_id = str(data.get('match_id') or f"sys{sys_id}-{int(time.time())}")
+        now_ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, region) "
+                  "VALUES (?, ?, ?, ?)",
+                  (match_id, sys_id, now_ts, str(data.get('region') or 'america')))
+        c.execute("SELECT id FROM matches WHERE match_id = ?", (match_id,))
+        mrow = c.fetchone()
+        if mrow:
+            c.execute("SELECT COUNT(*) FROM match_players WHERE match_row = ?", (mrow[0],))
+            if c.fetchone()[0] == 0:
+                scores = data.get('scores') if isinstance(data.get('scores'), dict) else {}
+                for pname, won, delta in applied:
+                    raw_score = scores.get(pname)
+                    try:
+                        raw_score = int(raw_score) if raw_score is not None else None
+                    except (TypeError, ValueError):
+                        raw_score = None
+                    # Falls back to the credited name, which is the right
+                    # answer when no rewrite happened - an unclaimed player
+                    # played as exactly who they appear to be.
+                    played_as = (data.get('played_as_map') or {}).get(pname) or pname
+                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                              (mrow[0], pname, normalize_name(pname), won, delta,
+                               1 if normalize_name(pname) in half_elo else 0,
+                               raw_score, played_as))
+
+    if _held:
+        _mid = str(data.get('match_id') or ('sys%s-%s' % (sys_id, int(time.time()))))
+        _now = time.strftime('%Y-%m-%d %H:%M:%S')
+        _pa = data.get('played_as_map') or {}
+        for _name, _won in _held:
+            _sc = final_scores.get(_name)
+            try:
+                _sc = int(_sc) if _sc is not None else None
+            except (TypeError, ValueError):
+                _sc = None
+            c.execute("INSERT INTO held_results (match_id, sys_id, region, name, norm_name, "
+                      "played_as, won, score, reason, played_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      (_mid, sys_id, str(data.get('region') or 'america'), _name,
+                       normalize_name(_name), _pa.get(_name) or _name, _won, _sc,
+                       'protected', _now))
+        conn.commit()
+        print("[game_end] held %d protected result(s): %r"
+              % (len(_held), [n for n, _ in _held][:6]), flush=True)
+
+    # A win can finish off a pending claim. Counted only from the match the
+    # claim was filed at, so an old record cannot satisfy a new claim.
+    for winner in updated_winners:
+        key = normalize_name(winner)
+        c.execute("SELECT id, google_sub, verify_from FROM claim_requests "
+                  "WHERE status = 'pending' AND google_sub IS NOT NULL "
+                  "AND name IN (SELECT name FROM players WHERE norm_name = ?) "
+                  "ORDER BY id", (key,))
+        for claim_id, claimant, from_match in c.fetchall():
+            c.execute("SELECT COUNT(*) FROM match_players mp WHERE mp.norm_name = ? "
+                      "AND mp.won = 1 AND mp.match_row > ?", (key, from_match or 0))
+            if c.fetchone()[0] < CLAIM_WINS_REQUIRED:
+                continue
+            # Refuse if the name was taken in the meantime, or if the
+            # claimant has picked up a name since filing - a claim can sit
+            # open for days, so the cap has to be rechecked here too.
+            c.execute("SELECT google_sub FROM players WHERE norm_name = ?", (key,))
+            held = (c.fetchone() or [None])[0]
+            c.execute("SELECT COUNT(*) FROM players WHERE google_sub = ?", (claimant,))
+            already = c.fetchone()[0]
+            if held or already > MAX_NAMES_PER_ACCOUNT:
+                c.execute("UPDATE claim_requests SET status = 'declined' WHERE id = ?", (claim_id,))
+                continue
+            # The account's own row is only in the way if it has a record
+            # of its own. An untouched placeholder is discarded so the
+            # claimed row can become the account name.
+            c.execute("SELECT name, COALESCE(wins, 0) + COALESCE(losses, 0) "
+                      "FROM players WHERE google_sub = ?", (claimant,))
+            mine = c.fetchone()
+            if mine and normalize_name(mine[0]) != key:
+                if mine[1] > 0:
+                    c.execute("UPDATE claim_requests SET status = 'declined' WHERE id = ?",
+                              (claim_id,))
+                    continue
+                c.execute("DELETE FROM players WHERE name = ?", (mine[0],))
+            c.execute("UPDATE players SET google_sub = ? WHERE norm_name = ?", (claimant, key))
+            c.execute("UPDATE claim_requests SET status = 'approved' WHERE id = ?", (claim_id,))
+            c.execute("UPDATE claim_requests SET status = 'declined' WHERE status = 'pending' "
+                      "AND name IN (SELECT name FROM players WHERE norm_name = ?)", (key,))
+            break
+
+    # A clan's record is counted per match, not per member. sys_id is what
+    # makes that possible - without it there is no way to tell two members of
+    # one match apart from two separate matches, so nothing is recorded.
+    if sys_id is not None:
+        def clans_of(names):
+            found = set()
+            for n in names:
+                c.execute("SELECT clan FROM players WHERE norm_name = ?", (normalize_name(n),))
+                r = c.fetchone()
+                if r and r[0]:
+                    found.add(r[0])
+            return found
+
+        won_clans = clans_of(winning_team)
+        lost_clans = clans_of(losing_all) - won_clans
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        for tag in won_clans:
+            c.execute("INSERT OR IGNORE INTO clan_results (clan, sys_id, won, created_at) "
+                      "VALUES (?, ?, 1, ?)", (tag, sys_id, now))
+        for tag in lost_clans:
+            c.execute("INSERT OR IGNORE INTO clan_results (clan, sys_id, won, created_at) "
+                      "VALUES (?, ?, 0, ?)", (tag, sys_id, now))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status": "success",
+        "updated_winners": updated_winners,
+        "updated_losers": updated_losers
+    }), 200
+
+
+# Newest first. Add a new dict here whenever APP_VERSION is bumped.
+CHANGELOG = [
+    {"version": "5.37.0", "at": "2026-08-11T23:30:00Z", "changes": [
+        "The site no longer records IP addresses. Not when you press Play, not on reports, claims or registrations - and signing in with Google or Discord never stored one to begin with. Every address previously stored has been wiped from the database.",
+        "Rate limiting - the only thing addresses were ever used for - now works on an irreversible coded tag whose key is kept outside the database, and the tags themselves expire within two days. Nothing in the database can identify your connection. See the new Privacy section on the Info tab.",
+        "Corrected the claim wording in a few places: a claim completes on its own once the name wins a tracked match after you file it. Nothing is approved by hand.",
+    ]},
+    {"version": "5.36.1", "at": "2026-08-11T21:34:00Z", "changes": [
+        "Hardening on top of tonight\u2019s reconnect fix, after watching it handle its first live matches: a feed that keeps reading all zeros can never, however long it persists, be mistaken for the real state of the match. Zeros are refused as a baseline outright. Two matches this evening were already scored correctly through disconnects that would previously have corrupted them.",
+    ]},
+    {"version": "5.36.0", "at": "2026-08-11T21:10:00Z", "changes": [
+        "Fixed a class of wrong winners. Starblast drops every spectator - the tracker included - every 12 minutes, and for about half a minute after reconnecting the tracker sees a half-loaded lobby: two or three players, near-zero scores. It used to believe that view, which is how one match tonight was scored on 1,366 points against a real 235,145. Readings taken in that window are now set aside and the last trusted picture of the match is what gets scored.",
+        "A watcher whose feed freezes on one unchanging frame now notices within a minute and reconnects, instead of reporting the frozen frame as the ending.",
+        "Every decided match now writes its full rosters, team split and deciding scores to a permanent record, so a disputed result can be recomputed instead of argued about.",
+    ]},
+    {"version": "5.35.0", "at": "2026-08-11T05:42:42Z", "changes": [
+        "On the Play and Settings pages the first box sat almost flush against the heading above it. It now has the same breathing room as every other page.",
+    ]},
+    {"version": "5.34.0", "at": "2026-08-11T05:27:14Z", "changes": [
+        "The \u201cReport this name\u201d button on a player\u2019s page did nothing when you clicked it. It now works on every profile. This also fixes the \u201cThis is my name, report it\u201d button shown when someone has claimed your name, so name reports get through again.",
+    ]},
+    {"version": "5.33.0", "at": "2026-08-11T05:20:00Z", "changes": [
+        "The explanations that used to sit beside every box and button have moved to the Info tab. Each page is now the thing itself - the leaderboard, the match list, your settings - instead of repeating the same paragraphs in the corner of every screen. Anything the site tells you about your own account, and every warning and error, is untouched.",
+    ]},
+    {"version": "5.32.0", "at": "2026-08-11T05:07:00Z", "changes": [
+        "The Region column on the combined leaderboard now spells the region out in full, and clicking it opens that region\u2019s leaderboard scrolled to your own row rather than making you hunt for yourself.",
+        "Fixed the border on the testing notice: one edge was a brighter yellow than the other three.",
+    ]},
+    {"version": "5.31.0", "at": "2026-08-11T04:56:00Z", "changes": [
+        "On the combined leaderboard, the region each player mostly plays in is now its own column beside Record and Win%, instead of a small tag squeezed in after the name.",
+    ]},
+    {"version": "5.30.0", "at": "2026-08-11T04:56:00Z", "changes": [
+        "New Info tab: every explanation on the site compiled in one place - how the tracker watches matches, how the rating moves, full against half elo, account and in-game names, claiming, Protection, clans and reporting. The old How-it-works page now leads there.",
+    ]},
+    {"version": "5.29.0", "at": "2026-08-11T04:45:00Z", "changes": [
+        "Pressing Play copies your in-game name to the clipboard so you can paste it straight into Starblast. The name cannot be put into the link itself - Starblast fills its name box from its own browser storage and ignores anything in the address, and no site is allowed to write another site storage - so pasting is as close as this can get.",
+    ]},
+    {"version": "5.28.0", "at": "2026-08-11T04:30:00Z", "changes": [
+        "The combined leaderboard shows NA, EU or AS beside each name - the region that player turns up in most. Their profile still has the full split if they play in more than one.",
+    ]},
+    {"version": "5.27.0", "at": "2026-08-11T04:02:00Z", "changes": [
+        "Pressing Play now matches you to the next ship that appears under the name you play as, rather than simply the next ship to appear. In a busy lobby the old rule could match you to another player who happened to join first.",
+        "Keep the name on the Play page the same as the one in your ship. If nothing matches, the match still counts under the name you played - it is just not linked to your account.",
+    ]},
+    {"version": "5.26.0", "at": "2026-08-11T03:55:00Z", "changes": [
+        "Matches not yet being watched are marked full elo on the Play list, next to the half elo mark on the ones already running. Only half of them were labelled before, which left the rest ambiguous.",
+        "How this works now explains full against half instead of a check-in deadline that no longer exists.",
+    ]},
+    {"version": "5.25.0", "at": "2026-08-11T03:48:00Z", "changes": [
+        "Joining a match that is already being watched counts for half, on either side. Before, the split depended on whether your team had already filled up, so somebody who walked in after the tracker started could still earn a full win if their team had room. What matters is whether you were in the match when the watch began.",
+        "Matches already being watched are marked half elo on the Play list, so you can see what joining one is worth before you join it.",
+        "The live list says when a lobby is too small to be tracked instead of claiming it is waiting for a free slot, and a lobby is dropped once it is 90 minutes old rather than three hours - the old limit was set to catch a 21-hour zombie, so 100-minute lobbies still looked like they were about to be picked up.",
+        "Matches no longer close for check-in, and the disabled button says Not tracked rather than Closed, which is what it actually means.",
+    ]},
+    {"version": "5.23.0", "at": "2026-08-11T03:28:00Z", "changes": [
+        "The name box on Play is just called In game name now, with one line under it. It was headed Your account and took three paragraphs to explain itself before you reached the field.",
+    ]},
+    {"version": "5.22.1", "at": "2026-08-11T03:22:00Z", "changes": [
+        "Fixed being signed out the moment you changed tab. Signing in was working the whole time - the check the pages use to see whether you are signed in had been broken twenty minutes earlier and was failing on every request, so every page decided you were a stranger.",
+    ]},
+    {"version": "5.22.0", "at": "2026-08-11T03:15:00Z", "changes": [
+        "The name you play under is edited on Play, in the account box at the top, and nowhere else - it was in Settings as well, which made it unclear which one mattered.",
+        "It now defaults to your account name instead of starting empty, since most people play under the name they signed up with. Change it whenever you like; your results still go to your account either way.",
+    ]},
+    {"version": "5.21.0", "at": "2026-08-11T03:10:00Z", "changes": [
+        "The name box on the Play page now changes the name you play under, not your account name. It was still editing your account identity - the one thing that should not be changed casually on the way into a match - left over from when there was only one name. Your account name is shown there for reference and is edited in Settings.",
+    ]},
+    {"version": "5.20.1", "at": "2026-08-11T03:00:00Z", "changes": [
+        "The changelog now shows when each release went out, stamped in Eastern time with the zone written on each line. Releases from before 10 August have no time against them because none was ever recorded - a blank rather than a guess.",
+    ]},
+    {"version": "5.20.0", "at": "2026-08-11T02:47:00Z", "changes": [
+        "Matches that protection sets aside are now kept rather than discarded. They still do not count towards any rating and are not shown anywhere - that is the whole point of protection - but if protection ever turns out to have been wrong, or a name turns out to be held by the wrong person, the match is still on record instead of gone.",
+    ]},
+    {"version": "5.19.0", "at": "2026-08-11T02:40:00Z", "changes": [
+        "Protection can be switched on straight away - it no longer waits until you have played a tracked match. That requirement meant your first match was always the unprotected one, and after a board reset it locked everybody out at once. Protection is most useful before somebody plays under your name, not after.",
+    ]},
+    {"version": "5.18.0", "at": "2026-08-11T02:34:00Z", "changes": [
+        "Your account now has two names. The account name is your identity on the leaderboard and can be changed once. The name you play under is separate, can be changed as often as you like, and is just so people know who you are in game - it never decides where a result goes on its own.",
+        "Match history shows the name you actually played under, so a game played as something else still reads correctly on your profile. Matches where it matched your account name show a dash.",
+        "A name already sitting on the leaderboard still cannot be taken as an account name - claiming it is what proves it is yours.",
+    ]},
+    {"version": "5.17.0", "at": "2026-08-11T02:08:00Z", "changes": [
+        "Match times are shown in your own time zone. They were being printed exactly as the server stores them, which is UTC - so a game played at nine in the evening in New York appeared as one in the morning the following day. Hovering a time shows the full date and time.",
+    ]},
+    {"version": "5.16.1", "at": "2026-08-10T23:32:00Z", "changes": [
+        "Scores now stick. A player's recorded score is their latest one from the game's scoreboard - previously the tracker only kept the final scoreboard it saw, and since a lobby empties out as a match ends, that last board held only the final few players and everyone else's score was lost. If you left before the end, your score is the one you left with.",
+    ]},
+    {"version": "5.16.0", "at": "2026-08-10T23:26:00Z", "changes": [
+        "Losing a match now puts you on the board just like winning one does. Only winners were ever being added; anyone whose first tracked match was a loss bounced off the record entirely, which is why the fresh board was filling up with winners and no losers.",
+    ]},
+    {"version": "5.15.0", "at": "2026-08-10T23:13:00Z", "changes": [
+        "Matches are no longer thrown away when everyone leaves at the end. If every team had been marked out but one still had players in it, the result was refused as undecidable - even though a team with players plainly did not lose to teams with nobody in them. That team now wins. This was discarding whole matches, which is why the board had been filling up with winners and almost no losers.",
+        "If a lobby ends up completely empty, the result is now settled on damage and score instead of being refused outright. It still refuses when nothing can separate the teams - it will not guess a winner.",
+        "A finished lobby stops showing as Tracked about a minute after it empties, rather than three. The longer wait was inherited from a rule guarding against misreads, and a lobby reading one player six times over is not a misread.",
+    ]},
+    {"version": "5.14.1", "at": "2026-08-10T23:03:00Z", "changes": [
+        "The board has been wiped again. Skill on the combined all-regions view was reading five points too high - a player on 6.0 showed as 11.0 - and one match recorded its winners without recording anyone who lost, so nothing on it was worth keeping. Both the site and the Discord bot are fixed.",
+    ]},
+    {"version": "5.14.0", "at": "2026-08-10T22:52:00Z", "changes": [
+        "How a team is decided for rating has changed. A team's line-up is locked in at its fullest, up to eight players. If that team loses, everyone in the locked line-up takes the loss - leaving early no longer avoids it. If it wins, whoever is there at the end is paid, and anyone who joined after the line-up had settled gets half rather than full.",
+        "Far more matches now record your in-game score. Scores were being matched up through a team lookup that quietly dropped anyone it could not place, which is why one game showed a score and the next showed nothing.",
+        "The tracker no longer loses matches when it restarts or crashes. Each match being watched is now saved as it goes, so an interruption costs about ten seconds of watching instead of the whole game.",
+        "Seven matches are watched at once rather than eight. Eight game clients did not fit in the server's memory and were taking the tracker down with them roughly every eight hours - and every one of those crashes lost every match then in progress.",
+        "Lobbies with fewer than four players are no longer picked up, and a game that empties out is released instead of being watched to the end. One lobby sat with a single player in it for 55 minutes holding a slot a real match could have used.",
+        "These are tracker-side changes from earlier today that should have been listed when they shipped and were not.",
+    ]},
+    {"version": "5.13.0", "at": "2026-08-10T22:16:00Z", "changes": [
+        "The board has been wiped and started over from nothing - no players, no matches, no accounts. Everything from before today is gone deliberately.",
+        "There is now a standing notice on every page: expect further resets over the coming week while the switch away from reading names off the screen is tested.",
+    ]},
+    {"version": "5.12.0", "at": "2026-08-10T21:03:00Z", "changes": [
+        "You can press Play at any point during a match now, not just in the first ten minutes. Turning up late already counts for half, so the deadline was solving a problem that half points had solved better - and it meant joining a game in progress could not be rated at all.",
+        "The leaderboard opens on a combined board of every player across all three regions. The regional boards are still there in the same selector.",
+        "Your profile now shows where you stand in each region you have played in, alongside your overall rank and the size of each field.",
+    ]},
+    {"version": "5.11.1", "at": "2026-08-10T16:25:00Z", "changes": [
+        "A match where every player on a team has left is now decided instead of refused: a team with nobody on it cannot win, so the last populated team takes it. Quiet lobbies that wound down with intact stations used to end unscored because nothing had destroyed a station.",
+    ]},
+    {"version": "5.11.0", "at": "2026-08-10T16:15:00Z", "changes": [
+        "A player who finishes a match with exactly 0 points is no longer rated for it, win or lose. The game itself is saying they never played - anyone who mines or fights for even a minute has points - and in small lobbies an idle spectator was collecting real wins. Matches from before scores were recorded are untouched.",
+        "One player's record built entirely this way has been removed from the leaderboard.",
+    ]},
+    {"version": "5.10.2", "at": "2026-08-10T05:41:00Z", "changes": [
+        "Tracker-side housekeeping: the last of the screenshot-era machinery has been deleted rather than just switched off, and the awards experiment from earlier tonight has been removed completely. No visible change - matches are watched, scored and reported exactly as before, by reading the game itself.",
+    ]},
+    {"version": "5.10.1", "at": "2026-08-10T04:37:00Z", "changes": [
+        "Leaderboard is the first tab now, with Play second.",
+    ]},
+    {"version": "5.10.0", "at": "2026-08-10T04:19:00Z", "changes": [
+        "Match history now records each player's final in-game score, read from the game's own scoreboard at the moment the match ended. It shows in the Recent matches table on every profile; matches recorded before today have no score to show.",
+    ]},
+    {"version": "5.9.0", "at": "2026-08-10T03:25:00Z", "changes": [
+        "The Discord bot can now show any of the three regional leaderboards, over any time window, rather than just one board.",
+        "New Discord commands: set or change your name, turn protection on and off, and list the matches being tracked right now by region.",
+    ]},
+    {"version": "5.8.0", "at": "2026-08-10T03:12:00Z", "changes": [
+        "The time-period picker on the leaderboard is no longer a plain browser dropdown - it matches the rest of the page, and each option says what it covers, since Monthly means the last 30 days rather than this calendar month.",
+        "Each period is now its own address, so a particular view can be bookmarked or opened in a new tab.",
+    ]},
+    {"version": "5.7.3", "at": "2026-08-10T03:03:00Z", "changes": [
+        "Fixed saving your name failing outright on accounts that hold more than one name. It was trying to rename every name on the account at once.",
+        "Saving the name you already have now simply confirms it instead of erroring.",
+        "Fixed the live match list going stale: the tracker's updates were being held up waiting for the database and abandoned before they finished.",
+    ]},
+    {"version": "5.7.2", "at": "2026-08-10T02:51:00Z", "changes": [
+        "Names can end in a number again - Tempest1 and Halo3 were being turned away. That rule existed because names used to be read off the screen and the score column bled into them as trailing digits; names now come from the game itself, so it was only rejecting real ones.",
+    ]},
+    {"version": "5.7.1", "at": "2026-08-10T02:49:00Z", "changes": [
+        "Fixed saving your name sometimes failing with a connection error. The tracker writes to the database every few seconds and a save that landed in the middle of one gave up after five seconds instead of waiting its turn.",
+    ]},
+    {"version": "5.7.0", "at": "2026-08-10T02:39:00Z", "changes": [
+        "There is a Report tab now. If something is broken, a result looks wrong, or somebody is playing under your name, say so there - you do not need an account to file one, though leaving a way to reach you means you can get an answer.",
+    ]},
+    {"version": "5.6.0", "at": "2026-08-10T02:34:00Z", "changes": [
+        "You can set and change your name on the Play page now, instead of going to Settings for it.",
+        "There is no separate check-in step any more. Press Play on the match you are about to join and that is it - the tracker notes the moment, watches for the next ship to appear in that lobby, and takes that to be you. Play under any name you like.",
+        "Because you are matched to a ship rather than to a name, two players called the same thing no longer interfere with each other - each one's result goes to their own account.",
+        "Fixed: being matched to a name in one match used to credit that account for every later match anyone played under the same name. A match is now credited only to the ship that was actually identified in it.",
+        "Fixed: two people pressing Play on the same lobby could both be matched to the same ship, so one collected the other's result.",
+    ]},
+    {"version": "5.5.0", "at": "2026-08-10T02:25:00Z", "changes": [
+        "Workers are no longer stuck in their own region. Each region still gets its guaranteed share, but if one has nothing to watch its idle slots are lent to whichever region has the most matches going uncovered - and handed straight back as soon as it needs them. Where two regions want the same spare slot, it goes to the one whose match started most recently, because there is more of it left to watch.",
+        "Dead lobbies no longer appear under live matches. An empty system the game never closed can sit on the server list for a day looking like a match; one had been showing for 27 hours.",
+    ]},
+    {"version": "5.4.1", "changes": [
+        "Players added to the board by winning now keep their name exactly as it is in game. Spaces were being stripped, so CODE BLUE appeared as CODEBLUE. Names already added that way have been corrected.",
+    ]},
+    {"version": "5.4.0", "changes": [
+        "Ratings have been reset and the leaderboard is starting fresh. If you had signed in, your account and your name are still there - only the record is cleared.",
+        "North America, Europe and Asia are now three separate leaderboards rather than one board you can filter. You land on North America; the region buttons switch between them, and there is no combined view, because beating a North American and beating a European are not the same result.",
+        "Your profile now shows where you play: a record split by region, and your main server under your name.",
+        "Live matches on the Play page are picked one region at a time instead of all being listed together.",
+    ]},
+    {"version": "5.3.0", "changes": [
+        "Clans are switched off and every existing clan has been cleared. Tags were guessed from the front of a name, and names used to be read off the screen, so a lot of those memberships were wrong. They will be put back by hand once there is real data to build them from.",
+        "A confirmed rating now carries a tick on the leaderboard and on the player's own page. Click it to see what it means: that player has Protection on, so only matches they checked into count.",
+        "Turning Protection off now says plainly that your rating stops being confirmed, rather than only describing what changes.",
+        "The tracker now watches 8 matches at once - three in North America, three in Europe and two in Asia.",
+        "The tracker no longer takes screenshots of the game at all. Names, scores and stations have come from the game itself for a while, but a picture was still being captured and thrown away several times a minute for every match being watched.",
+    ]},
+    {"version": "5.2.0", "changes": [
+        "A match too old for the tracker to pick up is now labelled as such on Play, instead of saying it is starting shortly. An empty lobby nobody fought over can sit there for a day looking alive, and one was showing 26 hours old with a Check in button beside it - checking into it would never have counted.",
+    ]},
+    {"version": "5.1.1", "changes": [
+        "Fixed the new day/week/month and region views listing some players twice. Names are recorded in matches exactly as they are played, decorations and all, so anyone whose name carries symbols or extra spacing was being counted separately from their own leaderboard entry - and shown without their protection mark.",
+    ]},
+    {"version": "5.1.0", "changes": [
+        "The leaderboard can now be filtered by region and by day, week or month. All time shows your rating; any shorter window shows how much rating you gained in it, because a rating is a single running number and cannot be cut into weeks.",
+        "Pressing Play now checks in your account rather than a name, so you no longer need to be playing under your account name for a match to count. Play under whatever name you like - the first ship to appear in that match is taken as yours.",
+        "Claiming a name now makes it your account name, so a new player can claim the row their wins have been landing on without having to pick a different name first.",
+        "Protected players are marked on the leaderboard, so a rating backed by matches the player confirmed can be told apart from one built automatically.",
+        "Live matches are grouped by region on the Play page.",
+    ]},
+    {"version": "5.0.0", "changes": [
+        "Ratings have been reset. The tracker no longer reads names off the screen - it reads them from the game itself - so names are now exactly what you play with, and the old board was built on names that were often misread.",
+        "Your rating now belongs to your account rather than to a name. Set an account name in Settings, and press Play before a match so the tracker knows which ship is yours. Play under whatever name you like; the matches still count for you.",
+        "Because the tracker identifies you by your ship rather than by your name, two players sharing a name no longer interfere with each other.",
+        "Matches in Europe and Asia are now tracked as well as North America, and the leaderboard can be filtered by region and by day, week, month or all time.",
+        "Clans are switched off while this settles. Existing clans have been cleared and will be rebuilt from real data.",
+    ]},
+    {"version": "4.11.0", "changes": [
+        "Fair warning: ratings are likely to be reset in the next few days. The tracker now reads player names straight from the game instead of reading them off the screen, and a lot of the board was built up under names that were misread.",
+        "Some of those are being matched back to the right player automatically. Where that is not possible, the cleanest fix is to start the leaderboard fresh rather than leave wrong records standing.",
+        "Nothing you do in the meantime is wasted - matches are still being tracked throughout, and this notice will come down once the decision is made either way.",
+    ]},
+    {"version": "4.10.0", "changes": [
+        "Names are now recorded exactly as they appear in game - spaces, capitals, symbols and all. The tracker used to read them off the screen, which turned Arturo Barnes into ARTUROBARNES and LINDSEY into INDSEY, and every misreading became a separate player with its own rating.",
+        "Where a name was misread badly enough to create a duplicate, the two are being matched back together rather than deleted, so nobody loses the matches they played.",
+        "Whether a station has actually been destroyed now comes from the game itself instead of being judged from the health bar, so matches that were previously too ambiguous to score can be called.",
+    ]},
+    {"version": "4.9.0", "changes": [
+        "Ordinary names are no longer pulled into a clan just because they happen to start with its tag. ISAAC was being read as a member of IS, the same way SRSLY would look like SR.",
+        "This only affects the guesswork. A name written with its tag set apart, like '[IS] AAC', is still recognised, and clan admins can still add anyone by hand - so a real member who happens to be called Isaac just gets added the normal way.",
+        "Names already tagged this way have been corrected and will not be re-tagged.",
+    ]},
+    {"version": "4.8.0", "changes": [
+        "You can now sign in with Discord as well as Google. Either one gives you the same account features - registering a name, claiming, protection and clans all work the same way.",
+        "The two are separate accounts, though. Signing in with Discord when you already have a name under Google gives you a second, empty account rather than your existing one, so stick to whichever you started with.",
+        "There is now a Discord bot for the tracker. It can look up any player, show the leaderboard, list the matches being tracked right now, compare two players, and register a name for you without leaving Discord.",
+        "A name you register through the bot belongs to your Discord account, so signing in here with Discord afterwards finds it waiting for you.",
+        "A claim filed from a Discord account now shows that account when it is reviewed, so a claim can be checked against the person who actually asked for it instead of an anonymous id.",
+    ]},
+    {"version": "4.7.0", "changes": [
+        "A match the tracker has to give up on part way through is now scored if it had already thinned out to fewer than 10 real players, and left unscored if it was still busy. Before this nothing was recorded either way, so a game that had effectively finished counted for nobody.",
+        "Bots and repeated names do not count towards that total, so a late game that has filled up with bots is judged on the real players actually left in it.",
+        "A busy match is still never scored while it might be running. Guessing a winner there would hand out ratings for a game nobody had finished.",
+    ]},
+    {"version": "4.6.1", "changes": [
+        "Play now shows which match you are checked into. Before this there was no sign of it after reloading the page, so it looked as though checking in had not worked.",
+        "Checking into a second match still cancels the first - that has always been the case, and it is now spelled out on the button instead of happening quietly.",
+    ]},
+    {"version": "4.6.0", "changes": [
+        "New Play tab. Everything you do before a match is in one place now - which matches are being tracked, checking in, and claiming your name if you do not have it yet.",
+        "Player search moved onto the leaderboard. There were two separate lists of the same players before, which was confusing for no reason.",
+        "Checking in has moved out of Settings and onto Play, next to the list of live matches.",
+    ]},
+    {"version": "4.5.0", "changes": [
+        "You can now check in to a match right up until the tracker starts watching it, instead of only during the first 10 minutes. There used to be a gap between minutes 10 and 20 where a protected player could neither check in nor be picked up, so a match joined then could never count for them.",
+        "The check-in list now shows which matches are being tracked, which are about to be, and which you can still check in to - pick one and check in from there.",
+    ]},
+    {"version": "4.4.0", "changes": [
+        "The live match list now tells you why a game is not being tracked, instead of just saying it is not. A lobby that is too new shows how long until it can be picked up, and one that is old enough shows whether it is waiting for a free slot.",
+        "Matches are only picked up once they are 20 minutes old, because games rarely finish before then and a slot spent on a fresh lobby is one not watching a match that is about to end.",
+    ]},
+    {"version": "4.3.0", "changes": [
+        "The leaderboard now shows which matches are being watched right now. Only a few can be tracked at once, so if your lobby is not on that list your game will not be scored - and until now there was no way to know that in advance.",
+        "Lobbies that are live but not being watched are shown too, so you can pick one that counts.",
+    ]},
+    {"version": "4.2.0", "changes": [
+        "You can now claim a name yourself instead of waiting for it to be approved by hand. Sign in, claim the name, then win one tracked match playing as it and the name becomes yours.",
+        "While a claim is open it is shown on that player's page for anyone to see, with a report button. If somebody tries to take your name, you will be able to see it happening.",
+        "Added a report button to every player page. Reporting never changes anything on its own - it raises it to be looked at by hand, because the site cannot tell who is really behind a name.",
+        "Winning a match is a cost, not proof of identity. Anyone can type any name in game, so nothing the tracker sees can prove who you are. The point is that taking someone else's name now means playing as them and winning while they watch it happen.",
+        "One name per account applies to claiming as well as registering.",
+    ]},
+    {"version": "4.1.0", "changes": [
+        "Your player page now lists your recent matches - when you played, whether you won, and exactly how much your skill moved. Until now only running totals were kept, so there was no way to check whether a particular game had counted.",
+        "Matches are recorded from today onwards. Games played before this exist only in your totals, so the list starts empty and fills as you play.",
+        "A match that counted for half, because you joined in the second half of it, is marked as such in the list.",
+    ]},
+    {"version": "4.0.1", "changes": [
+        "Removed seven reserved names that had never played a match and were tied only to a network. They did nothing except stop the real player from registering that name properly, and any of them can now be taken again by signing in.",
+        "Names with a match history were left alone, even where they were only tied to a network. Deleting one would hand its owner a fresh rating, which is the one thing name removal has never been allowed to do.",
+    ]},
+    {"version": "4.0.0", "changes": [
+        "Every name is now tied to a Google account, and one account holds one name. Signing in takes a couple of seconds and there is now a button for it in the top right of every page.",
+        "Being on the same network no longer counts as owning a name. It never really proved anything - everyone in a house, a school or on mobile data shares one address, so housemates and strangers alike could rename, remove or protect each other's names. Ownership is your account now, and nothing else.",
+        "If your name was only tied to a network, you can still play and still be rated exactly as before. To rename, remove or protect it you now need to sign in and claim it, which is approved by hand.",
+        "Registering a name requires signing in first.",
+    ]},
+    {"version": "3.8.0", "changes": [
+        "Long matches were being given up on partway through and counted for nobody. The tracker stopped watching a match after 45 minutes, which is shorter than some games actually run, so everyone in them got nothing at all. It now watches for up to 90 minutes. This was happening around 16 times a day.",
+        "One known case: a game in lobby 9161 that ran about 74 minutes and scored nobody. There is no way to award it now, since the tracker never saw who won.",
+        "Fixed a second version of the winning-team bug from earlier today. That fix only covered one of the two ways a match can be wrapped up, so a match finished the other way could still credit the wrong players.",
+        "IS and GOF are now tracked as clans.",
+        "Isagi Yoichi was removed from IS. The name happens to start with the same two letters but is not a member of the clan.",
+    ]},
+    {"version": "3.7.0", "changes": [
+        "A clan's record now covers every match its members have played, instead of only those since clan tracking was added. It was showing far fewer games than the members had actually played.",
+        "Turning protection on or off now asks you to confirm first, and reminds you it cannot be changed again for 24 hours.",
+    ]},
+    {"version": "3.6.0", "changes": [
+        "Skill is now tracked to one decimal place. Whole numbers were too coarse - most of the leaderboard sat on the same rating, and half a point of change simply rounded away to nothing.",
+        "Because of that, half elo for joining late now genuinely means half.",
+        "Ranks are far more meaningful as a result. Players used to share a rank in large blocks because so many of them had the identical whole number.",
+    ]},
+    {"version": "3.5.0", "changes": [
+        "Fixed the winning team being taken from the fullest moment of a match rather than the end of it. If someone joined partway through and carried the game, they were left out of the result while players who had already quit collected the win. The winner list is now everyone who played for that team, top scorers first.",
+        "Joining late no longer wipes out your rating for the match. It used to remove you from the result completely. You now earn half, and the winning team's top five earn full no matter when they arrived.",
+        "Clan admins are marked with a crown on their clan's page.",
+    ]},
+    {"version": "3.4.0", "changes": [
+        "Clan admins now join their own clan automatically. Redeeming an admin code, or starting a clan, adds the names on your account to that clan's roster. A name already in another clan is left where it is.",
+    ]},
+    {"version": "3.3.1", "changes": [
+        "Single-character names are allowed again when the character is Chinese, Japanese or Korean, where one character is an ordinary whole name. A single Latin letter is still rejected, because those come from misread rosters rather than players.",
+    ]},
+    {"version": "3.3.0", "changes": [
+        "Names in other alphabets are now tracked properly. Chinese, Cyrillic, Arabic, Korean and Greek names used to be reduced to nothing internally, so they could not be told apart from each other and were not rated at all. They now keep their characters and are treated like any other name.",
+        "Player search matches those names too.",
+        "Accents no longer split one player into two. JOSE and JOSE with an accent are now the same player, since the tracker cannot reliably tell them apart when reading a roster.",
+    ]},
+    {"version": "3.2.2", "changes": [
+        "Removed two rows that were not real players. One was a single stray letter from a misread roster. The other held a record built from several different players whose names share no Latin letters, merged together by the bug fixed above - there is no record of whose results were whose, so the number could not be repaired, only removed.",
+    ]},
+    {"version": "3.2.1", "changes": [
+        "Fixed results from players whose names use no Latin letters - Chinese, Cyrillic, Arabic, Korean or Greek - being credited to a completely unrelated player. Those names all reduced to nothing internally, so they were treated as the same person. They are no longer rated at all, which is the only honest option while they cannot be told apart.",
+    ]},
+    {"version": "3.2.0", "changes": [
+        "Protection can only be turned on for a name that has actually played a tracked match. Before this, someone could register a name they had never played - any name not yet on the leaderboard - switch protection on, and quietly stop that player's wins from ever counting. Turning protection off is still always allowed.",
+        "Starting a clan now requires a name of your own that plays under the tag. Creating a clan switches off automatic tagging for it, so without this anyone could grab a real clan's tag before its leader did and decide who counted as a member.",
+        "There is now a limit on how many name claims you can have open at once.",
+        "When a clan admin removes someone from their clan, that player can now be picked up by other clans normally. Previously the removal blocked them from ever being tagged again, anywhere.",
+        "Names must be at least two characters. Single letters were coming from misread rosters, not real players.",
+    ]},
+    {"version": "3.1.1", "changes": [
+        "Fixed check-in being broken. The lobby picker under Settings was sending the wrong field, so every check-in was rejected. If you tried to check in since the site was rebuilt into tabs, it did not work - it does now.",
+    ]},
+    {"version": "3.1.0", "changes": [
+        "Clans have a win record again, counted properly. One match your clan won is one win, no matter how many of your members were in it. The old total added up each member's wins separately, so a clan of five that won one match looked like it had won five.",
+        "Clan records start from today. The old per-player totals cannot be split back into the matches they came from, so there is nothing honest to carry over.",
+        "Protection can now only be turned on or off once a day. Without that limit it was a switch you could flip the moment a match looked like going badly - leave it off while winning, turn it on to void the losses.",
+    ]},
+    {"version": "3.0.0", "changes": [
+        "The site is now split into tabs - Leaderboard, Players, Clans, Changelog and Settings - instead of everything being piled onto one page. Each does one thing.",
+        "New Clans page listing every clan, and you can apply to join one from it. The clan's admin decides.",
+        "New Players page for searching anyone the tracker has rated, so the leaderboard is just the leaderboard again.",
+        "Everything about your own name now lives under Settings.",
+        "Clan pages no longer show a combined win total. It was the sum of unrelated matches different members happened to play, which looked like a team record while measuring nothing of the sort.",
+        "The rating is now called skill throughout, and the site is the Starblast NA Team Mode Skill Tracker.",
+    ]},
+    {"version": "2.8.0", "changes": [
+        "If you are signed in when you claim a name, the claim now remembers your account. Once it is approved the name is yours on any device, instead of only from the network you claimed it on. Sign in first if you can - claims still work without it, but they are tied to your address.",
+    ]},
+    {"version": "2.7.0", "changes": [
+        "Anyone can start a clan. Sign in on the Clans page and pick a 2 to 4 character tag - you become its admin and invite your members. Clans are no longer limited to the eight the tracker already knew about.",
+        "A clan tag is no longer repeated in the name next to it. COVHADE now shows as HADE with a COV badge beside it. Nothing about your name actually changed - this is only how it is displayed.",
+        "A brand new clan never picks up members automatically, only by invitation. Otherwise a short tag would sweep in every player whose name happens to start with those letters.",
+    ]},
+    {"version": "2.6.0", "changes": [
+        "Clans can now have admins, who decide who is actually in the clan. Anyone could put a clan's tag in their name and end up on that clan's page, which is what this fixes. To get an admin for your clan, ask justtempest on Discord for a code, then enter it on the new Clans page.",
+        "Once a clan has an admin, players are no longer added to it automatically. The roster is whatever the admin says it is.",
+        "An admin cannot simply put you in a clan. If you have an account, you get an invitation on Manage your name and nothing happens until you accept it. Only players with no account can be added directly, and only when the clan's tag really is in their name.",
+    ]},
+    {"version": "2.5.0", "changes": [
+        "Clan tags now show on the leaderboard. If the tracker has seen you playing under F4, FV, L7, G4, SR, COV, ACW or SRW, a small tag appears next to your name.",
+        "Clan tags are clickable. Selecting one opens that clan's page, listing every member on the leaderboard with their record and the clan's combined win rate.",
+        "A clan tag can now be taken off a name. Tags are worked out from the name the tracker read in game, so they can be wrong - a name that merely starts with the same letters could be tagged by mistake. Your player page now has a Remove clan tag button, and once a tag is removed it will not come back on its own.",
+    ]},
+    {"version": "2.4.0", "changes": [
+        "The tracker now records which clan a player belongs to, for F4, FV, L7, G4, SR, COV, ACW and SRW. Nothing is shown on the leaderboard yet - this release only starts collecting it, because the clan tag is visible when a match is read and is lost afterwards, so it has to be captured as matches finish.",
+    ]},
+    {"version": "2.3.0", "changes": [
+        "Names with numbers in them are now tracked. Players like KINGDUCK5TER, 98e and the F4 clan were being skipped entirely - they could win a match and receive nothing, with no warning anywhere.",
+        "Names still cannot END in a number. That is not arbitrary: when the tracker misreads the roster it glues your score onto your name, which always produces trailing digits. Blocking those keeps the misreads out while letting real numbered names in.",
+    ]},
+    {"version": "2.2.1", "changes": [
+        "HAL is no longer tracked. It is short for HAL 9000, one of Starblast's default names, and the tracker was only blocking the full spelling - so the shortened form was collecting wins that belonged to several different anonymous players. Its record has been removed.",
+    ]},
+    {"version": "2.2.0", "changes": [
+        "You can now check in up to 10 minutes after a match starts, instead of 5. The limit still exists so nobody can wait to see who is winning before deciding whether to check in.",
+    ]},
+    {"version": "2.1.1", "changes": [
+        "Backfill: the changes below were made to the tracker earlier and were never written up here. Nothing in this list is new today - they are recorded now because every change should be visible to you, and these were not.",
+        "Matches are now only scored once the lobby has actually closed. Before this, a dropped connection looked identical to a match ending, so games still in progress could be scored - one player lost rating mid-match while well ahead. A lost connection now just reconnects and reports nothing.",
+        "Quitting a match you are losing does not dodge the loss. If a team that was full collapses to almost nobody, it counts as eliminated and the penalty falls on its top players from when it was at full strength, not on whoever happened to still be there.",
+        "Fixed matches silently going unscored. A stalled connection could leave the tracker reading an empty roster for the rest of the match with no error, and after any reconnect the game's welcome popup was never dismissed, so it never saw the player list again.",
+        "Fixed a case where finishing a match could report it twice, which would have applied the rating change twice.",
+        "Fixed loading-screen and disconnect text being read as player names, which could put things like 'Warping t' on the board and stop a wiped-out team from counting as eliminated.",
+        "The tracker only watches lobbies that are at least 20 minutes old, since matches rarely end before then, and it watches the oldest ones first as those are closest to finishing.",
+    ]},
+    {"version": "2.1.0", "changes": [
+        "The tracker now watches 3 matches at once instead of 2, so fewer games finish unseen. The server it runs on was upgraded to make this possible - it had been running out of processing power, which also meant player names were sometimes misread.",
+    ]},
+    {"version": "2.0.0", "changes": [
+        "Out of beta. The version also jumps to 2.0 because signing in with Google replaced identifying you by your internet connection, which is a real change to how the site decides a name is yours.",
+        "You are now rated if you were on the roster during the first half of the time the tracker watched your match, instead of only the first few seconds. The old rule was strict enough to miss people who genuinely played. Turning up in the second half still earns nothing, and quitting a losing match still does not dodge the loss.",
+    ]},
+    {"version": "Beta 1.21.0", "changes": [
+        "Search now finds every player whose name contains what you typed, instead of needing the exact name. Searching 'fire' lists everyone with 'fire' anywhere in their name, and capitals, spaces and punctuation are ignored - so 'belriose' finds 'BEL RIOSE'. Results filter as you type.",
+    ]},
+    {"version": "Beta 1.20.1", "changes": [
+        "The leaderboard table now fits on a phone screen without needing a sideways swipe to see win rate and Elo.",
+    ]},
+    {"version": "Beta 1.20.0", "changes": [
+        "Check in, Claim, Rename and Remove no longer use pop-up browser dialogs. Check in now shows the live match list right on the page; the others show a small inline form. Nothing about what they do has changed, only how you interact with them.",
+    ]},
+    {"version": "Beta 1.19.0", "changes": [
+        "The leaderboard now shows each player's win-loss record and win rate, not just their Elo. Players tied on Elo are now ordered by win rate, so a tie in rating no longer means an arbitrary order.",
+    ]},
+    {"version": "Beta 1.18.1", "changes": [
+        "Check in, Claim, Rename and Remove now show a clear error if your browser blocks their pop-up dialog, instead of silently doing nothing.",
+    ]},
+    {"version": "Beta 1.18.0", "changes": [
+        "Added a Sign in with Google button on the Manage page. Signing in shows your registered names as one-click options, and is now how a name gets tied to you - your network address is still accepted for names registered before this, but no longer required.",
+    ]},
+    {"version": "Beta 1.17.0", "changes": [
+        "Your name is now tied to a Google account instead of to your internet connection. This fixes two real problems: your phone changes its address constantly, so a name could stop being yours; and everyone sharing one home or school connection counted as the same person, which meant they could rename or remove each other's names.",
+        "Nothing to do if you already registered - the first time you sign in and touch your name from your usual connection, it attaches itself to your account.",
+    ]},
+    {"version": "Beta 1.16.0", "changes": [
+        "Groundwork for signing in with Google. Nothing changes for you yet - the sign-in button, and the move away from identifying you by your network, come next.",
+    ]},
+    {"version": "Beta 1.15.1", "changes": [
+        "Fixed a flaw that let someone appear to be on your network. It could be used to rename, remove, or check in under a name that was not theirs, and to get around the two-names-per-network limit. Your network address is now read from a source visitors cannot fake.",
+        "The message shown when a network has used up its two names no longer lists what those names are.",
+    ]},
+    {"version": "Beta 1.15.0", "changes": [
+        "Fixed a rare case where a match could report an empty winning team and rate nobody, caused by a disconnect briefly overwriting a full roster with a single stray name.",
+        "Names can now be up to 16 letters, matching Starblast's own limit, instead of 8. Longer real names like GOLD LEADER and MASTER OF GOON can now be tracked.",
+    ]},
+    {"version": "Beta 1.14.0", "changes": [
+        "Starblast's 44 default names (Hari Seldon, Zaphod, Vader, Spock and the rest) are no longer tracked. They are given to anyone who joins without typing a name, so dozens of different people share each one and the record belonged to nobody. Three were already on the board and have been removed.",
+        "They also cannot be registered - otherwise claiming one would have collected the rating of every anonymous player using it.",
+    ]},
+    {"version": "Beta 1.13.0", "changes": [
+        "Your name is now matched ignoring spaces, punctuation and capitals. The tracker reads the same player several ways - BERU has shown up as .BERU and BE R U in a single day - and previously each spelling was treated as a different person, so whether a match counted for you depended on how it happened to be read. All spellings now land on one record.",
+    ]},
+    {"version": "Beta 1.12.0", "changes": [
+        "Turning up near the end of a match no longer earns you the win. You are only rated if you were already on the roster when the tracker started watching. This applies to losses too - joining a doomed match late will not cost you rating either.",
+    ]},
+    {"version": "Beta 1.11.2", "changes": [
+        "Fixed a case where an unreadable scoreboard silently handed the win to the first team. If the scores cannot separate the teams, the match is no longer scored at all.",
+    ]},
+    {"version": "Beta 1.11.1", "changes": [
+        "Simplified the Manage page and made Protection a proper on/off switch.",
+        "You can only have one check-in live at a time - a new one cancels the last, so nobody can check into every match at once and then join whichever is winning.",
+    ]},
+    {"version": "Beta 1.10.0", "changes": [
+        "Protection is now an opt-in toggle on the Manage page, and it is OFF by default. Registering a name no longer changes how it is rated.",
+        "With protection ON, only matches you check into count - that is what stops someone playing under your name from moving your rating. With it off, everything counts as normal.",
+    ]},
+    {"version": "Beta 1.9.2", "changes": [
+        "Fixed a bug introduced with check-in that made the tracker stop watching a match early, so some matches went unscored.",
+    ]},
+    {"version": "Beta 1.9.0", "changes": [
+        "Moved check in, claim, rename and remove onto their own Manage your name page so the leaderboard is not cluttered.",
+    ]},
+    {"version": "Beta 1.8.0", "changes": [
+        "Added Check in. Once your name has an owner, only matches you checked into count towards your rating - so nobody can play under your name and move it.",
+        "Check-in is only open during a match's first 5 minutes, so nobody can wait to see who is winning before deciding it counts.",
+        "If the same name appears twice in one lobby, neither is rated - there is no way to tell which is the real player.",
+        "Fixed disconnect dialog text being mistaken for player names, which could stop a wiped-out team from registering as eliminated.",
+    ]},
+    {"version": "Beta 1.7.0", "changes": [
+        "You can now request to claim a name that appeared automatically after a win. Those names have no owner, so claims are reviewed by hand before being granted - message justtempest on Discord to confirm it is you.",
+    ]},
+    {"version": "Beta 1.6.0", "changes": [
+        "You can now change a name you registered - your elo, wins and losses carry over.",
+        "Removing a name now asks for confirmation first.",
+    ]},
+    {"version": "Beta 1.6.0", "changes": [
+        "Added player profile pages - click any name on the leaderboard.",
+        "Added player search.",
+        "Added this change log and the rating explanation page.",
+    ]},
+    {"version": "Beta 1.3.x", "changes": [
+        "Blocked offensive names in several languages, not just English.",
+        "Name filtering now applies only to names typed into the register box - names that starblast.io already allowed in-game are left alone, so nobody is silently kept off the board.",
+    ]},
+    {"version": "Beta 1.2.0", "changes": [
+        "Rewrote how winners are decided. A damaged station no longer counts as a defeat - a team is only out when its station is destroyed AND it has no players left.",
+        "When damage cannot separate two surviving teams, the higher team score now decides.",
+        "Fixed matches occasionally being scored twice.",
+    ]},
+    {"version": "Beta 1.1.x", "changes": [
+        "Fixed the tracker going blind after a reconnect, which had left it unable to read some lobbies at all.",
+        "Stopped a lost connection being mistaken for a finished match, which had produced wrong results.",
+        "Up to two names per network instead of one.",
+        "Ability to remove a name you registered, as long as it has not played yet.",
+    ]},
+    {"version": "Beta 1.0.0", "changes": [
+        "First public release: live leaderboard, registration, and automatic rating from tracked North American team matches.",
+    ]},
+]
+
+
+def leaderboard_sort_key(row):
+    """Ranking order for a (name, elo, wins, losses, ...) row.
+
+    Elo alone leaves dozens of players tied at the same integer rating.
+    Within a tie, rank by win rate then win count, so the order still
+    means something instead of falling back to insertion order. Players
+    with no matches yet sort last within their tier (rate -1 beats
+    nothing real).
+    """
+    name, elo = row[0], row[1]
+    wins = row[2] or 0
+    losses = row[3] or 0
+    played = wins + losses
+    rate = (wins / played) if played else -1
+    return (-elo, -rate, -wins, name.lower())
+
+
+@app.route('/player/<name>')
+def player_profile(name):
+    """Public profile for one player. Lookup is case-insensitive so a
+    search for "fede" finds "FEDE"; rank is derived from elo rather than
+    stored, so it can never drift out of sync with the leaderboard."""
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, elo, wins, losses, clan, google_sub, "
+              "COALESCE(strict_mode, 0) FROM players WHERE norm_name = ?",
+              (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return render_template('player.html', player=None, query=name,
+                               version=APP_VERSION, page='players'), 404
+
+    stored_name, elo, wins, losses, clan, owner_sub, protected = row
+    c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
+    rank = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM players")
+    rank_of = c.fetchone()[0]
+
+    # Where this player sits inside each region they have actually played
+    # in, ranked the same way that region's own board ranks them - by the
+    # rating earned there. A rank without its pool means nothing, so the
+    # size of each pool is carried along with it.
+    region_ranks = {}
+    _key = normalize_name(name)
+    for _rkey, _rlabel in REGIONS:
+        _rows = board_rows(c, "all", _rkey)
+        if not _rows:
+            continue
+        _rows.sort(key=leaderboard_sort_key)
+        for _i, _r in enumerate(_rows, start=1):
+            if normalize_name(_r[0]) == _key:
+                region_ranks[_rkey] = {"rank": _i, "of": len(_rows)}
+                break
+
+    c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' "
+              "AND name IN (SELECT name FROM players WHERE norm_name = ?)",
+              (normalize_name(name),))
+    pending_claim = c.fetchone()[0] > 0
+
+    c.execute("SELECT m.played_at, mp.won, mp.delta, mp.half, mp.score, mp.played_as "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? ORDER BY m.id DESC LIMIT 15",
+              (normalize_name(name),))
+    history = [{"at": (r[0] or '')[5:16].replace('-', '/'),
+                # Same instant, marked as UTC so the browser can localise
+                # it. The plain "at" above stays as the fallback for
+                # anyone without JavaScript.
+                "at_utc": ((r[0] or '').replace(' ', 'T') + 'Z') if r[0] else '',
+                "won": bool(r[1]),
+                "delta": (f"{r[2]:+.1f}" if r[2] is not None else ""),
+                "half": bool(r[3]),
+                "score": (f"{r[4]:,}" if r[4] is not None else "-"),
+                # Only worth showing when it differs from the name the
+                # result was credited to; otherwise it is just noise.
+                "played_as": (r[5] if len(r) > 5 and r[5] and r[5] != stored_name else "")}
+               for r in c.fetchall()]
+
+    c.execute("SELECT COALESCE(m.region, 'america'), "
+              "SUM(CASE WHEN mp.won = 1 THEN 1 ELSE 0 END), "
+              "SUM(CASE WHEN mp.won = 1 THEN 0 ELSE 1 END), "
+              "SUM(COALESCE(mp.delta, 0)) "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? GROUP BY 1", (normalize_name(name),))
+    split = {r[0]: (r[1] or 0, r[2] or 0, r[3] or 0) for r in c.fetchall()}
+    # Every region is listed even when empty. "No matches in Europe" is a
+    # real answer to the question, and a row appearing only once a player
+    # has played there makes the three boards look like one.
+    by_region = []
+    for key, label in REGIONS:
+        w, l, gained = split.get(key, (0, 0, 0))
+        by_region.append({"key": key, "label": label, "wins": w, "losses": l,
+                          "played": w + l, "gained": round(gained, 2),
+                          "winrate": (f"{round(100 * w / (w + l))}%" if (w + l) else "-")})
+    # Where this player actually plays. Most matches wins it, with wins as
+    # the tie-break - someone splitting their time evenly is better
+    # described by where they win than by whichever region sorts first.
+    played_anywhere = [r for r in by_region if r["played"]]
+    primary = None
+    if played_anywhere:
+        best = max(played_anywhere, key=lambda r: (r["played"], r["wins"]))
+        rest = sum(r["played"] for r in played_anywhere) - best["played"]
+        primary = {"label": best["label"],
+                   "only": rest == 0,
+                   "share": round(100 * best["played"] /
+                                  sum(r["played"] for r in played_anywhere))}
+    conn.close()
+
+    played = (wins or 0) + (losses or 0)
+    winrate = f"{round(100 * (wins or 0) / played)}%" if played else "-"
+    player = {"name": stored_name, "display": display_name(stored_name, clan),
+              "elo": f"{elo:.1f}", "wins": wins or 0,
+              "losses": losses or 0, "rank": rank, "rank_of": rank_of,
+              "winrate": winrate,
+              "clan": clan, "pending_claim": pending_claim,
+              "owned": bool(owner_sub), "protected": bool(protected)}
+    return render_template('player.html', player=player,
+                           region_ranks=region_ranks, version=APP_VERSION,
+                           contact=CONTACT_HANDLE, page='players', history=history,
+                           by_region=by_region, primary=primary)
+
+
+@app.route('/rename', methods=['POST'])
+def rename_player():
+    """Rename a name you registered, keeping its elo, wins and losses.
+
+    Unlike /unregister this is allowed even after matches have been
+    played: renaming carries your record with you, so it cannot be used
+    to shed a bad rating. Same-network ownership is still required, and
+    the new name faces the same checks a fresh registration would."""
+    ip = client_ip()
+    data = request.json
+    if not data or 'old_name' not in data or 'new_name' not in data:
+        return jsonify({"message": "Both the current and new name are required."}), 400
+
+    old_name = data['old_name'].strip()
+    new_name = data['new_name'].strip()
+    if not is_valid_name_format(new_name):
+        return jsonify({"message": "New name must be 1-16 letters or digits, and cannot end in a digit."}), 400
+    if is_blocked_word(new_name):
+        return jsonify({"message": "That name isn't allowed. Please choose another."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, reg_ip FROM players WHERE norm_name = ?", (normalize_name(old_name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{old_name}' is not registered."}), 404
+
+    stored_name, reg_ip = row
+    ok, err = owner_check(c, stored_name, reg_ip)
+    if not ok:
+        conn.close()
+        return jsonify({"message": err}), 403
+
+    c.execute("SELECT name FROM players WHERE norm_name = ? AND name != ?", (normalize_name(new_name), stored_name))
+    if c.fetchone():
+        conn.close()
+        return jsonify({"message": f"'{new_name}' is already taken."}), 400
+
+    c.execute("UPDATE players SET name = ?, norm_name = ? WHERE name = ?", (new_name, normalize_name(new_name), stored_name))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"'{stored_name}' is now '{new_name}'."}), 200
+
+
+# A check-in is only honoured for this long. Comfortably covers the
+# 45 minute cap a worker will watch a single match for, without letting a
+# stale check-in vouch for a match hours later.
+CHECKIN_VALID_SECONDS = 2 * 60 * 60
+
+# How long after pressing Play a name may appear and still be taken as
+# yours. Long enough to load the game and pick a side, short enough that
+# somebody joining much later is not mistaken for you.
+BINDING_WINDOW_SECONDS = 15 * 60
+
+# The regions the tracker watches, and how they are labelled. Order is the
+# order they appear in the interface.
+REGIONS = [("america", "North America"), ("europe", "Europe"), ("asia", "Asia")]
+REGION_KEYS = [r for r, _ in REGIONS]
+REGION_LABELS = dict(REGIONS)
+# "all" is a real, selectable view rather than a missing value, so it needs
+# a label of its own. Kept out of REGION_KEYS: that list is what a region
+# stored against a match is validated against, and no match is played in
+# "all".
+ALL_REGIONS = "all"
+REGION_LABELS[ALL_REGIONS] = "All regions"
+# What the leaderboard offers, combined view first.
+REGION_CHOICES = [(ALL_REGIONS, REGION_LABELS[ALL_REGIONS])] + REGIONS
+
+# Leaderboard windows. All time over every region is the live rating; each
+# narrower view is computed from match history instead.
+PERIODS = [("all", "All time"), ("month", "Monthly"),
+           ("week", "Weekly"), ("day", "Daily")]
+PERIOD_KEYS = [p for p, _ in PERIODS]
+PERIOD_SQL = {"day": "-1 day", "week": "-7 days", "month": "-30 days"}
+
+
+def board_rows(c, period="all", region="all"):
+    """Leaderboard rows for one window, as (name, elo, wins, losses, clan,
+    protected) tuples, in no particular order.
+
+    A running elo cannot be sliced - it is one number carried forward, not
+    a series - so anything narrower than all-time-everywhere ranks by the
+    rating a player GAINED inside the window. That is the only honest
+    reading of "this week", and it is why the column changes its heading.
+    """
+    if period == "all" and region == "all":
+        c.execute("SELECT name, elo, wins, losses, clan, COALESCE(strict_mode, 0) "
+                  "FROM players")
+        return [(name, elo, wins or 0, losses or 0, clan, bool(prot))
+                for name, elo, wins, losses, clan, prot in c.fetchall()]
+
+    where, args = [], []
+    if region != "all":
+        where.append("m.region = ?")
+        args.append(region)
+    if period in PERIOD_SQL:
+        where.append("m.played_at >= datetime('now', ?)")
+        args.append(PERIOD_SQL[period])
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+
+    # Grouped on norm_name and joined back to players, never keyed on the
+    # raw name. match_players keeps the name as it was played - decorated
+    # with symbols and spacing - while players keeps the normalised form,
+    # so grouping by name listed the same person twice under two spellings
+    # and lost their clan and protection along the way. norm_name is what
+    # the elo update, the profile history and the claim lookup all use.
+    c.execute(
+        "SELECT p.name, SUM(COALESCE(mp.delta, 0)), "
+        "SUM(CASE WHEN mp.won = 1 THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN mp.won = 1 THEN 0 ELSE 1 END), "
+        "p.clan, COALESCE(p.strict_mode, 0) "
+        "FROM match_players mp "
+        "JOIN matches m ON m.id = mp.match_row "
+        "JOIN players p ON p.norm_name = mp.norm_name "
+        + clause + " GROUP BY p.norm_name", args)
+    return [(name, round(gained or 0, 2), wins or 0, losses or 0, clan, bool(prot))
+            for name, gained, wins, losses, clan, prot in c.fetchall()]
+
+
+# You may only check in during the opening minutes of a match. Without
+# this you could simply wait, see how it is going, and check in only when
+# winning - so a protected player's rating could rise but never fall.
+# Requiring the declaration before the outcome is knowable is the whole
+# point. Cost: someone joining a match already in progress cannot be
+# rated for it.
+CHECKIN_MAX_LOBBY_AGE = 10 * 60
+
+
+def tracker_limits(c):
+    """Capacity and pickup age as the tracker last reported them."""
+    c.execute("SELECT key, value FROM tracker_state")
+    state = {k: v for k, v in c.fetchall()}
+    def num(key, default):
+        try:
+            return int(state.get(key, default))
+        except (TypeError, ValueError):
+            return default
+    max_age = state.get('max_age_seconds')
+    try:
+        max_age = int(max_age) if max_age is not None else None
+    except (TypeError, ValueError):
+        max_age = None
+    return (num('capacity', 3), num('min_age_seconds', 1200), max_age,
+            num('min_players', 0))
+
+
+def describe_lobbies(rows, capacity, min_age, max_age=None, min_players=0):
+    """Turn raw lobby rows into what a player needs to see: whether it is
+    being watched, when it will be, and whether they can still check in.
+
+    Check-in closes exactly when the tracker starts watching. Those were two
+    unrelated constants before - 10 minutes and 20 - which left a dead zone
+    where a protected player could neither check in nor be picked up, so
+    joining between minutes 10 and 20 meant the match could never count for
+    them however it went."""
+    watched_now = sum(1 for r in rows if r[3])
+    free_slots = max(0, capacity - watched_now)
+    out = []
+    for name, players, age, watching in rows:
+        age = age or 0
+        if watching:
+            status, tone = "Tracked", "on"
+        elif max_age is not None and age > max_age:
+            # Past the tracker's own cut-off, so no worker will ever take
+            # it however many slots are free. Saying "starting shortly"
+            # here sent players into a match that could not count.
+            status, tone = "too old to track", "off"
+        elif min_players and (players or 0) < min_players:
+            # The tracker will not spend a worker on a lobby this small,
+            # whatever its age or how many slots are free. Saying "waiting
+            # for a free slot" implied it was queued - one 2-player lobby
+            # claimed that for nearly two hours.
+            status, tone = f"needs {min_players} players to be tracked", "off"
+        elif age < min_age:
+            mins = max(1, -(-(min_age - age) // 60))
+            status, tone = f"eligible in {mins} min", "soon"
+        elif free_slots > 0:
+            status, tone = "starting shortly", "soon"
+        else:
+            status, tone = "waiting for a free slot", "off"
+        out.append({"name": name, "players": players, "mins": int(age // 60),
+                    "watching": bool(watching), "status": status, "tone": tone,
+                    "can_checkin": not (max_age is not None and age > max_age)
+                                   and not (min_players and (players or 0) < min_players)})
+    return out, watched_now
+
+
+@app.route('/api/lobbies', methods=['POST'])
+def push_lobbies():
+    """The tracker pushes the live NA lobby list here.
+
+    PythonAnywhere's free tier cannot make outbound calls to starblast.io,
+    so the site has no way to fetch this itself - the bot has to hand it
+    over."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    body = request.json or {}
+    lobbies = body.get('lobbies', [])
+    conn = db(timeout=PUSH_TIMEOUT_SECONDS)
+    c = conn.cursor()
+    # Claim the write lock before doing anything, rather than discovering
+    # halfway through that it is not available. The tracker re-sends the
+    # complete state on the next sweep, so giving up here costs nothing,
+    # whereas hanging on blocks a web worker long after the tracker has
+    # stopped waiting for the reply.
+    try:
+        c.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError:
+        conn.close()
+        return jsonify({"status": "busy"}), 503
+    for key in ('capacity', 'min_age_seconds', 'max_age_seconds'):
+        if body.get(key) is not None:
+            c.execute("INSERT OR REPLACE INTO tracker_state (key, value) VALUES (?, ?)",
+                      (key, str(body[key])))
+    # Pairs the tracker saw this cycle. Bounded and de-duplicated by the
+    # primary key, so a noisy match cannot flood the table.
+    now_ts = time.strftime('%Y-%m-%d %H:%M:%S')
+    for pair in (body.get('name_fixes') or [])[:400]:
+        try:
+            ocr_name, real_name = str(pair[0])[:64], str(pair[1])[:64]
+        except (TypeError, IndexError, ValueError):
+            continue
+        if not ocr_name or not real_name or ocr_name == real_name:
+            continue
+        c.execute("INSERT INTO name_map (ocr_name, real_name, seen, first_seen, last_seen) "
+                  "VALUES (?, ?, 1, ?, ?) "
+                  "ON CONFLICT(ocr_name, real_name) DO UPDATE SET "
+                  "seen = seen + 1, last_seen = excluded.last_seen",
+                  (ocr_name, real_name, now_ts, now_ts))
+
+    c.execute("DELETE FROM live_lobbies")
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    for lobby in lobbies[:40]:
+        c.execute("INSERT OR REPLACE INTO live_lobbies (sys_id, name, players, age, updated_at, watching, region) "
+                  "VALUES (?,?,?,?,?,?,?)",
+                  (lobby.get('id'), lobby.get('name'), lobby.get('players'), lobby.get('time'),
+                   now, 1 if lobby.get('watching') else 0,
+                   lobby.get('region') or 'america'))
+
+    # Sightings of a ship id under a name. Kept for a short window - just
+    # long enough for a check-in to be matched against one - then pruned.
+    for ap in (body.get('appearances') or [])[:200]:
+        try:
+            c.execute("INSERT INTO appearances (sys_id, ship_id, name, region, at) "
+                      "VALUES (?,?,?,?,?)",
+                      (ap.get('sys_id'), ap.get('ship_id'), str(ap.get('name'))[:64],
+                       ap.get('region'), ap.get('at') or now))
+        except (TypeError, ValueError, sqlite3.Error):
+            continue
+    # Only prune occasionally. This is a full scan of a table that is
+    # written several times a minute, and the rows it removes are ones
+    # nothing has read for well over an hour - doing it every push spent
+    # write-lock time on housekeeping that can wait.
+    if random.randint(1, 20) == 1:
+        c.execute("DELETE FROM appearances WHERE at < datetime('now', '-2 hours')")
+
+    # Every push is a chance to match a fresh sighting to a waiting
+    # check-in. Cheap - only unbound check-ins from the last few minutes
+    # are considered.
+    try:
+        bind_appearances_to_checkins(c)
+    except sqlite3.Error:
+        pass
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "stored": len(lobbies[:40])}), 200
+
+
+@app.route('/api/live_lobbies')
+def live_lobbies():
+    """Public list for the check-in picker. Deliberately exposes only the
+    lobbies themselves - never who has checked in, since publishing that
+    would tell an impersonator exactly which lobby to go and sit in."""
+    conn = db()
+    c = conn.cursor()
+    capacity, min_age, max_age, min_players = tracker_limits(c)
+    c.execute("SELECT sys_id, name, players, age, COALESCE(watching, 0), "
+              "COALESCE(region, 'america') "
+              "FROM live_lobbies WHERE updated_at > datetime('now', '-5 minutes') "
+              "ORDER BY watching DESC, age DESC")
+    rows = c.fetchall()
+    conn.close()
+    described, watched_now = describe_lobbies([(r[1], r[2], r[3], r[4]) for r in rows],
+                                              capacity, min_age, max_age, min_players)
+    for lobby, raw in zip(described, rows):
+        lobby["id"] = raw[0]
+        lobby["age"] = raw[3]
+        # Callers group by this. Without it the bot could only ever show one
+        # undifferentiated list, which is wrong now that three regions are
+        # watched at once.
+        lobby["region"] = raw[5]
+        lobby["region_label"] = REGION_LABELS.get(raw[5], raw[5])
+    return jsonify({"lobbies": described, "minutes_to_check_in": min_age // 60,
+                    "capacity": capacity, "watching": watched_now,
+                    "regions": [{"key": k, "label": l} for k, l in REGIONS]}), 200
+
+
+@app.route('/protection', methods=['GET', 'POST'])
+def protection():
+    """Read or set a name's protection toggle.
+
+    Protection ON means the name is only rated for matches it checked
+    into, which is what stops someone else playing under it from moving
+    the rating. It is deliberately opt-in: leaving it off keeps the
+    ordinary automatic behaviour, so registering never silently costs a
+    player their matches."""
+    ip = client_ip()
+    if request.method == 'GET':
+        name = (request.args.get('name') or '').strip()
+    else:
+        name = str((request.json or {}).get('name', '')).strip()
+    if not name:
+        return jsonify({"message": "No name provided"}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, reg_ip, COALESCE(strict_mode, 0), prot_changed_at "
+              "FROM players WHERE norm_name = ?", (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{name}' is not on the leaderboard."}), 404
+    stored_name, reg_ip, enabled, changed_at = row
+
+    def hours_left():
+        """Hours still to wait before protection can be flipped again."""
+        if not changed_at:
+            return 0.0
+        c.execute("SELECT (julianday('now') - julianday(?)) * 24.0", (changed_at,))
+        gone = c.fetchone()[0]
+        if gone is None:
+            return 0.0
+        return max(0.0, PROTECTION_COOLDOWN_HOURS - gone)
+
+    if request.method == 'GET':
+        left = hours_left()
+        # Ownership is the account, not the network. Reporting reg_ip here
+        # left every account created since ratings moved to accounts - none
+        # of which ever gets a reg_ip - looking like it owned nothing, so
+        # the toggle was disabled for precisely the players it is meant for.
+        owned, _ = owner_check(c, stored_name, reg_ip)
+        conn.close()
+        return jsonify({"name": stored_name, "owned": bool(owned),
+                        "enabled": bool(enabled), "hours_left": round(left, 1)}), 200
+
+    ok, err = owner_check(c, stored_name, reg_ip)
+    if not ok:
+        conn.close()
+        return jsonify({"message": err}), 403
+
+    want = 1 if (request.json or {}).get('enabled') else 0
+
+    # No match history required. Protection is only useful BEFORE someone
+    # else plays under your name, so demanding a tracked match first meant
+    # your first match was always the exposed one - and after a board reset
+    # that applied to everybody at once. The abuse it used to guard against
+    # is much weaker now: an account name cannot be one already on the
+    # board, results reach an account through the check-in binding, and a
+    # misused name can be reported. Turning protection OFF is still always
+    # allowed, so nobody can be stranded by it.
+
+    if want != enabled:
+        left = hours_left()
+        if left > 0:
+            conn.close()
+            if left >= 1:
+                wait = f"{int(left)} hour{'s' if int(left) != 1 else ''}"
+            else:
+                mins = max(1, int(left * 60))
+                wait = f"{mins} minute{'s' if mins != 1 else ''}"
+            return jsonify({"message": f"Protection can only be changed once a day. "
+                                       f"Try again in {wait}.",
+                            "enabled": bool(enabled)}), 429
+        c.execute("UPDATE players SET strict_mode = ?, prot_changed_at = ? WHERE name = ?",
+                  (want, time.strftime('%Y-%m-%d %H:%M:%S'), stored_name))
+    conn.commit()
+    conn.close()
+    if want:
+        return jsonify({"message": f"Protection is ON for '{stored_name}'. Only matches you check into will count.", "enabled": True}), 200
+    return jsonify({"message": f"Protection is OFF for '{stored_name}'. All matches count, as normal.", "enabled": False}), 200
+
+
+@app.route('/checkin', methods=['POST'])
+def check_in():
+    """Declare that you are about to play a given lobby.
+
+    You check in as an ACCOUNT, not as a name. That is the point: at the
+    moment you press Play nobody knows yet which name you will appear
+    under, and working that out is exactly what the check-in buys. The
+    tracker reports every ship it sees; the first one to show up in this
+    lobby after this row is written gets bound to you, and from then on
+    that name's results are recorded against your account.
+    """
+    ip = client_ip()
+    data = request.json or {}
+    sys_id = data.get('sys_id')
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first, then press Play on the match "
+                                   "you are about to join."}), 401
+    if sys_id is None:
+        return jsonify({"message": "Which match? Pick one from the list."}), 400
+    try:
+        sys_id = int(sys_id)
+    except (TypeError, ValueError):
+        return jsonify({"message": "That lobby id is not valid."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    # An account with no name has nowhere to put the result, so there is
+    # nothing a check-in could achieve yet. Say so plainly rather than
+    # accepting it and silently dropping the match later.
+    who = account_name_for(c, sub_id)
+    if not who:
+        conn.close()
+        return jsonify({"message": "Set your account name in Settings first - that is the "
+                                   "name your matches are recorded under."}), 400
+
+    c.execute("SELECT age FROM live_lobbies WHERE sys_id = ?", (sys_id,))
+    lobby = c.fetchone()
+    if not lobby:
+        conn.close()
+        return jsonify({"message": "That lobby is not in the current live list."}), 404
+    # No window. Half elo is what stops a latecomer collecting a full win
+    # for arriving at the end - the tracker records when each name first
+    # appeared and halves the swing accordingly - so refusing late check-ins
+    # only meant that joining a match in progress could not be rated at all.
+    lobby_age = lobby[0] or 0
+    _, min_age, _max_age, _min_players = tracker_limits(c)
+
+    # One live check-in per account. Without this you could check into
+    # every fresh lobby at once, watch which one is going well and join
+    # only that one - keeping every option open would cost nothing.
+    # Replacing any earlier check-in forces a real commitment to one match.
+    c.execute("DELETE FROM checkins WHERE sub = ? AND created_at > datetime('now', ?)",
+              (sub_id, '-' + str(CHECKIN_VALID_SECONDS) + ' seconds'))
+    c.execute("INSERT INTO checkins (player, sub, sys_id, created_at) VALUES (?,?,?,?)",
+              (who, sub_id, sys_id, time.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+    late = lobby_age >= min_age
+    note = (" This match is already under way, so your result counts at half value - "
+            "and joining now only links to you if you have not already been playing."
+            if late else
+            " Play under any name you like - the first ship to appear is taken as yours.")
+    return jsonify({"message": f"Checked in for this match as '{who}'.{note} Any earlier "
+                               f"check-in is now cancelled.",
+                    "sys_id": sys_id, "late": late}), 200
+
+
+@app.route('/claim', methods=['POST'])
+def claim_name():
+    """Request ownership of a name that has no owner.
+
+    Nothing is granted instantly - an instant claim would let anyone
+    seize a top player's name and rename it. The claim completes on its
+    own once the name wins a tracked match after filing, and while it is
+    open it is shown publicly on that player's page so the real owner
+    can see it and report it."""
+    data = request.json
+    if not data or 'name' not in data:
+        return jsonify({"message": "No name provided"}), 400
+
+    name = data['name'].strip()
+    note = (data.get('note') or '').strip()[:200]
+
+    conn = db()
+    c = conn.cursor()
+    me_sub = current_user()
+    if not me_sub:
+        conn.close()
+        return jsonify({"message": "Sign in with Google first - use the button at the top of the page."}), 401
+
+    # One name per account, the same rule registering follows. Without this
+    # an account could register one name and then claim as many more as it
+    # liked, which is the cap in name only.
+    c.execute("SELECT name FROM players WHERE google_sub = ? "
+              "AND (COALESCE(wins, 0) + COALESCE(losses, 0)) > 0", (me_sub,))
+    held = [r[0] for r in c.fetchall()]
+    if len(held) >= MAX_NAMES_PER_ACCOUNT:
+        conn.close()
+        return jsonify({"message": f"Your account already has a name: '{held[0]}'. "
+                                   f"Remove it first if you want to claim a different one."}), 403
+
+    c.execute("SELECT name, google_sub FROM players WHERE norm_name = ?", (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{name}' is not on the leaderboard."}), 404
+
+    stored_name, owner_sub = row
+    if owner_sub == me_sub:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' is already yours."}), 400
+    if owner_sub:
+        conn.close()
+        return jsonify({"message": "That name already belongs to an account. If it is really "
+                                   "yours, report it and it will be looked at by hand."}), 400
+
+    c.execute("SELECT id FROM claim_requests WHERE name = ? AND google_sub = ? AND status = 'pending'",
+              (stored_name, me_sub))
+    if c.fetchone():
+        conn.close()
+        return jsonify({"message": "You already have a pending claim for that name."}), 400
+
+    # Cap how many can be open at once. Each claim raises an alert, so an
+    # unlimited supply is both a way to bury the genuine ones and a way to
+    # flood the channel they are reported in.
+    c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' "
+              "AND google_sub = ?", (me_sub,))
+    pending_mine = (c.fetchone() or [0])[0]
+    if pending_mine >= MAX_PENDING_CLAIMS \
+            or rate_hit(c, 'claim', MAX_PENDING_CLAIMS, '-1 day'):
+        conn.close()
+        return jsonify({"message": f"You already have {MAX_PENDING_CLAIMS} claims waiting. "
+                                   f"Wait for those to be looked at first."}), 429
+
+    c.execute("SELECT COALESCE(MAX(id), 0) FROM matches")
+    from_match = c.fetchone()[0]
+    c.execute("INSERT INTO claim_requests (name, ip, note, created_at, status, google_sub, verify_from) "
+              "VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+              (stored_name, None, note, time.strftime('%Y-%m-%d %H:%M:%S'), me_sub, from_match))
+    conn.commit()
+    conn.close()
+    n = CLAIM_WINS_REQUIRED
+    return jsonify({"message": f"Claim started for '{stored_name}'. Now win "
+                               f"{n} tracked match{'' if n == 1 else 'es'} playing as that name "
+                               f"and it becomes yours automatically. The claim is shown on that "
+                               f"player's page while it is open, so the real owner can report it."}), 200
+
+
+def account_name_for(c, sub_id):
+    """The name this account plays under on the leaderboard, or None."""
+    if not sub_id:
+        return None
+    # Deterministic on purpose. A grandfathered account holds two rows and
+    # a bare LIMIT 1 returned whichever the table felt like, so the Play
+    # page could say one name and a check-in be recorded under the other.
+    c.execute("SELECT name FROM players WHERE google_sub = ? "
+              "ORDER BY (COALESCE(wins, 0) + COALESCE(losses, 0)) DESC, name LIMIT 1",
+              (sub_id,))
+    row = c.fetchone()
+    return row[0] if row else None
+
+
+def bind_appearances_to_checkins(c):
+    """Turn 'someone checked in' plus 'a ship appeared' into 'that is them'.
+
+    Only appearances AFTER a check-in in the SAME lobby count, and only
+    within BINDING_WINDOW_SECONDS - a name that turns up half an hour later
+    is somebody else. Each check-in binds once.
+    """
+    c.execute("SELECT rowid, sub, sys_id, created_at FROM checkins "
+              "WHERE sub IS NOT NULL AND COALESCE(bound, 0) = 0 "
+              "AND created_at > datetime('now', ?) ORDER BY created_at",
+              (f'-{BINDING_WINDOW_SECONDS} seconds',))
+    pending = c.fetchall()
+    # A ship that has already been matched to somebody cannot also be
+    # somebody else. Without this, two people pressing Play on the same
+    # lobby both took the earliest join after their own click - which is
+    # the same join - and one of them was credited with the other's game.
+    c.execute("SELECT sys_id, ship_id FROM name_bindings")
+    taken = {(r[0], r[1]) for r in c.fetchall()}
+    for rowid, sub_id, sys_id, created_at in pending:
+        # What this account says it plays as, falling back to the account
+        # name - which is what the play name defaults to anyway.
+        c.execute("SELECT game_name, name FROM players WHERE google_sub = ? "
+                  "ORDER BY (COALESCE(wins, 0) + COALESCE(losses, 0)) DESC, name LIMIT 1",
+                  (sub_id,))
+        _row = c.fetchone()
+        expect = normalize_name((_row[0] or _row[1]) if _row else '')
+        if not expect:
+            continue
+        c.execute("SELECT name, ship_id, region FROM appearances "
+                  "WHERE sys_id = ? AND at >= ? ORDER BY at",
+                  (sys_id, created_at))
+        hit = None
+        for cand in c.fetchall():
+            if (sys_id, cand[1]) in taken:
+                continue
+            if normalize_name(cand[0]) == expect:
+                hit = cand
+                break
+        if not hit:
+            continue
+        name, ship_id, region = hit
+        taken.add((sys_id, ship_id))
+        who = account_name_for(c, sub_id)
+        # Never bind an account to its own account name - that is already
+        # the row results land on, and a self-binding would be a no-op that
+        # only confuses the audit trail.
+        if who and normalize_name(who) == normalize_name(name):
+            c.execute("UPDATE checkins SET bound = 1 WHERE rowid = ?", (rowid,))
+            continue
+        c.execute("INSERT OR REPLACE INTO name_bindings "
+                  "(sub, in_game_name, sys_id, ship_id, region, bound_at) "
+                  "VALUES (?,?,?,?,?,?)",
+                  (sub_id, name, sys_id, ship_id, region,
+                   time.strftime('%Y-%m-%d %H:%M:%S')))
+        c.execute("UPDATE checkins SET bound = 1 WHERE rowid = ?", (rowid,))
+
+
+def account_for_ingame_name(c, name, sys_id=None):
+    """The account this in-game name belongs to IN THIS MATCH, or None.
+
+    Scoped to sys_id deliberately. A binding records that one ship in one
+    lobby was one account - it is not a standing claim on the name. Looked
+    up by name alone, a single check-in credited that account for every
+    later match anyone played under the same name, which is the duplicate
+    name problem turned around: instead of two players sharing a rating,
+    one player quietly collects the other's results forever.
+    """
+    if not name or sys_id is None:
+        return None
+    c.execute("SELECT sub FROM name_bindings WHERE in_game_name = ? AND sys_id = ? "
+              "LIMIT 1", (name, sys_id))
+    row = c.fetchone()
+    if not row:
+        return None
+    return account_name_for(c, row[0])
+
+
+def current_user():
+    """The signed-in Google account id, or None if nobody is signed in."""
+    return session.get('google_sub')
+
+
+def owner_check(c, stored_name, reg_ip):
+    """May the current visitor act on this name? Returns (ok, error).
+
+    Ownership is the signed-in account, and nothing else. The reg_ip
+    parameter is historical - addresses are no longer recorded anywhere,
+    and a network never proved identity to begin with. An unowned name
+    is taken through a claim, which completes once the name wins a
+    tracked match after filing.
+    """
+    me_sub = current_user()
+    c.execute("SELECT google_sub FROM players WHERE name = ?", (stored_name,))
+    row = c.fetchone()
+    owner_sub = row[0] if row else None
+
+    if owner_sub:
+        if me_sub and me_sub == owner_sub:
+            return True, None
+        return False, ("That name belongs to another account. Sign in with the "
+                       "account that owns it.")
+
+    # No account on the name means nobody owns it - there is no network
+    # fallback any more. Matching an address only ever proved somebody was
+    # on the same wifi, which is why housemates, schools and mobile networks
+    # could all edit each other's names. Claiming is the only route in, and
+    # it is reviewed by a person.
+    if not me_sub:
+        return False, ("Sign in first, then use Claim to ask for this name.")
+    return False, ("Nobody owns that name yet. Use Claim to ask for it - "
+                   "a claim completes on its own once that name wins a tracked match after you file.")
+
+
+@app.route('/auth/google', methods=['POST'])
+def auth_google():
+    """Sign in with the token Google's button hands to the browser.
+
+    The signature is checked against Google's published keys and the
+    token must have been issued for this site specifically, so a token
+    minted for some other app cannot be replayed here. Only the opaque
+    account id is kept - never the email or the name - which leaves the
+    leaderboard holding no personal data about anyone.
+    """
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+    except ImportError:
+        return jsonify({"message": "Sign-in is temporarily unavailable."}), 503
+
+    token = str((request.json or {}).get('credential', '')).strip()
+    if not token:
+        return jsonify({"message": "No sign-in token was received."}), 400
+
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            token, google_requests.Request(), GOOGLE_CLIENT_ID
+        )
+    except Exception:
+        # Covers a bad signature, the wrong audience and an expired token.
+        # The reason is deliberately not echoed back to the browser.
+        return jsonify({"message": "That sign-in could not be verified. Please try again."}), 401
+
+    if claims.get('iss') not in ('accounts.google.com', 'https://accounts.google.com'):
+        return jsonify({"message": "That sign-in could not be verified."}), 401
+    sub_id = str(claims.get('sub') or '')
+    if not sub_id:
+        return jsonify({"message": "That sign-in could not be verified."}), 401
+
+    session.permanent = True
+    session['google_sub'] = sub_id
+    return jsonify({"message": "Signed in."}), 200
+
+
+def remember_discord_user(sub_id, username, display):
+    """Keep the handle behind a Discord identity current."""
+    conn = db()
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO discord_users (sub, username, display, updated_at) "
+              "VALUES (?, ?, ?, ?)",
+              (sub_id, username or '', display or '',
+               time.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+
+
+def discord_handle(c, sub_id):
+    """The Discord handle behind an identity, or None for a Google one."""
+    if not sub_id or not str(sub_id).startswith('discord:'):
+        return None
+    c.execute("SELECT username, display FROM discord_users WHERE sub = ?", (sub_id,))
+    row = c.fetchone()
+    if not row:
+        return None
+    return row[1] or row[0] or None
+
+
+@app.route('/auth/discord')
+def auth_discord_start():
+    """Send the player to Discord to approve the sign-in."""
+    if not (DISCORD_CLIENT_ID and not DISCORD_CLIENT_ID.startswith('DISCORD_CLIENT_ID')
+            and DISCORD_CLIENT_SECRET):
+        return redirect('/?signin=unavailable')
+    from urllib.parse import urlencode
+    # The state is what stops someone handing you a link that quietly signs
+    # you into *their* account: the value has to come back unchanged, and
+    # only this browser's session knows what was sent.
+    state = secrets.token_urlsafe(24)
+    session.permanent = True
+    session['discord_state'] = state
+    return redirect(DISCORD_AUTHORIZE_URL + '?' + urlencode({
+        'client_id': DISCORD_CLIENT_ID,
+        'redirect_uri': DISCORD_REDIRECT_URI,
+        'response_type': 'code',
+        'scope': 'identify',
+        'state': state,
+        'prompt': 'none',
+    }))
+
+
+@app.route('/auth/discord/callback')
+def auth_discord_callback():
+    """Finish the sign-in Discord just sent back.
+
+    Only `identify` is asked for, so what comes back is an account id and a
+    handle - no email, and nothing that could be used to contact anyone.
+    """
+    expected = session.pop('discord_state', None)
+    given = request.args.get('state', '')
+    if not expected or not given or not secrets.compare_digest(str(given), str(expected)):
+        return redirect('/?signin=expired')
+    if request.args.get('error'):
+        # The player pressed Cancel on Discord's screen. Nothing to say.
+        return redirect('/')
+    code = request.args.get('code', '')
+    if not code:
+        return redirect('/?signin=failed')
+
+    try:
+        import requests as _rq
+    except ImportError:
+        return redirect('/?signin=unavailable')
+
+    try:
+        tok = _rq.post(
+            DISCORD_API + '/oauth2/token',
+            data={
+                'client_id': DISCORD_CLIENT_ID,
+                'client_secret': DISCORD_CLIENT_SECRET,
+                'grant_type': 'authorization_code',
+                'code': code,
+                'redirect_uri': DISCORD_REDIRECT_URI,
+            },
+            headers={'Content-Type': 'application/x-www-form-urlencoded'},
+            timeout=10,
+        )
+        if tok.status_code != 200:
+            return redirect('/?signin=failed')
+        access = (tok.json() or {}).get('access_token')
+        if not access:
+            return redirect('/?signin=failed')
+        who = _rq.get(DISCORD_API + '/users/@me',
+                      headers={'Authorization': 'Bearer ' + access}, timeout=10)
+        if who.status_code != 200:
+            return redirect('/?signin=failed')
+        info = who.json() or {}
+    except Exception:
+        # A network hiccup between here and Discord is not the player's
+        # problem to read a stack trace about.
+        return redirect('/?signin=failed')
+
+    discord_id = str(info.get('id') or '')
+    if not discord_id:
+        return redirect('/?signin=failed')
+
+    sub_id = 'discord:' + discord_id
+    session.permanent = True
+    session['google_sub'] = sub_id
+    remember_discord_user(sub_id, info.get('username') or '',
+                          info.get('global_name') or info.get('username') or '')
+    return redirect('/?signin=ok')
+
+
+@app.route('/account/gamename', methods=['POST'])
+def set_game_name():
+    """Set the name this account currently plays under in Starblast.
+
+    Free to change as often as you like, because it is a statement about
+    what to expect rather than a claim on anything: it never routes a
+    result by itself. Pressing Play is what ties a match to you, and that
+    works whatever you are called at the time. Sending an empty value
+    clears it.
+    """
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    name = str((request.json or {}).get('name', '')).strip()[:32]
+    conn = db()
+    c = conn.cursor()
+    who = account_name_for(c, sub_id)
+    if not who:
+        conn.close()
+        return jsonify({"message": "Set your account name first - that is the name your "
+                                   "matches are recorded under."}), 400
+    if name and is_blocked_word(name):
+        conn.close()
+        return jsonify({"message": "That name isn't allowed. Please choose another."}), 400
+    c.execute("UPDATE players SET game_name = ? WHERE name = ?", (name or None, who))
+    conn.commit()
+    conn.close()
+    if not name:
+        return jsonify({"message": "Cleared. Your profile no longer says what you play as.",
+                        "game_name": ""}), 200
+    return jsonify({"message": f"Noted - you play as '{name}'. Your results still appear "
+                               f"under '{who}' whenever you press Play.",
+                    "game_name": name}), 200
+
+
+@app.route('/account/name', methods=['POST'])
+def set_account_name():
+    """Set or change the name this account appears under.
+
+    This replaces name registration. The name is a label for the account,
+    not a claim on anyone else's results - taking over an existing row is
+    what /claim is for, and that needs evidence you actually played as it.
+    """
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    name = str((request.json or {}).get('name', '')).strip()
+    if not is_valid_name_format(name):
+        return jsonify({"message": "That name cannot be used. Try another."}), 400
+    if is_blocked_word(name):
+        return jsonify({"message": "That name isn't allowed. Please choose another."}), 400
+    if is_default_name(name):
+        return jsonify({"message": "That is one of Starblast's default names - too many "
+                                   "players share it. Pick a name of your own."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("BEGIN IMMEDIATE")
+    key = normalize_name(name)
+    c.execute("SELECT google_sub FROM players WHERE norm_name = ?", (key,))
+    taken = c.fetchone()
+    if taken and taken[0] and taken[0] != sub_id:
+        conn.close()
+        return jsonify({"message": f"'{name}' already belongs to another account."}), 403
+    if taken and not taken[0]:
+        conn.close()
+        return jsonify({"message": f"'{name}' is already on the leaderboard as an "
+                                   f"unverified player. Use Claim to take it over."}), 409
+
+    # Already one of this account's own rows - including the case where it
+    # is the name they are currently using. Nothing to move, and trying to
+    # would rename some other row on top of it.
+    if taken and taken[0] == sub_id:
+        c.execute("SELECT name FROM players WHERE norm_name = ?", (key,))
+        row = c.fetchone()
+        conn.commit()
+        conn.close()
+        return jsonify({"message": f"Your account name is '{row[0] if row else name}'."}), 200
+
+    # An account is meant to hold one name, but the grandfathered ones hold
+    # two, and updating on google_sub moved BOTH rows to the same
+    # norm_name - which the unique index refused, failing every save. Pick
+    # one row and rename that, keyed on its own primary key. The one with a
+    # record is the one that matters, and the tie-break keeps it stable
+    # rather than leaving it to whatever order the table returns.
+    c.execute("SELECT name FROM players WHERE google_sub = ? "
+              "ORDER BY (COALESCE(wins, 0) + COALESCE(losses, 0)) DESC, name LIMIT 1",
+              (sub_id,))
+    mine = c.fetchone()
+    if mine:
+        c.execute("SELECT COALESCE(name_changes, 0) FROM players WHERE name = ?", (mine[0],))
+        used = (c.fetchone() or [0])[0]
+        if used >= MAX_ACCOUNT_NAME_CHANGES:
+            conn.close()
+            return jsonify({"message": f"Your account name has already been changed "
+                                       f"{used} time{'' if used == 1 else 's'}, which is the "
+                                       f"limit - it is how other players recognise you on the "
+                                       f"board. The name you PLAY under can still be changed "
+                                       f"whenever you like."}), 403
+        c.execute("UPDATE players SET name = ?, norm_name = ?, "
+                  "name_changes = COALESCE(name_changes, 0) + 1 WHERE name = ?",
+                  (name, key, mine[0]))
+        # The play name defaults to the account name, and follows it while
+        # it has never been set to anything else - most people play under
+        # the name they signed up with, and making them type it twice to
+        # say so is busywork.
+        c.execute("UPDATE players SET game_name = ? WHERE name = ? AND "
+                  "(game_name IS NULL OR game_name = '' OR game_name = ?)",
+                  (name, name, mine[0]))
+        left = MAX_ACCOUNT_NAME_CHANGES - (used + 1)
+        msg = (f"Your account name is now '{name}'. "
+               + (f"You can change it {left} more time." if left
+                  else "That was your last change."))
+    else:
+        c.execute("INSERT INTO players (name, elo, wins, losses, norm_name, google_sub) "
+                  "VALUES (?, ?, 0, 0, ?, ?)", (name, STARTING_ELO, key, sub_id))
+        msg = f"Your account name is '{name}'."
+    conn.commit()
+    conn.close()
+    return jsonify({"message": msg}), 200
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({"message": "Signed out."}), 200
+
+
+@app.route('/me')
+def me():
+    """Who is signed in, and which names they own."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"logged_in": False, "names": []}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name FROM players WHERE google_sub = ? ORDER BY name", (sub_id,))
+    names = [row[0] for row in c.fetchall()]
+
+    # Which provider signed you in, so the header can say so. The Google
+    # flow labels itself from the browser; Discord has to be told from here
+    # because nothing about that sign-in touches the page.
+    provider = 'discord' if str(sub_id).startswith('discord:') else 'google'
+    label = discord_handle(c, sub_id) if provider == 'discord' else None
+
+    # Which match this account is currently checked into, if any. Without
+    # this the Play page cannot show that you are already checked in - and
+    # since checking into a second lobby silently cancels the first, an
+    # invisible check-in is one you can lose by clicking again.
+    checkin = None
+    if names:
+        c.execute("SELECT sys_id, created_at FROM checkins WHERE sub = ? "
+                  "AND created_at > datetime('now', ?) ORDER BY id DESC LIMIT 1",
+                  (sub_id, f'-{CHECKIN_VALID_SECONDS} seconds'))
+        row = c.fetchone()
+        if row:
+            checkin = {"sys_id": row[0], "at": row[1]}
+    conn.close()
+    # Its own short-lived connection on purpose: the one above is already
+    # closed by this point, and reaching for it threw
+    # "Cannot operate on a closed database" on EVERY /me call - which the
+    # pages read to decide whether you are signed in, so a working sign-in
+    # looked like being signed out the moment you changed tab.
+    _gn = None
+    try:
+        _c2 = db()
+        _gn = _c2.execute("SELECT game_name FROM players WHERE google_sub = ? "
+                          "AND game_name IS NOT NULL LIMIT 1", (sub_id,)).fetchone()
+        _c2.close()
+    except sqlite3.Error:
+        pass
+    return jsonify({"logged_in": True, "names": names, "checkin": checkin,
+                    # Defaults to the account name: that is what most
+                    # people are called in game, and a blank box on Play
+                    # reads as "unknown" rather than "same as my name".
+                    "game_name": (_gn[0] if _gn and _gn[0]
+                                  else (names[0] if names else "")),
+                    "provider": provider, "label": label}), 200
+
+
+@app.route('/clan/<tag>')
+def clan_page(tag):
+    """Everyone currently carrying one clan tag, ranked as the leaderboard
+    ranks them."""
+    known = canonical_clan_tag(tag)
+    if not known:
+        return render_template('clan.html', clan=None, query=tag,
+                               version=APP_VERSION, contact=CONTACT_HANDLE,
+                               page='clans'), 404
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, elo, wins, losses, google_sub FROM players WHERE clan = ?", (known,))
+    rows = c.fetchall()
+    c.execute("SELECT google_sub FROM clan_admins WHERE clan = ?", (known,))
+    admin_subs = {r[0] for r in c.fetchall() if r[0]}
+    # Rank is the player's place on the WHOLE leaderboard, not within the
+    # clan: a member shown as #12 has to mean the same thing on both pages.
+    ranks = {}
+    for row in rows:
+        c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (row[1],))
+        ranks[row[0]] = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(won), 0), COALESCE(SUM(1 - won), 0) "
+              "FROM clan_results WHERE clan = ?", (known,))
+    clan_wins, clan_losses = c.fetchone()
+    conn.close()
+
+    rows.sort(key=leaderboard_sort_key)
+
+    members = []
+    total_wins = total_losses = total_elo = 0
+    for name, elo, wins, losses, owner_sub in rows:
+        wins = wins or 0
+        losses = losses or 0
+        played = wins + losses
+        total_wins += wins
+        total_losses += losses
+        total_elo += elo
+        members.append({
+            "name": name, "display": display_name(name, known),
+            "admin": bool(owner_sub) and owner_sub in admin_subs,
+            "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
+            "winrate": f"{round(100 * wins / played)}%" if played else "-",
+            "rank": ranks[name],
+        })
+
+    # The sum of the members' own records, which is every match they have
+    # ever played rather than only those since clan tracking began. The
+    # per-match count in clan_results is still recorded and is the more
+    # honest figure - a single match won by several clanmates counts once
+    # there and once per member here - but with clans this small nobody has
+    # yet won a match alongside a clanmate, so the totals agree and the
+    # longer history is worth more. Switch back to clan_wins/clan_losses
+    # once clans routinely play together.
+    clan_wins, clan_losses = total_wins, total_losses
+    played = clan_wins + clan_losses
+    clan = {
+        "tag": known,
+        "members": members,
+        "size": len(members),
+        "avg_elo": f"{total_elo / len(members):.1f}" if members else "0.0",
+        "wins": clan_wins,
+        "losses": clan_losses,
+        "winrate": f"{round(100 * clan_wins / played)}%" if played else "-",
+        "played": played,
+    }
+    return render_template('clan.html', clan=clan, version=APP_VERSION,
+                           contact=CONTACT_HANDLE, page='clans')
+
+
+@app.route('/clan/remove', methods=['POST'])
+def clan_remove():
+    """Take a clan tag off a name by hand, or let detection resume.
+
+    A tag is inferred from the name the tracker read, so it is a guess that
+    can be wrong: COVER starts with COV and SRSLY starts with SR, and
+    neither player is in a clan. This is how that gets corrected.
+
+    Two ways in. The name's owner can do it themselves. Most clan members
+    were auto-registered from a win and have no owner at all, so the site's
+    API key also works - that is the path for fixing someone else's tag.
+    """
+    data = request.json or {}
+    name = str(data.get('name', '')).strip()
+    undo = bool(data.get('undo'))
+    if not name:
+        return jsonify({"message": "A player name is required."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, reg_ip, clan FROM players WHERE norm_name = ?",
+              (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{name}' is not on the leaderboard."}), 404
+
+    stored_name, reg_ip, clan = row
+    # Three ways in: the site's API key, an admin of the clan the player is
+    # currently in, or the player themselves.
+    by_admin = False
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        if clan and clan in clan_admin_tags(c, current_user()):
+            by_admin = True
+        else:
+            ok, err = owner_check(c, stored_name, reg_ip)
+            if not ok:
+                conn.close()
+                return jsonify({"message": err}), 403
+
+    if undo:
+        # Removal is sticky by design, so this is the way back for a
+        # removal that was a mistake. The tag is not restored here - it
+        # comes back on its own the next time the player is seen with it.
+        c.execute("UPDATE players SET clan_locked = 0 WHERE name = ?", (stored_name,))
+        conn.commit()
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' can be given a clan tag "
+                                   f"again the next time one is seen."}), 200
+
+    if not clan:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' has no clan tag."}), 400
+
+    # The lock only exists to stop automatic detection undoing a correction.
+    # An admin does not need it - their clan is curated, so detection already
+    # skips it - and setting it would let one clan's admin permanently stop a
+    # player being tagged into any clan at all, including a rival's.
+    c.execute("UPDATE players SET clan = NULL, clan_locked = ? WHERE name = ?",
+              (0 if by_admin else 1, stored_name))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"'{stored_name}' is no longer listed under {clan}."}), 200
+
+
+@app.route('/clan/code', methods=['POST'])
+def clan_code():
+    """Mint a one-time code that makes whoever redeems it an admin of one clan.
+
+    Site owner only. This is the handoff: the code goes to the clan's leader
+    on Discord, and redeeming it is what ties their Google account to the
+    clan. Nothing else grants admin, so a clan cannot be taken over by
+    someone who simply signs in.
+    """
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"message": "Unauthorized"}), 401
+    known = canonical_clan_tag((request.json or {}).get('clan'))
+    if not known:
+        return jsonify({"message": "Unknown clan tag. Known tags: "
+                                   + ", ".join(sorted(all_clan_tags()))}), 400
+
+    code = known + "-" + secrets.token_hex(3).upper()
+    conn = db()
+    c = conn.cursor()
+    c.execute("INSERT INTO clan_codes (code, clan, created_at) VALUES (?, ?, ?)",
+              (code, known, time.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+    return jsonify({"code": code, "clan": known}), 200
+
+
+@app.route('/clan/redeem', methods=['POST'])
+def clan_redeem():
+    """Turn a one-time code into admin rights over that clan."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in with Google first."}), 401
+
+    code = str((request.json or {}).get('code', '')).strip().upper()
+    if not code:
+        return jsonify({"message": "Enter the code you were given."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT clan, used_at FROM clan_codes WHERE code = ?", (code,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": "That code is not valid."}), 400
+    clan, used_at = row
+    if used_at:
+        conn.close()
+        return jsonify({"message": "That code has already been used."}), 400
+
+    c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) VALUES (?, ?, ?)",
+              (clan, sub_id, time.strftime('%Y-%m-%d %H:%M:%S')))
+    c.execute("UPDATE clan_codes SET used_at = ?, used_by = ? WHERE code = ?",
+              (time.strftime('%Y-%m-%d %H:%M:%S'), sub_id, code))
+    joined, elsewhere = join_admin_names(c, sub_id, clan)
+    conn.commit()
+    conn.close()
+    msg = f"You are now an admin of {clan}."
+    if joined:
+        msg += " Added " + ", ".join(joined) + " to the roster."
+    if elsewhere:
+        msg += (" " + ", ".join(elsewhere) + " stayed in their current clan - "
+                "remove them from it first if they should be in " + clan + ".")
+    return jsonify({"message": msg, "clan": clan}), 200
+
+
+@app.route('/clan/admin/state')
+def clan_admin_state():
+    """Everything the clan admin page needs: which clans you run, who is in
+    them, and which invitations are still waiting on a reply."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"logged_in": False, "clans": []}), 200
+
+    conn = db()
+    c = conn.cursor()
+    out = []
+    for tag in clan_admin_tags(c, sub_id):
+        c.execute("SELECT name FROM players WHERE clan = ? ORDER BY name", (tag,))
+        members = [{"name": r[0], "display": display_name(r[0], tag)} for r in c.fetchall()]
+        c.execute("SELECT id, name FROM clan_invites WHERE clan = ? AND status = 'pending' "
+                  "AND direction = 'invite' ORDER BY name", (tag,))
+        pending = [{"id": r[0], "name": r[1]} for r in c.fetchall()]
+        c.execute("SELECT id, name FROM clan_invites WHERE clan = ? AND status = 'pending' "
+                  "AND direction = 'application' ORDER BY name", (tag,))
+        applicants = [{"id": r[0], "name": r[1]} for r in c.fetchall()]
+        out.append({"tag": tag, "members": members, "pending": pending,
+                    "applicants": applicants})
+    conn.close()
+    return jsonify({"logged_in": True, "clans": out}), 200
+
+
+@app.route('/clan/add', methods=['POST'])
+def clan_add():
+    """Put a player in a clan, as that clan's admin.
+
+    A player who has an account is invited, never added: they get the
+    request on their own page and it does nothing until they accept. Being
+    put in a clan by somebody else is exactly what people are complaining
+    about, so anyone with an account gets to say no.
+
+    A player with no account has nobody to ask. For them the add is allowed
+    only when the tag is genuinely in the name the tracker read, which is
+    the same evidence automatic detection used to run on - so an admin can
+    tidy up their own roster but cannot rope in unrelated players.
+    """
+    sub_id = current_user()
+    data = request.json or {}
+    known = canonical_clan_tag(data.get('clan'))
+    name = str(data.get('name', '')).strip()
+    if not name:
+        return jsonify({"message": "A player name is required."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    if not known or known not in clan_admin_tags(c, sub_id):
+        conn.close()
+        return jsonify({"message": "You are not an admin of that clan."}), 403
+
+    c.execute("SELECT name, google_sub, clan FROM players WHERE norm_name = ?",
+              (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{name}' is not on the leaderboard."}), 404
+
+    stored_name, owner_sub, current_clan = row
+    if current_clan == known:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' is already in {known}."}), 400
+    if current_clan:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' is in {current_clan}. They have to "
+                                   f"leave that clan before joining {known}."}), 400
+
+    if owner_sub:
+        c.execute("SELECT id FROM clan_invites WHERE clan = ? AND name = ? AND status = 'pending' "
+                  "AND direction = 'invite'", (known, stored_name))
+        if c.fetchone():
+            conn.close()
+            return jsonify({"message": f"'{stored_name}' already has an invitation "
+                                       f"from {known} waiting."}), 400
+        c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, direction) "
+                  "VALUES (?, ?, ?, ?, 'pending', 'invite')",
+                  (known, stored_name, sub_id, time.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        conn.close()
+        return jsonify({"message": f"Invitation sent to '{stored_name}'. They will see it "
+                                   f"on Manage your name and have to accept it."}), 200
+
+    if detect_clan(stored_name) != known:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' has no account to ask, and {known} is "
+                                   f"not in their name, so they cannot be added. Ask them "
+                                   f"to sign in and claim the name first."}), 400
+
+    c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (known, stored_name))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"'{stored_name}' added to {known}."}), 200
+
+
+@app.route('/me/clan_invites')
+def my_clan_invites():
+    """Clan invitations waiting on the signed-in player."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"invites": []}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT i.id, i.clan, i.name FROM clan_invites i "
+              "JOIN players p ON p.name = i.name "
+              "WHERE i.status = 'pending' AND i.direction = 'invite' "
+              "AND p.google_sub = ? ORDER BY i.id", (sub_id,))
+    invites = [{"id": r[0], "clan": r[1], "name": r[2]} for r in c.fetchall()]
+    conn.close()
+    return jsonify({"invites": invites}), 200
+
+
+@app.route('/clan/invite/respond', methods=['POST'])
+def clan_invite_respond():
+    """Accept or decline a clan invitation. Only the invited player can."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in with Google first."}), 401
+
+    data = request.json or {}
+    invite_id = data.get('id')
+    accept = bool(data.get('accept'))
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT clan, name, status FROM clan_invites WHERE id = ? "
+              "AND direction = 'invite'", (invite_id,))
+    row = c.fetchone()
+    if not row or row[2] != 'pending':
+        conn.close()
+        return jsonify({"message": "That invitation is no longer open."}), 404
+
+    clan, stored_name, _ = row
+    c.execute("SELECT google_sub FROM players WHERE name = ?", (stored_name,))
+    owner = c.fetchone()
+    if not owner or owner[0] != sub_id:
+        conn.close()
+        return jsonify({"message": "That invitation is not yours."}), 403
+
+    if accept:
+        c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, stored_name))
+    c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
+              ('approved' if accept else 'declined', invite_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"You joined {clan}." if accept
+                    else f"Invitation from {clan} declined."}), 200
+
+
+@app.route('/api/notify_state')
+def notify_state():
+    """Everything the droplet's notifier needs in one call.
+
+    The droplet polls this because PythonAnywhere's free tier cannot make
+    outbound calls to arbitrary hosts, so the site cannot push to Discord
+    itself. Keyed the same way as /api/game_end - pending claims are
+    moderation data and are nobody else's business.
+    """
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    conn = db()
+    c = conn.cursor()
+    # The handle is joined on here so a claim alert can say who filed it.
+    # That is the one thing reviewing a claim always needed and the site
+    # could never supply, because a Google account id says nothing a person
+    # can act on.
+    c.execute("SELECT cr.id, cr.name, cr.created_at, cr.google_sub IS NOT NULL, "
+              "COALESCE(du.display, du.username) "
+              "FROM claim_requests cr "
+              "LEFT JOIN discord_users du ON du.sub = cr.google_sub "
+              "WHERE cr.status = 'pending' ORDER BY cr.id")
+    claims = [{"id": r[0], "name": r[1], "at": r[2], "has_account": bool(r[3]),
+               "discord": r[4] or None}
+              for r in c.fetchall()]
+    c.execute("SELECT clan, COUNT(*) FROM clan_admins GROUP BY clan")
+    admins = {r[0]: r[1] for r in c.fetchall()}
+    conn.close()
+
+    latest = CHANGELOG[0] if CHANGELOG else {"version": APP_VERSION, "changes": []}
+    return jsonify({
+        "version": APP_VERSION,
+        "latest_changelog": latest,
+        "pending_claims": claims,
+        "clan_admins": admins,
+    }), 200
+
+
+# ----------------------------------------------------------------------
+# Everything below serves the Discord bot. It runs on the droplet rather
+# than here because a bot has to hold a connection open, which this host
+# does not allow - so the same key that guards match reporting guards
+# these too. The data is public either way; the key is there so the write
+# endpoint below cannot be reached by anyone who merely knows the URL.
+# ----------------------------------------------------------------------
+
+def bot_authorised():
+    return api_key_ok(request.headers.get('X-API-Key'))
+
+
+def bot_player(c, row, history=0):
+    """One player as the bot wants them: the same numbers the player page
+    shows, formatted once here so the bot never recomputes a rank or a win
+    rate and drifts away from the site."""
+    stored_name, elo, wins, losses, clan, owner_sub = row
+    wins = wins or 0
+    losses = losses or 0
+    played = wins + losses
+    c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
+    rank = c.fetchone()[0]
+    out = {
+        "name": stored_name,
+        "display": display_name(stored_name, clan),
+        "elo": round(elo, 2),
+        "wins": wins,
+        "losses": losses,
+        "played": played,
+        "rank": rank,
+        "winrate": (round(100 * wins / played) if played else None),
+        "clan": clan,
+        "owned": bool(owner_sub),
+    }
+    if history:
+        c.execute("SELECT m.played_at, mp.won, mp.delta, mp.half "
+                  "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+                  "WHERE mp.norm_name = ? ORDER BY m.id DESC LIMIT ?",
+                  (normalize_name(stored_name), int(history)))
+        out["history"] = [
+            {"at": r[0], "won": bool(r[1]),
+             "delta": (round(r[2], 2) if r[2] is not None else None),
+             "half": bool(r[3])}
+            for r in c.fetchall()
+        ]
+    return out
+
+
+def bot_lookup(c, name):
+    c.execute("SELECT name, elo, wins, losses, clan, google_sub FROM players "
+              "WHERE norm_name = ?", (normalize_name(name or ''),))
+    return c.fetchone()
+
+
+@app.route('/api/bot/player')
+def bot_player_route():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    name = request.args.get('name', '')
+    try:
+        history = min(15, max(0, int(request.args.get('history', 0))))
+    except (TypeError, ValueError):
+        history = 0
+    conn = db()
+    c = conn.cursor()
+    row = bot_lookup(c, name)
+    if not row:
+        conn.close()
+        return jsonify({"found": False, "query": name}), 200
+    payload = bot_player(c, row, history=history)
+    c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' AND name = ?",
+              (row[0],))
+    payload["pending_claim"] = c.fetchone()[0] > 0
+    conn.close()
+    return jsonify({"found": True, "player": payload}), 200
+
+
+@app.route('/api/bot/top')
+def bot_top_route():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        n = min(25, max(1, int(request.args.get('n', 10))))
+    except (TypeError, ValueError):
+        n = 10
+    region = str(request.args.get('region', ALL_REGIONS)).strip().lower()
+    period = str(request.args.get('period', 'all')).strip().lower()
+    if region not in REGION_KEYS and region != ALL_REGIONS:
+        region = ALL_REGIONS
+    if period not in PERIOD_KEYS:
+        period = 'all'
+    # Straight through board_rows, so the bot and the page can never show
+    # different boards for the same question.
+    gain = period != 'all'
+    # board_rows returns two different kinds of number. All-regions
+    # all-time comes off the players table and is ALREADY an absolute
+    # rating; a single region's all-time is a SUM OF DELTAS that only
+    # becomes a rating once STARTING_ELO is added. Adding it to both
+    # showed a player on 6.0 as 11.0 on the combined board.
+    relative = region != ALL_REGIONS or gain
+
+    conn = db()
+    c = conn.cursor()
+    rows = board_rows(c, period, region)
+    conn.close()
+    rows.sort(key=leaderboard_sort_key)
+    out = []
+    for i, (name, elo, wins, losses, clan, protected) in enumerate(rows[:n], start=1):
+        played = wins + losses
+        out.append({"place": i, "name": name, "display": display_name(name, clan),
+                    # Over a window this is rating gained, not a standing -
+                    # the bot labels the column from `gain`.
+                    "elo": round(elo if gain
+                                 else (STARTING_ELO + elo if relative else elo), 2),
+                    "wins": wins, "losses": losses,
+                    "winrate": (round(100 * wins / played) if played else None),
+                    "clan": clan, "protected": protected})
+    return jsonify({"players": out, "total": len(rows), "gain": gain,
+                    "region": region, "region_label": REGION_LABELS[region],
+                    "period": period, "period_label": dict(PERIODS)[period]}), 200
+
+
+@app.route('/api/bot/clan')
+def bot_clan_route():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    known = canonical_clan_tag(request.args.get('tag', ''))
+    if not known:
+        return jsonify({"found": False}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, elo, wins, losses, google_sub FROM players WHERE clan = ?", (known,))
+    rows = c.fetchall()
+    c.execute("SELECT google_sub FROM clan_admins WHERE clan = ?", (known,))
+    admin_subs = {r[0] for r in c.fetchall() if r[0]}
+    conn.close()
+    rows.sort(key=leaderboard_sort_key)
+    members = []
+    total_wins = total_losses = 0
+    total_elo = 0.0
+    for name, elo, wins, losses, owner_sub in rows:
+        wins = wins or 0
+        losses = losses or 0
+        total_wins += wins
+        total_losses += losses
+        total_elo += elo
+        members.append({"name": name, "display": display_name(name, known),
+                        "elo": round(elo, 2), "wins": wins, "losses": losses,
+                        "admin": bool(owner_sub) and owner_sub in admin_subs})
+    played = total_wins + total_losses
+    return jsonify({"found": True, "clan": {
+        "tag": known,
+        "size": len(members),
+        "wins": total_wins,
+        "losses": total_losses,
+        "winrate": (round(100 * total_wins / played) if played else None),
+        "avg_elo": (round(total_elo / len(members), 2) if members else None),
+        "members": members,
+    }}), 200
+
+
+@app.route('/api/bot/compare')
+def bot_compare_route():
+    """Two players side by side, plus what a win would actually be worth.
+
+    The projection is worked out here, with the site's own rating code,
+    rather than reimplemented in the bot - a second copy of the formula is
+    a second thing to forget to change.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    rows = [bot_lookup(c, request.args.get('a', '')),
+            bot_lookup(c, request.args.get('b', ''))]
+    if not rows[0] or not rows[1]:
+        conn.close()
+        return jsonify({"found": False,
+                        "missing": [q for q, r in
+                                    ((request.args.get('a', ''), rows[0]),
+                                     (request.args.get('b', ''), rows[1])) if not r]}), 200
+    a = bot_player(c, rows[0])
+    b = bot_player(c, rows[1])
+    conn.close()
+
+    # Deliberately not team_rating() for the opposing side. That function
+    # pads a short roster out to two with STARTING_ELO, which is right when
+    # a real team is half unregistered but wrong here - it would drag a
+    # single named opponent halfway back to average and quote a swing
+    # neither player would ever see. One player's rating is their elo.
+    exp_a = expected_score(rows[0][1], rows[1][1])
+    return jsonify({"found": True, "a": a, "b": b, "projection": {
+        "a_win_chance": round(100 * exp_a),
+        "a_gain": round(ELO_K * (1 - exp_a), 2),
+        "a_loss": round(ELO_K * exp_a, 2),
+        "b_gain": round(ELO_K * exp_a, 2),
+        "b_loss": round(ELO_K * (1 - exp_a), 2),
+    }}), 200
+
+
+@app.route('/api/bot/me')
+def bot_me_route():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    discord_id = str(request.args.get('discord_id', '')).strip()
+    if not discord_id:
+        return jsonify({"error": "no discord_id"}), 400
+    sub_id = 'discord:' + discord_id
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, elo, wins, losses, clan, google_sub FROM players "
+              "WHERE google_sub = ? ORDER BY name", (sub_id,))
+    rows = c.fetchall()
+    players = [bot_player(c, r) for r in rows]
+    c.execute("SELECT name, created_at FROM claim_requests "
+              "WHERE google_sub = ? AND status = 'pending' ORDER BY id", (sub_id,))
+    claims = [{"name": r[0], "at": r[1]} for r in c.fetchall()]
+    conn.close()
+    return jsonify({"players": players, "pending_claims": claims,
+                    "cap": MAX_NAMES_PER_ACCOUNT}), 200
+
+
+@app.route('/api/held')
+def api_held_route():
+    """Results withheld by protection. Never rendered on the site - showing
+    them would undo the thing the player asked for - but kept so a wrong
+    call can be found and put right."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    who = str(request.args.get('name', '')).strip()
+    conn = db()
+    c = conn.cursor()
+    if who:
+        c.execute("SELECT id, match_id, region, name, played_as, won, score, reason, played_at "
+                  "FROM held_results WHERE norm_name = ? ORDER BY id DESC LIMIT 200",
+                  (normalize_name(who),))
+    else:
+        c.execute("SELECT id, match_id, region, name, played_as, won, score, reason, played_at "
+                  "FROM held_results ORDER BY id DESC LIMIT 200")
+    out = [{"id": r[0], "match_id": r[1], "region": r[2], "name": r[3],
+            "played_as": r[4], "won": bool(r[5]), "score": r[6],
+            "reason": r[7], "at": r[8]} for r in c.fetchall()]
+    c.execute("SELECT COUNT(*) FROM held_results")
+    total = (c.fetchone() or [0])[0]
+    conn.close()
+    return jsonify({"held": out, "shown": len(out), "total": total}), 200
+
+
+@app.route('/api/bot/name', methods=['POST'])
+def bot_set_name_route():
+    """Set or change the account name from Discord.
+
+    The same thing the Settings page does. /api/bot/register can only add a
+    name to an account that has none, so someone who wanted to correct a
+    typo had to come to the site - which is exactly the sort of errand a
+    bot should save.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    discord_id = str(data.get('discord_id', '')).strip()
+    name = str(data.get('name', '')).strip()
+    if not discord_id:
+        return jsonify({"error": "no discord_id"}), 400
+    sub_id = 'discord:' + discord_id
+    if not is_valid_name_format(name):
+        return jsonify({"ok": False, "message": "That name cannot be used. Try another."}), 200
+    if is_blocked_word(name):
+        return jsonify({"ok": False, "message": "That name isn't allowed. Please choose another."}), 200
+    if is_default_name(name):
+        return jsonify({"ok": False, "message": "That is one of Starblast's default names - too "
+                                                "many players share it. Pick a name of your own."}), 200
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("BEGIN IMMEDIATE")
+    key = normalize_name(name)
+    c.execute("SELECT google_sub FROM players WHERE norm_name = ?", (key,))
+    taken = c.fetchone()
+    if taken and taken[0] and taken[0] != sub_id:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"'{name}' already belongs to another account."}), 200
+    if taken and not taken[0]:
+        conn.close()
+        return jsonify({"ok": False, "claimable": True,
+                        "message": f"'{name}' is already on the leaderboard as an unverified "
+                                   f"player. Claim it on the site to take it over."}), 200
+    if taken and taken[0] == sub_id:
+        c.execute("SELECT name FROM players WHERE norm_name = ?", (key,))
+        row = c.fetchone()
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True, "name": row[0] if row else name,
+                        "message": f"Your name is already '{row[0] if row else name}'."}), 200
+
+    # One row moves, chosen the same way the site chooses it - an account
+    # holding two grandfathered names must not have both renamed at once.
+    c.execute("SELECT name FROM players WHERE google_sub = ? "
+              "ORDER BY (COALESCE(wins, 0) + COALESCE(losses, 0)) DESC, name LIMIT 1",
+              (sub_id,))
+    mine = c.fetchone()
+    if mine:
+        c.execute("UPDATE players SET name = ?, norm_name = ? WHERE name = ?",
+                  (name, key, mine[0]))
+        msg = f"Your name is now '{name}' (was '{mine[0]}')."
+    else:
+        c.execute("INSERT INTO players (name, elo, wins, losses, reg_ip, norm_name, google_sub) "
+                  "VALUES (?, ?, 0, 0, ?, ?, ?)",
+                  (name, STARTING_ELO, 'discord-bot', key, sub_id))
+        msg = f"Your name is '{name}'."
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "name": name, "message": msg}), 200
+
+
+@app.route('/api/bot/protection', methods=['GET', 'POST'])
+def bot_protection_route():
+    """Read or set protection on the account's own name.
+
+    Deliberately offers no way to name a target: from Discord you can only
+    change your own. The rules are the site's - it needs match history to
+    switch on, and it can only be changed once a day.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    if request.method == 'GET':
+        discord_id = str(request.args.get('discord_id', '')).strip()
+        want = None
+    else:
+        data = request.json or {}
+        discord_id = str(data.get('discord_id', '')).strip()
+        want = 1 if data.get('enabled') else 0
+    if not discord_id:
+        return jsonify({"error": "no discord_id"}), 400
+    sub_id = 'discord:' + discord_id
+
+    conn = db()
+    c = conn.cursor()
+    name = account_name_for(c, sub_id)
+    if not name:
+        conn.close()
+        return jsonify({"ok": False, "message": "You have no name on this account yet. "
+                                                "Set one with /setname first."}), 200
+    c.execute("SELECT COALESCE(strict_mode, 0), prot_changed_at, "
+              "COALESCE(wins, 0) + COALESCE(losses, 0) FROM players WHERE name = ?", (name,))
+    row = c.fetchone()
+    enabled, changed_at, played = (row[0], row[1], row[2]) if row else (0, None, 0)
+
+    def hours_left():
+        if not changed_at:
+            return 0.0
+        c.execute("SELECT (julianday('now') - julianday(?)) * 24.0", (changed_at,))
+        gone = (c.fetchone() or [None])[0]
+        return 0.0 if gone is None else max(0.0, PROTECTION_COOLDOWN_HOURS - gone)
+
+    if want is None:
+        left = hours_left()
+        conn.close()
+        return jsonify({"ok": True, "name": name, "enabled": bool(enabled),
+                        "hours_left": round(left, 1), "played": played}), 200
+
+    # Same as the site: no match history needed. See the note there.
+    if want != enabled:
+        left = hours_left()
+        if left > 0:
+            conn.close()
+            wait = (f"{int(left)} hours" if left >= 1
+                    else f"{max(1, int(left * 60))} minutes")
+            return jsonify({"ok": False, "name": name, "enabled": bool(enabled),
+                            "message": f"Protection can only be changed once a day. "
+                                       f"Try again in {wait}."}), 200
+        c.execute("UPDATE players SET strict_mode = ?, prot_changed_at = ? WHERE name = ?",
+                  (want, time.strftime('%Y-%m-%d %H:%M:%S'), name))
+    conn.commit()
+    conn.close()
+    if want:
+        return jsonify({"ok": True, "name": name, "enabled": True,
+                        "message": f"Protection is ON for '{name}'. Only matches you press "
+                                   f"Play on will count, and your rating shows as confirmed."}), 200
+    return jsonify({"ok": True, "name": name, "enabled": False,
+                    "message": f"Protection is OFF for '{name}'. Your rating is no longer "
+                               f"marked as confirmed, and every match counts again."}), 200
+
+
+@app.route('/api/bot/register', methods=['POST'])
+def bot_register_route():
+    """Register a name against a Discord account.
+
+    Every rule /register applies is applied here too - shape, blocklist,
+    default names, the one-name cap and the duplicate check - because this
+    is the same act done from a different place. The account it lands on is
+    the same identity Discord sign-in produces, so a name registered from
+    the bot is simply there when the player signs into the site.
+    """
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    discord_id = str(data.get('discord_id', '')).strip()
+    name = str(data.get('name', '')).strip()
+    if not discord_id:
+        return jsonify({"ok": False, "message": "No Discord account was given."}), 400
+    if not name:
+        return jsonify({"ok": False, "message": "No name provided."}), 400
+
+    if not is_valid_name_format(name):
+        return jsonify({"ok": False, "message": "Name must be 1-16 letters or digits, and cannot end in a digit."}), 200
+    if is_blocked_word(name):
+        return jsonify({"ok": False, "message": "That name isn't allowed. Please choose another."}), 200
+    if is_default_name(name):
+        return jsonify({"ok": False, "message": "That is one of Starblast's default names, given to anyone who joins without typing one. Too many players share it for it to be tracked. Pick a name of your own in game."}), 200
+
+    sub_id = 'discord:' + discord_id
+    if data.get('username'):
+        remember_discord_user(sub_id, data.get('username'),
+                              data.get('display') or data.get('username'))
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("BEGIN IMMEDIATE")
+    c.execute("SELECT name FROM players WHERE google_sub = ?", (sub_id,))
+    already = [row[0] for row in c.fetchall()]
+    if len(already) >= MAX_NAMES_PER_ACCOUNT:
+        conn.close()
+        return jsonify({"ok": False, "held": already[0],
+                        "message": f"Your account already has a name: '{already[0]}'. Remove it on the site first if you want a different one."}), 200
+
+    c.execute("SELECT name FROM players WHERE norm_name = ?", (normalize_name(name),))
+    taken = c.fetchone()
+    if taken:
+        conn.close()
+        return jsonify({"ok": False, "taken": taken[0],
+                        "message": f"'{taken[0]}' is already registered. If it is yours, claim it on the site."}), 200
+
+    c.execute("INSERT INTO players (name, elo, wins, losses, reg_ip, norm_name, google_sub) "
+              "VALUES (?, ?, 0, 0, ?, ?, ?)",
+              (name, STARTING_ELO, 'discord-bot', normalize_name(name), sub_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "name": name,
+                    "message": f"'{name}' is registered to your Discord account."}), 200
+
+
+@app.route('/report', methods=['POST'])
+def report_name():
+    """Report that somebody has taken, or is trying to take, your name.
+
+    Claims complete automatically once the claimant wins as that name, which
+    is a cost rather than a proof - nothing observed in game can tell a real
+    owner from someone wearing their name. This is the recourse. It does not
+    undo anything on its own; it raises an alert for a person to look at,
+    because deciding who someone really is needs knowledge the site does not
+    have.
+    """
+    data = request.json or {}
+    name = str(data.get('name', '')).strip()
+    note = str(data.get('note', '')).strip()[:300]
+    if not name:
+        return jsonify({"message": "Which name are you reporting?"}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name FROM players WHERE norm_name = ?", (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{name}' is not on the leaderboard."}), 404
+    stored_name = row[0]
+
+    me_now = current_user()
+    if me_now:
+        c.execute("SELECT COUNT(*) FROM name_reports WHERE status = 'open' "
+                  "AND reported_by = ?", (me_now,))
+        if (c.fetchone() or [0])[0] >= MAX_PENDING_CLAIMS:
+            conn.close()
+            return jsonify({"message": "You already have several reports open. "
+                                       "Wait for those to be looked at first."}), 429
+    if rate_hit(c, 'name_report', MAX_PENDING_CLAIMS, '-1 day'):
+        conn.close()
+        return jsonify({"message": "You already have several reports open. "
+                                   "Wait for those to be looked at first."}), 429
+
+    c.execute("INSERT INTO name_reports (name, reported_by, ip, note, created_at, status) "
+              "VALUES (?, ?, ?, ?, ?, 'open')",
+              (stored_name, current_user(), None, note, time.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Reported '{stored_name}'. {CONTACT_HANDLE} will look at it by "
+                               f"hand - nothing changes automatically."}), 200
+
+
+@app.route('/clan/apply', methods=['POST'])
+def clan_apply():
+    """Ask a clan to take you. Its admin decides.
+
+    Mirrors clan_add() from the other side, and uses the same evidence test,
+    so neither route is a way round the other. If the name has an owner, only
+    that owner can apply with it - otherwise anyone could volunteer somebody
+    else. If it has no owner there is nobody to check, so the clan's tag must
+    genuinely be in the name, exactly as a direct add would require.
+    """
+    data = request.json or {}
+    name = str(data.get('name', '')).strip()
+    if not name:
+        return jsonify({"message": "Enter your player name."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    known = canonical_clan_tag(data.get('clan'), all_clan_tags(c))
+    if not known:
+        conn.close()
+        return jsonify({"message": "No clan has that tag."}), 404
+
+    if known not in curated_clans(c):
+        conn.close()
+        return jsonify({"message": f"{known} has no admin yet, so it still picks up members "
+                                   f"automatically from the tag in your name. There is "
+                                   f"nothing to apply for."}), 400
+
+    c.execute("SELECT name, google_sub, clan FROM players WHERE norm_name = ?",
+              (normalize_name(name),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"message": f"'{name}' is not on the leaderboard yet. Win a tracked "
+                                   f"match first, or register the name."}), 404
+
+    stored_name, owner_sub, current_clan = row
+    if current_clan == known:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' is already in {known}."}), 400
+    if current_clan:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' is in {current_clan} and has to leave "
+                                   f"that clan first."}), 400
+
+    if owner_sub:
+        if current_user() != owner_sub:
+            conn.close()
+            return jsonify({"message": "That name belongs to an account. Sign in with it on "
+                                       "Settings before applying."}), 403
+    elif detect_clan(stored_name, all_clan_tags(c)) != known:
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' has no account and {known} is not in the "
+                                   f"name, so there is no way to tell this is you. Claim the "
+                                   f"name on Settings first."}), 400
+
+    c.execute("SELECT id FROM clan_invites WHERE clan = ? AND name = ? AND status = 'pending'",
+              (known, stored_name))
+    if c.fetchone():
+        conn.close()
+        return jsonify({"message": f"'{stored_name}' already has something pending with {known}."}), 400
+
+    c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, direction) "
+              "VALUES (?, ?, ?, ?, 'pending', 'application')",
+              (known, stored_name, current_user(), time.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Applied to {known}. Their admin has to accept it."}), 200
+
+
+@app.route('/clan/application/respond', methods=['POST'])
+def clan_application_respond():
+    """Accept or decline someone applying to a clan you run."""
+    sub_id = current_user()
+    data = request.json or {}
+    app_id = data.get('id')
+    accept = bool(data.get('accept'))
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT clan, name, status FROM clan_invites WHERE id = ? "
+              "AND direction = 'application'", (app_id,))
+    row = c.fetchone()
+    if not row or row[2] != 'pending':
+        conn.close()
+        return jsonify({"message": "That application is no longer open."}), 404
+
+    clan, stored_name, _ = row
+    if clan not in clan_admin_tags(c, sub_id):
+        conn.close()
+        return jsonify({"message": "You are not an admin of that clan."}), 403
+
+    if accept:
+        c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, stored_name))
+    c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
+              ('approved' if accept else 'declined', app_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": (f"'{stored_name}' joined {clan}." if accept
+                                else f"Application from '{stored_name}' declined.")}), 200
+
+
+@app.route('/clan/create', methods=['POST'])
+def clan_create():
+    """Start a new clan. Whoever creates it becomes its first admin.
+
+    A new clan is curated from the moment it exists, because its creator is
+    already an admin of it - so automatic tag detection never touches it.
+    That is the point: a fresh two-letter tag would otherwise sweep in every
+    player whose name happens to begin with those letters. The creator
+    builds the roster by inviting people instead.
+    """
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in with Google first."}), 401
+
+    tag = re.sub(r'[^A-Z0-9]', '', str((request.json or {}).get('tag', '')).upper())
+    if not 2 <= len(tag) <= 4:
+        return jsonify({"message": "A clan tag is 2 to 4 letters or numbers."}), 400
+    if not any(ch.isalpha() for ch in tag):
+        return jsonify({"message": "A clan tag needs at least one letter."}), 400
+    if is_blocked_word(tag):
+        return jsonify({"message": "That tag isn't allowed. Please choose another."}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT tag FROM clans WHERE tag = ?", (tag,))
+    if c.fetchone():
+        conn.close()
+        return jsonify({"message": f"{tag} already exists."}), 400
+
+    # You must already play under the tag to mint it. Creating a clan makes
+    # it curated, which switches automatic detection off for that tag - so
+    # without this check anyone could grab a real clan's tag before its
+    # leader did and then decide who counts as a member. The API key skips
+    # the test so the site owner can still set a clan up on request.
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        c.execute("SELECT name FROM players WHERE google_sub = ?", (sub_id,))
+        owned = [normalize_name(r[0]) for r in c.fetchall()]
+        if not any(n == tag or (n.startswith(tag) and len(n) > len(tag)) for n in owned):
+            conn.close()
+            return jsonify({"message": f"To start {tag} you need a name of your own that plays "
+                                       f"under it. Claim your name on Settings first, then try "
+                                       f"again - or ask {CONTACT_HANDLE} on Discord."}), 403
+
+    c.execute("SELECT COUNT(*) FROM clans WHERE created_by = ?", (sub_id,))
+    if c.fetchone()[0] >= MAX_CLANS_PER_ACCOUNT:
+        conn.close()
+        return jsonify({"message": f"You have already started {MAX_CLANS_PER_ACCOUNT} clans. "
+                                   f"Ask {CONTACT_HANDLE} on Discord if you need another."}), 400
+
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    c.execute("INSERT INTO clans (tag, created_by, created_at) VALUES (?, ?, ?)", (tag, sub_id, now))
+    c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) VALUES (?, ?, ?)",
+              (tag, sub_id, now))
+    joined, elsewhere = join_admin_names(c, sub_id, tag)
+    conn.commit()
+    conn.close()
+    msg = f"{tag} created. You are its admin - invite your members below."
+    if joined:
+        msg += " Added " + ", ".join(joined) + " to the roster."
+    if elsewhere:
+        msg += " " + ", ".join(elsewhere) + " stayed in their current clan."
+    return jsonify({"message": msg, "clan": tag}), 200
+
+
+@app.route('/clan/revoke', methods=['POST'])
+def clan_revoke():
+    """Take clan admin away again. Site owner only.
+
+    Admin does not expire on its own. The code that granted it is one-time,
+    but the rights it hands over last until they are taken back here - so
+    this is the way to deal with an admin who leaves or misbehaves. Removing
+    a clan's last admin puts it back on automatic tag detection, and a fresh
+    code can be issued to whoever takes over.
+    """
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"message": "Unauthorized"}), 401
+    known = canonical_clan_tag((request.json or {}).get('clan'))
+    if not known:
+        return jsonify({"message": "Unknown clan tag. Known tags: "
+                                   + ", ".join(sorted(all_clan_tags()))}), 400
+
+    conn = db()
+    c = conn.cursor()
+    c.execute("DELETE FROM clan_admins WHERE clan = ?", (known,))
+    removed = c.rowcount
+    # Unused codes for this clan would otherwise still be redeemable by
+    # whoever is holding them.
+    c.execute("DELETE FROM clan_codes WHERE clan = ? AND used_at IS NULL", (known,))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Removed {removed} admin(s) from {known}. "
+                               f"{known} is back on automatic tag detection."}), 200
+
+
+# Clans are off while the change-over settles. The tags were matched
+# against names read off the screen, and those were often wrong, so every
+# membership derived from them is suspect. Saying so beats showing a
+# directory that quietly lies.
+CLANS_NOTICE = ("Clans are under construction. The tracker now reads names from the game "
+                "itself rather than off the screen, and the old clan tags were matched "
+                "against names that were often misread - so they have been cleared and "
+                "will be rebuilt from real data.")
+
+
+@app.route('/clans')
+def clans_page():
+    """Public directory of every clan."""
+    conn = db()
+    c = conn.cursor()
+    curated = curated_clans(c)
+    rows = []
+    for tag in sorted(all_clan_tags(c)):
+        c.execute("SELECT elo FROM players WHERE clan = ?", (tag,))
+        elos = [r[0] for r in c.fetchall()]
+        rows.append({
+            "tag": tag,
+            "size": len(elos),
+            "avg_elo": f"{sum(elos) / len(elos):.1f}" if elos else "0.0",
+            "curated": tag in curated,
+        })
+    conn.close()
+    # Biggest first, so a busy clan is not buried under empty ones.
+    rows.sort(key=lambda r: (-r["size"], r["tag"]))
+    return render_template('clans.html', clans=rows, version=APP_VERSION,
+                           contact=CONTACT_HANDLE, page='clans',
+                           notice=CLANS_NOTICE)
+
+
+@app.route('/settings')
+def settings_page():
+    conn = db()
+    c = conn.cursor()
+    account_name = account_name_for(c, current_user())
+    conn.close()
+    return render_template('settings.html', version=APP_VERSION,
+                           contact=CONTACT_HANDLE, client_id=GOOGLE_CLIENT_ID,
+                           account_name=account_name, page='settings',
+                           wins_required=CLAIM_WINS_REQUIRED)
+
+
+@app.route('/manage')
+def manage_page():
+    # The old address, kept working for anyone who bookmarked it.
+    return redirect('/settings', code=301)
+
+
+@app.route('/play')
+def play_page():
+    """Live matches, checking in, and getting hold of your name.
+
+    These were spread across the leaderboard and Settings, so the one thing
+    a player actually does before a game - make sure it will count - took
+    two pages and some guessing.
+    """
+    conn = db()
+    c = conn.cursor()
+    capacity, min_age, max_age, min_players = tracker_limits(c)
+    c.execute("SELECT sys_id, name, players, age, COALESCE(watching, 0), "
+              "COALESCE(region, 'america') FROM live_lobbies "
+              "WHERE updated_at > datetime('now', '-5 minutes') ORDER BY watching DESC, age DESC")
+    raw = c.fetchall()
+    conn.close()
+    lobbies, watched_now = describe_lobbies([(r[1], r[2], r[3], r[4]) for r in raw],
+                                            capacity, min_age, max_age, min_players)
+    for lobby, row in zip(lobbies, raw):
+        lobby["id"] = row[0]
+        lobby["region"] = row[5]
+
+    # Grouped by region rather than one flat list. Three continents of
+    # lobbies in one column is unreadable, and a player only ever cares
+    # about the one they are about to play in.
+    groups = []
+    for key, label in REGIONS:
+        here = [l for l in lobbies if l["region"] == key]
+        if here:
+            groups.append({"key": key, "label": label, "lobbies": here})
+    # Every region gets a tab whether or not it has a match right now, so a
+    # quiet hour does not look like the tracker has stopped covering it.
+    all_regions = [{"key": k, "label": lbl} for k, lbl in REGIONS]
+    group_keys = [g["key"] for g in groups]
+
+    conn = db()
+    c = conn.cursor()
+    account_name = account_name_for(c, current_user())
+    conn.close()
+
+    return render_template('play.html', version=APP_VERSION, page='play',
+                           lobbies=lobbies, groups=groups, all_regions=all_regions,
+                           group_keys=group_keys, watched=watched_now,
+                           capacity=capacity, account_name=account_name,
+                           min_age_mins=min_age // 60, contact=CONTACT_HANDLE,
+                           wins_required=CLAIM_WINS_REQUIRED)
+
+
+@app.route('/players')
+def players_page():
+    # Search lives on the leaderboard now - one list of players, not two.
+    return redirect('/', code=301)
+
+
+def _players_page_unused():
+    """Search every tracked player. Ordered like the leaderboard so the
+    unfiltered view is still meaningful."""
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, elo, wins, losses, clan FROM players")
+    rows = c.fetchall()
+    conn.close()
+    rows.sort(key=leaderboard_sort_key)
+
+    players = []
+    for name, elo, wins, losses, clan in rows:
+        wins = wins or 0
+        losses = losses or 0
+        played = wins + losses
+        players.append({
+            "name": name, "display": display_name(name, clan), "clan": clan,
+            "skill": f"{elo:.1f}", "wins": wins, "losses": losses,
+            "winrate": f"{round(100 * wins / played)}%" if played else "-",
+            # Matched against the search box, which strips punctuation too, so
+            # "bel riose" finds BELRIOSE.
+            "search": normalize_name(name) + (clan or ""),
+        })
+    return render_template('players.html', players=players, total=len(players),
+                           version=APP_VERSION, page='players')
+
+
+@app.route('/reports', methods=['GET', 'POST'])
+def reports_page():
+    """File a bug report, or read what to include in one.
+
+    Open to anyone. Requiring sign-in would filter out the reports most
+    worth reading - somebody who cannot sign in has no other way to say
+    so - so the account is recorded when there is one and the form asks
+    for a contact when there is not.
+    """
+    if request.method == 'GET':
+        return render_template('reports.html', version=APP_VERSION, page='reports',
+                               kinds=REPORT_KINDS, contact=CONTACT_HANDLE,
+                               client_id=GOOGLE_CLIENT_ID)
+
+    data = request.json or {}
+    body = str(data.get('body', '')).strip()
+    kind = str(data.get('kind', 'bug')).strip()
+    who = str(data.get('contact', '')).strip()[:120]
+    if kind not in dict(REPORT_KINDS):
+        kind = 'other'
+    if len(body) < 10:
+        return jsonify({"message": "Please say a little more about what happened - "
+                                   "a sentence or two is enough."}), 400
+    body = body[:4000]
+
+    conn = db()
+    c = conn.cursor()
+    if rate_hit(c, 'bug_report', MAX_REPORTS_PER_DAY, '-1 day'):
+        conn.close()
+        return jsonify({"message": f"That is {MAX_REPORTS_PER_DAY} reports from here today, "
+                                   f"which is the limit. If there is more to say, "
+                                   f"message {CONTACT_HANDLE} on Discord."}), 429
+    c.execute("INSERT INTO bug_reports (kind, body, contact, google_sub, ip, created_at) "
+              "VALUES (?,?,?,?,?,?)",
+              (kind, body, who or None, current_user(), None,
+               time.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Thank you - that has been logged. If you left a way to "
+                               "reach you, you may get a reply."}), 200
+
+
+@app.route('/api/reports')
+def api_reports():
+    """Read the reports. API key only - they can contain contact details."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    status = request.args.get('status', 'open')
+    conn = db()
+    c = conn.cursor()
+    if status == 'all':
+        c.execute("SELECT id, kind, body, contact, google_sub, created_at, status "
+                  "FROM bug_reports ORDER BY id DESC LIMIT 200")
+    else:
+        c.execute("SELECT id, kind, body, contact, google_sub, created_at, status "
+                  "FROM bug_reports WHERE status = ? ORDER BY id DESC LIMIT 200", (status,))
+    out = [{"id": r[0], "kind": r[1], "body": r[2], "contact": r[3],
+            "account": r[4], "at": r[5], "status": r[6]} for r in c.fetchall()]
+    conn.close()
+    return jsonify({"reports": out, "count": len(out)}), 200
+
+
+@app.route('/changelog')
+def changelog_page():
+    return render_template('changelog.html', changelog=CHANGELOG,
+                           version=APP_VERSION, page='changelog')
+
+
+@app.route('/info')
+def info_page():
+    """Every explanation on the site, compiled onto one page."""
+    conn = db()
+    c = conn.cursor()
+    capacity, min_age, max_age, min_players = tracker_limits(c)
+    conn.close()
+    return render_template('info.html', version=APP_VERSION, page='info',
+                           starting_elo=STARTING_ELO, elo_k=ELO_K,
+                           wins_required=CLAIM_WINS_REQUIRED,
+                           contact=CONTACT_HANDLE, capacity=capacity,
+                           min_age_mins=min_age // 60, max_age_mins=max_age // 60,
+                           min_players=min_players)
+
+
+@app.route('/how-it-works')
+def how_it_works_page():
+    # The old address, kept working for anyone who bookmarked it.
+    return redirect('/info', code=301)
+
+
+@app.route('/elo')
+def elo_page():
+    return redirect('/info', code=301)
+
+
+@app.route('/')
+def leaderboard():
+    period = request.args.get('period', 'all')
+    region = request.args.get('region', ALL_REGIONS)
+    if period not in PERIOD_KEYS:
+        period = 'all'
+    # All regions is the default view: one rating per player, which is the
+    # number every region has been feeding all along. The per-region boards
+    # remain because they are separate competitions - a rating earned
+    # against Europeans is not the same achievement as one earned against
+    # North Americans - and the selector says which you are looking at.
+    if region not in REGION_KEYS and region != ALL_REGIONS:
+        region = ALL_REGIONS
+    # Over a window the number is what you gained in it. Over all time the
+    # same sum IS the rating that region has given you, so it is shown as a
+    # rating instead of a delta.
+    gain = period != 'all'
+    # board_rows returns two different kinds of number. All-regions
+    # all-time comes off the players table and is ALREADY an absolute
+    # rating; a single region's all-time is a SUM OF DELTAS that only
+    # becomes a rating once STARTING_ELO is added. Adding it to both
+    # showed a player on 6.0 as 11.0 on the combined board.
+    relative = region != ALL_REGIONS or gain
+
+    conn = db()
+    c = conn.cursor()
+    rows = board_rows(c, period, region)
+    conn.close()
+
+    rows.sort(key=leaderboard_sort_key)
+
+    # Which region each player turns up in most, for the badge on the
+    # combined board. A player who splits their time gets the one they
+    # play most - the profile has the full breakdown.
+    home_region = {}
+    if region == ALL_REGIONS:
+        conn2 = db()
+        c2 = conn2.cursor()
+        c2.execute("SELECT mp.norm_name, m.region, COUNT(*) FROM match_players mp "
+                   "JOIN matches m ON m.id = mp.match_row GROUP BY 1, 2")
+        best = {}
+        for norm, reg, cnt in c2.fetchall():
+            if cnt > best.get(norm, (0, None))[0]:
+                best[norm] = (cnt, reg)
+        conn2.close()
+        home_region = {k: v[1] for k, v in best.items() if v[1] in REGION_KEYS}
+
+    leaderboard_data = []
+    for name, elo, wins, losses, clan, protected in rows:
+        wins = wins or 0
+        losses = losses or 0
+        played = wins + losses
+        # Same formatting as the player profile page, so a win rate reads
+        # identically wherever it is shown.
+        winrate = f"{round(100 * wins / played)}%" if played else "-"
+        # The region cell links through to that region's board, so it needs
+        # the key for the URL as well as the full label for the text.
+        home = home_region.get(normalize_name(name))
+        leaderboard_data.append({
+            "name": name, "display": display_name(name, clan),
+            "skill": (f"{elo:+.2f}" if gain
+                      else (f"{STARTING_ELO + elo:.1f}" if relative else f"{elo:.1f}")),
+            "search": normalize_name(name) + (clan or ""),
+            "wins": wins, "losses": losses, "winrate": winrate,
+            "clan": clan, "protected": protected,
+            "region": home, "region_label": REGION_LABELS.get(home),
+        })
+    conn = db()
+    c = conn.cursor()
+    # Only trust a recent push. A stale row would claim a match is being
+    # watched long after the tracker stopped, which is worse than saying
+    # nothing at all.
+    conn.close()
+    return render_template('index.html', leaderboard=leaderboard_data,
+                           periods=PERIODS, regions=REGION_CHOICES,
+                           period=period, region=region, gain=gain,
+                           region_label=REGION_LABELS[region],
+                           period_label=dict(PERIODS)[period],
+                           version=APP_VERSION, page='leaderboard',
+                           total=len(leaderboard_data))
+
+
+init_db()  # runs on import too, since WSGI hosts never execute __main__
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)

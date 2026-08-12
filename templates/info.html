@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Info - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.card p{color:var(--muted);font-size:14px;line-height:1.75;margin:0 0 12px}
+.card p:last-child{margin-bottom:0}
+.card b{color:var(--text)}
+.card p a{color:var(--green)}
+.sechead{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.9px;
+  margin:28px 0 10px}
+.sechead.first{margin-top:0}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Info</h1>
+<p class="psub">Every explanation on the site, in one place &mdash; what the tracker watches,
+   how the rating moves, and what each page is for.</p>
+
+<div class="sechead first">The tracker</div>
+
+<div class="card">
+  <h2>Where the results come from</h2>
+  <p>A bot watches live team-mode lobbies around the clock. It waits for the match to finish,
+     works out which team won, and updates everyone who played. It never joins as a playing
+     ship. It only watches.</p>
+  <p>Player names come straight from the game itself, exactly as they are spelled &mdash;
+     nothing is read off the screen any more, so unusual names are no longer misread.</p>
+</div>
+
+<div class="card">
+  <h2>Which matches get watched</h2>
+  <p>Only <b>{{ capacity }} matches</b> are watched at a time, across every region. A match is
+     picked up once it is <b>{{ min_age_mins }} minutes old</b> &mdash; games rarely end before
+     then, so watching earlier would waste a slot &mdash; and a lobby needs a few players and
+     to be under {{ max_age_mins }} minutes old to be worth one.</p>
+  <p>A game that never gets tracked counts for nobody.</p>
+</div>
+
+<div class="sechead">The rating</div>
+
+<div class="card">
+  <h2>Your skill rating</h2>
+  <p>Everyone starts at <b>{{ starting_elo }}</b>. A match moves you by at most
+     <b>{{ elo_k }}</b> points either way.</p>
+  <p>How much you move depends on who you beat. Winning against a stronger side gains close to
+     the full amount; beating a much weaker side gains almost nothing. Losing works the same in
+     reverse &mdash; losing as the favourite costs the most, losing to a much stronger side
+     costs almost nothing. Two evenly matched teams move by exactly one point.</p>
+  <p>A team's strength is the average of its two highest rated players, not everyone on it.
+     The practical effect: farming weaker teams will not inflate your rating &mdash; climbing
+     means beating people who are themselves rated highly.</p>
+</div>
+
+<div class="card">
+  <h2>Full elo and half elo</h2>
+  <p>Be in a match before the tracker starts watching it and it counts in <b>full</b>. Join
+     one already being watched and it still counts, at <b>half</b> &mdash; on either side,
+     winners and losers alike. What matters is whether you were in the match when the watch
+     began; there is no deadline beyond that. The <a href="/play">Play</a> list marks which is
+     which before you join.</p>
+</div>
+
+<div class="card">
+  <h2>Quitting does not dodge a loss</h2>
+  <p>A losing team is charged as its fullest roster, not as whoever was still there at the
+     end &mdash; leaving early when a match turns bad does not avoid the loss.</p>
+  <p>And a player who finishes on <b>exactly 0 score</b> is not rated at all, win or lose.
+     Being in the lobby is not the same as playing.</p>
+</div>
+
+<div class="card">
+  <h2>How a winner is decided</h2>
+  <p>A match is only scored once its lobby actually closes. A team is out when its station is
+     destroyed <b>and</b> it has no players left &mdash; a damaged station alone means
+     nothing; teams play on with damaged stations. If one team remains, it wins. If station
+     damage cannot separate the survivors, the higher team score decides.</p>
+  <p>When the result genuinely cannot be determined, nothing is recorded. A missing match is
+     better than a wrong one.</p>
+</div>
+
+<div class="sechead">The leaderboard</div>
+
+<div class="card">
+  <h2>One combined board, and one per region</h2>
+  <p>The combined view shows one rating per player &mdash; the number every region has been
+     feeding. Each region is also its own leaderboard, because a rating earned against one
+     continent is not the same achievement as one earned against another; matches played in a
+     region count towards that region's board.</p>
+  <p>On the combined board the <b>Region</b> column shows where each player turns up most
+     &mdash; click it to open that region's leaderboard at that player's own row. Their
+     profile has the full split if they play in more than one.</p>
+</div>
+
+<div class="card">
+  <h2>Why a profile's regional splits may not add up</h2>
+  <p>The per-region breakdown on a player's profile is counted from stored match history,
+     which began on <b>7 August</b>. For anyone already on the board before then, those rows
+     will not add up to the totals at the top of their profile.</p>
+</div>
+
+<div class="card">
+  <h2>Time windows</h2>
+  <p><b>All time</b> shows the rating itself. The 30-day, 7-day and 24-hour views rank by
+     rating <b>gained</b> in that window, because a rating is one running number and cannot be
+     cut into days or weeks &mdash; so somebody who arrived yesterday and won can outrank a
+     long-standing name who sat out.</p>
+</div>
+
+<div class="card">
+  <h2>The green tick</h2>
+  <p>A <span style="color:var(--green)">&#10003;</span> beside a name marks a confirmed
+     rating: that player has Protection on, so only matches they checked into count.</p>
+</div>
+
+<div class="sechead">Play</div>
+
+<div class="card">
+  <h2>Checking in</h2>
+  <p>Press <b>Play</b> on the match you are about to join and it counts for your account
+     &mdash; whatever name you end up playing under. Pressing Play notes the moment you
+     clicked; the next ship to appear in that lobby <b>under the name you play as</b> is taken
+     to be you, and from then on you are matched to that ship rather than to the spelling
+     &mdash; so two players sharing a name no longer interfere.</p>
+  <p>Keep the in-game name on the <a href="/play">Play</a> page the same as the one in your
+     ship, or there is nothing to match you to.</p>
+</div>
+
+<div class="card">
+  <h2>Your name rides the clipboard</h2>
+  <p>Pressing Play also copies your in-game name, so you can paste it straight into the name
+     box when Starblast opens. The name cannot travel in the link itself: Starblast fills its
+     box from its own browser storage and ignores the address, and no site is allowed to write
+     another site's storage &mdash; so pasting is as close as this can get.</p>
+</div>
+
+<div class="sechead">Names, accounts and claims</div>
+
+<div class="card">
+  <h2>Two names, two jobs</h2>
+  <p>Your <b>account name</b> is how you appear on the leaderboard and how other players
+     recognise you &mdash; so after it is first set it can only be changed once, in
+     <a href="/settings">Settings</a>. Changing it keeps your whole record; it cannot be used
+     to shed a bad rating.</p>
+  <p>Your <b>in-game name</b> &mdash; the one in your ship &mdash; is set on
+     <a href="/play">Play</a> and you can change it as much as you like. Results always go to
+     your account, whichever name you played under.</p>
+  <p>Your rating belongs to your signed-in account (Google or Discord). Being on the same
+     network as someone else counts for nothing.</p>
+</div>
+
+<div class="card">
+  <h2>Claiming a name that is already on the board</h2>
+  <p>If a name on the leaderboard is really yours, claim it rather than picking a new one
+     &mdash; claiming keeps everything that name has already won. It becomes yours once it
+     wins {{ wins_required }} tracked match{{ '' if wins_required == 1 else 'es' }} after you
+     file the claim. The claim is shown publicly on that player's page while it is open, so
+     the real owner can see it and report it.</p>
+</div>
+
+<div class="sechead">Protection</div>
+
+<div class="card">
+  <h2>Only count the matches I check into</h2>
+  <p>If someone plays under your name, turn on <b>Protection</b> in
+     <a href="/settings">Settings</a>. Your rating then rests only on games you confirmed by
+     pressing Play first, and nobody wearing your name can move it. The leaderboard marks it
+     with the green tick.</p>
+  <p>It can only be flipped once every 24 hours. Without the cooldown it would be a switch to
+     throw the moment a match looked like going badly &mdash; off while winning, on to void
+     the losses. The rating only means something if the choice is made in advance and lived
+     with.</p>
+</div>
+
+<div class="sechead">When results go missing</div>
+
+<div class="card">
+  <h2>Why a win might not show up</h2>
+  <p><b>The match was not watched.</b> Only {{ capacity }} lobbies are watched at once, and a
+     match nobody was watching cannot be scored afterwards.</p>
+  <p><b>The result was unclear.</b> If the tracker cannot tell who won, it records nothing
+     rather than guessing.</p>
+  <p><b>You finished on 0 score.</b> Those are never rated, win or lose.</p>
+  <p><b>You are using a default name.</b> Names the game hands out are shared by many players,
+     so they are never rated.</p>
+  <p><b>Two people had your name</b> and neither checked in. Pressing Play matches you to your
+     ship, which is exactly the fix.</p>
+</div>
+
+<div class="sechead">Clans</div>
+
+<div class="card">
+  <h2>Switched off for now</h2>
+  <p>A clan tag used to be guessed from the front of a player's name, and those guesses were
+     frequently wrong. Clans come back once there is enough real match history under the new
+     system &mdash; membership will then be something a clan admin confirms, so a player joins
+     because their clan added them, not because of how their name is spelled.</p>
+  <p>If you run a clan and want it set up when this reopens, say so to {{ contact }} on
+     Discord.</p>
+</div>
+
+<div class="sechead">Privacy</div>
+
+<div class="card">
+  <h2>What the site knows about you</h2>
+  <p>If you sign in: an opaque account number from Google, or your Discord id and username
+     (Discord sign-in asks for the narrowest scope Discord offers, and the bot needs the
+     handle to recognise you). The names you register or play under, your match history and
+     scores. That is the complete list.</p>
+</div>
+
+<div class="card">
+  <h2>What it does not keep</h2>
+  <p><b>No IP addresses.</b> Not when you press Play, not when you sign in, not on reports
+     or claims. Everything stored before this policy has been wiped. Rate limiting &mdash;
+     the only thing addresses were ever used for &mdash; now works on an irreversible coded
+     tag whose key is kept outside the database, and the tags expire within two days. There
+     is no query anyone can run against this database that turns a player into an
+     address.</p>
+  <p><b>No email addresses, no passwords, ever.</b> Sign-in happens on Google's or
+     Discord's own pages; this site never sees a password, and the email inside Google's
+     sign-in token is discarded, not stored.</p>
+</div>
+
+<div class="card">
+  <h2>The honest caveat</h2>
+  <p>The web server this site runs on keeps standard access logs &mdash; visitor address
+     next to URL, with no player name attached &mdash; for about a week before they delete
+     themselves. Every website on the internet has these, Starblast included, and they
+     cannot be switched off on this hosting plan. What matters is that nothing ties an
+     address to a name, here or anywhere.</p>
+</div>
+
+<div class="sechead">Reporting a problem</div>
+
+<div class="card">
+  <h2>It is read by a person</h2>
+  <p>Something broken, a result that looks wrong, or an idea &mdash; send it from the
+     <a href="/reports">Report</a> page. What helps most: the <b>name you were playing
+     under</b> and roughly <b>when</b> the match was; whether you <b>pressed Play</b> on that
+     match first; and for anything on the site, what you <b>clicked</b> and what happened
+     instead.</p>
+  <p>Sign in before sending if you can &mdash; a report with an account attached can be
+     answered, and checked against your matches.</p>
+</div>
+
+<p class="foot">Questions? Ask {{ contact }} on Discord.</p>
+{% endblock %}

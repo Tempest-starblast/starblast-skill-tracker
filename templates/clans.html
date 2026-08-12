@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Clans - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.hard{background:rgba(214,182,86,.10);border:1px solid rgba(214,182,86,.42);border-radius:9px;
+  padding:18px 20px;margin-bottom:18px}
+.hard h2{margin:0 0 8px;font-size:16px;color:#d6b656}
+.hard p{margin:0 0 10px;font-size:13.5px;color:var(--muted);line-height:1.65}
+.hard p:last-child{margin-bottom:0}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Clans</h1>
+<p class="psub">Under construction.</p>
+
+<div class="hard">
+  <h2>Clans are switched off for now</h2>
+  <p>{{ notice }}</p>
+  <p>If you run a clan and want it set up again once this reopens, say so to
+     {{ contact }} on Discord and it will be near the front of the queue.</p>
+</div>
+
+<p class="foot">Questions? Ask {{ contact }} on Discord.</p>
+{% endblock %}

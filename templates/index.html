@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.filters{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px;
+  justify-content:space-between;align-items:center}
+.fgroup{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.flabel{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.7px;margin-right:2px}
+.pill{padding:6px 13px;border-radius:20px;font-size:13px;font-weight:600;text-decoration:none;
+  background:#2a2a2a;border:1px solid #3a3a3a;color:var(--muted);white-space:nowrap}
+.pill:hover{background:#333;color:var(--text)}
+.pill.on{background:var(--green);border-color:var(--green);color:#10240f}
+.dd{position:relative}
+.ddbtn{display:inline-flex;align-items:center;gap:9px;padding:6px 12px 6px 14px;
+  border-radius:20px;font-size:13px;font-weight:600;font-family:inherit;line-height:1.35;
+  background:#2a2a2a;border:1px solid #3a3a3a;color:var(--text);cursor:pointer;
+  white-space:nowrap}
+.ddbtn:hover{background:#333;border-color:#4a4a4a}
+.ddbtn:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.dd.open .ddbtn{background:#333;border-color:var(--green)}
+/* Drawn rather than a glyph, so it inherits the theme and can rotate. */
+.ddchev{width:8px;height:8px;flex-shrink:0;border-right:2px solid var(--muted);
+  border-bottom:2px solid var(--muted);transform:translateY(-2px) rotate(45deg);
+  transition:transform .18s ease}
+.dd.open .ddchev{transform:translateY(1px) rotate(-135deg)}
+.ddmenu{position:absolute;right:0;top:calc(100% + 7px);z-index:40;min-width:190px;
+  background:#232323;border:1px solid #3a3a3a;border-radius:10px;padding:5px;
+  box-shadow:0 12px 30px rgba(0,0,0,.55);display:none}
+.dd.open .ddmenu{display:block}
+.dditem{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:7px;
+  text-decoration:none;color:var(--muted)}
+.dditem:hover{background:#2e2e2e;color:var(--text)}
+.dditem.on{color:var(--green)}
+.ddmark{width:12px;flex-shrink:0;font-size:12px;line-height:1.5;opacity:0}
+.dditem.on .ddmark{opacity:1}
+.ddtext{display:block;font-size:13.5px;font-weight:600;line-height:1.4}
+.ddsub{display:block;font-size:11.5px;font-weight:400;color:var(--dim);margin-top:1px}
+@media (max-width:760px){.ddmenu{right:auto;left:0}}
+.tick{display:inline-block;margin-left:7px;color:var(--green);font-size:12px;vertical-align:middle}
+.rlink{color:var(--muted);text-decoration:none;white-space:nowrap;border-bottom:1px dotted #3f3f3f}
+.rlink:hover{color:var(--green);border-bottom-color:var(--green)}
+/* Arriving from another board's region link. The row has to be findable
+   at a glance, and clear of the header it was scrolled underneath. */
+tbody tr{scroll-margin-top:84px}
+tbody tr:target{background:#1d2a1c}
+tbody tr:target td{border-bottom-color:#33512f}
+tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Leaderboard</h1>
+<p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.</p>
+
+<div class="filters">
+  <div class="fgroup">
+    {% for key, label in regions %}
+    <a class="pill {% if key == region %}on{% endif %}"
+       href="/?period={{ period }}&amp;region={{ key }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <div class="fgroup">
+    <span class="flabel">When</span>
+    {# What each window actually covers. "Monthly" reads as the calendar
+       month unless it says otherwise, and it is not. #}
+    {% set spans = {'all': 'Every match on record', 'month': 'The last 30 days',
+                    'week': 'The last 7 days', 'day': 'The last 24 hours'} %}
+    <div class="dd" id="dd">
+      <button type="button" class="ddbtn" id="ddbtn" aria-haspopup="true"
+              aria-expanded="false" onclick="toggleDD(event)">
+        <span>{{ period_label }}</span>
+        <span class="ddchev" aria-hidden="true"></span>
+      </button>
+      <div class="ddmenu" role="menu">
+        {% for key, label in periods %}
+        <a class="dditem {% if key == period %}on{% endif %}" role="menuitem"
+           href="/?period={{ key }}&amp;region={{ region }}">
+          <span class="ddmark" aria-hidden="true">&#10003;</span>
+          <span><span class="ddtext">{{ label }}</span>
+            <span class="ddsub">{{ spans.get(key, '') }}</span></span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <input type="text" id="q" placeholder="Search for a player..." autocomplete="off" oninput="filter()"
+           onkeydown="if(event.key==='Enter'){event.preventDefault();filter();}">
+    <button class="ghost" onclick="document.getElementById('q').value='';filter()">Clear</button>
+  </div>
+  <p class="msg" id="count"></p>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead><tr>
+  <th class="rank">#</th>
+  <th>Player</th>
+  {% if region == 'all' %}<th class="mid">Region</th>{% endif %}
+  <th class="mid">Record</th>
+  <th class="mid">Win%</th>
+  <th class="num">{{ 'Gained' if gain else 'Skill' }}</th>
+</tr></thead>
+<tbody>
+{% for p in leaderboard %}
+<tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}">
+  <td class="rank">{{ loop.index }}</td>
+  <td><a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan }}</a>{% endif %}{% if p.protected %}<span class="tick" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
+  {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
+    href="/?period={{ period }}&amp;region={{ p.region }}#p-{{ p.name|urlencode }}"
+    title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
+  <td class="mid">{{ p.wins }}-{{ p.losses }}</td>
+  <td class="mid">{{ p.winrate }}</td>
+  <td class="skill">{{ p.skill }}</td>
+</tr>
+{% else %}
+<tr><td colspan="{{ 6 if region == 'all' else 5 }}" class="empty">
+  {% if gain %}Nobody has played a tracked match in this window yet.
+  {% else %}Nobody is on the leaderboard yet.{% endif %}
+</td></tr>
+{% endfor %}
+<tr id="none" style="display:none"><td colspan="{{ 6 if region == 'all' else 5 }}" class="empty">No player matches that.</td></tr>
+</tbody>
+</table>
+</div>
+
+<script>
+function toggleDD(e){
+  e.stopPropagation();
+  var d = document.getElementById('dd');
+  var open = d.classList.toggle('open');
+  document.getElementById('ddbtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function closeDD(){
+  var d = document.getElementById('dd');
+  if(!d || !d.classList.contains('open')) return;
+  d.classList.remove('open');
+  document.getElementById('ddbtn').setAttribute('aria-expanded', 'false');
+}
+// Anywhere else on the page, and Escape. Without these the menu is a trap
+// on touch, where there is no way to dismiss it without picking something.
+document.addEventListener('click', closeDD);
+document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeDD(); });
+function key(s){ return (s||'').toUpperCase().replace(/[^\p{L}\p{N}]/gu,''); }
+function filter(){
+  var q = key(document.getElementById('q').value);
+  var rows = document.querySelectorAll('tbody tr[data-key]');
+  var shown = 0;
+  rows.forEach(function(r){
+    var hit = !q || r.getAttribute('data-key').indexOf(q) !== -1;
+    r.style.display = hit ? '' : 'none';
+    if(hit) shown++;
+  });
+  document.getElementById('none').style.display = shown ? 'none' : '';
+  document.getElementById('count').textContent = q ? (shown + ' of ' + rows.length + ' players') : '';
+}
+</script>
+{% endblock %}

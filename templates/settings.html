@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Settings - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;
+  border-bottom:1px solid var(--line);font-size:14px}
+.line:last-child{border-bottom:none}
+.switch{position:relative;display:inline-block;width:54px;height:30px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;inset:0;background:#3a3a3a;border-radius:30px;transition:.25s}
+.slider:before{content:"";position:absolute;height:24px;width:24px;left:3px;top:3px;background:#f1f1f1;
+  border-radius:50%;transition:.25s}
+input:checked + .slider{background:var(--green)}
+input:checked + .slider:before{transform:translateX(24px)}
+input:disabled + .slider{opacity:.45;cursor:not-allowed}
+.current{font-size:15px;color:var(--text);font-weight:600;margin:0 0 12px}
+.current span{color:var(--dim);font-weight:400}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Settings</h1>
+<div class="card">
+  <h2>Account</h2>
+  <div id="signedOut">
+    <p class="desc">Use <b>Sign in with Google</b> or <b>Discord</b> at the top of the page.</p>
+  </div>
+  <div id="signedIn" style="display:none">
+    <p class="current" id="currentName">No name set yet. <span>Pick one below.</span></p>
+    <div class="row">
+      <input type="text" id="accName" placeholder="e.g. ASESINO" maxlength="16" autocomplete="off">
+      <button class="primary" onclick="saveName()">Save</button>
+    </div>
+    <p class="msg" id="nameMsg"></p>
+
+    
+  </div>
+</div>
+
+<div class="card" id="claimCard" style="display:none">
+  <h2>Already on the leaderboard?</h2>
+  <div class="row">
+    <input type="text" id="claimName" placeholder="The name on the leaderboard" maxlength="16" autocomplete="off">
+    <input type="text" id="claimNote" placeholder="Why is it yours? (optional)" maxlength="200" autocomplete="off">
+    <button class="primary" onclick="doClaim()">Claim</button>
+  </div>
+  <p class="msg" id="claimMsg"></p>
+</div>
+
+<div class="card" id="protCard" style="display:none">
+  <div class="line">
+    <div><b>Protection</b><p class="desc" style="margin:4px 0 0">Only count matches I check
+      into.</p></div>
+    <label class="switch"><input type="checkbox" id="prot" disabled onchange="setProt(this.checked)">
+      <span class="slider"></span></label>
+  </div>
+  <div id="protConfirm" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)"></div>
+  <p class="desc" id="protWhy" style="margin:12px 0 0"></p>
+  <p class="msg" id="protMsg"></p>
+</div>
+
+<p class="foot">Something look wrong? Ask {{ contact }} on Discord.</p>
+
+<script>
+let myName = {{ (account_name or '')|tojson }};
+
+async function post(u,b){
+  const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+  return [r, await r.json()];
+}
+function say(id, ok, t){ const m=document.getElementById(id); m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
+function el(t,c,x){ const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e; }
+
+// The header owns sign-in; these hooks just react to it.
+window.onSignedInReady = function(){
+  document.getElementById('signedOut').style.display='none';
+  document.getElementById('signedIn').style.display='block';
+  document.getElementById('claimCard').style.display='block';
+  document.getElementById('protCard').style.display='block';
+  loadMe();
+};
+window.onSignedOutReady = function(){
+  document.getElementById('signedIn').style.display='none';
+  document.getElementById('signedOut').style.display='block';
+  document.getElementById('claimCard').style.display='none';
+  document.getElementById('protCard').style.display='none';
+};
+
+async function loadMe(){
+  try{
+    const d=await (await fetch('/me')).json();
+    if(!d.logged_in) return;
+    document.getElementById('signedOut').style.display='none';
+    document.getElementById('signedIn').style.display='block';
+    document.getElementById('claimCard').style.display='block';
+    document.getElementById('protCard').style.display='block';
+    myName = (d.names && d.names.length) ? d.names[0] : null;
+    showName();
+    loadProt();
+  }catch(e){}
+}
+
+function showName(){
+  const p=document.getElementById('currentName');
+  if(myName){
+    p.textContent='';
+    p.appendChild(document.createTextNode(myName));
+    p.appendChild(el('span',null,' - your account name'));
+    document.getElementById('accName').value=myName;
+  } else {
+    p.textContent='';
+    p.appendChild(document.createTextNode('No name set yet. '));
+    p.appendChild(el('span',null,'Pick one below.'));
+  }
+}
+
+async function saveName(){
+  const n=document.getElementById('accName').value.trim();
+  if(!n){ say('nameMsg',false,'Enter a name.'); return; }
+  try{
+    const [r,d]=await post('/account/name',{name:n});
+    say('nameMsg',r.ok,d.message);
+    if(r.ok){ myName=n; showName(); loadProt(); }
+  }catch(e){ say('nameMsg',false,'Server connection error.'); }
+}
+
+async function doClaim(){
+  const n=document.getElementById('claimName').value.trim();
+  const note=document.getElementById('claimNote').value.trim();
+  if(!n){ say('claimMsg',false,'Enter the name you want to claim.'); return; }
+  try{
+    const [r,d]=await post('/claim',{name:n,note:note});
+    say('claimMsg',r.ok,d.message);
+    if(r.ok){ document.getElementById('claimName').value=''; document.getElementById('claimNote').value=''; }
+  }catch(e){ say('claimMsg',false,'Server connection error.'); }
+}
+
+// Protection applies to your account name - there is nothing else it could
+// apply to now, so there is no name box to fill in and get wrong.
+async function loadProt(){
+  const s=document.getElementById('prot'), why=document.getElementById('protWhy');
+  if(!myName){
+    s.disabled=true; s.checked=false;
+    why.textContent='Set an account name first - protection applies to it.';
+    return;
+  }
+  try{
+    const r=await fetch('/protection?name='+encodeURIComponent(myName));
+    const d=await r.json();
+    if(!r.ok){ s.disabled=true; s.checked=false; why.textContent=d.message||''; return; }
+    s.checked=!!d.enabled; s.disabled=!d.owned;
+    if(d.hours_left > 0){
+      why.textContent='Protection can only be changed once a day. '
+        + (d.hours_left >= 1 ? Math.floor(d.hours_left)+' hours' : 'Under an hour') + ' to go.';
+    } else if(d.enabled){
+      why.textContent='On. Matches you did not check into are ignored, so nobody else playing '
+        + 'as ' + myName + ' can affect your rating.';
+    } else {
+      why.textContent='Off. Every match ' + myName + ' plays is rated automatically, whoever '
+        + 'is at the controls.';
+    }
+  }catch(e){ s.disabled=true; }
+}
+
+function setProt(on){
+  // Hold the switch where it was until the change is actually confirmed.
+  // Protection can only be flipped once a day, so a mis-click would cost
+  // someone 24 hours of either being unrated or being rated when they did
+  // not mean to be.
+  const sw=document.getElementById('prot');
+  const box=document.getElementById('protConfirm');
+  sw.checked=!on;
+  if(!myName){ say('protMsg',false,'Set an account name first.'); return; }
+
+  box.innerHTML=''; box.style.display='block';
+  box.appendChild(el('p','desc',
+    'Turn protection ' + (on?'ON':'OFF') + " for '" + myName + "'? " +
+    (on ? 'Only matches you check into on the Play page will count towards your rating, and '
+            + 'it will be marked as confirmed on the leaderboard. '
+        : 'Your rating stops being confirmed - the tick comes off your name on the leaderboard, '
+            + 'and all your matches count again, including any played by someone else using '
+            + 'your name. ') +
+    'This can only be changed once every 24 hours, so you will not be able to undo it until tomorrow.'));
+  const row=el('div','row');
+  const yes=el('button','primary', on?'Yes, turn it on':'Yes, turn it off');
+  yes.onclick=function(){ applyProt(on); };
+  const no=el('button','ghost','Cancel');
+  no.onclick=function(){ box.style.display='none'; box.innerHTML=''; };
+  row.appendChild(yes); row.appendChild(no);
+  box.appendChild(row);
+}
+
+async function applyProt(on){
+  const box=document.getElementById('protConfirm');
+  box.style.display='none'; box.innerHTML='';
+  try{
+    const [r,d]=await post('/protection',{name:myName,enabled:on});
+    say('protMsg',r.ok,d.message);
+    document.getElementById('prot').checked = r.ok ? on : !on;
+    loadProt();
+  }catch(e){ say('protMsg',false,'Server connection error.'); }
+}
+
+window.addEventListener('DOMContentLoaded', loadMe);
+</script>
+{% endblock %}

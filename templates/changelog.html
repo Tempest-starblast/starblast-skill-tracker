@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Changelog - Starblast NA Team Mode Skill Tracker{% endblock %}
+{% block css %}
+.rel{margin-bottom:16px}
+.rel h2{font-size:15px;color:var(--green);margin:0 0 10px;
+  display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.rel .when{font-size:12px;font-weight:400;color:var(--dim)}
+.rel ul{margin:0;padding-left:20px}
+.rel li{color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:9px}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Changelog</h1>
+<p class="psub">Every change made to the tracker, newest first. Times are Eastern (US); releases before 10 August have no recorded time.</p>
+
+{% for r in changelog %}
+<div class="card rel">
+  <h2>{{ r.version }}{% if r.at %}<span class="when"><time class="et"
+      datetime="{{ r.at }}">{{ r.at[:16]|replace('T', ' ') }} UTC</time></span>{% endif %}</h2>
+  <ul>{% for c in r.changes %}<li>{{ c }}</li>{% endfor %}</ul>
+</div>
+{% else %}
+<div class="card"><p class="empty">Nothing logged yet.</p></div>
+{% endfor %}
+<script>
+// Deliberately fixed to Eastern, not the reader's zone: a release time is
+// a shared fact. The abbreviation comes from the browser, so it reads EDT
+// through the summer and EST through the winter - which is what Eastern
+// actually is on that date, rather than being wrong for half the year.
+(function () {
+  var fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+  });
+  document.querySelectorAll('time.et[datetime]').forEach(function (el) {
+    var d = new Date(el.getAttribute('datetime'));
+    if (isNaN(d)) return;
+    el.textContent = fmt.format(d);
+    el.title = 'Released ' + fmt.format(d);
+  });
+})();
+</script>
+{% endblock %}

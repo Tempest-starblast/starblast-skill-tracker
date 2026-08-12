@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Players - Starblast NA Team Mode Skill Tracker{% endblock %}
+{% block body %}
+<h1 class="ptitle">Players</h1>
+<p class="psub">Find any tracked player and open their profile. {{ total }} players so far.</p>
+
+<div class="card">
+  <div class="row">
+    <input type="text" id="q" placeholder="Type a name..." autocomplete="off" oninput="filter()"
+           onkeydown="if(event.key==='Enter'){event.preventDefault();filter();}">
+    <button class="ghost" onclick="document.getElementById('q').value='';filter()">Clear</button>
+  </div>
+  <p class="msg" id="count"></p>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead><tr>
+  <th>Player</th>
+  <th class="mid">Record</th>
+  <th class="mid">Win%</th>
+  <th class="num">Skill</th>
+</tr></thead>
+<tbody id="rows">
+{% for p in players %}
+<tr data-key="{{ p.search }}">
+  <td><a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan }}</a>{% endif %}</td>
+  <td class="mid">{{ p.wins }}-{{ p.losses }}</td>
+  <td class="mid">{{ p.winrate }}</td>
+  <td class="skill">{{ p.skill }}</td>
+</tr>
+{% endfor %}
+<tr id="none" style="display:none"><td colspan="4" class="empty">No player matches that.</td></tr>
+</tbody>
+</table>
+</div>
+
+<script>
+function key(s){ return (s||'').toUpperCase().replace(/[^\p{L}\p{N}]/gu,''); }
+function filter(){
+  var q = key(document.getElementById('q').value);
+  var rows = document.querySelectorAll('#rows tr[data-key]');
+  var shown = 0;
+  rows.forEach(function(r){
+    var hit = !q || r.getAttribute('data-key').indexOf(q) !== -1;
+    r.style.display = hit ? '' : 'none';
+    if(hit) shown++;
+  });
+  document.getElementById('none').style.display = shown ? 'none' : '';
+  document.getElementById('count').textContent =
+    q ? (shown + ' of ' + rows.length + ' players') : '';
+}
+</script>
+{% endblock %}

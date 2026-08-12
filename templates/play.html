@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Play - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.fullnote{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;
+  font-size:10.5px;font-weight:700;letter-spacing:.3px;background:#1e3320;
+  border:1px solid #2f6b3a;color:#7fd694;cursor:default;vertical-align:1px}
+.halfnote{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;
+  font-size:10.5px;font-weight:700;letter-spacing:.3px;background:#3a3320;
+  border:1px solid #6b5320;color:#f0c04a;cursor:default;vertical-align:1px}
+.live h2{font-size:13px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.mrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.mrow:last-of-type{border-bottom:none}
+.mname{font-weight:600;color:var(--text)}
+.msub{font-size:12px;color:var(--muted);margin-top:2px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+.dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot.soon{background:#d6b656}
+.dot.off{background:#4a4a4a}
+.mrow button{padding:9px 16px;font-size:13px}
+.rgroup{margin-bottom:0}
+.rtabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px}
+.rtab{padding:8px 15px;font-size:13px;font-weight:600;border-radius:20px;
+  background:#2a2a2a;border:1px solid #3a3a3a;color:var(--muted)}
+.rtab:hover{background:#333;color:var(--text)}
+.rtab.on{background:var(--green);border-color:var(--green);color:#10240f}
+.rempty{text-align:center;color:var(--dim);padding:22px 12px;font-size:14px}
+.rhead{display:flex;align-items:baseline;gap:9px;margin:0 0 4px;padding-bottom:7px;
+  border-bottom:1px solid var(--line)}
+.rhead h3{margin:0;font-size:14px;font-weight:700;color:var(--green)}
+.rhead span{font-size:12px;color:var(--dim)}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Play</h1>
+<div class="card" id="youCard">
+  <h2>In game name</h2>
+  <div id="notSignedIn">
+    <p class="desc">Use <b>Sign in with Google</b> or <b>Discord</b> at the top of the page.
+       You only need this once.</p>
+  </div>
+  <div id="signedIn" style="display:none">
+    <div class="row">
+      <input type="text" id="gameName" placeholder="the name in your ship" maxlength="32"
+             autocomplete="off">
+      <button class="primary" onclick="saveGameName()">Save</button>
+    </div>
+    <p class="desc" style="margin:10px 0 0">Results always go to
+       <b id="acctName">your account</b>.</p>
+    <p class="desc" style="margin:10px 0 0" id="ckState"></p>
+  </div>
+  <div id="claimRow" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+    <div class="row">
+      <input type="text" id="claimName" placeholder="The name on the leaderboard" maxlength="16" autocomplete="off">
+      <button onclick="doClaim()">Claim it</button>
+    </div>
+  </div>
+  <p class="msg" id="youMsg"></p>
+</div>
+
+<div class="card live">
+  <h2>Live matches &mdash; tracking {{ watched }} of {{ capacity }} at once</h2>
+  <div class="rtabs">
+    {% for r in all_regions %}
+    <button type="button" class="rtab{% if loop.first %} on{% endif %}"
+            data-region="{{ r.key }}" onclick="showRegion('{{ r.key }}')">{{ r.label }}</button>
+    {% endfor %}
+  </div>
+  {% if groups %}
+    {% for g in groups %}
+    <div class="rgroup" data-region="{{ g.key }}">
+      <div class="rhead">
+        <span>{{ g.lobbies|length }} match{{ '' if g.lobbies|length == 1 else 'es' }}
+          in {{ g.label }}</span>
+      </div>
+      {% for l in g.lobbies %}
+      <div class="mrow">
+        <div>
+          <div class="mname"><span class="dot {{ l.tone }}"></span>{{ l.name }}</div>
+          <div class="msub">{{ l.players }} players &middot; {{ l.mins }} min in &middot; {{ l.status }}{% if l.watching %}
+            <span class="halfnote" title="Already being watched. You can still join and press Play - it counts for half, because you were not in it when the watch started.">half elo</span>
+          {% elif l.can_checkin %}
+            <span class="fullnote" title="Not being watched yet. Press Play and join before the tracker picks it up and the match counts in full.">full elo</span>{% endif %}</div>
+        </div>
+        <div>
+          {% if l.can_checkin %}
+            <button class="primary" data-lobby="{{ l.id }}"
+                    onclick="checkIn({{ l.id }}, this)">Play</button>
+          {% else %}
+            <button disabled data-lobby="{{ l.id }}"
+                    title="This lobby will not be tracked, so pressing Play here would count for nothing">Not tracked</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% endif %}
+  {% for r in all_regions %}
+    {% if r.key not in group_keys %}
+    <div class="rgroup" data-region="{{ r.key }}">
+      <p class="rempty">No live matches in {{ r.label }} right now.</p>
+    </div>
+    {% endif %}
+  {% endfor %}
+  <p class="msg" id="lobbyMsg"></p>
+</div>
+
+<p class="foot">Something look wrong? Ask {{ contact }} on Discord.</p>
+
+<script>
+let myName = null;
+async function post(u,b){
+  const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+  return [r, await r.json()];
+}
+function say(id, ok, t){ const m=document.getElementById(id); m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
+
+async function loadMe(){
+  try{
+    const d=await (await fetch('/me')).json();
+    document.getElementById('notSignedIn').style.display = d.logged_in ? 'none' : 'block';
+    document.getElementById('signedIn').style.display = d.logged_in ? 'block' : 'none';
+    document.getElementById('claimRow').style.display = d.logged_in ? 'block' : 'none';
+    if(!d.logged_in){ return; }
+    myName = (d.names && d.names.length) ? d.names[0] : null;
+    document.getElementById('acctName').textContent = myName || 'your account name';
+    document.getElementById('gameName').value = d.game_name || '';
+    markCheckedIn(d.checkin);
+  }catch(e){}
+}
+window.onSignedInReady = loadMe;
+window.onSignedOutReady = function(){
+  myName=null;
+  document.getElementById('notSignedIn').style.display='block';
+  document.getElementById('signedIn').style.display='none';
+  document.getElementById('claimRow').style.display='none';
+};
+
+async function saveGameName(){
+  const n=document.getElementById('gameName').value.trim();
+  try{
+    const [r,d]=await post('/account/gamename',{name:n});
+    say('youMsg',r.ok,d.message);
+  }catch(e){ say('youMsg',false,'Server connection error.'); }
+}
+
+// Show the match you are already checked into. Checking into another one
+// cancels this, so the state has to be visible before you click again.
+function markCheckedIn(ck){
+  document.querySelectorAll('button[data-lobby]').forEach(function(b){
+    if(b.dataset.wasChecked){
+      b.textContent='Check in & play'; b.classList.add('primary'); b.disabled=false;
+      delete b.dataset.wasChecked;
+    }
+  });
+  const line=document.getElementById('ckState');
+  if(!ck){ line.textContent=''; return; }
+  const btn=document.querySelector('button[data-lobby="'+ck.sys_id+'"]');
+  if(btn){
+    btn.textContent='Checked in';
+    btn.disabled=true;
+    btn.classList.remove('primary');
+    btn.dataset.wasChecked='1';
+    line.textContent='You are in the match marked below. Pressing Play on a different one replaces it.';
+  } else {
+    line.textContent='You are in a match that is no longer listed - that is fine, it still counts when it ends.';
+  }
+}
+
+async function doClaim(){
+  const n=document.getElementById('claimName').value.trim();
+  if(!n){ say('youMsg',false,'Enter the name you play under.'); return; }
+  try{
+    const [r,d]=await post('/claim',{name:n});
+    say('youMsg',r.ok,d.message);
+    if(r.ok) loadMe();
+  }catch(e){ say('youMsg',false,'Server connection error.'); }
+}
+
+// The check-in is made by the account, so no name is sent. Which name you
+// turn up under is the thing the tracker works out for itself.
+async function checkIn(sysId, btn){
+  btn.disabled=true;
+  try{
+    const [r,d]=await post('/checkin',{sys_id:sysId});
+    say('lobbyMsg',r.ok,d.message);
+    if(r.ok){
+      markCheckedIn({sys_id:sysId});
+      const nm=(document.getElementById('gameName')||{}).value||'';
+      if(nm && navigator.clipboard){
+        try{
+          await navigator.clipboard.writeText(nm);
+          say('lobbyMsg', true, d.message + '  Your name "' + nm +
+              '" is copied - paste it into the game so the tracker can find you.');
+        }catch(e){
+          say('lobbyMsg', true, d.message + '  Play as "' + nm + '" so the tracker can find you.');
+        }
+      } else if(nm){
+        say('lobbyMsg', true, d.message + '  Play as "' + nm + '" so the tracker can find you.');
+      }
+      window.open('https://starblast.io/#'+sysId,'_blank');
+    } else { btn.disabled=false; }
+  }catch(e){ say('lobbyMsg',false,'Server connection error.'); btn.disabled=false; }
+}
+
+// Lobbies turn over every minute or two, but this page is rendered once.
+// Left alone it slowly starts describing matches that have already ended.
+setInterval(function(){
+  fetch('/api/live_lobbies').then(function(r){ return r.json(); }).then(function(d){
+    const live = (d.lobbies||[]).map(function(l){ return String(l.id); });
+    document.querySelectorAll('button[data-lobby]').forEach(function(b){
+      if(b.dataset.wasChecked) return;
+      if(live.indexOf(b.dataset.lobby) === -1){
+        b.disabled=true; b.classList.remove('primary'); b.textContent='Ended';
+      }
+    });
+  }).catch(function(){});
+}, 60000);
+
+// One region visible at a time, North America first because that is
+// where most matches are. Everything is already in the page, so this is
+// only showing and hiding.
+function showRegion(key){
+  document.querySelectorAll('.rgroup').forEach(function(g){
+    g.style.display = (g.dataset.region === key) ? '' : 'none';
+  });
+  document.querySelectorAll('.rtab').forEach(function(b){
+    b.classList.toggle('on', b.dataset.region === key);
+  });
+  try{ localStorage.setItem('sbRegion', key); }catch(e){}
+}
+
+window.addEventListener('DOMContentLoaded', function(){
+  var first = document.querySelector('.rtab');
+  var want = null;
+  try{ want = localStorage.getItem('sbRegion'); }catch(e){}
+  if(!want || !document.querySelector('.rtab[data-region="' + want + '"]')){
+    want = first ? first.dataset.region : null;
+  }
+  if(want) showRegion(want);
+  loadMe();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+api_keys.txt
+ip_hash_secret.txt
+discord_secret.txt
+flask_secret.txt
+*.db
+*.db.*
+*.bak*
+__pycache__/
+_wipe_report.txt

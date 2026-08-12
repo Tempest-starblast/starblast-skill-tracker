@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{% if clan %}{{ clan.tag }}{% else %}Clan not found{% endif %} - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.crown{margin-left:7px;color:#fbbf24;font-size:14px;cursor:default;vertical-align:middle}
+.legend{font-size:12px;color:var(--dim);margin:10px 0 0}
+.legend .crown{margin:0 4px 0 0}
+{% endblock %}
+{% block body %}
+{% if clan %}
+<h1 class="ptitle">{{ clan.tag }}</h1>
+<p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %} on the leaderboard &middot;
+  <a href="/clans">All clans</a></p>
+
+<div class="card"><div class="grid">
+  <div class="stat"><div class="label">Members</div><div class="value">{{ clan.size }}</div></div>
+  <div class="stat"><div class="label">Average skill</div><div class="value" style="color:var(--blue)">{{ clan.avg_elo }}</div></div>
+  <div class="stat"><div class="label">Clan record</div><div class="value">{{ clan.wins }}-{{ clan.losses }}</div></div>
+  <div class="stat"><div class="label">Win rate</div><div class="value" style="color:var(--green)">{{ clan.winrate }}</div></div>
+</div>
+<p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
+   added together. A match won by two clanmates therefore counts twice.</p></div>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th class="rank">#</th><th>Player</th><th class="mid">Record</th><th class="mid">Win%</th><th class="num">Skill</th></tr></thead>
+<tbody>
+{% for m in clan.members %}
+<tr>
+  <td class="rank">{{ m.rank }}</td>
+  <td><a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>{% if m.admin %}<span class="crown" title="Clan admin">&#9812;</span>{% endif %}</td>
+  <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
+  <td class="mid">{{ m.winrate }}</td>
+  <td class="skill">{{ m.elo }}</td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="empty">Nobody is in {{ clan.tag }} right now.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<p class="legend"><span class="crown">&#9812;</span> Clan admin &mdash; decides who is in this clan.</p>
+<p class="foot" style="margin-top:18px">The # column is each player's rank on the whole leaderboard.
+Players on the same skill share a rank.<br>
+Listed here by mistake? Open your player page and use Remove clan tag, or ask {{ contact }} on Discord.</p>
+{% else %}
+<h1 class="ptitle">Not found</h1>
+<div class="card"><p class="empty">There is no clan tagged &ldquo;{{ query }}&rdquo;.<br>
+Browse the <a href="/clans" style="color:var(--green)">clan list</a>, or start your own there.</p></div>
+{% endif %}
+{% endblock %}
