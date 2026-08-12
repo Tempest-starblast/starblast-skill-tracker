@@ -9,10 +9,11 @@ import secrets
 import hmac
 import hashlib
 from datetime import timedelta
+import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.58.2"
+APP_VERSION = "5.59.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1590,6 +1591,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.59.0", "at": "2026-08-12T20:30:00Z", "changes": [
+        "The site can now be read in Spanish, French, German, Italian, Russian, Vietnamese and Chinese as well as English. Pick a language at the bottom of any page; it is remembered, and the site also follows your browser's language the first time you arrive.",
+        "Buttons, table headings and labels are translated. The longer explanations stay in English for now, so that there is one copy of them to keep accurate.",
+    ]},
     {"version": "5.58.2", "at": "2026-08-12T20:15:00Z", "changes": [
         "The Clans page now links straight to your own clan's page, where ranks and the region live. Both pages offered to manage a clan and only one of them could do all of it, which was needlessly confusing.",
     ]},
@@ -3272,6 +3277,50 @@ def set_account_name():
 def logout():
     session.clear()
     return jsonify({"message": "Signed out."}), 200
+
+
+def current_lang():
+    """The language for this request.
+
+    ?lang= wins so a link can carry it, then the cookie, then whatever the
+    browser asks for in Accept-Language. English if none of that fits.
+    """
+    asked = str(request.args.get('lang', '')).strip().lower()
+    if asked in i18n.LANG_KEYS:
+        return asked
+    cookie = str(request.cookies.get('lang', '')).strip().lower()
+    if cookie in i18n.LANG_KEYS:
+        return cookie
+    for chunk in str(request.headers.get('Accept-Language', '')).split(','):
+        code = chunk.split(';')[0].strip().lower()[:2]
+        if code in i18n.LANG_KEYS:
+            return code
+    return i18n.DEFAULT_LANG
+
+
+@app.context_processor
+def inject_lang():
+    """t() and the language list, available in every template."""
+    lang = current_lang()
+    return {"t": lambda text: i18n.translate(text, lang),
+            "lang": lang, "langs": i18n.LANGS}
+
+
+@app.route('/lang/<code>')
+def set_lang(code):
+    """Remember a language and go back where you were."""
+    code = str(code or '').lower()
+    if code not in i18n.LANG_KEYS:
+        return redirect('/')
+    back = request.referrer or '/'
+    # Only ever back into this site: a referrer is attacker-controllable
+    # and an open redirect is not worth a convenience.
+    if not back.startswith(request.host_url):
+        back = '/'
+    resp = redirect(back)
+    resp.set_cookie('lang', code, max_age=60 * 60 * 24 * 365,
+                    samesite='Lax', path='/')
+    return resp
 
 
 @app.route('/me')

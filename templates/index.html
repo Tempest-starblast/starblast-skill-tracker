@@ -46,18 +46,18 @@ tbody tr:target td{border-bottom-color:#33512f}
 tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 {% endblock %}
 {% block body %}
-<h1 class="ptitle">Leaderboard</h1>
+<h1 class="ptitle">{{ t('Leaderboard') }}</h1>
 <p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.</p>
 
 <div class="filters">
   <div class="fgroup">
     {% for key, label in regions %}
     <a class="pill {% if key == region %}on{% endif %}"
-       href="/?period={{ period }}&amp;region={{ key }}">{{ label }}</a>
+       href="/?period={{ period }}&amp;region={{ key }}">{{ t(label) }}</a>
     {% endfor %}
   </div>
   <div class="fgroup">
-    <span class="flabel">When</span>
+    <span class="flabel">{{ t('When') }}</span>
     {# What each window actually covers. "Monthly" reads as the calendar
        month unless it says otherwise, and it is not. #}
     {% set spans = {'all': 'Every match on record', 'month': 'The last 30 days',
@@ -84,9 +84,9 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 
 <div class="card">
   <div class="row">
-    <input type="text" id="q" placeholder="Search for a player..." autocomplete="off" oninput="filter()"
+    <input type="text" id="q" placeholder="{{ t('Player') }}..." autocomplete="off" oninput="filter()"
            onkeydown="if(event.key==='Enter'){event.preventDefault();filter();}">
-    <button class="ghost" onclick="document.getElementById('q').value='';filter()">Clear</button>
+    <button class="ghost" onclick="document.getElementById('q').value='';filter()">{{ t('Clear') }}</button>
   </div>
   <p class="msg" id="count"></p>
 </div>
@@ -95,11 +95,11 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 <table>
 <thead><tr>
   <th class="rank">#</th>
-  <th>Player</th>
-  {% if region == 'all' %}<th class="mid">Region</th>{% endif %}
-  <th class="mid">Record</th>
-  <th class="mid">Win%</th>
-  <th class="num">{{ 'Gained' if gain else 'Skill' }}</th>
+  <th>{{ t('Player') }}</th>
+  {% if region == 'all' %}<th class="mid">{{ t('Region') }}</th>{% endif %}
+  <th class="mid">{{ t('Record') }}</th>
+  <th class="mid">{{ t('Win%') }}</th>
+  <th class="num">{{ t('Gained') if gain else t('Skill') }}</th>
 </tr></thead>
 <tbody>
 {% for p in leaderboard %}

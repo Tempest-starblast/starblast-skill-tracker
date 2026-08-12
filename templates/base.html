@@ -107,6 +107,9 @@ a.pname:hover{color:var(--green)}
 .empty{text-align:center;color:var(--dim);padding:28px 12px;font-size:14px}
 .foot{text-align:center;color:var(--dim);font-size:12px;margin-top:32px;line-height:1.9}
 .foot a{color:var(--muted)}
+.langbar{margin-top:6px}
+.langbar a{margin:0 2px;white-space:nowrap}
+.langbar a.on{color:var(--green);font-weight:700}
 @media (max-width:760px){
   .tabs a{font-size:13px;padding:10px 7px}
   th,td{padding:10px 9px;font-size:13px}
@@ -166,19 +169,24 @@ a.pname:hover{color:var(--green)}
        over each time.</p>
   </aside>
   <nav class="tabs">
-    <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">Leaderboard</a>
-    <a href="/play"      class="{% if page=='play'        %}on{% endif %}">Play</a>
-    <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">Clans</a>
-    <a href="/reports"   class="{% if page=='reports'     %}on{% endif %}">Report</a>
-    <a href="/info"      class="{% if page=='info'        %}on{% endif %}">Info</a>
-    <a href="/changelog" class="{% if page=='changelog'   %}on{% endif %}">Changelog</a>
-    <a href="/settings"  class="{% if page=='settings'    %}on{% endif %}">Settings</a>
+    <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
+    <a href="/play"      class="{% if page=='play'        %}on{% endif %}">{{ t('Play') }}</a>
+    <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
+    <a href="/reports"   class="{% if page=='reports'     %}on{% endif %}">{{ t('Report') }}</a>
+    <a href="/info"      class="{% if page=='info'        %}on{% endif %}">{{ t('Info') }}</a>
+    <a href="/changelog" class="{% if page=='changelog'   %}on{% endif %}">{{ t('Changelog') }}</a>
+    <a href="/settings"  class="{% if page=='settings'    %}on{% endif %}">{{ t('Settings') }}</a>
   </nav>
 </div>
 
 <div class="page">
 {% block body %}{% endblock %}
 <p class="foot">{{ version }} &middot; <a href="/info">How it all works</a></p>
+<p class="foot langbar">{{ t('Language') }}:
+  {% for code, name in langs %}<a href="/lang/{{ code }}"
+     class="{% if code == lang %}on{% endif %}"
+     hreflang="{{ code }}">{{ name }}</a>{% if not loop.last %} &middot; {% endif %}{% endfor %}
+</p>
 </div>
 
 <script>
