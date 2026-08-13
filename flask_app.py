@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.70.0"
+APP_VERSION = "5.70.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.70.1", "at": "2026-08-13T21:35:00Z", "changes": [
+        "Fixed: the + and Remove buttons on Your clan did nothing at all. The player's name was written into the button in a way that ended the HTML attribute early, so there was no working handler to run - names full of symbol letters made it obvious.",
+        "Remove is now a small x the same size as +, and asks before it does anything: press it and you get Yes, remove them or No, keep them.",
+    ]},
     {"version": "5.70.0", "at": "2026-08-13T21:30:00Z", "changes": [
         "Ranks are now given from a + button next to the member on Your clan, which opens a short list of what you can make them. Typing out a name to promote somebody you are looking at was silly, and these names are full of letters nobody can type.",
         "The + only appears where a rank could actually be changed - never on yourself, never on the leader, and not on a co-leader unless you are the leader.",
