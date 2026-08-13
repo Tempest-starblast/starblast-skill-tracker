@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.66.0"
+APP_VERSION = "5.67.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.67.0", "at": "2026-08-13T20:35:00Z", "changes": [
+        "People who run a clan now have a Your clan tab of their own. It holds the invite link, anyone waiting to join, the roster, ranks, the region and deleting the clan - one page instead of pieces spread across two.",
+        "The tab only appears if you actually run a clan, and each part of it only appears to the ranks allowed to use it: moderators see the roster, co-leaders also see the link and the region, and only the leader can delete.",
+    ]},
     {"version": "5.66.0", "at": "2026-08-13T04:50:00Z", "changes": [
         "An invite link now takes you the whole way. Sign in with Discord, type the name you play under, and accept - all on the one page. It used to stop after signing in and send you off to Settings to set a name, then back again.",
         "If the name you type is already on the leaderboard, the page offers to claim it instead and explains what that means, rather than just refusing.",
@@ -3568,10 +3572,25 @@ def current_lang():
 
 @app.context_processor
 def inject_lang():
-    """t() and the language list, available in every template."""
+    """t(), the language list, and whether to show the Your clan tab."""
     lang = current_lang()
+    mine = None
+    sub_id = current_user()
+    if sub_id:
+        # One indexed look-up per page for signed-in visitors. The nav is
+        # rendered on every page, so this cannot be any heavier than that.
+        try:
+            conn = db()
+            c = conn.cursor()
+            tags = clan_admin_tags(c, sub_id)
+            if tags:
+                mine = {"tag": tags[0], "display": clan_display(c, tags[0]),
+                        "role": clan_role(c, sub_id, tags[0]), "count": len(tags)}
+            conn.close()
+        except Exception:
+            mine = None
     return {"t": lambda text: i18n.translate(text, lang),
-            "lang": lang, "langs": i18n.LANGS}
+            "lang": lang, "langs": i18n.LANGS, "my_clan": mine}
 
 
 @app.route('/lang/<code>')
@@ -6120,6 +6139,67 @@ CLANS_NOTICE = ("Clans are under construction. The tracker now reads names from 
 # real clan forever and the table would mean nothing. Smaller clans are
 # still listed, just not placed.
 CLAN_RANK_MIN = 2
+
+
+@app.route('/myclan')
+def my_clan_page():
+    """Everything one clan's staff can do, in one place."""
+    sub_id = current_user()
+    conn = db()
+    c = conn.cursor()
+    tags = clan_admin_tags(c, sub_id) if sub_id else []
+    if not tags:
+        conn.close()
+        return render_template('myclan.html', clan=None, signed_in=bool(sub_id),
+                               version=APP_VERSION, contact=CONTACT_HANDLE,
+                               page='myclan', client_id=GOOGLE_CLIENT_ID)
+    # More than one clan is rare, so a chooser rather than a whole page of
+    # tabs: ?clan= picks, the first one is the default.
+    asked = canonical_clan_tag(request.args.get('clan'))
+    tag = asked if asked in tags else tags[0]
+    role = clan_role(c, sub_id, tag)
+
+    c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at "
+              "FROM players WHERE clan = ?", (tag,))
+    rows = c.fetchall()
+    c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
+              (tag,))
+    roles = {r[0]: r[1] for r in c.fetchall() if r[0]}
+    rows.sort(key=leaderboard_sort_key)
+    members = []
+    for name, elo, wins, losses, owner_sub, joined in rows:
+        wins = wins or 0
+        losses = losses or 0
+        played = wins + losses
+        members.append({
+            "name": name, "display": display_name(name, tag),
+            "role": roles.get(owner_sub, ""),
+            "role_label": CLAN_ROLE_LABELS.get(roles.get(owner_sub), ""),
+            "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
+            "winrate": f"{round(100 * wins / played)}%" if played else "-",
+            "joined": join_date(joined),
+            "is_you": bool(owner_sub) and owner_sub == sub_id,
+        })
+
+    c.execute("SELECT region FROM clans WHERE tag = ?", (tag,))
+    region = (c.fetchone() or [None])[0] or ""
+    link_row = active_invite_link(c, tag)
+    clan = {
+        "tag": tag, "display": clan_display(c, tag), "members": members,
+        "size": len(members), "region": region,
+        "region_label": REGION_LABELS.get(region, ""), "regions": REGIONS,
+        "applications": clan_applications(c, tag),
+        "role": role, "role_label": CLAN_ROLE_LABELS.get(role, ""),
+        "can_manage": clan_rank(role) >= clan_rank('coleader'),
+        "is_leader": role == 'leader',
+        "others": [t for t in tags if t != tag],
+        "link": invite_link_json(link_row) if link_row else None,
+        "link_days": INVITE_LINK_DAYS,
+    }
+    conn.close()
+    return render_template('myclan.html', clan=clan, signed_in=True,
+                           version=APP_VERSION, contact=CONTACT_HANDLE,
+                           page='myclan', client_id=GOOGLE_CLIENT_ID)
 
 
 @app.route('/clans')

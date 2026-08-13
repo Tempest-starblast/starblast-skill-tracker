@@ -172,6 +172,9 @@ a.pname:hover{color:var(--green)}
     <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
     <a href="/play"      class="{% if page=='play'        %}on{% endif %}">{{ t('Play') }}</a>
     <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
+    {%- if my_clan %}
+    <a href="/myclan"    class="{% if page=='myclan'      %}on{% endif %}">{{ t('Your clan') }}</a>
+    {%- endif %}
     <a href="/reports"   class="{% if page=='reports'     %}on{% endif %}">{{ t('Report') }}</a>
     <a href="/info"      class="{% if page=='info'        %}on{% endif %}">{{ t('Info') }}</a>
     <a href="/changelog" class="{% if page=='changelog'   %}on{% endif %}">{{ t('Changelog') }}</a>
