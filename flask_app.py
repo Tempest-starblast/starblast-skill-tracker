@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.70.1"
+APP_VERSION = "5.71.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.71.0", "at": "2026-08-13T23:59:00Z", "changes": [
+        "A new look for the whole site: deep-space background with painted nebulae and stars, glass panels, and Starblast's ion greens and blues. The layout, the pages and every control are exactly where they were - only the skin changed.",
+        "Skill numbers glow, the top tab bar is glassy, medals are gilded, and your own row on any board is tinted. All of it is one stylesheet - no images, no fonts to download, nothing slower than before.",
+    ]},
     {"version": "5.70.1", "at": "2026-08-13T21:35:00Z", "changes": [
         "Fixed: the + and Remove buttons on Your clan did nothing at all. The player's name was written into the button in a way that ended the HTML attribute early, so there was no working handler to run - names full of symbol letters made it obvious.",
         "Remove is now a small x the same size as +, and asks before it does anything: press it and you get Yes, remove them or No, keep them.",

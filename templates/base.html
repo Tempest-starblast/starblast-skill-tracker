@@ -5,38 +5,72 @@
 {% block head %}{% endblock %}
 <style>
 :root{
-  --bg:#121212; --panel:#1e1e1e; --panel2:#181818; --line:#2a2a2a;
-  --text:#e0e0e0; --muted:#888; --dim:#666;
-  --green:#4CAF50; --blue:#64b5f6; --red:#ff5252; --amber:#d8a02a;
+  /* Starblast's own palette: deep space, ion trails, warning amber. The
+     variable names are unchanged from the old flat theme, so every page's
+     own CSS keeps working - only what they point at has moved. */
+  --bg:#070a12; --panel:rgba(20,26,42,.72); --panel2:rgba(13,18,31,.75);
+  --line:rgba(126,164,255,.13);
+  --text:#e8ecf7; --muted:#8b96b4; --dim:#5d6884;
+  --green:#31e5a4; --blue:#59c2ff; --red:#ff5670; --amber:#ffc757;
+  --glow:0 0 22px rgba(49,229,164,.30);
+  --card:#141a2a;
 }
 *{box-sizing:border-box}
-body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;margin:0;background:var(--bg);color:var(--text)}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;margin:0;
+  background:var(--bg);color:var(--text);
+  /* Two nebulae and a starfield, all painted rather than downloaded -
+     the page still costs one request. */
+  background-image:
+    radial-gradient(1100px 620px at 12% -8%, rgba(49,229,164,.13), transparent 60%),
+    radial-gradient(900px 560px at 92% 4%, rgba(120,88,255,.15), transparent 62%),
+    radial-gradient(700px 700px at 50% 108%, rgba(89,194,255,.08), transparent 60%);
+  background-attachment:fixed;
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,.55), transparent),
+    radial-gradient(1px 1px at 70% 18%, rgba(255,255,255,.40), transparent),
+    radial-gradient(1px 1px at 40% 72%, rgba(255,255,255,.35), transparent),
+    radial-gradient(1px 1px at 88% 62%, rgba(255,255,255,.45), transparent),
+    radial-gradient(1px 1px at 12% 85%, rgba(255,255,255,.30), transparent);
+}
+.topbar,.page{position:relative;z-index:1}
 a{color:inherit}
 
-.topbar{background:var(--panel2);border-bottom:1px solid var(--line);padding:16px 20px}
-.brandrow{max-width:960px;margin:0 auto 14px;display:flex;align-items:center;gap:12px}
+.topbar{
+  background:linear-gradient(180deg, rgba(10,14,24,.92), rgba(10,14,24,.66));
+  border-bottom:1px solid var(--line);padding:16px 20px;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+}
+.brandrow{max-width:1100px;margin:0 auto 14px;display:flex;align-items:center;gap:12px}
 .brand{flex:1;text-align:center}
-.brand a{color:var(--green);text-decoration:none;font-size:17px;font-weight:700;letter-spacing:.5px}
+.brand a{
+  text-decoration:none;font-size:18px;font-weight:800;letter-spacing:1.4px;
+  text-transform:uppercase;
+  background:linear-gradient(92deg,#31e5a4,#59c2ff 55%,#a78bfa);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
 .authbox{flex-shrink:0;display:flex;align-items:center;gap:9px;min-height:34px}
-.authname{font-size:13px;color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.authname{font-size:13px;color:var(--muted);max-width:150px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
 .authname b{color:var(--text)}
-.authbox button{padding:7px 13px;font-size:12px;background:#2a2a2a;border:1px solid #3a3a3a;color:var(--muted)}
-.authbox button:hover{background:#333;color:#fff}
-  /* Sits beside Google's own button, which the library renders and we
-     cannot restyle - so this is shaped to match rather than to lead. */
-  #authOut{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .dbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;
-        background:#5865F2;color:#fff;font-size:12px;font-weight:500;text-decoration:none;
-        border:1px solid #5865F2;line-height:1;white-space:nowrap}
-  .dbtn:hover{background:#4752c4;border-color:#4752c4;color:#fff}
-  /* Sits above everything, on every page, until the reset question is
-     settled. Not dismissible on purpose - a couple of days of a visible
-     banner beats someone grinding a rating that then disappears. */
-  .resetwarn{max-width:1100px;margin:14px auto 0;padding:11px 15px;border-radius:8px;
-             background:rgba(224,79,95,.12);border:1px solid rgba(224,79,95,.45);
-             color:#f0b3ba;font-size:13px;line-height:1.5}
-  .resetwarn b{color:#ff8a95}
-  .resetwarn a{color:#ff8a95}
+.authbox button{padding:7px 13px;font-size:12px;background:rgba(255,255,255,.06);
+  border:1px solid var(--line);color:var(--muted);border-radius:999px}
+.authbox button:hover{background:rgba(255,255,255,.12);color:#fff}
+#authOut{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;
+  background:#5865F2;color:#fff;font-size:12px;font-weight:600;text-decoration:none;
+  border:1px solid #5865F2;line-height:1;white-space:nowrap;
+  box-shadow:0 0 18px rgba(88,101,242,.45)}
+.dbtn:hover{background:#4752c4;border-color:#4752c4;color:#fff}
+.resetwarn{max-width:1100px;margin:14px auto 0;padding:11px 15px;border-radius:12px;
+  background:linear-gradient(180deg, rgba(224,79,95,.16), rgba(224,79,95,.07));
+  border:1px solid rgba(224,79,95,.42);color:#ffc3ca;font-size:13px;line-height:1.5}
+.resetwarn b{color:#ff8a95}
+.resetwarn a{color:#ff8a95}
 .authspacer{width:0}
 @media (max-width:760px){
   .brandrow{flex-direction:column;gap:10px}
@@ -44,75 +78,112 @@ a{color:inherit}
   .authbox{order:2}
   .authspacer{display:none}
 }
-.tabs{max-width:960px;margin:0 auto;display:flex;background:#232323;border:1px solid var(--line);
-  border-radius:9px;padding:5px;gap:3px;overflow-x:auto}
-.tabs a{flex:1;text-align:center;padding:11px 12px;border-radius:6px;text-decoration:none;
-  color:var(--muted);font-size:14px;font-weight:600;white-space:nowrap}
-.tabs a:hover{color:var(--text);background:#2c2c2c}
-.tabs a.on{background:var(--green);color:#10240f}
 
-.page{max-width:960px;margin:0 auto;padding:28px 20px 60px}
-.ptitle{font-size:23px;font-weight:700;margin:0 0 4px;color:var(--green)}
+.tabs{max-width:1100px;margin:0 auto;display:flex;gap:4px;padding:5px;overflow-x:auto;
+  background:rgba(10,14,24,.6);border:1px solid var(--line);border-radius:14px;
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.tabs a{flex:1;text-align:center;padding:11px 12px;border-radius:10px;text-decoration:none;
+  color:var(--muted);font-size:13.5px;font-weight:700;white-space:nowrap;
+  letter-spacing:.3px;transition:color .15s, background .15s}
+.tabs a:hover{color:var(--text);background:rgba(255,255,255,.05)}
+.tabs a.on{background:linear-gradient(135deg,#31e5a4,#22c39a);color:#04140e;
+  box-shadow:var(--glow)}
+
+.page{max-width:1100px;margin:0 auto;padding:30px 20px 70px}
+.ptitle{font-size:30px;font-weight:800;margin:0 0 6px;letter-spacing:-.4px;
+  background:linear-gradient(92deg,#e8ecf7,#9fe9cf);
+  -webkit-background-clip:text;background-clip:text;color:transparent}
 .psub{color:var(--muted);font-size:14px;margin:0 0 24px;line-height:1.6}
-.psub a{color:var(--green)}
-/* Play and Settings have no subtitle, so the first card would otherwise
-   sit 4px under the heading. Restores the 24px a .psub provides. */
+.psub a{color:var(--green);text-decoration:none}
+.psub a:hover{text-decoration:underline}
 .ptitle+.card{margin-top:24px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:20px;margin-bottom:16px}
-.card h2{font-size:16px;margin:0 0 6px}
-.card .desc{color:var(--muted);font-size:13px;margin:0 0 14px;line-height:1.6}
+.sub{font-size:14px;font-weight:700;letter-spacing:.4px;margin:18px 0 8px}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:22px;margin-bottom:16px;position:relative;overflow:hidden;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:0 10px 34px rgba(0,0,0,.42)}
+/* A thin ion line along the top edge - the one flourish, used once. */
+.card::before{content:'';position:absolute;inset:0 0 auto 0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(49,229,164,.55),transparent)}
+.card h2{font-size:15px;margin:0 0 6px;letter-spacing:.5px;text-transform:uppercase;
+  color:#cdd6ea}
+.card .desc{color:var(--muted);font-size:13px;margin:0 0 14px;line-height:1.65}
 .card .desc a{color:var(--green)}
 
-input[type=text]{width:100%;padding:12px 14px;font-size:15px;background:#2a2a2a;
-  border:1px solid #3a3a3a;border-radius:7px;color:#fff;outline:none}
-input[type=text]:focus{border-color:var(--green)}
+input[type=text],select{width:100%;padding:12px 14px;font-size:15px;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:10px;
+  color:#fff;outline:none;font-family:inherit;transition:border-color .15s, box-shadow .15s}
+select{cursor:pointer}
+input[type=text]:focus,select:focus{border-color:var(--green);
+  box-shadow:0 0 0 3px rgba(49,229,164,.16)}
+input[type=text]::placeholder{color:var(--dim)}
 .row{display:flex;gap:9px;flex-wrap:wrap}
 .row input[type=text]{flex:1;min-width:160px}
-button{padding:12px 18px;font-size:14px;font-weight:600;border:none;border-radius:7px;
-  cursor:pointer;background:#333;color:#fff;font-family:inherit}
-button:hover{background:#3d3d3d}
-button.primary{background:var(--green);color:#10240f}
-button.primary:hover{background:#43a047}
-button.ghost{background:transparent;border:1px solid #3a3a3a;color:var(--muted)}
-button.ghost:hover{background:#2a2a2a;color:#fff}
-button.danger{background:#c0392b}
-button.danger:hover{background:#e74c3c}
-button:disabled{background:#2a2a2a;color:var(--dim);cursor:default}
+.row select{width:auto;min-width:150px}
+button{padding:12px 18px;font-size:14px;font-weight:700;border:1px solid transparent;
+  border-radius:10px;cursor:pointer;background:rgba(255,255,255,.07);color:#fff;
+  font-family:inherit;transition:transform .12s, background .15s, box-shadow .15s}
+button:hover{background:rgba(255,255,255,.13);transform:translateY(-1px)}
+button:active{transform:translateY(0)}
+button.primary{background:linear-gradient(135deg,#31e5a4,#20b98c);color:#04140e;
+  box-shadow:0 6px 18px rgba(49,229,164,.28)}
+button.primary:hover{box-shadow:0 8px 26px rgba(49,229,164,.42)}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted)}
+button.ghost:hover{background:rgba(255,255,255,.06);color:#fff}
+button.danger{background:linear-gradient(135deg,#ff5670,#d63551);color:#fff}
+button.danger:hover{box-shadow:0 8px 24px rgba(255,86,112,.35)}
+button:disabled{background:rgba(255,255,255,.04);color:var(--dim);cursor:default;
+  transform:none;box-shadow:none}
 
-table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
-  border-radius:9px;overflow:hidden}
+.tablewrap{overflow-x:auto;border-radius:16px;border:1px solid var(--line);
+  background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:0 10px 34px rgba(0,0,0,.42)}
+table{width:100%;border-collapse:collapse;background:transparent;border:none}
+.tablewrap table{border:none}
 th,td{padding:13px 16px;text-align:left;border-bottom:1px solid var(--line)}
-th{background:var(--panel2);color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+th{background:rgba(8,12,22,.6);color:var(--dim);font-size:11px;font-weight:800;
+  text-transform:uppercase;letter-spacing:1px;position:sticky;top:0}
 tr:last-child td{border-bottom:none}
-tbody tr:hover{background:#252525}
-.tablewrap{overflow-x:auto}
-.rank{font-weight:700;color:var(--green);width:60px}
+tbody tr{transition:background .12s}
+tbody tr:hover{background:rgba(89,194,255,.07)}
+tbody tr.me{background:rgba(49,229,164,.10)}
+.rank{font-weight:800;color:var(--dim);width:64px;font-variant-numeric:tabular-nums}
+tbody tr:nth-child(1) .rank,.medal{color:#ffd76a}
 .num,.skill{text-align:right;font-variant-numeric:tabular-nums}
 .mid{text-align:center;font-variant-numeric:tabular-nums;color:var(--muted)}
-.skill{font-weight:700;color:var(--blue)}
-a.pname{color:var(--text);text-decoration:none;font-weight:600}
+.skill{font-weight:800;color:var(--blue);text-shadow:0 0 14px rgba(89,194,255,.35)}
+a.pname{color:var(--text);text-decoration:none;font-weight:700}
 a.pname:hover{color:var(--green)}
-.badge{display:inline-block;margin-left:8px;padding:2px 7px;border-radius:4px;background:#25302a;
-  color:var(--green);border:1px solid #33463a;font-size:11px;font-weight:700;text-decoration:none;
-  letter-spacing:.5px;vertical-align:middle}
-.badge:hover{background:#2f4137;color:#7fd487}
+.badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;
+  background:rgba(49,229,164,.12);color:var(--green);border:1px solid rgba(49,229,164,.34);
+  font-size:11px;font-weight:800;text-decoration:none;letter-spacing:.6px;
+  vertical-align:middle}
+.badge:hover{background:rgba(49,229,164,.22);color:#8ff3cd}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
-.stat{background:var(--panel2);border-radius:7px;padding:15px;text-align:center}
-.stat .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.stat .value{font-size:24px;font-weight:bold;margin-top:6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center}
+.stat .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;
+  font-weight:800}
+.stat .value{font-size:28px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
 
 .msg{font-size:14px;font-weight:600;margin:12px 0 0;min-height:18px}
 .ok{color:var(--green)}.err{color:var(--red)}
-.empty{text-align:center;color:var(--dim);padding:28px 12px;font-size:14px}
-.foot{text-align:center;color:var(--dim);font-size:12px;margin-top:32px;line-height:1.9}
+.empty{text-align:center;color:var(--dim);padding:30px 12px;font-size:14px}
+.foot{text-align:center;color:var(--dim);font-size:12px;margin-top:36px;line-height:1.9}
 .foot a{color:var(--muted)}
 .langbar{margin-top:6px}
 .langbar a{margin:0 2px;white-space:nowrap}
-.langbar a.on{color:var(--green);font-weight:700}
+.langbar a.on{color:var(--green);font-weight:800}
 @media (max-width:760px){
-  .tabs a{font-size:13px;padding:10px 7px}
+  .tabs a{font-size:12.5px;padding:10px 7px}
   th,td{padding:10px 9px;font-size:13px}
+  .ptitle{font-size:24px}
+  .card{padding:18px;border-radius:14px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;scroll-behavior:auto !important}
 }
 {% block css %}{% endblock %}
 </style><style>
