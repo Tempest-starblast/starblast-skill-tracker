@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.69.0"
+APP_VERSION = "5.70.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.70.0", "at": "2026-08-13T21:30:00Z", "changes": [
+        "Ranks are now given from a + button next to the member on Your clan, which opens a short list of what you can make them. Typing out a name to promote somebody you are looking at was silly, and these names are full of letters nobody can type.",
+        "The + only appears where a rank could actually be changed - never on yourself, never on the leader, and not on a co-leader unless you are the leader.",
+    ]},
     {"version": "5.69.0", "at": "2026-08-13T21:20:00Z", "changes": [
         "A clan's own page is now purely public: the roster, its numbers, and who runs it. Everything a leader does - the invite link, applications, adding and removing, ranks, the region, deleting - is on Your clan, and only there.",
         "The two things that belong to the visitor rather than to the clan stay on the public page: asking to join, and leaving a clan you are in.",
