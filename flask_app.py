@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.65.0"
+APP_VERSION = "5.65.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.65.1", "at": "2026-08-13T04:30:00Z", "changes": [
+        "An invite link now takes you straight to the Discord sign-in instead of showing a page with a sign-in button on it. Once you are back, the clan and the Accept button are waiting. If you are already signed in the link opens on the Accept button directly, as before.",
+    ]},
     {"version": "5.65.0", "at": "2026-08-13T04:00:00Z", "changes": [
         "Clan leaders and co-leaders can now create an invite link and post it wherever their clan talks. Anyone who opens it signs in with Discord and joins with one press - no need to be added by name first, and no need for the leader to know what you play as.",
         "A link works for as many people as open it and stops working after seven days. Leaders can revoke it at any time, and creating a new one always retires the old one, so a link that has got out can be replaced immediately.",
@@ -4249,6 +4252,16 @@ def clan_join_page(token):
     join_state, who = ('dead', None)
     if state == 'ok':
         join_state, who = invite_join_state(c, sub_id, clan)
+    # Straight to Discord rather than a page whose only purpose is a button
+    # to Discord. back=1 is on the return path so that coming back still
+    # signed out - cookies refused, or Cancel pressed on Discord's screen -
+    # lands on the page with something to read instead of being bounced
+    # round the same loop again.
+    returned = bool(request.args.get('back'))
+    if state == 'ok' and join_state == 'signed_out' and not returned:
+        conn.close()
+        return redirect('/auth/discord?next='
+                        + quote('/clan/join/' + token + '?back=1', safe=''))
     c.execute("SELECT COUNT(*) FROM players WHERE clan = ?", (clan,))
     size = c.fetchone()[0] if clan else 0
     c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
@@ -4260,7 +4273,7 @@ def clan_join_page(token):
         page='clans', client_id=GOOGLE_CLIENT_ID, token=token,
         clan=clan, display=display or clan, members=size,
         link_state=state, join_state=join_state, who=who or '',
-        your_clan=(mine[0] if mine else ''),
+        your_clan=(mine[0] if mine else ''), returned=returned,
         dead_message=INVITE_DEAD_MESSAGE.get(state, '')), (200 if state == 'ok' else 410)
 
 

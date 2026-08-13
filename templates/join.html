@@ -24,11 +24,16 @@
   </div>
 
   {% if join_state == 'signed_out' %}
+  {% if returned %}
+  <p class="desc" style="text-align:center">That did not sign you in. If you pressed
+     Cancel, try again. If you have cookies turned off for this site, sign-in cannot
+     work until they are allowed.</p>
+  {% endif %}
   <p class="desc" style="text-align:center">Sign in to accept. Only your Discord
      account id and handle are read &mdash; no email, and nothing that could be used
      to contact you.</p>
   <p style="text-align:center" class="joinbtn">
-    <a class="dbtn2" href="/auth/discord?next=/clan/join/{{ token }}">Sign in with Discord</a>
+    <a class="dbtn2" href="/auth/discord?next=/clan/join/{{ token }}%3Fback%3D1">Sign in with Discord</a>
   </p>
 
   {% elif join_state == 'no_name' %}
