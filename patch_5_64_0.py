@@ -51,12 +51,29 @@ app.sub(
 
 app.sub(
     'APP_VERSION = "5.62.1"',
-    'APP_VERSION = "5.63.0"',
+    'APP_VERSION = "5.64.0"',
     "version bump")
 
+# 5.64.0 is the tracker change, already live on the droplet since
+# 2026-08-13 00:54 UTC. It is recorded here because the changelog and
+# APP_VERSION live on the site whatever machine the change was made on.
 app.sub(
     'CHANGELOG = [\n',
     'CHANGELOG = [\n'
+    '    {"version": "5.64.0", "at": "2026-08-13T00:54:00Z", "changes": [\n'
+    '        "The tracker now reports two coverage figures instead of one. '
+    'The old number counted every lobby that closed, including ones that '
+    'were never old enough or busy enough to be worth attaching to - so it '
+    'could never reach 100% however well the tracker did its job.",\n'
+    '        "The new Watchable figure counts only the matches the tracker '
+    'was allowed to watch, which is the number that actually says whether '
+    'it is keeping up. The old figure is still printed beside it.",\n'
+    '        "Fixed: starting a worker stopped the tracker\'s main loop for '
+    'twelve seconds, and during that pause it noticed nothing - not a match '
+    'ending, not another lobby waiting for a worker. It happened twelve '
+    'times in two hours. Workers are still started twelve seconds apart, '
+    'but the loop now keeps watching while they start.",\n'
+    '    ]},\n'
     '    {"version": "5.63.0", "at": "2026-08-12T23:00:00Z", "changes": [\n'
     '        "The leaderboard is now shown 50 players at a time instead of '
     'every player at once. The page was 1.2 MB of one table and took several '
@@ -329,7 +346,9 @@ for lang, tail, extra in [
 # ---------------------------------------------------------- post-mortems
 
 app.check("PER_PAGE", 6, "PER_PAGE uses")
-app.check('APP_VERSION = "5.63.0"', 1, "new version")
+app.check('APP_VERSION = "5.64.0"', 1, "new version")
+app.check('"version": "5.64.0"', 1, "tracker changelog entry")
+app.check('"version": "5.63.0"', 1, "pagination changelog entry")
 app.check("5.62.1", 1, "old version survives in changelog only")
 app.check("total=total_ranked)", 1, "total is the whole board")
 app.check("loop.index", 0, "no loop.index left in flask_app")
@@ -343,4 +362,5 @@ for p in (app, idx, i18):
     save(p.path, p.text)
     print("patched %s (%+d chars)" % (p.path, len(p.text) - len(p.original)))
 
-print("\n5.63.0 written. Now: python3 -m py_compile flask_app.py")
+print("\n5.63.0 (pagination) + 5.64.0 (tracker changelog) written.")
+print("Now: python3 -m py_compile flask_app.py i18n.py")
