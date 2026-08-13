@@ -84,6 +84,26 @@
   </div>
   <p class="msg" id="memberMsg"></p>
   <div id="roster"></div>
+  <div id="inviteBox" style="display:none;margin-top:16px;padding-top:14px;
+       border-top:1px solid var(--line)">
+    <h3 class="sub">{{ t('Invite link') }}</h3>
+    <p class="desc">One link anyone can open to join. Post it where your clan talks
+       &mdash; whoever follows it signs in and joins themselves, so you do not need to
+       know what they play as. It stops working after seven days.</p>
+    <div id="inviteNone" style="display:none">
+      <button class="primary" onclick="makeInvite()">{{ t('Create link') }}</button>
+    </div>
+    <div id="inviteHas" style="display:none">
+      <div class="row">
+        <input type="text" id="inviteUrl" readonly onclick="this.select()">
+        <button onclick="copyInvite()">{{ t('Copy') }}</button>
+      </div>
+      <p class="cmeta" id="inviteMeta"></p>
+      <button class="ghost" style="margin-top:10px" onclick="revokeInvite()">{{ t('Revoke') }}</button>
+    </div>
+    <p class="msg" id="inviteMsg"></p>
+  </div>
+
   <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
     <p class="desc">Deleting releases every member. Their ratings and match history are
        untouched &mdash; only the clan goes.</p>
@@ -227,6 +247,7 @@ async function loadMine(){
     if (myClan){
       document.querySelector('#manageCard h2').textContent = 'Your clan \u2014 ' + myClan.tag;
       drawRoster(myClan);
+      loadInvite();
     }
   }catch(e){}
 }
@@ -257,6 +278,62 @@ function drawRoster(clan){
     row.appendChild(left); row.appendChild(btn);
     box.appendChild(row);
   });
+}
+function showInvite(d){
+  const box = document.getElementById('inviteBox');
+  // A moderator sees the roster but not this: the server would refuse them
+  // anyway, and a button that always fails is worse than no button.
+  box.style.display = d.can_manage ? 'block' : 'none';
+  if (!d.can_manage) return;
+  const has = !!d.link;
+  document.getElementById('inviteHas').style.display = has ? 'block' : 'none';
+  document.getElementById('inviteNone').style.display = has ? 'none' : 'block';
+  if (has){
+    document.getElementById('inviteUrl').value = d.link.url;
+    const used = d.link.uses === 1 ? '1 person has joined'
+                                   : d.link.uses + ' people have joined';
+    document.getElementById('inviteMeta').textContent =
+      'Expires ' + d.link.expires_at.slice(0, 10) + ' \u2014 ' + used + ' with this link.';
+  }
+}
+async function loadInvite(){
+  if (!myClan) return;
+  try{
+    const d = await (await fetch('/clan/invite/link?clan='
+                                 + encodeURIComponent(myClan.tag))).json();
+    showInvite(d);
+  }catch(e){}
+}
+async function makeInvite(){
+  if (!myClan) return;
+  try{
+    const [r, d] = await post('/clan/invite/link', {clan: myClan.tag});
+    say('inviteMsg', r.ok, d.message || 'Could not create a link.');
+    if (r.ok) loadInvite();
+  }catch(e){ say('inviteMsg', false, 'Server connection error.'); }
+}
+async function revokeInvite(){
+  if (!myClan) return;
+  try{
+    const [r, d] = await post('/clan/invite/revoke', {clan: myClan.tag});
+    say('inviteMsg', r.ok, d.message);
+    if (r.ok) loadInvite();
+  }catch(e){ say('inviteMsg', false, 'Server connection error.'); }
+}
+function copyInvite(){
+  const el = document.getElementById('inviteUrl');
+  el.select();
+  // execCommand is deprecated but clipboard.writeText needs a secure
+  // context and permission, and this button has to work for everyone.
+  let ok = false;
+  try{ ok = document.execCommand('copy'); }catch(e){ ok = false; }
+  if (!ok && navigator.clipboard){
+    navigator.clipboard.writeText(el.value).then(function(){
+      say('inviteMsg', true, 'Link copied.');
+    }).catch(function(){ say('inviteMsg', false, 'Select the link and copy it.'); });
+    return;
+  }
+  say('inviteMsg', ok, ok ? 'Link copied.' : 'Select the link and copy it.');
 }
 async function claimClan(){
   const tag = document.getElementById('tagInput').value.trim();

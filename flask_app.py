@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.64.0"
+APP_VERSION = "5.65.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -853,6 +853,23 @@ def init_db():
                     used_at TEXT,
                     used_by TEXT
                 )''')
+    # A shareable join link, as opposed to the one-time codes above:
+    # those hand over a whole clan, this one only lets people into it.
+    # Multi-use on purpose - a leader posts one link where their clan
+    # talks and anyone who opens it can join until it expires. expires_at
+    # and revoked_at are plain '%Y-%m-%d %H:%M:%S' strings, which compare
+    # correctly as text, so no date parsing is needed to test a link.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_invite_links (
+                    token TEXT PRIMARY KEY,
+                    clan TEXT NOT NULL,
+                    created_by TEXT,
+                    created_at TEXT,
+                    expires_at TEXT,
+                    revoked_at TEXT,
+                    uses INTEGER DEFAULT 0
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_invite_links_clan "
+              "ON clan_invite_links(clan)")
     # A player with an account is invited, not added. See clan_add().
     # direction: 'invite' (admin asked player) or 'application' (player asked
     # clan). Who has to approve depends on which way round it is.
@@ -1651,6 +1668,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.65.0", "at": "2026-08-13T04:00:00Z", "changes": [
+        "Clan leaders and co-leaders can now create an invite link and post it wherever their clan talks. Anyone who opens it signs in with Discord and joins with one press - no need to be added by name first, and no need for the leader to know what you play as.",
+        "A link works for as many people as open it and stops working after seven days. Leaders can revoke it at any time, and creating a new one always retires the old one, so a link that has got out can be replaced immediately.",
+        "Joining through a link follows the same rules as every other way in: you keep your own name, and if you are already in a clan you have to leave it yourself first. Nobody is moved between clans without doing it themselves.",
+    ]},
     {"version": "5.64.0", "at": "2026-08-13T00:54:00Z", "changes": [
         "The tracker now reports two coverage figures instead of one. The old number counted every lobby that closed, including ones that were never old enough or busy enough to be worth attaching to - so it could never reach 100% however well the tracker did its job.",
         "The new Watchable figure counts only the matches the tracker was allowed to watch, which is the number that actually says whether it is keeping up. The old figure is still printed beside it.",
@@ -3172,6 +3194,25 @@ def current_user():
     return session.get('google_sub')
 
 
+def safe_next(raw):
+    """A path on this site to return to after signing in, or None.
+
+    Only our own paths. A value with a scheme, or a second leading slash,
+    is a link to somebody else's site, and sending a freshly signed-in
+    player there is how an invite link would be turned into a way of
+    harvesting them. Anything that is not plainly local is dropped rather
+    than repaired.
+    """
+    s = str(raw or '')
+    if not s or len(s) > 200:
+        return None
+    if not s.startswith('/') or s.startswith('//'):
+        return None
+    if '\\' in s or any(ch < ' ' for ch in s):
+        return None
+    return s
+
+
 def owner_check(c, stored_name, reg_ip):
     """May the current visitor act on this name? Returns (ok, error).
 
@@ -3279,6 +3320,10 @@ def auth_discord_start():
     state = secrets.token_urlsafe(24)
     session.permanent = True
     session['discord_state'] = state
+    # Where to go once Discord sends them back. An invite link needs this:
+    # without it the player signs in and lands on the front page, with no
+    # sign of the clan they were trying to join.
+    session['discord_next'] = safe_next(request.args.get('next'))
     return redirect(DISCORD_AUTHORIZE_URL + '?' + urlencode({
         'client_id': DISCORD_CLIENT_ID,
         'redirect_uri': DISCORD_REDIRECT_URI,
@@ -3349,7 +3394,8 @@ def auth_discord_callback():
     session['google_sub'] = sub_id
     remember_discord_user(sub_id, info.get('username') or '',
                           info.get('global_name') or info.get('username') or '')
-    return redirect('/?signin=ok')
+    back = safe_next(session.pop('discord_next', None))
+    return redirect(back or '/?signin=ok')
 
 
 def perform_set_game_name(c, sub_id, raw_name):
@@ -4038,6 +4084,226 @@ def clan_invite_respond():
     conn.close()
     return jsonify({"message": f"You joined {clan}." if accept
                     else f"Invitation from {clan} declined."}), 200
+
+
+INVITE_LINK_DAYS = 7
+
+
+def invite_link_row(c, token):
+    """One invite link by its token, or None."""
+    c.execute("SELECT token, clan, created_at, expires_at, revoked_at, "
+              "COALESCE(uses, 0) FROM clan_invite_links WHERE token = ?",
+              (str(token or ''),))
+    return c.fetchone()
+
+
+def invite_link_state(row):
+    """Whether a link may still be used: ok, missing, revoked or expired."""
+    if not row:
+        return 'missing'
+    if row[4]:
+        return 'revoked'
+    if row[3] and row[3] <= time.strftime('%Y-%m-%d %H:%M:%S'):
+        return 'expired'
+    return 'ok'
+
+
+INVITE_DEAD_MESSAGE = {
+    'missing': "That invite link is not valid.",
+    'revoked': "That invite link has been withdrawn by the clan.",
+    'expired': "That invite link has expired. Ask the clan for a new one.",
+}
+
+
+def active_invite_link(c, tag):
+    """The clan's live link, or None. Expired and revoked rows stay in the
+    table - they are what tells someone holding an old link why it stopped
+    working, rather than that it never existed."""
+    c.execute("SELECT token, clan, created_at, expires_at, revoked_at, "
+              "COALESCE(uses, 0) FROM clan_invite_links "
+              "WHERE clan = ? AND revoked_at IS NULL AND expires_at > ? "
+              "ORDER BY created_at DESC LIMIT 1",
+              (tag, time.strftime('%Y-%m-%d %H:%M:%S')))
+    return c.fetchone()
+
+
+def invite_link_json(row):
+    return {
+        "token": row[0],
+        "url": request.url_root.rstrip('/') + '/clan/join/' + row[0],
+        "created_at": row[2],
+        "expires_at": row[3],
+        "uses": row[5],
+    }
+
+
+@app.route('/clan/invite/link')
+def clan_invite_link_get():
+    """The clan's current invite link, for the manage card."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"can_manage": False, "link": None}), 200
+    conn = db()
+    c = conn.cursor()
+    tag = canonical_clan_tag(request.args.get('clan'))
+    if not tag:
+        tags = clan_admin_tags(c, sub_id)
+        tag = tags[0] if tags else None
+    if not tag or not may_manage(c, sub_id, tag):
+        conn.close()
+        return jsonify({"can_manage": False, "link": None}), 200
+    row = active_invite_link(c, tag)
+    out = invite_link_json(row) if row else None
+    conn.close()
+    return jsonify({"can_manage": True, "clan": tag, "link": out,
+                    "days": INVITE_LINK_DAYS}), 200
+
+
+@app.route('/clan/invite/link', methods=['POST'])
+def clan_invite_link_new():
+    """Mint a link, retiring whatever the clan had before.
+
+    Leaders and co-leaders, the same people who may already invite by
+    name. A moderator is there to remove people, not to recruit.
+    """
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    tag = canonical_clan_tag((request.json or {}).get('clan'))
+    conn = db()
+    c = conn.cursor()
+    if not tag or not may_manage(c, sub_id, tag):
+        conn.close()
+        return jsonify({"message": "Only a leader or co-leader can do that."}), 403
+    now = time.time()
+    stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))
+    ends = time.strftime('%Y-%m-%d %H:%M:%S',
+                         time.localtime(now + INVITE_LINK_DAYS * 86400))
+    # Retiring the old link is the point: two live links would mean
+    # revoking the one that leaked still left the clan open.
+    c.execute("UPDATE clan_invite_links SET revoked_at = ? "
+              "WHERE clan = ? AND revoked_at IS NULL", (stamp, tag))
+    token = secrets.token_urlsafe(12)
+    c.execute("INSERT INTO clan_invite_links "
+              "(token, clan, created_by, created_at, expires_at, uses) "
+              "VALUES (?, ?, ?, ?, ?, 0)", (token, tag, sub_id, stamp, ends))
+    conn.commit()
+    row = invite_link_row(c, token)
+    out = invite_link_json(row)
+    conn.close()
+    out["message"] = "Link created. Anyone who opens it can join %s." % tag
+    return jsonify(out), 200
+
+
+@app.route('/clan/invite/revoke', methods=['POST'])
+def clan_invite_link_revoke():
+    """Withdraw the clan's live link."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    tag = canonical_clan_tag((request.json or {}).get('clan'))
+    conn = db()
+    c = conn.cursor()
+    if not tag or not may_manage(c, sub_id, tag):
+        conn.close()
+        return jsonify({"message": "Only a leader or co-leader can do that."}), 403
+    c.execute("UPDATE clan_invite_links SET revoked_at = ? "
+              "WHERE clan = ? AND revoked_at IS NULL",
+              (time.strftime('%Y-%m-%d %H:%M:%S'), tag))
+    changed = c.rowcount
+    conn.commit()
+    conn.close()
+    if not changed:
+        return jsonify({"message": "There was no live link to withdraw."}), 400
+    return jsonify({"message": "Link withdrawn. It no longer works."}), 200
+
+
+def invite_join_state(c, sub_id, clan):
+    """Why this visitor can or cannot take the invite. Returns
+    (state, name). The states are what join.html renders."""
+    if not sub_id:
+        return 'signed_out', None
+    who = account_name_for(c, sub_id)
+    if not who:
+        return 'no_name', None
+    c.execute("SELECT clan FROM players WHERE name = ?", (who,))
+    row = c.fetchone()
+    current = row[0] if row else None
+    if current == clan:
+        return 'already_in', who
+    if current:
+        return 'other_clan', who
+    return 'ready', who
+
+
+@app.route('/clan/join/<token>')
+def clan_join_page(token):
+    """The page an invite link opens."""
+    conn = db()
+    c = conn.cursor()
+    row = invite_link_row(c, token)
+    state = invite_link_state(row)
+    clan = row[1] if row else ''
+    display = clan_display(c, clan) if clan else ''
+    sub_id = current_user()
+    join_state, who = ('dead', None)
+    if state == 'ok':
+        join_state, who = invite_join_state(c, sub_id, clan)
+    c.execute("SELECT COUNT(*) FROM players WHERE clan = ?", (clan,))
+    size = c.fetchone()[0] if clan else 0
+    c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
+              "AND clan != '' LIMIT 1", (sub_id or '',))
+    mine = c.fetchone()
+    conn.close()
+    return render_template(
+        'join.html', version=APP_VERSION, contact=CONTACT_HANDLE,
+        page='clans', client_id=GOOGLE_CLIENT_ID, token=token,
+        clan=clan, display=display or clan, members=size,
+        link_state=state, join_state=join_state, who=who or '',
+        your_clan=(mine[0] if mine else ''),
+        dead_message=INVITE_DEAD_MESSAGE.get(state, '')), (200 if state == 'ok' else 410)
+
+
+@app.route('/clan/join/<token>', methods=['POST'])
+def clan_join_accept(token):
+    """Take the invite. The same rules as every other way into a clan."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    conn = db()
+    c = conn.cursor()
+    row = invite_link_row(c, token)
+    state = invite_link_state(row)
+    if state != 'ok':
+        conn.close()
+        return jsonify({"message": INVITE_DEAD_MESSAGE.get(state, "That link is not valid.")}), 410
+    clan = row[1]
+    join_state, who = invite_join_state(c, sub_id, clan)
+    if join_state == 'no_name':
+        conn.close()
+        return jsonify({"message": "Claim your player name first, on Manage your name - "
+                                   "a clan is a list of names, so there has to be one "
+                                   "to add."}), 400
+    if join_state == 'already_in':
+        conn.close()
+        return jsonify({"message": "You are already in %s." % clan}), 400
+    if join_state == 'other_clan':
+        c.execute("SELECT clan FROM players WHERE name = ?", (who,))
+        cur = c.fetchone()
+        conn.close()
+        return jsonify({"message": "You are in %s. Leave it first, then open this "
+                                   "link again." % (cur[0] if cur else 'another clan')}), 400
+    c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, who))
+    c.execute("UPDATE clan_invite_links SET uses = COALESCE(uses, 0) + 1 "
+              "WHERE token = ?", (row[0],))
+    # Any invitation or application already open for this player is settled
+    # by their walking in, or the clan's page would keep offering a decision
+    # about somebody who is already a member.
+    c.execute("UPDATE clan_invites SET status = 'approved' "
+              "WHERE clan = ? AND name = ? AND status = 'pending'", (clan, who))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "You joined %s." % clan, "clan": clan}), 200
 
 
 @app.route('/api/notify_state')

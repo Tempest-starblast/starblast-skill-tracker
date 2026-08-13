@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Join {{ display }} - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.joinbox{text-align:center;padding:8px 0 4px}
+.jointag{font-size:30px;font-weight:800;color:var(--text);letter-spacing:.5px}
+.joinsub{font-size:13px;color:var(--muted);margin-top:6px}
+.joinbtn{margin-top:18px}
+.dbtn2{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:8px;
+  background:#5865F2;color:#fff;font-weight:700;font-size:14px;text-decoration:none}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Clan invitation</h1>
+
+{% if link_state != 'ok' %}
+<div class="card">
+  <p class="desc">{{ dead_message }}</p>
+  <p class="desc"><a style="color:var(--green);font-weight:600" href="/clans">See every clan &rarr;</a></p>
+</div>
+{% else %}
+<div class="card">
+  <div class="joinbox">
+    <div class="jointag">{{ display }}</div>
+    <div class="joinsub">{{ members }} member{{ '' if members == 1 else 's' }}</div>
+  </div>
+
+  {% if join_state == 'signed_out' %}
+  <p class="desc" style="text-align:center">Sign in to accept. Only your Discord
+     account id and handle are read &mdash; no email, and nothing that could be used
+     to contact you.</p>
+  <p style="text-align:center" class="joinbtn">
+    <a class="dbtn2" href="/auth/discord?next=/clan/join/{{ token }}">Sign in with Discord</a>
+  </p>
+
+  {% elif join_state == 'no_name' %}
+  <p class="desc">You are signed in, but no leaderboard name is yours yet. A clan is a
+     list of names, so there has to be one to add. Claim yours on
+     <a style="color:var(--green);font-weight:600" href="/settings">Manage your name</a>
+     and then open this link again.</p>
+
+  {% elif join_state == 'already_in' %}
+  <p class="desc">You are already in {{ display }}, as <b>{{ who }}</b>. Nothing to do.</p>
+  <p class="desc"><a style="color:var(--green);font-weight:600"
+     href="/clan/{{ clan }}">Open the clan page &rarr;</a></p>
+
+  {% elif join_state == 'other_clan' %}
+  <p class="desc"><b>{{ who }}</b> is in {{ your_clan }}. You have to leave that clan
+     yourself before joining another &mdash; nobody is moved between clans by a link.
+     Leave from
+     <a style="color:var(--green);font-weight:600" href="/clan/{{ your_clan }}">{{ your_clan }}</a>,
+     then open this link again.</p>
+
+  {% else %}
+  <p class="desc" style="text-align:center">Joining as <b>{{ who }}</b>.</p>
+  <p style="text-align:center" class="joinbtn">
+    <button class="primary" onclick="accept()">{{ t('Accept invite') }}</button>
+  </p>
+  {% endif %}
+
+  <p class="msg" id="joinMsg"></p>
+</div>
+{% endif %}
+
+<p class="foot">Questions? Ask {{ contact }} on Discord.</p>
+
+<script>
+async function accept(){
+  const m = document.getElementById('joinMsg');
+  try{
+    const r = await fetch('/clan/join/{{ token }}', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:'{}'});
+    const d = await r.json();
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err');
+    m.textContent = d.message;
+    if (r.ok) setTimeout(function(){ location.href = '/clan/{{ clan }}'; }, 1200);
+  }catch(e){
+    m.className = 'msg err';
+    m.textContent = 'Server connection error.';
+  }
+}
+</script>
+{% endblock %}
