@@ -44,16 +44,28 @@ tbody tr{scroll-margin-top:84px}
 tbody tr:target{background:#1d2a1c}
 tbody tr:target td{border-bottom-color:#33512f}
 tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+.pager{display:flex;gap:8px;align-items:center;justify-content:center;
+  flex-wrap:wrap;margin:18px 0 4px}
+.pager .pill{min-width:0}
+.pager .pill.off{opacity:.35;pointer-events:none}
+.pinfo{font-size:13px;color:var(--dim);padding:0 4px;white-space:nowrap}
+a.ghost{display:inline-flex;align-items:center;padding:0 14px;
+  border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;
+  background:transparent;border:1px solid #3a3a3a;color:var(--muted)}
+a.ghost:hover{background:#2a2a2a;color:#fff}
 {% endblock %}
 {% block body %}
+{% macro board(p=1, per=none, reg=none, term=none) -%}
+/?period={{ per if per is not none else period }}&amp;region={{ reg if reg is not none else region }}{% if p and p > 1 %}&amp;page={{ p }}{% endif %}{% set qq = term if term is not none else q %}{% if qq %}&amp;q={{ qq|urlencode }}{% endif %}
+{%- endmacro %}
 <h1 class="ptitle">{{ t('Leaderboard') }}</h1>
-<p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.</p>
+<p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.{% if pages > 1 %} {{ t('Page') }} {{ pnum }} / {{ pages }}.{% endif %}</p>
 
 <div class="filters">
   <div class="fgroup">
     {% for key, label in regions %}
     <a class="pill {% if key == region %}on{% endif %}"
-       href="/?period={{ period }}&amp;region={{ key }}">{{ t(label) }}</a>
+       href="{{ board(1, reg=key) }}">{{ t(label) }}</a>
     {% endfor %}
   </div>
   <div class="fgroup">
@@ -71,7 +83,7 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
       <div class="ddmenu" role="menu">
         {% for key, label in periods %}
         <a class="dditem {% if key == period %}on{% endif %}" role="menuitem"
-           href="/?period={{ key }}&amp;region={{ region }}">
+           href="{{ board(1, per=key) }}">
           <span class="ddmark" aria-hidden="true">&#10003;</span>
           <span><span class="ddtext">{{ label }}</span>
             <span class="ddsub">{{ spans.get(key, '') }}</span></span>
@@ -83,12 +95,16 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 </div>
 
 <div class="card">
-  <div class="row">
-    <input type="text" id="q" placeholder="{{ t('Player') }}..." autocomplete="off" oninput="filter()"
-           onkeydown="if(event.key==='Enter'){event.preventDefault();filter();}">
-    <button class="ghost" onclick="document.getElementById('q').value='';filter()">{{ t('Clear') }}</button>
-  </div>
+  <form class="row" method="get" action="/">
+    <input type="hidden" name="period" value="{{ period }}">
+    <input type="hidden" name="region" value="{{ region }}">
+    <input type="text" id="q" name="q" value="{{ q }}"
+           placeholder="{{ t('Player') }}..." autocomplete="off" oninput="filter()">
+    <button type="submit" class="ghost">{{ t('Search all') }}</button>
+    <a class="ghost" href="{{ board(1, term='') }}">{{ t('Clear') }}</a>
+  </form>
   <p class="msg" id="count"></p>
+  {% if q %}<p class="msg">{{ found }} player{{ '' if found == 1 else 's' }} on the whole board match &quot;{{ q }}&quot;.</p>{% endif %}
 </div>
 
 <div class="tablewrap">
@@ -104,10 +120,10 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 <tbody>
 {% for p in leaderboard %}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}">
-  <td class="rank">{{ loop.index }}</td>
+  <td class="rank">{{ p.rank }}</td>
   <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.protected %}<span class="tick" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
-    href="/?period={{ period }}&amp;region={{ p.region }}#p-{{ p.name|urlencode }}"
+    href="/?period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
   <td class="mid">{{ p.wins }}-{{ p.losses }}</td>
   <td class="mid">{{ p.winrate }}</td>
@@ -115,7 +131,8 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 </tr>
 {% else %}
 <tr><td colspan="{{ 6 if region == 'all' else 5 }}" class="empty">
-  {% if gain %}Nobody has played a tracked match in this window yet.
+  {% if q %}No player on this board matches &quot;{{ q }}&quot;.
+  {% elif gain %}Nobody has played a tracked match in this window yet.
   {% else %}Nobody is on the leaderboard yet.{% endif %}
 </td></tr>
 {% endfor %}
@@ -123,6 +140,20 @@ tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 </tbody>
 </table>
 </div>
+
+{% if pages > 1 %}
+<nav class="pager" aria-label="Leaderboard pages">
+  <a class="pill {% if pnum == 1 %}off{% endif %}"
+     href="{{ board(1) }}" aria-label="First page">&laquo;</a>
+  <a class="pill {% if pnum == 1 %}off{% endif %}"
+     href="{{ board(pnum - 1) }}" rel="prev" aria-label="Previous page">&lsaquo;</a>
+  <span class="pinfo">{{ t('Page') }} {{ pnum }} / {{ pages }}</span>
+  <a class="pill {% if pnum == pages %}off{% endif %}"
+     href="{{ board(pnum + 1) }}" rel="next" aria-label="Next page">&rsaquo;</a>
+  <a class="pill {% if pnum == pages %}off{% endif %}"
+     href="{{ board(pages) }}" aria-label="Last page">&raquo;</a>
+</nav>
+{% endif %}
 
 <script>
 function toggleDD(e){
@@ -152,7 +183,10 @@ function filter(){
     if(hit) shown++;
   });
   document.getElementById('none').style.display = shown ? 'none' : '';
-  document.getElementById('count').textContent = q ? (shown + ' of ' + rows.length + ' players') : '';
+  // Says 'on this page' because that is all this can see. Searching the
+  // rest of the board is the submit button, which goes to the server.
+  document.getElementById('count').textContent =
+    q ? (shown + ' of ' + rows.length + ' on this page') : '';
 }
 </script>
 {% endblock %}

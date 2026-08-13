@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template, session, redirect
 import re
 import unicodedata
+from urllib.parse import quote
 import random
 import sqlite3
 import os
@@ -13,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.62.1"
+APP_VERSION = "5.64.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1650,6 +1651,17 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.64.0", "at": "2026-08-13T00:54:00Z", "changes": [
+        "The tracker now reports two coverage figures instead of one. The old number counted every lobby that closed, including ones that were never old enough or busy enough to be worth attaching to - so it could never reach 100% however well the tracker did its job.",
+        "The new Watchable figure counts only the matches the tracker was allowed to watch, which is the number that actually says whether it is keeping up. The old figure is still printed beside it.",
+        "Fixed: starting a worker stopped the tracker's main loop for twelve seconds, and during that pause it noticed nothing - not a match ending, not another lobby waiting for a worker. It happened twelve times in two hours. Workers are still started twelve seconds apart, but the loop now keeps watching while they start.",
+    ]},
+    {"version": "5.63.0", "at": "2026-08-12T23:00:00Z", "changes": [
+        "The leaderboard is now shown 50 players at a time instead of every player at once. The page was 1.2 MB of one table and took several seconds to arrive; it is now about a fortieth of that.",
+        "A place on the board is still the place on the whole board - the player ranked 412th is #412 on page 9, not #12.",
+        "The search box still filters as you type, but now only across the page you are on. Search all players searches every player on the board and pages through what it finds.",
+        "The region link on a player's row still opens that region's board at that player, whichever page they turn out to be on.",
+    ]},
     {"version": "5.62.1", "at": "2026-08-12T22:05:00Z", "changes": [
         "Fixed the last few places on a clan page that printed the plain-letter form of a tag instead of the way its leader wrote it - the Join heading and the line telling you which clan you are in.",
     ]},
@@ -2450,6 +2462,12 @@ PERIODS = [("all", "All time"), ("month", "Monthly"),
            ("week", "Weekly"), ("day", "Daily")]
 PERIOD_KEYS = [p for p, _ in PERIODS]
 PERIOD_SQL = {"day": "-1 day", "week": "-7 days", "month": "-30 days"}
+
+# How many rows of the leaderboard are sent at once. Every player on one
+# page was 1.2 MB of HTML for 2,600 rows, and nobody scrolls that far -
+# they search. Ranking is unaffected: the board is still sorted whole
+# and then sliced, so a page boundary is only ever a display cut.
+PER_PAGE = 50
 
 
 def board_rows(c, period="all", region="all"):
@@ -6083,6 +6101,15 @@ def leaderboard():
     # North Americans - and the selector says which you are looking at.
     if region not in REGION_KEYS and region != ALL_REGIONS:
         region = ALL_REGIONS
+    # Which slice to show, what to search the whole board for, and which
+    # player to resolve to a page. `pnum`, not `page` - `page` is already
+    # the template's name for which nav item is lit.
+    try:
+        pnum = int(request.args.get('page', 1))
+    except (TypeError, ValueError):
+        pnum = 1
+    q = (request.args.get('q') or '').strip()
+    find = (request.args.get('find') or '').strip()
     # Over a window the number is what you gained in it. Over all time the
     # same sum IS the rating that region has given you, so it is shown as a
     # rating instead of a delta.
@@ -6118,7 +6145,8 @@ def leaderboard():
         home_region = {k: v[1] for k, v in best.items() if v[1] in REGION_KEYS}
 
     leaderboard_data = []
-    for name, elo, wins, losses, clan, protected in rows:
+    for rank, (name, elo, wins, losses, clan, protected) in enumerate(
+            rows, 1):
         wins = wins or 0
         losses = losses or 0
         played = wins + losses
@@ -6129,6 +6157,7 @@ def leaderboard():
         # the key for the URL as well as the full label for the text.
         home = home_region.get(normalize_name(name))
         leaderboard_data.append({
+            "rank": rank,
             "name": name, "display": display_name(name, clan),
             "skill": (f"{elo:+.2f}" if gain
                       else (f"{STARTING_ELO + elo:.1f}" if relative else f"{elo:.1f}")),
@@ -6143,13 +6172,42 @@ def leaderboard():
     # watched long after the tracker stopped, which is worse than saying
     # nothing at all.
     conn.close()
+
+    # A region link names a player, not a page - which page they sit on
+    # is a property of the board being opened, so only this route can
+    # know it. Redirecting (rather than rendering) keeps #p-<name> in the
+    # address bar, which is what the :target highlight matches on.
+    if find:
+        fkey = normalize_name(find)
+        for p in leaderboard_data:
+            if normalize_name(p['name']) == fkey:
+                return redirect('/?period=%s&region=%s&page=%d#p-%s' % (
+                    period, region, (p['rank'] - 1) // PER_PAGE + 1,
+                    quote(p['name'], safe='')))
+        # Not ranked on this board at all - show page one rather than
+        # a dead end.
+
+    # `total` stays the size of the whole board: it is the count the page
+    # reports, and a search must not appear to shrink the leaderboard.
+    total_ranked = len(leaderboard_data)
+    if q:
+        qkey = normalize_name(q)
+        leaderboard_data = [p for p in leaderboard_data
+                            if qkey in p['search']]
+    found = len(leaderboard_data)
+    pages = max(1, (found + PER_PAGE - 1) // PER_PAGE)
+    # Clamped, not 404'd: ?page=900 is a stale link, not an error.
+    pnum = min(max(pnum, 1), pages)
+    start = (pnum - 1) * PER_PAGE
+    leaderboard_data = leaderboard_data[start:start + PER_PAGE]
     return render_template('index.html', leaderboard=leaderboard_data,
                            periods=PERIODS, regions=REGION_CHOICES,
                            period=period, region=region, gain=gain,
                            region_label=REGION_LABELS[region],
                            period_label=dict(PERIODS)[period],
                            version=APP_VERSION, page='leaderboard',
-                           total=len(leaderboard_data))
+                           pnum=pnum, pages=pages, q=q, found=found,
+                           total=total_ranked)
 
 
 init_db()  # runs on import too, since WSGI hosts never execute __main__
