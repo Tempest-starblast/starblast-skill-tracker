@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.68.0"
+APP_VERSION = "5.69.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.69.0", "at": "2026-08-13T21:20:00Z", "changes": [
+        "A clan's own page is now purely public: the roster, its numbers, and who runs it. Everything a leader does - the invite link, applications, adding and removing, ranks, the region, deleting - is on Your clan, and only there.",
+        "The two things that belong to the visitor rather than to the clan stay on the public page: asking to join, and leaving a clan you are in.",
+    ]},
     {"version": "5.68.0", "at": "2026-08-13T20:55:00Z", "changes": [
         "The Clans page no longer manages your clan - the roster, the invite link and the rest of it are on the Your clan tab, and having them in two places only made it harder to find either.",
         "Your clan always shows who is waiting to join, and says so plainly when nobody is. It used to hide the whole section when the list was empty, which read as though the page could not do it at all.",

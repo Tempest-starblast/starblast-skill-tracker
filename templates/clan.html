@@ -27,38 +27,6 @@
 <p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
    added together. A match won by two clanmates therefore counts twice.</p></div>
 
-{% if clan.applications %}
-<div class="card" id="appsCard" style="display:none">
-  <h2>{{ t('Waiting to join') }}</h2>
-  <p class="desc">Anyone can ask to join. Accepting puts them on the roster and puts
-     {{ clan.tag }} on the front of the name they say they play as.</p>
-  <div class="tablewrap">
-  <table>
-  <thead><tr>
-    <th>Player</th><th class="rank">Rank</th><th class="mid">Record</th>
-    <th class="mid">Win%</th><th class="num">Skill</th><th class="mid"></th>
-  </tr></thead>
-  <tbody>
-  {% for a in clan.applications %}
-  <tr>
-    <td><a class="pname" href="/player/{{ a.name|urlencode }}">{{ a.name }}</a></td>
-    <td class="rank">#{{ a.rank }}</td>
-    <td class="mid">{{ a.wins }}-{{ a.losses }}</td>
-    <td class="mid">{{ a.winrate }}</td>
-    <td class="skill">{{ a.elo }}</td>
-    <td class="mid" style="white-space:nowrap">
-      <button class="primary" onclick="decideApp({{ a.id }}, true)">{{ t('Accept') }}</button>
-      <button class="danger" onclick="decideApp({{ a.id }}, false)">{{ t('Deny') }}</button>
-    </td>
-  </tr>
-  {% endfor %}
-  </tbody>
-  </table>
-  </div>
-  <p class="msg" id="appMsg"></p>
-</div>
-{% endif %}
-
 <div class="card" id="applyCard" style="display:none">
   <h2>Join {{ clan.display or clan.tag }}</h2>
   <p class="desc">Your application goes to whoever runs the clan. They see your rank,
@@ -74,57 +42,12 @@
 .role-coleader{color:#7fc4ff;border-color:#2d4a63}
 .role-moderator{color:#9adf9a;border-color:#2f5a34}
 </style>
-<div class="card" id="adminCard" style="display:none">
-  <h2>Manage {{ clan.display or clan.tag }}</h2>
-  <p class="desc">Adding someone who has an account sends them an invitation to accept.
-     A player with no account joins straight away if the tag is in their name.</p>
-  <div class="row">
-    <input type="text" id="memberInput" placeholder="Player name" maxlength="32" autocomplete="off">
-    <button class="primary" onclick="addMember()">{{ t('Add') }}</button>
-  </div>
-  <p class="msg" id="adminMsg"></p>
-  {% if clan.can_manage %}
-  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
-    <h3 class="sub">{{ t('Ranks') }}</h3>
-    <p class="desc">A <b>moderator</b> can remove ordinary members and nothing else.
-       A <b>co-leader</b> can do everything you can except delete the clan, remove
-       another co-leader, or appoint one. Nobody can remove someone of their own rank
-       or above. The player needs an account on the site to hold a rank.</p>
-    <div class="row">
-      <input type="text" id="roleName" placeholder="Player name" maxlength="32" autocomplete="off">
-      <select id="roleSel">
-        {% if clan.is_leader %}<option value="coleader">{{ t('Co-leader') }}</option>{% endif %}
-        <option value="moderator">{{ t('Moderator') }}</option>
-        <option value="">{{ t('Ordinary member') }}</option>
-      </select>
-      <button class="primary" onclick="setRole()">{{ t('Set rank') }}</button>
-    </div>
-    <p class="msg" id="roleMsg"></p>
-  </div>
-  {% endif %}
-  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
-    <p class="desc">Where this clan plays. It is shown on the clan table and links to
-       that region's leaderboard. Leave it blank if the clan is spread across regions.</p>
-    <div class="row">
-      <select id="regionSel">
-        <option value="">{{ t('Not set') }}</option>
-        {% for key, label in clan.regions %}
-        <option value="{{ key }}"{% if clan.region == key %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <button class="primary" onclick="saveRegion()">{{ t('Save region') }}</button>
-    </div>
-    <p class="msg" id="regionMsg"></p>
-  </div>
-</div>
-
 <div class="tablewrap">
 <table>
 <thead><tr>
   <th class="rank">#</th><th>{{ t('Player') }}</th>
   <th class="mid">{{ t('Record') }}</th><th class="mid">{{ t('Win%') }}</th><th class="num">{{ t('Skill') }}</th>
   <th class="mid">{{ t('Joined') }}</th><th class="mid">{{ t('Rank') }}</th>
-  <th class="mid" id="actionHead" style="display:none"></th>
 </tr></thead>
 <tbody>
 {% for m in clan.members %}
@@ -141,12 +64,9 @@
   <td class="skill">{{ m.elo }}</td>
   <td class="mid">{{ m.joined or '&mdash;'|safe }}</td>
   <td class="mid">{% if m.role_label %}<span class="rolechip role-{{ m.role }}">{{ m.role_label }}</span>{% endif %}</td>
-  <td class="mid actioncell" style="display:none">
-    <button class="ghost kick" onclick="removeMember(this)">Remove</button>
-  </td>
 </tr>
 {% else %}
-<tr><td colspan="6" class="empty">Nobody is in {{ clan.tag }} right now.</td></tr>
+<tr><td colspan="7" class="empty">Nobody is in {{ clan.display or clan.tag }} right now.</td></tr>
 {% endfor %}
 </tbody>
 </table>
@@ -161,7 +81,6 @@
   <p class="desc" id="meText"></p>
   <div class="adminbar">
     <button class="ghost" id="leaveBtn" onclick="leaveClan()" style="display:none">{{ t('Leave this clan') }}</button>
-    <button class="danger" id="deleteBtn" onclick="deleteClan()" style="display:none">{{ t('Delete this clan') }}</button>
   </div>
   <p class="msg" id="meMsg"></p>
 </div>
@@ -183,103 +102,33 @@ function say(id, ok, t){
   const m = document.getElementById(id);
   m.className = 'msg ' + (ok ? 'ok' : 'err'); m.textContent = t;
 }
-function showAdminBits(on){
-  document.getElementById('adminCard').style.display = on ? 'block' : 'none';
-  const apps = document.getElementById('appsCard');
-  if (apps) apps.style.display = on ? 'block' : 'none';
-  document.getElementById('actionHead').style.display = on ? '' : 'none';
-  document.querySelectorAll('.actioncell').forEach(function(td){
-    const row = td.closest('tr');
-    const mayKick = on && outranks(MY_ROLE, row ? row.dataset.role : '');
-    td.style.display = on ? '' : 'none';
-    td.querySelectorAll('button').forEach(function(b){
-      b.style.display = mayKick ? '' : 'none';
-    });
-  });
-  document.getElementById('deleteBtn').style.display =
-    (on && MY_ROLE === 'leader') ? 'inline-block' : 'none';
-}
 async function refresh(){
   try{
     const me = await (await fetch('/me')).json();
     if (!me.logged_in) return;
     myNames = me.names || [];
     MY_NAME = me.account_name || myNames[0] || '';
-    const st = await (await fetch('/clan/admin/state')).json();
-    amAdmin = (st.clans || []).some(function(x){ return x.tag === TAG; });
-    showAdminBits(amAdmin);
-    // Highlight your own row, and offer to leave if you are on the roster.
+    // Your own row highlighted, and Leave offered only if you are on it.
     let onRoster = false;
     document.querySelectorAll('tr[data-name]').forEach(function(tr){
       if (myNames.indexOf(tr.dataset.name) !== -1){ tr.classList.add('me'); onRoster = true; }
     });
-    if (MY_NAME && !amAdmin && !onRoster && !(me.clan)){
+    if (MY_NAME && !onRoster && !me.clan){
       document.getElementById('applyCard').style.display = 'block';
     }
-    if (amAdmin || onRoster){
+    if (onRoster){
       document.getElementById('meCard').style.display = 'block';
-      document.getElementById('leaveBtn').style.display = onRoster ? 'inline-block' : 'none';
+      document.getElementById('leaveBtn').style.display = 'inline-block';
       document.getElementById('meText').textContent =
-        (amAdmin ? 'You run ' + SHOWN + '. ' : 'You are in ' + SHOWN + '. ')
-        + (onRoster ? 'Your row is highlighted below.'
-                    : 'You are not on the roster - set a name and you will be added.');
+        'You are in ' + SHOWN + '. Your row is highlighted below.';
     }
   }catch(e){}
-}
-const MY_ROLE = {{ (clan.your_role or '')|tojson }};
-const RANKS = {leader: 3, coleader: 2, moderator: 1, '': 0};
-function outranks(mine, theirs){
-  return (RANKS[mine] || 0) > (RANKS[theirs] || 0);
-}
-async function setRole(){
-  const who = document.getElementById('roleName').value.trim();
-  if (!who) return say('roleMsg', false, 'Enter a player name.');
-  try{
-    const [r, d] = await post('/clan/role', {clan: TAG, name: who,
-                                             role: document.getElementById('roleSel').value});
-    say('roleMsg', d.ok, d.message);
-    if (d.ok) setTimeout(function(){ location.reload(); }, 1200);
-  }catch(e){ say('roleMsg', false, 'Server connection error.'); }
-}
-async function decideApp(id, accept){
-  try{
-    const [r, d] = await post('/clan/application/respond', {id: id, accept: accept});
-    say('appMsg', r.ok, d.message);
-    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
-  }catch(e){ say('appMsg', false, 'Server connection error.'); }
 }
 async function applyToClan(){
   try{
     const [r, d] = await post('/clan/apply', {clan: TAG, name: MY_NAME});
     say('applyMsg', r.ok, d.message);
   }catch(e){ say('applyMsg', false, 'Server connection error.'); }
-}
-async function saveRegion(){
-  const key = document.getElementById('regionSel').value;
-  try{
-    const [r, d] = await post('/clan/region', {clan: TAG, region: key});
-    say('regionMsg', r.ok, d.message);
-    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
-  }catch(e){ say('regionMsg', false, 'Server connection error.'); }
-}
-async function addMember(){
-  const who = document.getElementById('memberInput').value.trim();
-  if (!who) return say('adminMsg', false, 'Enter a player name.');
-  try{
-    const [r, d] = await post('/clan/add', {clan: TAG, name: who});
-    say('adminMsg', r.ok, d.message);
-    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
-  }catch(e){ say('adminMsg', false, 'Server connection error.'); }
-}
-async function removeMember(btn){
-  const row = btn.closest('tr');
-  const name = row.dataset.name;
-  if (!window.confirm('Remove ' + name + ' from ' + TAG + '?')) return;
-  try{
-    const [r, d] = await post('/clan/remove', {name: name});
-    say('adminMsg', r.ok, d.message);
-    if (r.ok) row.remove();
-  }catch(e){ say('adminMsg', false, 'Server connection error.'); }
 }
 async function leaveClan(){
   if (!window.confirm('Leave ' + TAG + '?' + (amAdmin ?
@@ -290,17 +139,6 @@ async function leaveClan(){
     if (d.ok) setTimeout(function(){ location.reload(); }, 1200);
   }catch(e){ say('meMsg', false, 'Server connection error.'); }
 }
-async function deleteClan(){
-  const typed = window.prompt('This cannot be undone. Type ' + TAG + ' to delete it.');
-  if (typed === null) return;
-  try{
-    const [r, d] = await post('/clan/delete', {clan: TAG, confirm: typed.trim()});
-    say('meMsg', r.ok, d.message);
-    if (r.ok) setTimeout(function(){ location.href = '/clans'; }, 1500);
-  }catch(e){ say('meMsg', false, 'Server connection error.'); }
-}
-window.onSignedInReady = refresh;
-window.addEventListener('DOMContentLoaded', refresh);
 </script>
 {% else %}
 <h1 class="ptitle">Not found</h1>
