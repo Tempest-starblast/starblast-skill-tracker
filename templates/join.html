@@ -37,10 +37,22 @@
   </p>
 
   {% elif join_state == 'no_name' %}
-  <p class="desc">You are signed in, but no leaderboard name is yours yet. A clan is a
-     list of names, so there has to be one to add. Claim yours on
-     <a style="color:var(--green);font-weight:600" href="/settings">Manage your name</a>
-     and then open this link again.</p>
+  <p class="desc">You are signed in. A clan is a list of names, so tell us the name you
+     play under in Starblast and it becomes yours here &mdash; then you can accept.</p>
+  <div class="row">
+    <input type="text" id="newName" maxlength="16" autocomplete="off"
+           placeholder="Your name in Starblast">
+    <button class="primary" onclick="setName()">Use this name</button>
+  </div>
+  <p class="msg" id="nameMsg"></p>
+  <div id="claimBox" style="display:none;margin-top:12px;padding-top:12px;
+       border-top:1px solid var(--line)">
+    <p class="desc">That name is already on the leaderboard, so it has to be claimed
+       rather than taken. A claim becomes yours the next time that name wins a tracked
+       match &mdash; or {{ contact }} can approve it sooner.</p>
+    <button class="primary" onclick="claimName()">{{ t('Claim it') }}</button>
+    <p class="msg" id="claimMsg"></p>
+  </div>
 
   {% elif join_state == 'already_in' %}
   <p class="desc">You are already in {{ display }}, as <b>{{ who }}</b>. Nothing to do.</p>
@@ -68,6 +80,38 @@
 <p class="foot">Questions? Ask {{ contact }} on Discord.</p>
 
 <script>
+function say(id, ok, text){
+  const m = document.getElementById(id);
+  m.className = 'msg ' + (ok ? 'ok' : 'err');
+  m.textContent = text;
+}
+async function post(url, body){
+  const r = await fetch(url, {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return [r, await r.json()];
+}
+async function setName(){
+  const name = document.getElementById('newName').value.trim();
+  if (!name) return say('nameMsg', false, 'Enter the name you play under.');
+  try{
+    const [r, d] = await post('/account/name', {name: name});
+    say('nameMsg', r.ok, d.message);
+    // 409 means the name is already on the board unowned, which is what
+    // claiming is for. Anything else is a plain refusal.
+    document.getElementById('claimBox').style.display = (r.status === 409) ? 'block' : 'none';
+    // The page decides what to show from the server, so reload rather than
+    // trying to reshape it here.
+    if (r.ok) setTimeout(function(){ location.reload(); }, 900);
+  }catch(e){ say('nameMsg', false, 'Server connection error.'); }
+}
+async function claimName(){
+  const name = document.getElementById('newName').value.trim();
+  if (!name) return say('claimMsg', false, 'Enter the name you play under.');
+  try{
+    const [r, d] = await post('/claim', {name: name, note: 'Claimed from a clan invite'});
+    say('claimMsg', r.ok, d.message);
+  }catch(e){ say('claimMsg', false, 'Server connection error.'); }
+}
 async function accept(){
   const m = document.getElementById('joinMsg');
   try{

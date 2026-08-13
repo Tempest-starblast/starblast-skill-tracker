@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.65.1"
+APP_VERSION = "5.66.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.66.0", "at": "2026-08-13T04:50:00Z", "changes": [
+        "An invite link now takes you the whole way. Sign in with Discord, type the name you play under, and accept - all on the one page. It used to stop after signing in and send you off to Settings to set a name, then back again.",
+        "If the name you type is already on the leaderboard, the page offers to claim it instead and explains what that means, rather than just refusing.",
+    ]},
     {"version": "5.65.1", "at": "2026-08-13T04:30:00Z", "changes": [
         "An invite link now takes you straight to the Discord sign-in instead of showing a page with a sign-in button on it. Once you are back, the clan and the Accept button are waiting. If you are already signed in the link opens on the Accept button directly, as before.",
     ]},
