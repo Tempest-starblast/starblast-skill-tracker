@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.79.0"
+APP_VERSION = "5.79.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1692,6 +1692,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.79.1", "at": "2026-08-14T06:20:00Z", "changes": [
+        "Corrected the Info page, which had the two names the wrong way round. Your account name is the leaderboard row that is yours; your play name is what you are called in game right now. It is the play name that has to match your ship, and checking in is what carries the result from one to the other.",
+    ]},
     {"version": "5.79.0", "at": "2026-08-14T06:10:00Z", "changes": [
         "The Info page has been rewritten. It is shorter, in plainer words, and it now covers the parts of the site that did not exist when it was written - clans, ranks, applying, invite links, the Your clan tab, languages and the Discord bot.",
         "It opens with the three steps that actually get you on the leaderboard, and ends with the four questions people ask most.",
