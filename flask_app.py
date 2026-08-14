@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.77.0"
+APP_VERSION = "5.79.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1692,6 +1692,14 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.79.0", "at": "2026-08-14T06:10:00Z", "changes": [
+        "The Info page has been rewritten. It is shorter, in plainer words, and it now covers the parts of the site that did not exist when it was written - clans, ranks, applying, invite links, the Your clan tab, languages and the Discord bot.",
+        "It opens with the three steps that actually get you on the leaderboard, and ends with the four questions people ask most.",
+    ]},
+    {"version": "5.78.0", "at": "2026-08-14T06:00:00Z", "changes": [
+        "Settings now asks once for the name you play under, instead of making you choose between two boxes. If nobody has that name it is simply yours; if it is already on the leaderboard the page offers to claim it and explains why that takes a tracked win.",
+        "Nothing about existing accounts changed - the same two rules, the same refusals, asked as one question.",
+    ]},
     {"version": "5.77.0", "at": "2026-08-14T06:15:00Z", "changes": [
         "Clan members with no special rank now read as Member rather than leaving the rank column blank. Everyone in a clan is a member; some are also something else.",
     ]},

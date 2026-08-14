@@ -24,24 +24,32 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   </div>
   <div id="signedIn" style="display:none">
     <p class="current" id="currentName">No name set yet. <span>Pick one below.</span></p>
+    <p class="desc">The name you play under in Starblast, exactly as it appears in the
+       game. Your matches are recorded against it, so a different name here means a
+       different player as far as the tracker is concerned.</p>
     <div class="row">
-      <input type="text" id="accName" placeholder="e.g. ASESINO" maxlength="16" autocomplete="off">
+      <input type="text" id="accName" placeholder="Your name in Starblast" maxlength="16" autocomplete="off">
       <button class="primary" onclick="saveName()">Save</button>
     </div>
     <p class="msg" id="nameMsg"></p>
+    <div id="takenBox" style="display:none;margin-top:12px;padding-top:12px;
+         border-top:1px solid var(--line)">
+      <p class="desc">That name is already on the leaderboard, so it has to be claimed
+         rather than taken - it may carry somebody's record. A claim becomes yours the
+         next time that name wins a tracked match, or {{ contact }} can approve it
+         sooner.</p>
+      <input type="text" id="claimNote" placeholder="Why is it yours? (optional)"
+             maxlength="200" autocomplete="off">
+      <button class="primary" style="margin-top:9px" onclick="doClaim()">{{ t('Claim it') }}</button>
+      <p class="msg" id="claimMsg"></p>
+    </div>
 
     
   </div>
 </div>
 
 <div class="card" id="claimCard" style="display:none">
-  <h2>Already on the leaderboard?</h2>
-  <div class="row">
-    <input type="text" id="claimName" placeholder="The name on the leaderboard" maxlength="16" autocomplete="off">
-    <input type="text" id="claimNote" placeholder="Why is it yours? (optional)" maxlength="200" autocomplete="off">
-    <button class="primary" onclick="doClaim()">Claim</button>
-  </div>
-  <p class="msg" id="claimMsg"></p>
+  <h2>Claims you are waiting on</h2>
   <div id="pendingClaims" style="display:none;margin-top:14px;padding-top:12px;
        border-top:1px solid var(--line)">
     <p class="desc">Waiting on a tracked win. Withdraw one if you asked for it by
@@ -125,6 +133,10 @@ async function saveName(){
   try{
     const [r,d]=await post('/account/name',{name:n});
     say('nameMsg',r.ok,d.message);
+    // 409 is the server saying that name is already on the leaderboard,
+    // which is what claiming is for. Offer it rather than making the
+    // player work out which of two boxes they needed.
+    document.getElementById('takenBox').style.display = (r.status===409) ? 'block' : 'none';
     if(r.ok){ myName=n; showName(); loadProt(); }
   }catch(e){ say('nameMsg',false,'Server connection error.'); }
 }
@@ -158,14 +170,19 @@ async function withdrawClaim(name){
   }catch(e){ say('withdrawMsg', false, 'Server connection error.'); }
 }
 async function doClaim(){
-  const n=document.getElementById('claimName').value.trim();
+  // The name comes from the one field above - the same one they just
+  // tried to take.
+  const n=document.getElementById('accName').value.trim();
   const note=document.getElementById('claimNote').value.trim();
-  if(!n){ say('claimMsg',false,'Enter the name you want to claim.'); return; }
+  if(!n){ say('claimMsg',false,'Enter the name you play under first.'); return; }
   try{
     const [r,d]=await post('/claim',{name:n,note:note});
     say('claimMsg',r.ok,d.message);
-    if(r.ok) loadClaims();
-    if(r.ok){ document.getElementById('claimName').value=''; document.getElementById('claimNote').value=''; }
+    if(r.ok){
+      loadClaims();
+      document.getElementById('claimNote').value='';
+      document.getElementById('takenBox').style.display='none';
+    }
   }catch(e){ say('claimMsg',false,'Server connection error.'); }
 }
 

@@ -1,244 +1,167 @@
 {% extends "base.html" %}
 {% block title %}Info - Starblast Skill Tracker{% endblock %}
 {% block css %}
-.card p{color:var(--muted);font-size:14px;line-height:1.75;margin:0 0 12px}
-.card p:last-child{margin-bottom:0}
-.card b{color:var(--text)}
-.card p a{color:var(--green)}
-.sechead{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.9px;
-  margin:28px 0 10px}
-.sechead.first{margin-top:0}
+.info h2{font-size:14px;letter-spacing:1.4px;text-transform:uppercase;color:#cfeefc;
+  margin:0 0 10px;text-shadow:0 0 6px rgba(153,221,255,.35)}
+.info p{color:var(--muted);font-size:14px;line-height:1.7;margin:0 0 10px}
+.info p:last-child{margin-bottom:0}
+.info b{color:var(--text)}
+.info .lead{font-size:15px;color:var(--text)}
+.info ol,.info ul{color:var(--muted);font-size:14px;line-height:1.8;margin:0 0 10px;
+  padding-left:20px}
+.info li{margin-bottom:4px}
+.info a{color:var(--blue)}
+.qa{font-size:14px;color:var(--muted);line-height:1.7}
+.qa b{display:block;color:var(--text);margin-top:12px}
+.qa b:first-child{margin-top:0}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Info</h1>
-<p class="psub">Every explanation on the site, in one place &mdash; what the tracker watches,
-   how the rating moves, and what each page is for.</p>
+<p class="psub">How this site works, in short.</p>
 
-<div class="sechead first">The tracker</div>
+<div class="info">
 
 <div class="card">
-  <h2>Where the results come from</h2>
-  <p>A bot watches live team-mode lobbies around the clock. It waits for the match to finish,
-     works out which team won, and updates everyone who played. It never joins as a playing
-     ship. It only watches.</p>
-  <p>Player names come straight from the game itself, exactly as they are spelled &mdash;
-     nothing is read off the screen any more, so unusual names are no longer misread.</p>
+  <h2>What this is</h2>
+  <p class="lead">A skill ranking for Starblast team mode. Play team games, win, and your
+     rating goes up. Nothing to install and nothing to sign up for &mdash; you are on the
+     board as soon as you win a match we are watching.</p>
 </div>
 
 <div class="card">
-  <h2>Which matches get watched</h2>
-  <p>Only <b>{{ capacity }} matches</b> are watched at a time, across every region. A match is
-     picked up once it is <b>{{ min_age_mins }} minutes old</b> &mdash; games rarely end before
-     then, so watching earlier would waste a slot &mdash; and a lobby needs a few players and
-     to be under {{ max_age_mins }} minutes old to be worth one.</p>
-  <p>A game that never gets tracked counts for nobody.</p>
+  <h2>Getting started</h2>
+  <ol>
+    <li>Open the <a href="/play">Play</a> tab and pick a match marked as tracked.</li>
+    <li>Press <b>Play</b>. Your name is copied, ready to paste into Starblast.</li>
+    <li>Play the game. When it ends, the result appears here within a minute.</li>
+  </ol>
+  <p>That is all that is required. Signing in is optional and only needed for the extras
+     below.</p>
 </div>
 
-<div class="sechead">The rating</div>
+<div class="card">
+  <h2>Which games count</h2>
+  <p>We can only watch a few matches at a time, so not every game counts. A match is
+     watchable once it is <b>20 minutes old</b>, until it is 90 minutes old, and it needs
+     at least four players.</p>
+  <p>The <a href="/play">Play</a> tab shows exactly which lobbies are being watched right
+     now. If a game is not on that list, nothing from it is recorded &mdash; it does not
+     arrive later.</p>
+</div>
 
 <div class="card">
-  <h2>Your skill rating</h2>
+  <h2>Your rating</h2>
   <p>Everyone starts at <b>{{ starting_elo }}</b>. A match moves you by at most
-     <b>{{ elo_k }}</b> points either way.</p>
-  <p>How much you move depends on who you beat. Winning against a stronger side gains close to
-     the full amount; beating a much weaker side gains almost nothing. Losing works the same in
-     reverse &mdash; losing as the favourite costs the most, losing to a much stronger side
-     costs almost nothing. Two evenly matched teams move by exactly one point.</p>
-  <p>A team's strength is the average of its two highest rated players, not everyone on it.
-     The practical effect: farming weaker teams will not inflate your rating &mdash; climbing
-     means beating people who are themselves rated highly.</p>
+     <b>{{ elo_k }}</b> points.</p>
+  <p>How much you move depends on who you beat. Beating a stronger side gains close to the
+     full amount; beating a much weaker one gains almost nothing. Losing works the same in
+     reverse. Two even teams move by exactly one point.</p>
+  <p>A team's strength is the average of its two best players, so farming weak teams will
+     not lift you &mdash; climbing means beating people who are rated highly themselves.</p>
 </div>
 
 <div class="card">
-  <h2>Full elo and half elo</h2>
-  <p>Be in a match before the tracker starts watching it and it counts in <b>full</b>. Join
-     one already being watched and it still counts, at <b>half</b> &mdash; on either side,
-     winners and losers alike. What matters is whether you were in the match when the watch
-     began; there is no deadline beyond that. The <a href="/play">Play</a> list marks which is
-     which before you join.</p>
+  <h2>Full and half</h2>
+  <p>If you were already in the match when we started watching, it counts in full. Join a
+     match that is already being watched and it still counts, at <b>half</b> &mdash; for
+     winners and losers alike. The Play tab says which is which before you join.</p>
 </div>
 
 <div class="card">
-  <h2>Quitting does not dodge a loss</h2>
-  <p>A losing team is charged as its fullest roster, not as whoever was still there at the
-     end &mdash; leaving early when a match turns bad does not avoid the loss.</p>
-  <p>And a player who finishes on <b>exactly 0 score</b> is not rated at all, win or lose.
-     Being in the lobby is not the same as playing.</p>
+  <h2>Two rules worth knowing</h2>
+  <p><b>Leaving early does not dodge a loss.</b> A losing team is charged as its fullest
+     roster, not as whoever was still there at the end.</p>
+  <p><b>A score of exactly 0 is not rated at all</b>, win or lose. Sitting in a lobby is
+     not playing.</p>
 </div>
 
 <div class="card">
-  <h2>How a winner is decided</h2>
-  <p>A match is only scored once its lobby actually closes. A team is out when its station is
-     destroyed <b>and</b> it has no players left &mdash; a damaged station alone means
-     nothing; teams play on with damaged stations. If one team remains, it wins. If station
-     damage cannot separate the survivors, the higher team score decides.</p>
-  <p>When the result genuinely cannot be determined, nothing is recorded. A missing match is
-     better than a wrong one.</p>
-</div>
-
-<div class="sechead">The leaderboard</div>
-
-<div class="card">
-  <h2>One combined board, and one per region</h2>
-  <p>The combined view shows one rating per player &mdash; the number every region has been
-     feeding. Each region is also its own leaderboard, because a rating earned against one
-     continent is not the same achievement as one earned against another; matches played in a
-     region count towards that region's board.</p>
-  <p>On the combined board the <b>Region</b> column shows where each player turns up most
-     &mdash; click it to open that region's leaderboard at that player's own row. Their
-     profile has the full split if they play in more than one.</p>
+  <h2>Your name</h2>
+  <p>Results are attached to the <b>name the game reports</b> &mdash; that is all the
+     tracker ever sees. So the name on your account here has to be the one you actually
+     play under, character for character.</p>
+  <p>Sign in, go to <a href="/settings">Settings</a>, and type that name. If nobody has it,
+     it is yours immediately. If it is already on the board with a record, the page offers
+     to <b>claim</b> it instead: the name becomes yours the next time it wins a tracked
+     match, which is how we know it is really you.</p>
 </div>
 
 <div class="card">
-  <h2>Why a profile's regional splits may not add up</h2>
-  <p>The per-region breakdown on a player's profile is counted from stored match history,
-     which began on <b>7 August</b>. For anyone already on the board before then, those rows
-     will not add up to the totals at the top of their profile.</p>
+  <h2>Checking in, and the green tick</h2>
+  <p>Pressing <b>Play</b> before a match tells us you are in it, so the result reaches your
+     account whatever name you end up using.</p>
+  <p>A <b>&#10003;</b> beside a name means that player has Protection switched on: only
+     matches they checked into count for them. It is a stricter, slower rating, and it is
+     optional &mdash; find it in <a href="/settings">Settings</a>.</p>
 </div>
 
 <div class="card">
-  <h2>Time windows</h2>
-  <p><b>All time</b> shows the rating itself. The 30-day, 7-day and 24-hour views rank by
-     rating <b>gained</b> in that window, because a rating is one running number and cannot be
-     cut into days or weeks &mdash; so somebody who arrived yesterday and won can outrank a
-     long-standing name who sat out.</p>
+  <h2>Clans</h2>
+  <p>A clan is a group of players who share a tag. Its page shows the roster ranked by
+     skill, the combined record, and where the clan plays.</p>
+  <p><b>Joining one.</b> Open the clan's page and press <b>Apply to join</b>, or use an
+     invite link its leader gives you. Either way the leader decides. If your in-game name
+     already carries the clan's tag when the clan is created, you are added automatically.</p>
+  <p><b>Your tag is shown exactly as it is written</b> &mdash; fancy letters and all. The
+     plain-letter version is only used behind the scenes, so that every styling of a tag
+     counts as one clan and searching for it works either way.</p>
+  <p><b>Ranks.</b> A leader can appoint co-leaders and moderators. A moderator removes
+     ordinary members; a co-leader does everything the leader can except delete the clan or
+     touch another co-leader. Nobody can remove someone of their own rank or above.</p>
 </div>
 
 <div class="card">
-  <h2>The green tick</h2>
-  <p>A <span style="color:var(--green)">&#10003;</span> beside a name marks a confirmed
-     rating: that player has Protection on, so only matches they checked into count.</p>
-</div>
-
-<div class="sechead">Play</div>
-
-<div class="card">
-  <h2>Checking in</h2>
-  <p>Press <b>Play</b> on the match you are about to join and it counts for your account
-     &mdash; whatever name you end up playing under. Pressing Play notes the moment you
-     clicked; the next ship to appear in that lobby <b>under the name you play as</b> is taken
-     to be you, and from then on you are matched to that ship rather than to the spelling
-     &mdash; so two players sharing a name no longer interfere.</p>
-  <p>Keep the in-game name on the <a href="/play">Play</a> page the same as the one in your
-     ship, or there is nothing to match you to.</p>
+  <h2>Running a clan</h2>
+  <p>Clans are handed out by hand. Ask on the <a href="/clans">Clans</a> page and
+     {{ contact }} approves or turns it down on Discord. If you are turned down you may ask
+     again.</p>
+  <p>Once approved you claim your tag, and a <b>Your clan</b> tab appears with everything in
+     one place: the invite link, who is waiting to join, the roster, ranks, the region, and
+     deleting the clan.</p>
 </div>
 
 <div class="card">
-  <h2>Your name rides the clipboard</h2>
-  <p>Pressing Play also copies your in-game name, so you can paste it straight into the name
-     box when Starblast opens. The name cannot travel in the link itself: Starblast fills its
-     box from its own browser storage and ignores the address, and no site is allowed to write
-     another site's storage &mdash; so pasting is as close as this can get.</p>
-</div>
-
-<div class="sechead">Names, accounts and claims</div>
-
-<div class="card">
-  <h2>Two names, two jobs</h2>
-  <p>Your <b>account name</b> is how you appear on the leaderboard and how other players
-     recognise you &mdash; so after it is first set it can only be changed once, in
-     <a href="/settings">Settings</a>. Changing it keeps your whole record; it cannot be used
-     to shed a bad rating.</p>
-  <p>Your <b>in-game name</b> &mdash; the one in your ship &mdash; is set on
-     <a href="/play">Play</a> and you can change it as much as you like. Results always go to
-     your account, whichever name you played under.</p>
-  <p>Your rating belongs to your signed-in account (Google or Discord). Being on the same
-     network as someone else counts for nothing.</p>
+  <h2>Languages</h2>
+  <p>Pick a language at the bottom of any page &mdash; English, Espa&ntilde;ol,
+     Fran&ccedil;ais, Deutsch, Italiano, &#1056;&#1091;&#1089;&#1089;&#1082;&#1080;&#1081;,
+     Ti&#7871;ng Vi&#7879;t or &#20013;&#25991;. Buttons and headings are translated; the
+     longer explanations are still English.</p>
 </div>
 
 <div class="card">
-  <h2>Claiming a name that is already on the board</h2>
-  <p>If a name on the leaderboard is really yours, claim it rather than picking a new one
-     &mdash; claiming keeps everything that name has already won. It becomes yours once it
-     wins {{ wins_required }} tracked match{{ '' if wins_required == 1 else 'es' }} after you
-     file the claim. The claim is shown publicly on that player's page while it is open, so
-     the real owner can see it and report it.</p>
-</div>
-
-<div class="sechead">Protection</div>
-
-<div class="card">
-  <h2>Only count the matches I check into</h2>
-  <p>If someone plays under your name, turn on <b>Protection</b> in
-     <a href="/settings">Settings</a>. Your rating then rests only on games you confirmed by
-     pressing Play first, and nobody wearing your name can move it. The leaderboard marks it
-     with the green tick.</p>
-  <p>It can only be flipped once every 24 hours. Without the cooldown it would be a switch to
-     throw the moment a match looked like going badly &mdash; off while winning, on to void
-     the losses. The rating only means something if the choice is made in advance and lived
-     with.</p>
-</div>
-
-<div class="sechead">When results go missing</div>
-
-<div class="card">
-  <h2>Why a win might not show up</h2>
-  <p><b>The match was not watched.</b> Only {{ capacity }} lobbies are watched at once, and a
-     match nobody was watching cannot be scored afterwards.</p>
-  <p><b>The result was unclear.</b> If the tracker cannot tell who won, it records nothing
-     rather than guessing.</p>
-  <p><b>You finished on 0 score.</b> Those are never rated, win or lose.</p>
-  <p><b>You are using a default name.</b> Names the game hands out are shared by many players,
-     so they are never rated.</p>
-  <p><b>Two people had your name</b> and neither checked in. Pressing Play matches you to your
-     ship, which is exactly the fix.</p>
-</div>
-
-<div class="sechead">Clans</div>
-
-<div class="card">
-  <h2>Switched off for now</h2>
-  <p>A clan tag used to be guessed from the front of a player's name, and those guesses were
-     frequently wrong. Clans come back once there is enough real match history under the new
-     system &mdash; membership will then be something a clan admin confirms, so a player joins
-     because their clan added them, not because of how their name is spelled.</p>
-  <p>If you run a clan and want it set up when this reopens, say so to {{ contact }} on
-     Discord.</p>
-</div>
-
-<div class="sechead">Privacy</div>
-
-<div class="card">
-  <h2>What the site knows about you</h2>
-  <p>If you sign in: an opaque account number from Google, or your Discord id and username
-     (Discord sign-in asks for the narrowest scope Discord offers, and the bot needs the
-     handle to recognise you). The names you register or play under, your match history and
-     scores. That is the complete list.</p>
+  <h2>Discord</h2>
+  <p>The bot does nearly everything this site does &mdash; leaderboards, your profile,
+     clans, applying, and setting ranks. Ask {{ contact }} for an invite, then use
+     <b>/help</b> to see the commands.</p>
 </div>
 
 <div class="card">
-  <h2>What it does not keep</h2>
-  <p><b>No IP addresses.</b> Not when you press Play, not when you sign in, not on reports
-     or claims. Everything stored before this policy has been wiped. Rate limiting &mdash;
-     the only thing addresses were ever used for &mdash; now works on an irreversible coded
-     tag whose key is kept outside the database, and the tags expire within two days. There
-     is no query anyone can run against this database that turns a player into an
-     address.</p>
-  <p><b>No email addresses, no passwords, ever.</b> Sign-in happens on Google's or
-     Discord's own pages; this site never sees a password, and the email inside Google's
-     sign-in token is discarded, not stored.</p>
+  <h2>What we know about you</h2>
+  <p><b>No IP addresses are stored.</b> Not when you visit, not when you press Play, not
+     when you sign in.</p>
+  <p>Signing in with Discord gives us your account id and handle. Google gives an account
+     id. That is all &mdash; no email, and nothing that could be used to contact you.</p>
+  <p>The site's code is public, so any of this can be checked rather than taken on trust.</p>
 </div>
 
 <div class="card">
-  <h2>The honest caveat</h2>
-  <p>The web server this site runs on keeps standard access logs &mdash; visitor address
-     next to URL, with no player name attached &mdash; for about a week before they delete
-     themselves. Every website on the internet has these, Starblast included, and they
-     cannot be switched off on this hosting plan. What matters is that nothing ties an
-     address to a name, here or anywhere.</p>
+  <h2>Common questions</h2>
+  <div class="qa">
+    <b>I won but nothing happened.</b>
+    The match was probably not one of the watched ones. The Play tab lists them before you
+    join.
+    <b>My name is on the board twice.</b>
+    A different spelling counts as a different player, because that is all the game reports.
+    Claim the one you actually play under.
+    <b>The board reset.</b>
+    Ratings are still being tested and may be wiped again. Nothing you do is wasted; the
+    board just starts over.
+    <b>Something looks wrong.</b>
+    Say so on <a href="/reports">Report</a> or tell {{ contact }} on Discord. It is read by
+    a person.
+  </div>
 </div>
 
-<div class="sechead">Reporting a problem</div>
-
-<div class="card">
-  <h2>It is read by a person</h2>
-  <p>Something broken, a result that looks wrong, or an idea &mdash; send it from the
-     <a href="/reports">Report</a> page. What helps most: the <b>name you were playing
-     under</b> and roughly <b>when</b> the match was; whether you <b>pressed Play</b> on that
-     match first; and for anything on the site, what you <b>clicked</b> and what happened
-     instead.</p>
-  <p>Sign in before sending if you can &mdash; a report with an account attached can be
-     answered, and checked against your matches.</p>
 </div>
 
 <p class="foot">Questions? Ask {{ contact }} on Discord.</p>
