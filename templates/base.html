@@ -1,74 +1,88 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Starblast Team Mode Skill Tracker{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Play:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 {% block head %}{% endblock %}
 <style>
 :root{
-  /* Starblast's own palette: deep space, ion trails, warning amber. The
-     variable names are unchanged from the old flat theme, so every page's
-     own CSS keeps working - only what they point at has moved. */
-  --bg:#070a12; --panel:rgba(20,26,42,.72); --panel2:rgba(13,18,31,.75);
-  --line:rgba(126,164,255,.13);
-  --text:#e8ecf7; --muted:#8b96b4; --dim:#5d6884;
-  --green:#31e5a4; --blue:#59c2ff; --red:#ff5670; --amber:#ffc757;
-  --glow:0 0 22px rgba(49,229,164,.30);
-  --card:#141a2a;
+  /* starblast.io's actual palette, read off the live menu: ice-cyan text
+     rgba(204,245,255,.9), cyan glow #99ddff, flat black translucent
+     panels, near-square corners. Names unchanged - pages depend on them. */
+  --bg:#04060b; --panel:rgba(2,10,18,.62); --panel2:rgba(1,6,12,.72);
+  --line:rgba(153,221,255,.16);
+  --text:rgba(204,245,255,.92); --muted:#7fa3b8; --dim:#4e6b7d;
+  --green:#66e6b8; --blue:#9adcff; --red:#ff5670; --amber:#ffc757;
+  --glow:0 0 7px rgba(153,221,255,.8);
+  --card:#050d16;
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
 body{
-  font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;margin:0;
+  font-family:'Play','Segoe UI',Verdana,sans-serif;margin:0;
   background:var(--bg);color:var(--text);
-  /* Two nebulae and a starfield, all painted rather than downloaded -
-     the page still costs one request. */
+  /* A dusty nebula, painted - starblast's backdrop is muted browns and
+     violets, nothing saturated. */
   background-image:
-    radial-gradient(1100px 620px at 12% -8%, rgba(49,229,164,.13), transparent 60%),
-    radial-gradient(900px 560px at 92% 4%, rgba(120,88,255,.15), transparent 62%),
-    radial-gradient(700px 700px at 50% 108%, rgba(89,194,255,.08), transparent 60%);
+    radial-gradient(1200px 700px at 70% 20%, rgba(96,64,96,.16), transparent 60%),
+    radial-gradient(900px 600px at 15% 80%, rgba(48,64,112,.14), transparent 62%),
+    radial-gradient(600px 400px at 45% 45%, rgba(120,88,64,.07), transparent 60%);
   background-attachment:fixed;
 }
-body::before{
-  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
-  background-image:
-    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,.55), transparent),
-    radial-gradient(1px 1px at 70% 18%, rgba(255,255,255,.40), transparent),
-    radial-gradient(1px 1px at 40% 72%, rgba(255,255,255,.35), transparent),
-    radial-gradient(1px 1px at 88% 62%, rgba(255,255,255,.45), transparent),
-    radial-gradient(1px 1px at 12% 85%, rgba(255,255,255,.30), transparent);
+/* Two star layers drifting at different speeds, one twinkling - the menu
+   feel of the game itself. Painted, so still zero requests. */
+body::before,body::after{
+  content:'';position:fixed;inset:-60% -60% 0 0;pointer-events:none;z-index:0;
+  background-repeat:repeat;
 }
+body::before{
+  background-image:
+    radial-gradient(1.5px 1.5px at 25px 35px, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 125px 90px, rgba(204,245,255,.6), transparent),
+    radial-gradient(1px 1px at 220px 160px, rgba(255,255,255,.45), transparent),
+    radial-gradient(2px 2px at 80px 210px, rgba(153,221,255,.5), transparent),
+    radial-gradient(1px 1px at 290px 60px, rgba(255,255,255,.5), transparent);
+  background-size:340px 260px;
+  animation:drift 240s linear infinite;
+}
+body::after{
+  background-image:
+    radial-gradient(1px 1px at 60px 20px, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 180px 140px, rgba(204,245,255,.4), transparent),
+    radial-gradient(1.5px 1.5px at 340px 220px, rgba(255,255,255,.35), transparent);
+  background-size:420px 300px;
+  animation:drift 400s linear infinite reverse, twinkle 7s ease-in-out infinite;
+}
+@keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(340px,260px,0)}}
+@keyframes twinkle{0%,100%{opacity:.9}50%{opacity:.35}}
+@keyframes pulse{0%,100%{text-shadow:0 0 7px rgba(153,221,255,.85)}
+  50%{text-shadow:0 0 16px rgba(153,221,255,.5)}}
 .topbar,.page{position:relative;z-index:1}
 a{color:inherit}
 
-.topbar{
-  background:linear-gradient(180deg, rgba(10,14,24,.92), rgba(10,14,24,.66));
-  border-bottom:1px solid var(--line);padding:16px 20px;
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-}
+.topbar{background:rgba(1,6,12,.78);border-bottom:1px solid var(--line);padding:16px 20px}
 .brandrow{max-width:1100px;margin:0 auto 14px;display:flex;align-items:center;gap:12px}
 .brand{flex:1;text-align:center}
 .brand a{
-  text-decoration:none;font-size:18px;font-weight:800;letter-spacing:1.4px;
-  text-transform:uppercase;
-  background:linear-gradient(92deg,#31e5a4,#59c2ff 55%,#a78bfa);
-  -webkit-background-clip:text;background-clip:text;color:transparent;
+  color:#fff;text-decoration:none;font-size:19px;font-weight:700;
+  letter-spacing:3px;text-transform:uppercase;
+  animation:pulse 4s ease-in-out infinite;
 }
 .authbox{flex-shrink:0;display:flex;align-items:center;gap:9px;min-height:34px}
 .authname{font-size:13px;color:var(--muted);max-width:150px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .authname b{color:var(--text)}
-.authbox button{padding:7px 13px;font-size:12px;background:rgba(255,255,255,.06);
-  border:1px solid var(--line);color:var(--muted);border-radius:999px}
-.authbox button:hover{background:rgba(255,255,255,.12);color:#fff}
+.authbox button{padding:7px 13px;font-size:12px;background:rgba(0,0,0,.45);
+  border:1px solid var(--line);color:var(--muted);border-radius:3px}
+.authbox button:hover{border-color:rgba(153,221,255,.5);color:#fff}
 #authOut{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;
+.dbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:3px;
   background:#5865F2;color:#fff;font-size:12px;font-weight:600;text-decoration:none;
-  border:1px solid #5865F2;line-height:1;white-space:nowrap;
-  box-shadow:0 0 18px rgba(88,101,242,.45)}
+  border:1px solid #5865F2;line-height:1;white-space:nowrap}
 .dbtn:hover{background:#4752c4;border-color:#4752c4;color:#fff}
-.resetwarn{max-width:1100px;margin:14px auto 0;padding:11px 15px;border-radius:12px;
-  background:linear-gradient(180deg, rgba(224,79,95,.16), rgba(224,79,95,.07));
-  border:1px solid rgba(224,79,95,.42);color:#ffc3ca;font-size:13px;line-height:1.5}
+.resetwarn{max-width:1100px;margin:14px auto 0;padding:11px 15px;border-radius:3px;
+  background:rgba(64,10,18,.5);border:1px solid rgba(255,86,112,.4);
+  color:#ffc3ca;font-size:13px;line-height:1.5}
 .resetwarn b{color:#ff8a95}
 .resetwarn a{color:#ff8a95}
 .authspacer{width:0}
@@ -79,94 +93,91 @@ a{color:inherit}
   .authspacer{display:none}
 }
 
-.tabs{max-width:1100px;margin:0 auto;display:flex;gap:4px;padding:5px;overflow-x:auto;
-  background:rgba(10,14,24,.6);border:1px solid var(--line);border-radius:14px;
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-.tabs a{flex:1;text-align:center;padding:11px 12px;border-radius:10px;text-decoration:none;
-  color:var(--muted);font-size:13.5px;font-weight:700;white-space:nowrap;
-  letter-spacing:.3px;transition:color .15s, background .15s}
-.tabs a:hover{color:var(--text);background:rgba(255,255,255,.05)}
-.tabs a.on{background:linear-gradient(135deg,#31e5a4,#22c39a);color:#04140e;
-  box-shadow:var(--glow)}
+.tabs{max-width:1100px;margin:0 auto;display:flex;gap:3px;padding:4px;overflow-x:auto;
+  background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:3px}
+.tabs a{flex:1;text-align:center;padding:11px 12px;border-radius:2px;text-decoration:none;
+  color:var(--muted);font-size:13px;font-weight:700;white-space:nowrap;
+  letter-spacing:1.2px;text-transform:uppercase;transition:color .15s, background .15s,
+  text-shadow .15s}
+.tabs a:hover{color:var(--text);background:rgba(153,221,255,.06)}
+.tabs a.on{background:rgba(153,221,255,.10);color:#dff4ff;
+  border:1px solid rgba(153,221,255,.35);text-shadow:var(--glow);padding:10px 11px}
 
 .page{max-width:1100px;margin:0 auto;padding:30px 20px 70px}
-.ptitle{font-size:30px;font-weight:800;margin:0 0 6px;letter-spacing:-.4px;
-  background:linear-gradient(92deg,#e8ecf7,#9fe9cf);
-  -webkit-background-clip:text;background-clip:text;color:transparent}
+.ptitle{font-size:26px;font-weight:700;margin:0 0 6px;color:#eaf8ff;
+  letter-spacing:2px;text-transform:uppercase;text-shadow:var(--glow)}
 .psub{color:var(--muted);font-size:14px;margin:0 0 24px;line-height:1.6}
-.psub a{color:var(--green);text-decoration:none}
+.psub a{color:var(--blue);text-decoration:none}
 .psub a:hover{text-decoration:underline}
 .ptitle+.card{margin-top:24px}
-.sub{font-size:14px;font-weight:700;letter-spacing:.4px;margin:18px 0 8px}
+.sub{font-size:13px;font-weight:700;letter-spacing:1.2px;margin:18px 0 8px;
+  text-transform:uppercase;color:#bfe6f5}
 
-.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
-  padding:22px;margin-bottom:16px;position:relative;overflow:hidden;
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  box-shadow:0 10px 34px rgba(0,0,0,.42)}
-/* A thin ion line along the top edge - the one flourish, used once. */
-.card::before{content:'';position:absolute;inset:0 0 auto 0;height:1px;
-  background:linear-gradient(90deg,transparent,rgba(49,229,164,.55),transparent)}
-.card h2{font-size:15px;margin:0 0 6px;letter-spacing:.5px;text-transform:uppercase;
-  color:#cdd6ea}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:3px;
+  padding:22px;margin-bottom:16px}
+.card h2{font-size:14px;margin:0 0 6px;letter-spacing:1.6px;text-transform:uppercase;
+  color:#cfeefc;text-shadow:0 0 6px rgba(153,221,255,.35)}
 .card .desc{color:var(--muted);font-size:13px;margin:0 0 14px;line-height:1.65}
-.card .desc a{color:var(--green)}
+.card .desc a{color:var(--blue)}
 
 input[type=text],select{width:100%;padding:12px 14px;font-size:15px;
-  background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:10px;
-  color:#fff;outline:none;font-family:inherit;transition:border-color .15s, box-shadow .15s}
+  background:rgba(0,0,0,.5);border:1px solid var(--line);border-radius:2px;
+  color:var(--text);outline:none;font-family:inherit;transition:border-color .15s,
+  box-shadow .15s}
 select{cursor:pointer}
-input[type=text]:focus,select:focus{border-color:var(--green);
-  box-shadow:0 0 0 3px rgba(49,229,164,.16)}
+input[type=text]:focus,select:focus{border-color:rgba(153,221,255,.55);
+  box-shadow:0 0 9px rgba(153,221,255,.25)}
 input[type=text]::placeholder{color:var(--dim)}
 .row{display:flex;gap:9px;flex-wrap:wrap}
 .row input[type=text]{flex:1;min-width:160px}
 .row select{width:auto;min-width:150px}
-button{padding:12px 18px;font-size:14px;font-weight:700;border:1px solid transparent;
-  border-radius:10px;cursor:pointer;background:rgba(255,255,255,.07);color:#fff;
-  font-family:inherit;transition:transform .12s, background .15s, box-shadow .15s}
-button:hover{background:rgba(255,255,255,.13);transform:translateY(-1px)}
-button:active{transform:translateY(0)}
-button.primary{background:linear-gradient(135deg,#31e5a4,#20b98c);color:#04140e;
-  box-shadow:0 6px 18px rgba(49,229,164,.28)}
-button.primary:hover{box-shadow:0 8px 26px rgba(49,229,164,.42)}
-button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted)}
-button.ghost:hover{background:rgba(255,255,255,.06);color:#fff}
-button.danger{background:linear-gradient(135deg,#ff5670,#d63551);color:#fff}
-button.danger:hover{box-shadow:0 8px 24px rgba(255,86,112,.35)}
-button:disabled{background:rgba(255,255,255,.04);color:var(--dim);cursor:default;
-  transform:none;box-shadow:none}
+button{padding:12px 18px;font-size:13px;font-weight:700;letter-spacing:1.1px;
+  text-transform:uppercase;border:1px solid var(--line);border-radius:2px;
+  cursor:pointer;background:rgba(0,0,0,.45);color:var(--text);font-family:inherit;
+  transition:border-color .15s, text-shadow .15s, background .15s}
+button:hover{border-color:rgba(153,221,255,.5);text-shadow:var(--glow)}
+button.primary{border-color:rgba(153,221,255,.55);color:#dff4ff;
+  background:rgba(153,221,255,.10);text-shadow:var(--glow)}
+button.primary:hover{background:rgba(153,221,255,.18)}
+button.ghost{background:transparent;color:var(--muted)}
+button.ghost:hover{color:#fff}
+button.danger{border-color:rgba(255,86,112,.55);background:rgba(255,86,112,.10);
+  color:#ffd7dd;text-shadow:0 0 7px rgba(255,86,112,.6)}
+button.danger:hover{background:rgba(255,86,112,.2)}
+button:disabled{background:rgba(0,0,0,.3);color:var(--dim);cursor:default;
+  border-color:var(--line);text-shadow:none}
 
-.tablewrap{overflow-x:auto;border-radius:16px;border:1px solid var(--line);
-  background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  box-shadow:0 10px 34px rgba(0,0,0,.42)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:3px;
+  background:var(--panel)}
 table{width:100%;border-collapse:collapse;background:transparent;border:none}
 .tablewrap table{border:none}
-th,td{padding:13px 16px;text-align:left;border-bottom:1px solid var(--line)}
-th{background:rgba(8,12,22,.6);color:var(--dim);font-size:11px;font-weight:800;
-  text-transform:uppercase;letter-spacing:1px;position:sticky;top:0}
+th,td{padding:13px 16px;text-align:left;border-bottom:1px solid rgba(153,221,255,.08)}
+th{background:rgba(0,0,0,.5);color:var(--dim);font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:1.4px}
 tr:last-child td{border-bottom:none}
 tbody tr{transition:background .12s}
-tbody tr:hover{background:rgba(89,194,255,.07)}
-tbody tr.me{background:rgba(49,229,164,.10)}
-.rank{font-weight:800;color:var(--dim);width:64px;font-variant-numeric:tabular-nums}
-tbody tr:nth-child(1) .rank,.medal{color:#ffd76a}
+tbody tr:hover{background:rgba(153,221,255,.05)}
+tbody tr.me{background:rgba(102,230,184,.08)}
+.rank{font-weight:700;color:var(--dim);width:64px;font-variant-numeric:tabular-nums}
+tbody tr:nth-child(1) .rank,.medal{color:#ffd76a;text-shadow:0 0 8px rgba(255,215,106,.5)}
 .num,.skill{text-align:right;font-variant-numeric:tabular-nums}
 .mid{text-align:center;font-variant-numeric:tabular-nums;color:var(--muted)}
-.skill{font-weight:800;color:var(--blue);text-shadow:0 0 14px rgba(89,194,255,.35)}
+.skill{font-weight:700;color:var(--blue);text-shadow:0 0 7px rgba(153,221,255,.45)}
 a.pname{color:var(--text);text-decoration:none;font-weight:700}
-a.pname:hover{color:var(--green)}
-.badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;
-  background:rgba(49,229,164,.12);color:var(--green);border:1px solid rgba(49,229,164,.34);
-  font-size:11px;font-weight:800;text-decoration:none;letter-spacing:.6px;
+a.pname:hover{color:#fff;text-shadow:var(--glow)}
+.badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:2px;
+  background:rgba(153,221,255,.08);color:var(--blue);border:1px solid rgba(153,221,255,.3);
+  font-size:11px;font-weight:700;text-decoration:none;letter-spacing:.8px;
   vertical-align:middle}
-.badge:hover{background:rgba(49,229,164,.22);color:#8ff3cd}
+.badge:hover{background:rgba(153,221,255,.18);color:#dff4ff}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.stat{background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
-  border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center}
-.stat .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;
-  font-weight:800}
-.stat .value{font-size:28px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
+.stat{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:3px;
+  padding:16px;text-align:center}
+.stat .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;
+  font-weight:700}
+.stat .value{font-size:27px;font-weight:700;margin-top:6px;color:#eaf8ff;
+  text-shadow:0 0 8px rgba(153,221,255,.35)}
 
 .msg{font-size:14px;font-weight:600;margin:12px 0 0;min-height:18px}
 .ok{color:var(--green)}.err{color:var(--red)}
@@ -175,15 +186,16 @@ a.pname:hover{color:var(--green)}
 .foot a{color:var(--muted)}
 .langbar{margin-top:6px}
 .langbar a{margin:0 2px;white-space:nowrap}
-.langbar a.on{color:var(--green);font-weight:800}
+.langbar a.on{color:var(--blue);font-weight:700}
 @media (max-width:760px){
-  .tabs a{font-size:12.5px;padding:10px 7px}
+  .tabs a{font-size:11.5px;padding:10px 6px;letter-spacing:.6px}
   th,td{padding:10px 9px;font-size:13px}
-  .ptitle{font-size:24px}
-  .card{padding:18px;border-radius:14px}
+  .ptitle{font-size:21px}
+  .card{padding:18px}
 }
 @media (prefers-reduced-motion:reduce){
-  *{transition:none !important;scroll-behavior:auto !important}
+  body::before,body::after,.brand a{animation:none !important}
+  *{transition:none !important}
 }
 {% block css %}{% endblock %}
 </style><style>

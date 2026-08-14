@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.71.0"
+APP_VERSION = "5.72.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1668,6 +1668,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.72.0", "at": "2026-08-14T00:10:00Z", "changes": [
+        "The look now follows starblast.io itself, taken from the game's own menu: the Play typeface, its pale ice-blue text and cyan glow, flat translucent panels with thin borders, and square corners. The glossy glass of the last version is gone.",
+        "The background drifts. Two layers of stars move at different speeds and one of them twinkles, the way the game's menu does, and the title carries the game's slow pulse. If your system asks for reduced motion, everything holds still.",
+    ]},
     {"version": "5.71.0", "at": "2026-08-13T23:59:00Z", "changes": [
         "A new look for the whole site: deep-space background with painted nebulae and stars, glass panels, and Starblast's ion greens and blues. The layout, the pages and every control are exactly where they were - only the skin changed.",
         "Skill numbers glow, the top tab bar is glassy, medals are gilded, and your own row on any board is tinted. All of it is one stylesheet - no images, no fonts to download, nothing slower than before.",
