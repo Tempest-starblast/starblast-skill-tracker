@@ -41,6 +41,7 @@
 .role-leader{color:#e8c153;border-color:#6b5320}
 .role-coleader{color:#7fc4ff;border-color:#2d4a63}
 .role-moderator{color:#9adf9a;border-color:#2f5a34}
+.role-member{color:var(--dim)}
 </style>
 <div class="tablewrap">
 <table>
@@ -63,7 +64,7 @@
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
   <td class="mid">{{ m.joined or '&mdash;'|safe }}</td>
-  <td class="mid">{% if m.role_label %}<span class="rolechip role-{{ m.role }}">{{ m.role_label }}</span>{% endif %}</td>
+  <td class="mid"><span class="rolechip role-{{ m.role or 'member' }}">{{ m.role_label or t('Member') }}</span></td>
 </tr>
 {% else %}
 <tr><td colspan="7" class="empty">Nobody is in {{ clan.display or clan.tag }} right now.</td></tr>

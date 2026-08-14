@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.76.2"
+APP_VERSION = "5.77.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1692,6 +1692,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.77.0", "at": "2026-08-14T06:15:00Z", "changes": [
+        "Clan members with no special rank now read as Member rather than leaving the rank column blank. Everyone in a clan is a member; some are also something else.",
+    ]},
     {"version": "5.76.2", "at": "2026-08-14T06:05:00Z", "changes": [
         "The testing notice no longer floats beside the page on a wide screen, where it sat on top of the content. It is the same narrow, centred note at every window size.",
     ]},
