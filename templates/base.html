@@ -165,10 +165,12 @@ tbody tr:nth-child(1) .rank,.medal{color:#ffd76a;text-shadow:0 0 8px rgba(255,21
 .skill{font-weight:700;color:var(--blue);text-shadow:0 0 7px rgba(153,221,255,.45)}
 a.pname{color:var(--text);text-decoration:none;font-weight:700}
 a.pname:hover{color:#fff;text-shadow:var(--glow)}
-.badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:2px;
+.badge{display:inline-block;margin-left:8px;padding:.06em .4em;border-radius:2px;
   background:rgba(153,221,255,.08);color:var(--blue);border:1px solid rgba(153,221,255,.3);
-  font-size:11px;font-weight:700;text-decoration:none;letter-spacing:.8px;
-  vertical-align:middle}
+  /* Sized from the text it stands next to - the same height as the name on
+     a table row and on the profile title alike. */
+  font-size:.95em;font-weight:700;text-decoration:none;letter-spacing:.05em;
+  vertical-align:baseline}
 .badge:hover{background:rgba(153,221,255,.18);color:#dff4ff}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}

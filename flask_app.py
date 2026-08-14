@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.73.0"
+APP_VERSION = "5.73.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1675,6 +1675,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.73.1", "at": "2026-08-14T03:40:00Z", "changes": [
+        "The clan tag in front of a name is now the same size as the name itself, wherever the pair appears - it was a small chip before and read like a footnote.",
+    ]},
     {"version": "5.73.0", "at": "2026-08-14T00:40:00Z", "changes": [
         "Clan tags on the leaderboard now show exactly as their leader wrote them - Ⱡ7 rather than L7. The plain-letter form is only used behind the scenes, for links and for telling stylings of the same tag apart.",
         "Search now reads symbol letters. Typing L7 finds Ⱡ7, DARKWARRIOR finds a name written in fancy lettering, and pasting the fancy form still works. Names in Cyrillic or Chinese are searched as themselves.",
