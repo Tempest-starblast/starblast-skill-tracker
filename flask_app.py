@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.74.2"
+APP_VERSION = "5.74.4"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -264,7 +264,7 @@ def all_clan_tags(c=None):
     return sorted(tags, key=len, reverse=True)
 
 
-def display_name(name, clan):
+def display_name(name, clan, shown=None):
     """What a visitor sees, with the clan tag taken off the front.
 
     The tag is stripped by its plain-letter READING, not its spelling:
@@ -278,8 +278,18 @@ def display_name(name, clan):
     key = clean_clan_tag(clan)
     if not key:
         return name
-    # Longest first, so Ⱡ7Ⱡ is not cut short by an earlier Ⱡ7 reading.
-    for i in range(min(len(name) - 1, 13), 0, -1):
+    # The exact styled tag first, where the caller knows it: the star in
+    # ꞨⱤ✧ belongs to the TAG and comes off with it, while the crown after
+    # it belongs to the player. Only the stored styling can draw that
+    # line - both characters read as nothing.
+    if shown and shown != key and name.startswith(shown) and len(name) > len(shown):
+        rest = name[len(shown):].lstrip(')]}>\u3011\u3017\u300d\u300f').lstrip(' -_:.')
+        if rest:
+            return rest
+    # SHORTEST first: take only the letters that are the tag. Anything
+    # after them that reads as nothing - stars, crowns - is the player's
+    # decoration, not the tag, and stays on the name.
+    for i in range(1, min(len(name) - 1, 13) + 1):
         if clean_clan_tag(name[:i]) == key:
             rest = name[i:].lstrip(')]}>\u3011\u3017\u300d\u300f').lstrip(' -_:.').strip()
             # Never hand back nothing: a player whose whole name is the
@@ -1677,6 +1687,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.74.4", "at": "2026-08-14T05:35:00Z", "changes": [
+        "The tag taken off the front of a member's shown name is now the styled tag exactly - so a star that is part of the tag comes off with it, and a crown that is part of the name stays. Reading letters alone could never tell those apart.",
+    ]},
+    {"version": "5.74.3", "at": "2026-08-14T05:25:00Z", "changes": [
+        "Stripping the clan tag off the front of a member's shown name now takes only the tag's own letters. Stars, crowns and other decoration next to the tag belong to the player and stay on the name - a leading crown was being swallowed along with the tag.",
+    ]},
     {"version": "5.74.2", "at": "2026-08-14T05:10:00Z", "changes": [
         "The approval card the site owner sees now shows a requested clan tag exactly as it was typed - ꞨⱤ, not SR. It was being simplified on the way in, which made the request look like something the player never wrote.",
         "The claim box no longer says to paste the tag exactly as it appears in your name - for names with the tag woven into decoration there is no such thing, and following the old wording created a clan named after a whole player name. It now asks for the tag as you want it shown.",
@@ -2467,7 +2483,8 @@ def player_profile(name):
 
     played = (wins or 0) + (losses or 0)
     winrate = f"{round(100 * (wins or 0) / played)}%" if played else "-"
-    player = {"name": stored_name, "display": display_name(stored_name, clan),
+    player = {"name": stored_name,
+              "display": display_name(stored_name, clan, clan_shown),
               "clan_display": clan_shown,
               "elo": f"{elo:.1f}", "wins": wins or 0,
               "losses": losses or 0, "rank": rank, "rank_of": rank_of,
@@ -3777,6 +3794,7 @@ def clan_page(tag):
     apps = clan_applications(c, known)
     c.execute("SELECT region FROM clans WHERE tag = ?", (known,))
     region_key = (c.fetchone() or [None])[0] or ""
+    shown_tag = clan_display(c, known)
     conn.close()
 
     rows.sort(key=leaderboard_sort_key)
@@ -3791,7 +3809,7 @@ def clan_page(tag):
         total_losses += losses
         total_elo += elo
         members.append({
-            "name": name, "display": display_name(name, known),
+            "name": name, "display": display_name(name, known, shown_tag),
             "admin": bool(owner_sub) and owner_sub in admin_subs,
             "role": roles.get(owner_sub, ""),
             "role_label": CLAN_ROLE_LABELS.get(roles.get(owner_sub), ""),
@@ -6254,7 +6272,7 @@ def my_clan_page():
         losses = losses or 0
         played = wins + losses
         members.append({
-            "name": name, "display": display_name(name, tag),
+            "name": name, "display": display_name(name, tag, clan_display(c, tag)),
             "role": roles.get(owner_sub, ""),
             "role_label": CLAN_ROLE_LABELS.get(roles.get(owner_sub), ""),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
@@ -6624,6 +6642,7 @@ def leaderboard():
             _row["clan_display"] = _disp
             if _disp != _row["clan"]:
                 _row["search"] += normalize_name(_disp)
+                _row["display"] = display_name(_row["name"], _row["clan"], _disp)
     # Only trust a recent push. A stale row would claim a match is being
     # watched long after the tracker stopped, which is worse than saying
     # nothing at all.
