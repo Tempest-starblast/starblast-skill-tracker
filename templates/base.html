@@ -206,10 +206,9 @@ a.pname:hover{color:#fff;text-shadow:var(--glow)}
 /* Width follows the gutter beside the centred page, so it floats on the
    left wherever there is genuinely room for it rather than at one fixed
    screen size. */
-.resetnote{position:fixed;left:14px;top:96px;z-index:30;
-  width:clamp(122px, calc((100vw - 1020px)/2 - 18px), 210px);
+.resetnote{position:static;width:auto;max-width:660px;margin:0 auto 14px;
   background:#241f14;border:1px solid var(--amber);
-  border-radius:8px;padding:12px 13px;color:#e6d5ad;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  border-radius:3px;padding:12px 13px;color:#e6d5ad}
 .resetnote .rnhead{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
   color:#f0c04a;margin-bottom:7px}
 .resetnote p{margin:0 0 8px;font-size:12px;line-height:1.55}
@@ -219,9 +218,6 @@ a.pname:hover{color:#fff;text-shadow:var(--glow)}
 /* Only floats beside the page when there is genuinely room for it;
    otherwise it becomes an ordinary banner above the content so it can
    never sit on top of the leaderboard. */
-@media (max-width:1290px){
-  .resetnote{position:static;width:auto;margin:0 auto 14px;max-width:660px}
-}
 </style>
 </head><body>
 

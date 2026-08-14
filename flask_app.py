@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.76.1"
+APP_VERSION = "5.76.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1692,6 +1692,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.76.2", "at": "2026-08-14T06:05:00Z", "changes": [
+        "The testing notice no longer floats beside the page on a wide screen, where it sat on top of the content. It is the same narrow, centred note at every window size.",
+    ]},
     {"version": "5.76.1", "at": "2026-08-14T05:55:00Z", "changes": [
         "The testing notice is genuinely narrower now. The last attempt resized a different notice that is not the one on screen.",
     ]},
