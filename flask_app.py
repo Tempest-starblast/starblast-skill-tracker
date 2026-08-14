@@ -11,10 +11,11 @@ import hmac
 import hashlib
 from datetime import timedelta
 import i18n
+import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.84.0"
+APP_VERSION = "5.85.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1692,6 +1693,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.85.0", "at": "2026-08-14T23:20:00Z", "changes": [
+        "The Info page is now translated too. Picking a language used to change the buttons and headings while every explanation stayed in English, which made the language picker close to useless for the people who most needed it. All of it - every card on Info - is now in Espanol, Francais, Deutsch, Italiano, Russian, Vietnamese and Chinese as well.",
+        "That page also had two things on it that were no longer true: it told you to pick a language at the bottom of the page, which moved to the header yesterday, and it did not mention that a name reading the same as one already on the board is offered to you to claim.",
+    ]},
     {"version": "5.84.0", "at": "2026-08-14T22:55:00Z", "changes": [
         "The language picker has moved out of the footer and into the header, next to the sign-in buttons, where it can be reached without scrolling past the whole page.",
         "Accessibility, properly this time. The plus and cross buttons on Your clan now say what they do and which member they belong to instead of being read out as punctuation, the protected tick and the clan crown have names, keyboard focus is visible everywhere rather than only on one menu, and the dimmest grey has been lightened to clear the contrast threshold it was under.",
@@ -6682,17 +6687,17 @@ def changelog_page():
 
 @app.route('/info')
 def info_page():
-    """Every explanation on the site, compiled onto one page."""
-    conn = db()
-    c = conn.cursor()
-    capacity, min_age, max_age, min_players = tracker_limits(c)
-    conn.close()
+    """Every explanation on the site, compiled onto one page.
+
+    The prose lives in info_text_<lang>.py rather than in the template, so
+    the page follows the language picker like the rest of the site. It
+    reads nothing from the database.
+    """
     return render_template('info.html', version=APP_VERSION, page='info',
-                           starting_elo=STARTING_ELO, elo_k=ELO_K,
-                           wins_required=CLAIM_WINS_REQUIRED,
-                           contact=CONTACT_HANDLE, capacity=capacity,
-                           min_age_mins=min_age // 60, max_age_mins=max_age // 60,
-                           min_players=min_players)
+                           contact=CONTACT_HANDLE,
+                           info=info_i18n.page(current_lang(),
+                                               elo=STARTING_ELO, k=ELO_K,
+                                               contact=CONTACT_HANDLE))
 
 
 @app.route('/how-it-works')

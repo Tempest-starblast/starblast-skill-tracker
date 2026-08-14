@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+{% block title %}Your clan - Starblast Skill Tracker{% endblock %}
+{% block css %}
+.mcrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 13px;margin:0 -13px;border-bottom:1px solid var(--line);
+  border-radius:3px;transition:background .12s}
+.mcrow:last-child{border-bottom:0}
+/* The row lifts under the cursor, so it is obvious which one the + and
+   the x belong to when several sit close together. */
+.mcrow:hover{background:rgba(153,221,255,.05)}
+.mcwho{min-width:0}
+.mcname{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+.mcname .pname{font-size:15px}
+.mcstats{display:flex;gap:18px;flex-wrap:wrap}
+.mcstat{display:flex;flex-direction:column;line-height:1.25;
+  font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim)}
+.mcstat b{font-size:15px;letter-spacing:0;text-transform:none;color:var(--text);
+  font-weight:700;font-variant-numeric:tabular-nums}
+.mcstat b.skill{color:var(--blue);text-shadow:0 0 7px rgba(153,221,255,.45)}
+.mcjoined b{font-size:13px;font-weight:600;color:var(--muted)}
+@media (max-width:560px){
+  .mcstats{gap:12px}
+  .mcjoined{display:none}
+}
+.linkbox{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.linkbox input{flex:1;min-width:240px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.mcactions{position:relative;display:flex;gap:8px;align-items:center}
+.iconbtn{font-size:17px;line-height:1;padding:5px 12px;font-weight:700;min-width:38px}
+.rankmenu{position:absolute;right:0;top:calc(100% + 6px);z-index:20;
+  display:flex;flex-direction:column;gap:4px;padding:6px;
+  background:var(--card,#161616);border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 6px 20px rgba(0,0,0,.45);min-width:170px}
+.rankmenu button{white-space:nowrap;text-align:left}
+.rolechip{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;
+  font-weight:700;border:1px solid var(--line);color:var(--dim);margin-left:6px}
+.role-leader{color:#e8c153;border-color:#6b5320}
+.role-coleader{color:#7fc4ff;border-color:#2d4a63}
+.role-moderator{color:#9adf9a;border-color:#2f5a34}
+.role-member{color:var(--dim)}
+.sub{margin:18px 0 6px;font-size:14px;color:var(--text)}
+/* A leader with no leaderboard name is invisible on their own roster and
+   the clan reads "no run by". Amber, because it is worth doing and nothing
+   is broken. */
+.mcprompt{margin:0 0 18px;padding:12px 14px;border-radius:3px;font-size:13px;
+  line-height:1.65;color:#e6d5ad;background:rgba(64,50,20,.45);
+  border:1px solid rgba(255,199,87,.45)}
+.mcprompt b{color:#ffd98a}
+.mcprompt a{color:#ffd98a}
+{% endblock %}
+{% block body %}
+
+{% if not clan %}
+<h1 class="ptitle">Your clan</h1>
+<div class="card">
+  {% if signed_in %}
+  <p class="desc">You do not run a clan yet. Ask for one on
+     <a style="color:var(--green);font-weight:600" href="/clans">the Clans page</a>
+     &mdash; {{ contact }} approves it on Discord.</p>
+  {% else %}
+  <p class="desc">Sign in at the top of the page. This tab is for people who run a clan.</p>
+  {% endif %}
+</div>
+
+{% else %}
+<h1 class="ptitle">{{ clan.display }}</h1>
+<p class="psub">You are its <b>{{ clan.role_label|lower }}</b> &middot;
+  {{ clan.size }} member{{ '' if clan.size == 1 else 's' }} &middot;
+  <a href="/clan/{{ clan.tag|urlencode }}">Public page &rarr;</a>
+  {%- if clan.others %} &middot; also
+  {% for other in clan.others %}<a href="/myclan?clan={{ other|urlencode }}">{{ other }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+  {%- endif %}</p>
+
+{% if not clan.you_named %}
+<p class="mcprompt"><b>You do not appear on your own roster yet.</b>
+   Set the name you play under in <a href="/settings">Settings</a> &mdash; then you show
+   up here with your record, and the clan says who runs it instead of nobody.</p>
+{% endif %}
+
+{% if clan.can_manage %}
+<div class="card">
+  <h2>Invite link</h2>
+  <p class="desc">Anyone who opens this link can join {{ clan.display }} once they are
+     signed in and have a name. It lasts {{ clan.link_days }} days. Making a new one
+     retires the old one, so a link that leaked cannot still be used.</p>
+  <div class="linkbox">
+    <input type="text" id="linkUrl" readonly
+           value="{{ clan.link.url if clan.link else '' }}"
+           placeholder="No live link - make one below">
+    <button class="primary" onclick="copyLink()">Copy</button>
+  </div>
+  {% if clan.link %}
+  <p class="desc" style="margin-top:8px">Used {{ clan.link.uses }} time{{ '' if clan.link.uses == 1 else 's' }}{% if clan.link.expires_at %} &middot; expires {{ clan.link.expires_at }}{% endif %}</p>
+  {% endif %}
+  <div class="row" style="margin-top:10px">
+    <button class="primary" onclick="newLink()">{{ 'Make a new link' if clan.link else 'Make a link' }}</button>
+    {% if clan.link %}<button class="danger" onclick="revokeLink()">Withdraw it</button>{% endif %}
+  </div>
+  <p class="msg" id="linkMsg"></p>
+</div>
+{% endif %}
+
+{% if clan.can_manage %}
+<div class="card">
+  <h2>Waiting to join</h2>
+  <p class="desc">Anyone can ask to join from the clan's public page. Accepting puts them
+     on the roster straight away.</p>
+  {% for a in clan.applications %}
+  <div class="mcrow">
+    <div>
+      <a class="pname" href="/player/{{ a.name|urlencode }}">{{ a.name }}</a>
+      <div class="cmeta">Rank #{{ a.rank }} &middot; skill {{ a.elo }} &middot;
+        {{ a.wins }}-{{ a.losses }} &middot; {{ a.winrate }}</div>
+    </div>
+    <div style="white-space:nowrap">
+      <button class="primary" onclick="decideApp({{ a.id }}, true)">{{ t('Accept') }}</button>
+      <button class="danger" onclick="decideApp({{ a.id }}, false)">{{ t('Deny') }}</button>
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">Nobody is waiting to join right now.</p>
+  {% endfor %}
+  <p class="msg" id="appMsg"></p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Members</h2>
+  {% for m in clan.members %}
+  <div class="mcrow">
+    <div class="mcwho">
+      <div class="mcname">
+        <a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
+        <span class="rolechip role-{{ m.role or 'member' }}">{{ m.role_label or t('Member') }}</span>
+      </div>
+      <div class="mcstats">
+        <span class="mcstat"><b class="skill">{{ m.elo }}</b>{{ t('Skill') }}</span>
+        <span class="mcstat"><b>{{ m.wins }}-{{ m.losses }}</b>{{ t('Record') }}</span>
+        <span class="mcstat"><b>{{ m.winrate }}</b>{{ t('Win%') }}</span>
+        {%- if m.joined %}
+        <span class="mcstat mcjoined"><b>{{ m.joined }}</b>{{ t('Joined') }}</span>
+        {%- endif %}
+      </div>
+    </div>
+    {% if clan.can_manage and not m.is_you %}
+    <div class="mcactions">
+      {%- if m.role != 'leader' and (clan.is_leader or m.role != 'coleader') %}
+      <button class="ghost iconbtn" title="Change rank"
+              aria-label="Change rank of {{ m.display }}"
+              data-name="{{ m.name }}" onclick="pickRank(this)">+</button>
+      {%- endif %}
+      <button class="danger iconbtn" title="{{ t('Remove') }}"
+              aria-label="{{ t('Remove') }} {{ m.display }}"
+              data-name="{{ m.name }}" onclick="askRemove(this)">&times;</button>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="empty">Nobody is in this clan yet.</p>
+  {% endfor %}
+  {% if clan.can_manage %}
+  <div class="row" style="margin-top:12px">
+    <input type="text" id="memberName" maxlength="32" autocomplete="off"
+           placeholder="Player name">
+    <button class="primary" onclick="addMember()">{{ t('Add') }}</button>
+  </div>
+  <p class="desc">Someone with an account is invited and has to accept. Someone without
+     one joins straight away if your tag is already in their name.</p>
+  <p class="msg" id="memberMsg"></p>
+  {% endif %}
+</div>
+
+{% if clan.can_manage %}
+<div class="card">
+  <h2>{{ t('Ranks') }}</h2>
+  <p class="desc">A <b>moderator</b> can remove ordinary members and nothing else.
+     A <b>co-leader</b> can do everything you can except delete the clan, remove another
+     co-leader, or appoint one. Nobody can remove someone of their own rank or above.
+     The player needs an account on the site to hold a rank.</p>
+  <p class="desc">Use the <b>+</b> next to a member above to give them a rank.</p>
+  <p class="msg" id="roleMsg"></p>
+</div>
+
+<div class="card">
+  <h2>{{ t('Region') }}</h2>
+  <p class="desc">Where the clan plays. It shows on the clan table and links to that
+     region's leaderboard. Leave it unset if you are spread across regions.</p>
+  <div class="row">
+    <select id="regionSel">
+      <option value="">{{ t('Not set') }}</option>
+      {% for key, label in clan.regions %}
+      <option value="{{ key }}"{% if clan.region == key %} selected{% endif %}>{{ t(label) }}</option>
+      {% endfor %}
+    </select>
+    <button class="primary" onclick="saveRegion()">{{ t('Save region') }}</button>
+  </div>
+  <p class="msg" id="regionMsg"></p>
+</div>
+{% endif %}
+
+{% if clan.is_leader %}
+<div class="card">
+  <h2>Delete {{ clan.display }}</h2>
+  <p class="desc">Every member is released and the tag is free again. Their ratings and
+     match history are untouched &mdash; only the clan goes. This cannot be undone, so
+     type the tag to confirm.</p>
+  <div class="row">
+    <input type="text" id="confirmTag" maxlength="24" autocomplete="off"
+           placeholder="Type {{ clan.tag }}">
+    <button class="danger" onclick="deleteClan()">{{ t('Delete this clan') }}</button>
+  </div>
+  <p class="msg" id="deleteMsg"></p>
+</div>
+{% endif %}
+{% endif %}
+
+<p class="foot">Questions? Ask {{ contact }} on Discord.</p>
+
+<script>
+const TAG = {{ (clan.tag if clan else '')|tojson }};
+function say(id, ok, text){
+  const m = document.getElementById(id);
+  if (!m) return;
+  m.className = 'msg ' + (ok ? 'ok' : 'err');
+  m.textContent = text;
+}
+async function post(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                             body: JSON.stringify(body)});
+  return [r, await r.json()];
+}
+function reloadSoon(){ setTimeout(function(){ location.reload(); }, 1100); }
+
+function copyLink(){
+  const box = document.getElementById('linkUrl');
+  if (!box.value) return say('linkMsg', false, 'There is no live link to copy.');
+  box.select();
+  navigator.clipboard.writeText(box.value).then(
+    function(){ say('linkMsg', true, 'Copied.'); },
+    function(){ say('linkMsg', false, 'Copy failed - select it and copy by hand.'); });
+}
+async function newLink(){
+  try{
+    const [r, d] = await post('/clan/invite/link', {clan: TAG});
+    say('linkMsg', r.ok, d.message || 'Link created.');
+    if (r.ok) reloadSoon();
+  }catch(e){ say('linkMsg', false, 'Server connection error.'); }
+}
+async function revokeLink(){
+  try{
+    const [r, d] = await post('/clan/invite/revoke', {clan: TAG});
+    say('linkMsg', r.ok, d.message);
+    if (r.ok) reloadSoon();
+  }catch(e){ say('linkMsg', false, 'Server connection error.'); }
+}
+async function decideApp(id, accept){
+  try{
+    const [r, d] = await post('/clan/application/respond', {id: id, accept: accept});
+    say('appMsg', r.ok, d.message);
+    if (r.ok) reloadSoon();
+  }catch(e){ say('appMsg', false, 'Server connection error.'); }
+}
+async function addMember(){
+  const who = document.getElementById('memberName').value.trim();
+  if (!who) return say('memberMsg', false, 'Enter a player name.');
+  try{
+    const [r, d] = await post('/clan/add', {clan: TAG, name: who});
+    say('memberMsg', r.ok, d.message);
+    if (r.ok) reloadSoon();
+  }catch(e){ say('memberMsg', false, 'Server connection error.'); }
+}
+async function removeMember(name){
+  try{
+    const [r, d] = await post('/clan/remove', {name: name});
+    say('memberMsg', r.ok, d.message);
+    if (r.ok) reloadSoon();
+  }catch(e){ say('memberMsg', false, 'Server connection error.'); }
+}
+const REMOVE_ASK = 'Yes, remove them';
+const REMOVE_NO = 'No, keep them';
+const IS_LEADER = {{ (clan.is_leader if clan else False)|tojson }};
+const RANK_CHOICES = [
+  {%- if clan and clan.is_leader %}
+  {value: 'coleader', label: {{ t('Co-leader')|tojson }}},
+  {%- endif %}
+  {value: 'moderator', label: {{ t('Moderator')|tojson }}},
+  {value: '', label: {{ t('Ordinary member')|tojson }}}
+];
+function closeRankMenus(){
+  document.querySelectorAll('.rankmenu').forEach(function(m){ m.remove(); });
+}
+function popover(btn, items){
+  // A little menu under a button. Pressing the same button again closes
+  // it, so it cannot stack up.
+  const open = btn.parentNode.querySelector('.rankmenu');
+  closeRankMenus();
+  if (open) return;
+  const menu = document.createElement('div');
+  menu.className = 'rankmenu';
+  items.forEach(function(item){
+    const b = document.createElement('button');
+    b.className = item.danger ? 'danger' : 'ghost';
+    b.textContent = item.label;
+    b.onclick = function(){ closeRankMenus(); if (item.run) item.run(); };
+    menu.appendChild(b);
+  });
+  btn.parentNode.appendChild(menu);
+}
+function pickRank(btn){
+  const name = btn.dataset.name;
+  popover(btn, RANK_CHOICES.map(function(choice){
+    return {label: choice.label, run: function(){ setRole(name, choice.value); }};
+  }));
+}
+function askRemove(btn){
+  const name = btn.dataset.name;
+  popover(btn, [
+    {label: REMOVE_ASK, danger: true, run: function(){ removeMember(name); }},
+    {label: REMOVE_NO}
+  ]);
+}
+document.addEventListener('click', function(e){
+  if (!e.target.closest || !e.target.closest('.mcactions')) closeRankMenus();
+});
+async function setRole(name, role){
+  try{
+    const [r, d] = await post('/clan/role', {clan: TAG, name: name, role: role});
+    say('roleMsg', d.ok, d.message);
+    if (d.ok) reloadSoon();
+  }catch(e){ say('roleMsg', false, 'Server connection error.'); }
+}
+async function saveRegion(){
+  try{
+    const [r, d] = await post('/clan/region', {clan: TAG,
+                              region: document.getElementById('regionSel').value});
+    say('regionMsg', d.ok, d.message);
+    if (d.ok) reloadSoon();
+  }catch(e){ say('regionMsg', false, 'Server connection error.'); }
+}
+async function deleteClan(){
+  const typed = document.getElementById('confirmTag').value.trim();
+  try{
+    const [r, d] = await post('/clan/delete', {clan: TAG, confirm: typed});
+    say('deleteMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.href = '/clans'; }, 1200);
+  }catch(e){ say('deleteMsg', false, 'Server connection error.'); }
+}
+</script>
+{% endblock %}
