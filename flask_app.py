@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.80.0"
+APP_VERSION = "5.80.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1692,6 +1692,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.80.1", "at": "2026-08-14T16:55:00Z", "changes": [
+        "The member list on Your clan reads properly now. Skill, record, win rate and join date each sit under their own label instead of running together on one line, and a row lights up as you move over it so it is clear which member the buttons belong to.",
+    ]},
     {"version": "5.80.0", "at": "2026-08-14T16:50:00Z", "changes": [
         "An invite link now asks for both names in order: sign in, pick your account name - the one you appear under on the leaderboard, and we suggest the name you play under - then say what you are called in game right now, and accept. That second name is how your ship is spotted in a lobby.",
         "Leave the second one blank and your account name is used, which is what most people want anyway.",
