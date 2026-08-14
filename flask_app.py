@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.74.1"
+APP_VERSION = "5.74.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1677,6 +1677,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.74.2", "at": "2026-08-14T05:10:00Z", "changes": [
+        "The approval card the site owner sees now shows a requested clan tag exactly as it was typed - ꞨⱤ, not SR. It was being simplified on the way in, which made the request look like something the player never wrote.",
+        "The claim box no longer says to paste the tag exactly as it appears in your name - for names with the tag woven into decoration there is no such thing, and following the old wording created a clan named after a whole player name. It now asks for the tag as you want it shown.",
+        "The SR clan, born under that misunderstanding as SRT47, is now the SR clan showing as ꞨⱤ, which is what its leader asked for in every one of his requests.",
+    ]},
     {"version": "5.74.1", "at": "2026-08-14T04:55:00Z", "changes": [
         "Fixed: a clan tag containing subscript letters could end up with a lowercase letter in its key, making SRt47 and SRT47 two different clans. Keys are all capitals again, and the one affected clan was re-keyed.",
         "Fixed: a newly created clan never stored the tag as its leader typed it, so it showed the plain-letter form. New clans now keep the typed form, like the older ones do.",
@@ -5763,9 +5768,12 @@ def perform_leader_request(c, sub_id, handle, tag, note):
     # A denial does not block a new request - the earlier row stays on
     # record and the page says the last one was turned down, so asking
     # again is a choice made knowingly rather than a locked door.
+    # The tag is stored AS TYPED. It is informational - the owner reads
+    # it off the approval card - and folding it here is how ꞨⱤ turned
+    # into a card that said SR.
     c.execute("INSERT INTO clan_leader_requests (google_sub, handle, tag, note, "
               "created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
-              (sub_id, str(handle or '')[:80], clean_clan_tag(tag),
+              (sub_id, str(handle or '')[:80], ' '.join(str(tag or '').split())[:24],
                str(note or '')[:300], time.strftime('%Y-%m-%d %H:%M:%S')))
     return 200, {"ok": True, "id": c.lastrowid, "state": "pending",
                  "message": "Request sent. The site owner decides, and you will hear "
