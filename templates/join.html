@@ -37,12 +37,23 @@
   </p>
 
   {% elif join_state == 'no_name' %}
-  <p class="desc">You are signed in. A clan is a list of names, so tell us the name you
-     play under in Starblast and it becomes yours here &mdash; then you can accept.</p>
+  <p class="desc">You are signed in. Two quick things and you are in.</p>
+
+  <p class="desc" style="margin-bottom:6px"><b>1. Your account name.</b> This is the name
+     you appear under on the leaderboard. We recommend the name you play under in
+     Starblast.</p>
   <div class="row">
     <input type="text" id="newName" maxlength="16" autocomplete="off"
-           placeholder="Your name in Starblast">
-    <button class="primary" onclick="setName()">Use this name</button>
+           placeholder="Your account name">
+  </div>
+
+  <p class="desc" style="margin:12px 0 6px"><b>2. The name you are using in game right
+     now.</b> This is how we spot your ship in a lobby. You can change it whenever you
+     rename. Leave it blank to use your account name.</p>
+  <div class="row">
+    <input type="text" id="playName" maxlength="16" autocomplete="off"
+           placeholder="Your name in Starblast right now">
+    <button class="primary" onclick="setName()">Save and continue</button>
   </div>
   <p class="msg" id="nameMsg"></p>
   <div id="claimBox" style="display:none;margin-top:12px;padding-top:12px;
@@ -92,16 +103,23 @@ async function post(url, body){
 }
 async function setName(){
   const name = document.getElementById('newName').value.trim();
-  if (!name) return say('nameMsg', false, 'Enter the name you play under.');
+  const play = document.getElementById('playName').value.trim();
+  if (!name) return say('nameMsg', false, 'Enter your account name.');
   try{
     const [r, d] = await post('/account/name', {name: name});
     say('nameMsg', r.ok, d.message);
     // 409 means the name is already on the board unowned, which is what
     // claiming is for. Anything else is a plain refusal.
     document.getElementById('claimBox').style.display = (r.status === 409) ? 'block' : 'none';
+    if (!r.ok) return;
+    // The play name can only be set once an account name exists, so it
+    // goes second - and only if they gave one different from it.
+    if (play && play !== name){
+      try{ await post('/account/gamename', {name: play}); }catch(e){}
+    }
     // The page decides what to show from the server, so reload rather than
     // trying to reshape it here.
-    if (r.ok) setTimeout(function(){ location.reload(); }, 900);
+    setTimeout(function(){ location.reload(); }, 900);
   }catch(e){ say('nameMsg', false, 'Server connection error.'); }
 }
 async function claimName(){
