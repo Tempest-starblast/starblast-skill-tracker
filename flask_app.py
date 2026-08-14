@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.74.0"
+APP_VERSION = "5.74.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -450,8 +450,10 @@ def clean_clan_tag(text):
     currency signs are still dropped.
     """
     raw = ''.join(TAG_FOLD.get(ch, ch) for ch in str(text or '').upper())
-    # NFKD takes the accents off everything ordinary, so É and E are one clan.
-    raw = unicodedata.normalize('NFKD', raw)
+    # NFKD takes the accents off everything ordinary, so É and E are one
+    # clan - and it can MINT letters: the subscript ₜ only becomes a t
+    # here. Uppercase again, or that t stays lowercase in the key.
+    raw = unicodedata.normalize('NFKD', raw).upper()
     plain = ''.join(ch for ch in raw if ch.isalnum() and ch.isascii())
     if plain:
         return plain
@@ -1675,6 +1677,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.74.1", "at": "2026-08-14T04:55:00Z", "changes": [
+        "Fixed: a clan tag containing subscript letters could end up with a lowercase letter in its key, making SRt47 and SRT47 two different clans. Keys are all capitals again, and the one affected clan was re-keyed.",
+        "Fixed: a newly created clan never stored the tag as its leader typed it, so it showed the plain-letter form. New clans now keep the typed form, like the older ones do.",
+        "When a clan request is approved or turned down but the player cannot be messaged - usually because they are not in the Discord server - the owner is now told, instead of the message quietly going nowhere.",
+    ]},
     {"version": "5.74.0", "at": "2026-08-14T04:00:00Z", "changes": [
         "A turned-down clan request no longer closes the door. The Clans page and /clanrequest offer the form again, with a note that the last answer was no - so asking again is allowed, and done knowingly.",
     ]},
@@ -5879,7 +5886,10 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
                                 f"Ask {CONTACT_HANDLE} on Discord if you need another."}
 
     now = time.strftime('%Y-%m-%d %H:%M:%S')
-    c.execute("INSERT INTO clans (tag, created_by, created_at) VALUES (?, ?, ?)", (tag, sub_id, now))
+    shown = ' '.join(str(raw_tag or '').split())[:24]
+    c.execute("INSERT INTO clans (tag, display_tag, created_by, created_at) "
+              "VALUES (?, ?, ?, ?)",
+              (tag, shown if shown and shown != tag else None, sub_id, now))
     c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) VALUES (?, ?, ?)",
               (tag, sub_id, now))
     joined, elsewhere = join_admin_names(c, sub_id, tag)
