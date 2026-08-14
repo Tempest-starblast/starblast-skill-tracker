@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.74.4"
+APP_VERSION = "5.76.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -265,36 +265,41 @@ def all_clan_tags(c=None):
 
 
 def display_name(name, clan, shown=None):
-    """What a visitor sees, with the clan tag taken off the front.
+    """What a visitor sees, with the clan tag taken out.
 
-    The tag is stripped by its plain-letter READING, not its spelling:
-    (Ł7), 「L7」 and ₵ØV all come off for the clans keyed L7 and COV. The
-    badge already shows the tag, and printing it twice is noise. Display
-    only - the stored name is the key results are matched against and is
-    never touched.
+    The badge beside the name already says the tag; printing it twice is
+    noise. Three passes, and the stored name is never touched - this is
+    display only.
     """
     if not name or not clan:
         return name
     key = clean_clan_tag(clan)
     if not key:
         return name
-    # The exact styled tag first, where the caller knows it: the star in
-    # ꞨⱤ✧ belongs to the TAG and comes off with it, while the crown after
-    # it belongs to the player. Only the stored styling can draw that
-    # line - both characters read as nothing.
+    # 1. The exact styled tag on the front. Only the stored styling can
+    #    say that the star in ꞨⱤ✧ is the tag's while the crown after it
+    #    is the player's - both read as nothing.
     if shown and shown != key and name.startswith(shown) and len(name) > len(shown):
         rest = name[len(shown):].lstrip(')]}>\u3011\u3017\u300d\u300f').lstrip(' -_:.')
-        if rest:
+        if any(ch.isalnum() for ch in rest):
             return rest
-    # SHORTEST first: take only the letters that are the tag. Anything
-    # after them that reads as nothing - stars, crowns - is the player's
-    # decoration, not the tag, and stays on the name.
+
+    # 2. Any WORD that reads as the tag, wherever it sits - front, end or
+    #    middle. A word that merely contains it is left alone: SRJACKEE
+    #    reads as SRJACKEE, not SR.
+    words = name.split()
+    kept = [w for w in words if clean_clan_tag(w) != key]
+    if len(kept) != len(words) and any(ch.isalnum() for w in kept for ch in w):
+        return ' '.join(kept)
+
+    # 3. A tag fused to the front of one word: COVHADE, 「L7」KASANE.
+    #    Shortest match, so only the tag's own letters come off.
     for i in range(1, min(len(name) - 1, 13) + 1):
         if clean_clan_tag(name[:i]) == key:
             rest = name[i:].lstrip(')]}>\u3011\u3017\u300d\u300f').lstrip(' -_:.').strip()
-            # Never hand back nothing: a player whose whole name is the
-            # tag still needs something to click on.
-            if rest:
+            # Never hand back nothing, and never hand back decoration
+            # alone: a player whose whole name is the tag keeps it.
+            if any(ch.isalnum() for ch in rest):
                 return rest
             break
     return name
@@ -1687,6 +1692,23 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.76.1", "at": "2026-08-14T05:55:00Z", "changes": [
+        "The testing notice is genuinely narrower now. The last attempt resized a different notice that is not the one on screen.",
+    ]},
+    {"version": "5.76.0", "at": "2026-08-14T05:50:00Z", "changes": [
+        "A name that opens with a clan's own styled tag now joins that clan when it is created, even with no space after it - ꞨⱤ✧ʲᵃᶜᵏᶦᵉᵉ is wearing ꞨⱤ✧ as plainly as anyone. Nobody types a clan's exact styling by accident.",
+        "Clans whose tag is written in plain letters get no such shortcut, so COVID19 still has nothing to do with COV.",
+    ]},
+    {"version": "5.75.2", "at": "2026-08-14T05:40:00Z", "changes": [
+        "The testing notice is narrower now. It ran the full width of the page and crowded what was under it.",
+    ]},
+    {"version": "5.75.1", "at": "2026-08-14T05:30:00Z", "changes": [
+        "The clan tag is now taken out of a shown name wherever it sits, not only at the front - so OSAMA ꞨⱤ✧ reads as OSAMA with the tag on its badge, instead of carrying it twice.",
+    ]},
+    {"version": "5.75.0", "at": "2026-08-14T05:20:00Z", "changes": [
+        "A clan tag now counts wherever it stands on its own in a name, not only at the front - so OSAMA ꞨⱤ✧ is wearing the tag just as ꞨⱤ✧ OSAMA is, and joins the clan when it is created.",
+        "A tag buried inside a longer word still does not count. COVID19 is not in COV and SRSLY is not in SR - matching on part of a word is what got clan detection switched off in the first place.",
+    ]},
     {"version": "5.74.4", "at": "2026-08-14T05:35:00Z", "changes": [
         "The tag taken off the front of a member's shown name is now the styled tag exactly - so a star that is part of the tag comes off with it, and a crown that is part of the name stays. Reading letters alone could never tell those apart.",
     ]},
@@ -5832,25 +5854,26 @@ def search_key(*parts):
 
 
 def worn_tags(name):
-    """The clan tag a name is actually WEARING, if any.
+    """Every clan tag a name is WEARING, read across the whole name.
 
-    A plain prefix match is not good enough and never was: COVID19 starts
-    with COV, GERRIT starts with GE, VIETNAM starts with VIE, and none of
-    those players are in a clan. That mistake is what got clan detection
-    switched off in the first place.
+    A tag counts where it stands on its own: as any whitespace-separated
+    word, inside brackets anywhere, or as the entire name. "OSAMA ꞨⱤ✧➛"
+    wears SR just as "ꞨⱤ✧ OSAMA" does.
 
-    A tag counts only where it stands on its own - inside brackets at the
-    front, as the first word, or as the whole name.
+    A plain substring match is still refused, and always will be: COVID19
+    starts with COV, GERRIT with GE, SRSLY with SR, and none of those
+    players are in a clan. That mistake is what got clan detection
+    switched off the first time.
     """
     raw = str(name or '')
     out = set()
-    m = re.match(r'^\s*[\[\(\{\u3010\u3016\u300c\u300e<]\s*([^\]\)\}\u3011\u3017\u300d\u300f>]{1,12})',
-                 raw)
-    if m:
+    # Brackets anywhere: "OSAMA [SR]" and "[SR] OSAMA" alike.
+    for m in re.finditer(r'[\[\(\{\u3010\u3016\u300c\u300e<]\s*'
+                         r'([^\]\)\}\u3011\u3017\u300d\u300f>]{1,12})', raw):
         out.add(clean_clan_tag(m.group(1)))
-    m = re.match(r'^\s*(\S+)\s', raw)
-    if m:
-        out.add(clean_clan_tag(m.group(1)))
+    # Every word, wherever it sits.
+    for token in raw.split():
+        out.add(clean_clan_tag(token))
     out.add(clean_clan_tag(raw))          # the name IS the tag
     return {t for t in out if t}
 
@@ -5861,12 +5884,25 @@ def absorb_unowned(c, tag):
     An unowned name has no account behind it, so there is nobody to ask,
     and the tag is genuinely in the name the tracker read. Players WITH
     accounts are never swept in - they get an invitation and accept it.
+
+    Two kinds of evidence. A tag standing alone as a word, in brackets or
+    as the whole name, anywhere in the name. And - only for a clan that
+    styles its tag - a name that opens with that exact styling, which is
+    how a fused ꞨⱤ✧ʲᵃᶜᵏᶦᵉᵉ counts while COVID19 still does not.
     """
+    c.execute("SELECT display_tag FROM clans WHERE tag = ?", (tag,))
+    row = c.fetchone()
+    styled = (row[0] if row else None) or ""
+    # Distinctive styling only: if the shown tag is just the letters, this
+    # would be a plain prefix match, which is what swept in COVID19.
+    if styled == tag or clean_clan_tag(styled) != tag:
+        styled = ""
+
     taken = []
     c.execute("SELECT name FROM players WHERE (google_sub IS NULL OR google_sub = '') "
               "AND (clan IS NULL OR clan = '') AND COALESCE(clan_locked, 0) = 0")
     for (nm,) in c.fetchall():
-        if tag in worn_tags(nm):
+        if tag in worn_tags(nm) or (styled and nm.startswith(styled)):
             taken.append(nm)
     for nm in taken:
         c.execute("UPDATE players SET clan = ? WHERE name = ?", (tag, nm))
