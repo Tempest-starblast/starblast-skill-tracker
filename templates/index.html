@@ -53,6 +53,26 @@ a.ghost{display:inline-flex;align-items:center;padding:0 14px;
   border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;
   background:transparent;border:1px solid #3a3a3a;color:var(--muted)}
 a.ghost:hover{background:#2a2a2a;color:#fff}
+/* A first-time visitor lands on three thousand names and a table with no
+   way in. One line, dismissed for good when they say so. */
+.newhere{display:flex;align-items:flex-start;gap:12px;margin:0 0 18px;padding:11px 14px;
+  background:rgba(153,221,255,.06);border:1px solid var(--line);border-radius:3px;
+  font-size:13px;line-height:1.65;color:var(--muted)}
+/* The class sets display, so it beats what [hidden] does on its own. */
+.newhere[hidden]{display:none}
+.newhere b{color:var(--text);font-size:11.5px;letter-spacing:.9px;text-transform:uppercase}
+.newhere a{color:var(--blue);text-decoration:none}
+.newhere a:hover{text-decoration:underline}
+.newhere .step{white-space:nowrap}
+.nhx{flex-shrink:0;margin-left:auto;padding:1px 8px;font-size:16px;line-height:1.2;
+  letter-spacing:0;background:transparent;border:1px solid transparent;color:var(--dim)}
+.nhx:hover{color:var(--text);border-color:var(--line)}
+/* The most asked question on the site is why a win did not count, and the
+   answer only existed on Play and in Info. It belongs where the record is. */
+.tnote{margin:0 0 10px;font-size:12.5px;line-height:1.6;color:var(--muted)}
+.tnote a{color:var(--blue);text-decoration:none}
+.tnote a:hover{text-decoration:underline}
+.hint{margin:10px 0 0;font-size:12.5px;line-height:1.6;color:var(--dim)}
 {% endblock %}
 {% block body %}
 {% macro board(p=1, per=none, reg=none, term=none) -%}
@@ -60,6 +80,25 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {%- endmacro %}
 <h1 class="ptitle">{{ t('Leaderboard') }}</h1>
 <p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.{% if pages > 1 %} {{ t('Page') }} {{ pnum }} / {{ pages }}.{% endif %}</p>
+
+<div class="newhere" id="newhere" hidden>
+  <span><b>New here?</b>
+    <span class="step">1. Open <a href="/play">Play</a>.</span>
+    <span class="step">2. Join a match it shows as tracked.</span>
+    <span class="step">3. Win.</span></span>
+  <button class="nhx" type="button" onclick="hideNew()"
+          aria-label="Dismiss this tip" title="Dismiss">&times;</button>
+</div>
+<script>
+// Hidden in the markup and shown here, so somebody who dismissed it months
+// ago never sees it flash on the way past. Runs where it stands rather than
+// on DOMContentLoaded, or the page would jump as it appeared.
+(function(){
+  try{ if(localStorage.getItem('sbNewHere') === 'off') return; }catch(e){}
+  var s = document.getElementById('newhere');
+  if(s) s.hidden = false;
+})();
+</script>
 
 <div class="filters">
   <div class="fgroup">
@@ -103,10 +142,14 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
     <button type="submit" class="ghost">{{ t('Search all') }}</button>
     <a class="ghost" href="{{ board(1, term='') }}">{{ t('Clear') }}</a>
   </form>
+  <p class="hint">Type your own name to find yourself on this page &mdash;
+     <b>Search all</b> looks through every page of the board.</p>
   <p class="msg" id="count"></p>
   {% if q %}<p class="msg">{{ found }} player{{ '' if found == 1 else 's' }} on the whole board match &quot;{{ q }}&quot;.</p>{% endif %}
 </div>
 
+<p class="tnote">Only matches shown as <a href="/play">tracked on Play</a> count
+   towards your rating. Check before you join.</p>
 <div class="tablewrap">
 <table>
 <thead><tr>
@@ -121,7 +164,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% for p in leaderboard %}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}">
   <td class="rank">{{ p.rank }}</td>
-  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.protected %}<span class="tick" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
+  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
     href="/?period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
@@ -156,6 +199,10 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% endif %}
 
 <script>
+function hideNew(){
+  document.getElementById('newhere').hidden = true;
+  try{ localStorage.setItem('sbNewHere','off'); }catch(e){}
+}
 function toggleDD(e){
   e.stopPropagation();
   var d = document.getElementById('dd');

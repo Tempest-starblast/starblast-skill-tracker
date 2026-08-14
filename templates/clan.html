@@ -59,7 +59,7 @@
     {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
     {%- else %}{{ loop.index }}{% endif -%}
   </td>
-  <td><a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>{% if m.admin %}<span class="crown" title="Runs this clan">&#9812;</span>{% endif %}</td>
+  <td><a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}</td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>

@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.80.1"
+APP_VERSION = "5.84.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1692,6 +1692,22 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.84.0", "at": "2026-08-14T22:55:00Z", "changes": [
+        "The language picker has moved out of the footer and into the header, next to the sign-in buttons, where it can be reached without scrolling past the whole page.",
+        "Accessibility, properly this time. The plus and cross buttons on Your clan now say what they do and which member they belong to instead of being read out as punctuation, the protected tick and the clan crown have names, keyboard focus is visible everywhere rather than only on one menu, and the dimmest grey has been lightened to clear the contrast threshold it was under.",
+    ]},
+    {"version": "5.83.0", "at": "2026-08-14T22:45:00Z", "changes": [
+        "Your clan now says so when you have no leaderboard name of your own. Running a clan does not require one, but without it you never appear on your own roster and the clan reads as though nobody runs it - which was true of two of the five leaders here and explained nowhere.",
+    ]},
+    {"version": "5.82.0", "at": "2026-08-14T22:35:00Z", "changes": [
+        "The leaderboard now says the thing people ask about most, right above the table: only matches shown as tracked on Play count towards your rating. Check before you join.",
+        "First visit shows a one-line New here strip - open Play, join a tracked match, win - with a cross to dismiss it for good.",
+        "A line by the search box explains that typing filters the page you are on while Search all looks through the whole board.",
+    ]},
+    {"version": "5.81.0", "at": "2026-08-14T22:20:00Z", "changes": [
+        "Saving your account name now notices when somebody already on the leaderboard reads the same as the name you typed - a plain name against a styled version of it. It names that row, says what record it holds, and offers to claim it, because that row is where your matches are being recorded. Two players spent today at 0-0 while their results piled up on a row they did not own.",
+        "If the similar name is genuinely not you, Use my name anyway saves the name exactly as you typed it.",
+    ]},
     {"version": "5.80.1", "at": "2026-08-14T16:55:00Z", "changes": [
         "The member list on Your clan reads properly now. Skill, record, win rate and join date each sit under their own label instead of running together on one line, and a row lights up as you move over it so it is clear which member the buttons belong to.",
     ]},
@@ -3578,6 +3594,61 @@ def set_game_name():
     return jsonify(payload), status
 
 
+def board_name_readings(name, clan):
+    """Every plain-letter reading of a leaderboard row a person might type.
+
+    The whole name, and the name without its clan tag - somebody wearing a
+    tag types their own name, not the tag as well.
+    """
+    out = set()
+    whole = clean_clan_tag(name)
+    if whole:
+        out.add(whole)
+    if not clan:
+        return out
+    bare = clean_clan_tag(display_name(name, clan))
+    if bare:
+        out.add(bare)
+    key = clean_clan_tag(clan)
+    if key and len(whole) > len(key):
+        if whole.startswith(key):
+            out.add(whole[len(key):])
+        if whole.endswith(key):
+            out.add(whole[:-len(key)])
+    return out
+
+
+def similar_board_name(c, name, sub_id):
+    """An unclaimed row that READS the same as this name, or None.
+
+    The trap this closes, hit twice on 14 Aug: a player sets a plain
+    account name while playing under a styled version of it. Their matches
+    land on the styled row, which they do not own, and their own row sits
+    at 0-0 for ever with nothing to say why. The fold is the one the search
+    box already uses, so KASANE TETO and the styled form read alike.
+
+    Only rows with a record and no owner are offered. An empty row is
+    nothing to claim, and a row that belongs to somebody else is not theirs
+    to take. Where several read the same, the busiest one wins.
+    """
+    want = clean_clan_tag(name)
+    if len(want) < 2:
+        return None
+    mine = normalize_name(name)
+    c.execute("SELECT name, clan, COALESCE(wins, 0), COALESCE(losses, 0), norm_name "
+              "FROM players WHERE (google_sub IS NULL OR google_sub = '') "
+              "AND COALESCE(wins, 0) + COALESCE(losses, 0) > 0")
+    best = None
+    for row_name, clan, wins, losses, norm in c.fetchall():
+        if norm == mine:
+            continue
+        if want not in board_name_readings(row_name, clan):
+            continue
+        if best is None or wins + losses > best[1] + best[2]:
+            best = (row_name, wins, losses)
+    return best
+
+
 @app.route('/account/name', methods=['POST'])
 def set_account_name():
     """Set or change the name this account appears under.
@@ -3590,6 +3661,7 @@ def set_account_name():
     if not sub_id:
         return jsonify({"message": "Sign in first."}), 401
     name = str((request.json or {}).get('name', '')).strip()
+    anyway = bool((request.json or {}).get('anyway'))
     if not is_valid_name_format(name):
         return jsonify({"message": "That name cannot be used. Try another."}), 400
     if is_blocked_word(name):
@@ -3610,7 +3682,8 @@ def set_account_name():
     if taken and not taken[0]:
         conn.close()
         return jsonify({"message": f"'{name}' is already on the leaderboard as an "
-                                   f"unverified player. Use Claim to take it over."}), 409
+                                   f"unverified player. Use Claim to take it over.",
+                        "claim_name": name}), 409
 
     # Already one of this account's own rows - including the case where it
     # is the name they are currently using. Nothing to move, and trying to
@@ -3621,6 +3694,23 @@ def set_account_name():
         conn.commit()
         conn.close()
         return jsonify({"message": f"Your account name is '{row[0] if row else name}'."}), 200
+
+    # A row that READS like the name they typed. Their matches are landing
+    # there and not here, and until now nothing said so - two players spent
+    # the day at 0-0 while a styled version of their name collected the
+    # record. Refusing outright would trap anyone whose name genuinely
+    # reads like somebody else's, so this is a question, not a wall.
+    if not anyway:
+        near = similar_board_name(c, name, sub_id)
+        if near:
+            conn.close()
+            return jsonify({
+                "message": f"'{near[0]}' is already on the leaderboard and reads the same "
+                           f"as '{name}' - it has a {near[1]}-{near[2]} record. If that is "
+                           f"you, claim it: that row is where your matches are landing.",
+                "claim_name": near[0],
+                "suggest_claim": True,
+            }), 409
 
     # An account is meant to hold one name, but the grandfathered ones hold
     # two, and updating on google_sub moved BOTH rows to the same
@@ -6355,6 +6445,11 @@ def my_clan_page():
         "others": [t for t in tags if t != tag],
         "link": invite_link_json(link_row) if link_row else None,
         "link_days": INVITE_LINK_DAYS,
+        # Running a clan and being on its roster are different things, so
+        # staff with no leaderboard name are not a bug - but they are
+        # invisible on their own roster and their clan says nobody runs it,
+        # and nothing on the page told them why. Two of five leaders.
+        "you_named": bool(account_name_for(c, sub_id)),
     }
     conn.close()
     return render_template('myclan.html', clan=clan, signed_in=True,

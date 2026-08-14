@@ -34,13 +34,16 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
     <p class="msg" id="nameMsg"></p>
     <div id="takenBox" style="display:none;margin-top:12px;padding-top:12px;
          border-top:1px solid var(--line)">
-      <p class="desc">That name is already on the leaderboard, so it has to be claimed
+      <p class="desc" id="takenWhich" style="display:none"></p>
+      <p class="desc" id="takenSame">That name is already on the leaderboard, so it has to be claimed
          rather than taken - it may carry somebody's record. A claim becomes yours the
          next time that name wins a tracked match, or {{ contact }} can approve it
          sooner.</p>
       <input type="text" id="claimNote" placeholder="Why is it yours? (optional)"
              maxlength="200" autocomplete="off">
       <button class="primary" style="margin-top:9px" onclick="doClaim()">{{ t('Claim it') }}</button>
+      <button class="ghost" id="anywayBtn" style="display:none;margin-top:9px"
+              onclick="saveName(true)">Use my name anyway</button>
       <p class="msg" id="claimMsg"></p>
     </div>
 
@@ -75,6 +78,10 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 
 <script>
 let myName = {{ (account_name or '')|tojson }};
+// Which row Claim it will actually claim. Not always the name in the box: a
+// styled row can read the same as a plain name, and it is the styled row
+// that holds the record.
+let claimTarget = null;
 
 async function post(u,b){
   const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
@@ -127,18 +134,36 @@ function showName(){
   }
 }
 
-async function saveName(){
+async function saveName(anyway){
   const n=document.getElementById('accName').value.trim();
   if(!n){ say('nameMsg',false,'Enter a name.'); return; }
   try{
-    const [r,d]=await post('/account/name',{name:n});
+    const [r,d]=await post('/account/name', anyway ? {name:n,anyway:true} : {name:n});
     say('nameMsg',r.ok,d.message);
-    // 409 is the server saying that name is already on the leaderboard,
-    // which is what claiming is for. Offer it rather than making the
-    // player work out which of two boxes they needed.
-    document.getElementById('takenBox').style.display = (r.status===409) ? 'block' : 'none';
+    // 409 is the server saying that name - or a name that READS like it -
+    // is already on the leaderboard, which is what claiming is for. Offer
+    // it rather than making the player work out which box they needed.
+    showTaken(r.status===409, d, n);
     if(r.ok){ myName=n; showName(); loadProt(); }
   }catch(e){ say('nameMsg',false,'Server connection error.'); }
+}
+
+// One place decides what the claim box says and which row it will claim.
+// Two callbacks writing the same box is how a card was last shipped
+// showing the wrong thing.
+function showTaken(on, d, typed){
+  document.getElementById('takenBox').style.display = on ? 'block' : 'none';
+  if(!on){ claimTarget=null; return; }
+  const near = !!(d && d.suggest_claim);
+  claimTarget = (d && d.claim_name) || typed;
+  document.getElementById('takenSame').style.display = near ? 'none' : 'block';
+  const w=document.getElementById('takenWhich');
+  w.style.display = near ? 'block' : 'none';
+  w.textContent = near
+    ? ('Claim ' + claimTarget + ' and its record becomes yours the next time that name '
+       + 'wins a tracked match. If it is somebody else, save your name anyway.')
+    : '';
+  document.getElementById('anywayBtn').style.display = near ? 'inline-block' : 'none';
 }
 
 async function loadClaims(){
@@ -170,9 +195,9 @@ async function withdrawClaim(name){
   }catch(e){ say('withdrawMsg', false, 'Server connection error.'); }
 }
 async function doClaim(){
-  // The name comes from the one field above - the same one they just
-  // tried to take.
-  const n=document.getElementById('accName').value.trim();
+  // The row the server pointed at, which is not always the name in the
+  // box - a styled row reads the same as a plain name and holds the record.
+  const n=claimTarget||document.getElementById('accName').value.trim();
   const note=document.getElementById('claimNote').value.trim();
   if(!n){ say('claimMsg',false,'Enter the name you play under first.'); return; }
   try{
