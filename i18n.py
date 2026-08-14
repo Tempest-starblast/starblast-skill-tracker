@@ -5,9 +5,13 @@ The English text IS the key. The templates stay readable - {{ t('Player') }}
 rather than {{ t('board.col.player') }} - and anything not translated falls
 back to the English instead of a blank or a key name.
 
-Labels and buttons only, by decision. The explanatory paragraphs stay in
-English so there is one copy of them to keep true; translating those would
-mean re-translating on every wording change.
+Labels and buttons only. The Info page's prose used to stay English for the
+same reason, but on 14 Aug 2026 the user asked for it to follow the picker
+as well; it now lives in info_i18n.py and info_text_<lang>.py on the
+website, which the bot does not share.
+
+This file still exists twice - website and droplet - and is copied by hand.
+Change one, change the other, and check the hashes match.
 
 Each language is a list of values in KEYS order, which keeps the file small
 enough to read in one screen. The lengths are asserted at import, so a
