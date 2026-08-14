@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.73.2"
+APP_VERSION = "5.74.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1675,6 +1675,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.74.0", "at": "2026-08-14T04:00:00Z", "changes": [
+        "A turned-down clan request no longer closes the door. The Clans page and /clanrequest offer the form again, with a note that the last answer was no - so asking again is allowed, and done knowingly.",
+    ]},
     {"version": "5.73.2", "at": "2026-08-14T03:45:00Z", "changes": [
         "The clan tag's box now sits level with the name beside it. It was hanging below the line, because names here are all capitals and the box was aligned to where lowercase letters would descend.",
     ]},
@@ -5750,10 +5753,9 @@ def perform_leader_request(c, sub_id, handle, tag, note):
     if state == 'pending':
         return 200, {"ok": False, "state": state,
                      "message": "You already have a request waiting."}
-    if state == 'denied':
-        return 200, {"ok": False, "state": state,
-                     "message": "Your last request was turned down. Ask "
-                                f"{CONTACT_HANDLE} on Discord before trying again."}
+    # A denial does not block a new request - the earlier row stays on
+    # record and the page says the last one was turned down, so asking
+    # again is a choice made knowingly rather than a locked door.
     c.execute("INSERT INTO clan_leader_requests (google_sub, handle, tag, note, "
               "created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
               (sub_id, str(handle or '')[:80], clean_clan_tag(tag),
@@ -5766,9 +5768,9 @@ def perform_leader_request(c, sub_id, handle, tag, note):
 def clan_leader_state(c, sub_id):
     """Where this account stands on being allowed to run a clan.
 
-    Returns one of: 'approved', 'pending', 'denied', 'none'. A denial is
-    sticky on purpose - it has to mean something, or a refused request is
-    just an invitation to ask again immediately.
+    Returns one of: 'approved', 'pending', 'denied', 'none'. A denial does
+    not block a new request; it is reported so the page can say the last
+    answer was no before offering the form again.
     """
     if not sub_id:
         return 'none'

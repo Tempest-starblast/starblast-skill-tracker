@@ -143,14 +143,14 @@ async function showLeaderState(){
   leaderState = d.state;
   if (d.logged_in) signedIn = true;
   applyClanCards();
+  if (d.state === 'denied'){
+    say('reqMsg', false,
+        'Your last request was turned down. You can ask again.');
+  }
   if (d.state === 'pending'){
     document.getElementById('stateText').textContent =
       'Your request is waiting on ' + (d.contact || 'the site owner')
       + '. Once it is approved this page will let you claim your tag.';
-  } else if (d.state === 'denied'){
-    document.getElementById('stateText').textContent =
-      'Your request was turned down. Ask ' + (d.contact || 'the site owner')
-      + ' on Discord if you think that is a mistake.';
   }
 }
 async function post(u, b){
@@ -175,9 +175,11 @@ function applyClanCards(){
   const wants = approved && !myClan;
   show('signedOutCard', !signedIn);
   show('claimSignedOut', false);
-  show('requestCard', signedIn && !myClan && leaderState === 'none');
-  show('stateCard', signedIn && !myClan
-                    && (leaderState === 'pending' || leaderState === 'denied'));
+  // Denied shows the form again - a no is an answer, not a lock. The
+  // note under the form says the last answer was no.
+  show('requestCard', signedIn && !myClan
+                      && (leaderState === 'none' || leaderState === 'denied'));
+  show('stateCard', signedIn && !myClan && leaderState === 'pending');
   show('claimCard', wants);
   show('claimSignedIn', wants);
   show('codeCard', wants);
