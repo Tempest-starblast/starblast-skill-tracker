@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.73.1"
+APP_VERSION = "5.73.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1675,6 +1675,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.73.2", "at": "2026-08-14T03:45:00Z", "changes": [
+        "The clan tag's box now sits level with the name beside it. It was hanging below the line, because names here are all capitals and the box was aligned to where lowercase letters would descend.",
+    ]},
     {"version": "5.73.1", "at": "2026-08-14T03:40:00Z", "changes": [
         "The clan tag in front of a name is now the same size as the name itself, wherever the pair appears - it was a small chip before and read like a footnote.",
     ]},
