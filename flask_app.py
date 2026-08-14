@@ -2439,12 +2439,15 @@ def player_profile(name):
                    "only": rest == 0,
                    "share": round(100 * best["played"] /
                                   sum(r["played"] for r in played_anywhere))}
+    # Read while the connection is open - the dict below is built after
+    # close, and a query there is exactly the 500 this line replaces.
+    clan_shown = clan_display(c, clan) if clan else ""
     conn.close()
 
     played = (wins or 0) + (losses or 0)
     winrate = f"{round(100 * (wins or 0) / played)}%" if played else "-"
     player = {"name": stored_name, "display": display_name(stored_name, clan),
-              "clan_display": clan_display(c, clan) if clan else "",
+              "clan_display": clan_shown,
               "elo": f"{elo:.1f}", "wins": wins or 0,
               "losses": losses or 0, "rank": rank, "rank_of": rank_of,
               "winrate": winrate,
