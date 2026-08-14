@@ -14,7 +14,7 @@ import i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.72.0"
+APP_VERSION = "5.73.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -267,23 +267,27 @@ def all_clan_tags(c=None):
 def display_name(name, clan):
     """What a visitor sees, with the clan tag taken off the front.
 
-    COVHADE in COV reads as HADE, because the tag is already shown beside
-    it as a badge and printing it twice is just noise. Only the display
-    changes - the stored name stays exactly as it was, since that is the
-    key every match result is matched against.
+    The tag is stripped by its plain-letter READING, not its spelling:
+    (Ł7), 「L7」 and ₵ØV all come off for the clans keyed L7 and COV. The
+    badge already shows the tag, and printing it twice is noise. Display
+    only - the stored name is the key results are matched against and is
+    never touched.
     """
     if not name or not clan:
         return name
-    # Bracketed as well as bare: "(Ł7) Tempest" and "Ł7 Tempest" both wear
-    # the tag, and only stripping the bare form left the tag printed twice
-    # once it was also shown in front of the name.
-    stripped = re.sub(r'^\s*[\[\(\{<\u3010\u3016\u300c\u300e]?\s*'
-                      + re.escape(clan)
-                      + r'\s*[\]\)\}>\u3011\u3017\u300d\u300f]?[\s:_-]*',
-                      '', name, flags=re.IGNORECASE)
-    # Never hand back nothing: a player whose whole name is the tag still
-    # needs something to click on.
-    return stripped or name
+    key = clean_clan_tag(clan)
+    if not key:
+        return name
+    # Longest first, so Ⱡ7Ⱡ is not cut short by an earlier Ⱡ7 reading.
+    for i in range(min(len(name) - 1, 13), 0, -1):
+        if clean_clan_tag(name[:i]) == key:
+            rest = name[i:].lstrip(')]}>\u3011\u3017\u300d\u300f').lstrip(' -_:.').strip()
+            # Never hand back nothing: a player whose whole name is the
+            # tag still needs something to click on.
+            if rest:
+                return rest
+            break
+    return name
 
 
 # Names that are ordinary words or real given names in their own right.
@@ -429,6 +433,9 @@ TAG_FOLD = {
     "Đ": "D", "Ð": "D",
     "Ħ": "H", "Ɨ": "I", "ᵹ": "G", "Ǥ": "G",
     "Ꞷ": "W", "₩": "W", "Ʉ": "U", "Ʌ": "A",
+    "Ⱥ": "A", "Ȼ": "C", "Ɍ": "R", "Ɖ": "D", "Ɗ": "D", "Ƒ": "F",
+    "Ɠ": "G", "Ɫ": "L", "Ɱ": "M", "Ɲ": "N", "Ƥ": "P", "Ƭ": "T",
+    "Ʋ": "V", "Ƴ": "Y", "Ƶ": "Z", "Ǝ": "E", "Ꝁ": "K", "Ꞣ": "K",
 }
 
 
@@ -1668,6 +1675,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.73.0", "at": "2026-08-14T00:40:00Z", "changes": [
+        "Clan tags on the leaderboard now show exactly as their leader wrote them - Ⱡ7 rather than L7. The plain-letter form is only used behind the scenes, for links and for telling stylings of the same tag apart.",
+        "Search now reads symbol letters. Typing L7 finds Ⱡ7, DARKWARRIOR finds a name written in fancy lettering, and pasting the fancy form still works. Names in Cyrillic or Chinese are searched as themselves.",
+        "A member whose in-game name carries the tag - however it is spelt, (Ⱡ7) or 「L7」 or ₵ØV - has it taken off the shown name, since the badge in front already says it. Ratings still follow the real name underneath; only what you see changed.",
+    ]},
     {"version": "5.72.0", "at": "2026-08-14T00:10:00Z", "changes": [
         "The look now follows starblast.io itself, taken from the game's own menu: the Play typeface, its pale ice-blue text and cyan glow, flat translucent panels with thin borders, and square corners. The glossy glass of the last version is gone.",
         "The background drifts. Two layers of stars move at different speeds and one of them twinkles, the way the game's menu does, and the title carries the game's slow pulse. If your system asks for reduced motion, everything holds still.",
@@ -5758,6 +5770,23 @@ def clan_leader_state(c, sub_id):
     return row[0] if row else 'none'
 
 
+def search_key(*parts):
+    """What a search box matches against: each part as written, plus its
+    plain-letter reading. L7 finds Ⱡ7, DARKWARRIOR finds a name written
+    in symbol letters, and a pasted Ⱡ7 still finds itself. Cyrillic and
+    Chinese names keep their own letters."""
+    out = []
+    for part in parts:
+        if not part:
+            continue
+        raw = normalize_name(str(part))
+        folded = clean_clan_tag(part)
+        out.append(raw)
+        if folded and folded != raw:
+            out.append(folded)
+    return ''.join(out)
+
+
 def worn_tags(name):
     """The clan tag a name is actually WEARING, if any.
 
@@ -6366,7 +6395,7 @@ def _players_page_unused():
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             # Matched against the search box, which strips punctuation too, so
             # "bel riose" finds BELRIOSE.
-            "search": normalize_name(name) + (clan or ""),
+            "search": search_key(name, clan),
         })
     return render_template('players.html', players=players, total=len(players),
                            version=APP_VERSION, page='players')
@@ -6548,13 +6577,24 @@ def leaderboard():
             "name": name, "display": display_name(name, clan),
             "skill": (f"{elo:+.2f}" if gain
                       else (f"{STARTING_ELO + elo:.1f}" if relative else f"{elo:.1f}")),
-            "search": normalize_name(name) + (clan or ""),
+            "search": search_key(name, clan),
             "wins": wins, "losses": losses, "winrate": winrate,
             "clan": clan, "protected": protected,
             "region": home, "region_label": REGION_LABELS.get(home),
         })
     conn = db()
     c = conn.cursor()
+    # The tag exactly as its leader wrote it. The folded key is for URLs
+    # and matching only; a key is a poor thing to show people. Folding the
+    # shown form into the search key too means a pasted ₣ⱠⱤ⇝ finds the
+    # clan's members even when their own names do not carry it.
+    _shown = clan_display_map(c)
+    for _row in leaderboard_data:
+        if _row.get("clan"):
+            _disp = _shown.get(_row["clan"], _row["clan"])
+            _row["clan_display"] = _disp
+            if _disp != _row["clan"]:
+                _row["search"] += normalize_name(_disp)
     # Only trust a recent push. A stale row would claim a match is being
     # watched long after the tracker stopped, which is worse than saying
     # nothing at all.
@@ -6578,9 +6618,14 @@ def leaderboard():
     # reports, and a search must not appear to shrink the leaderboard.
     total_ranked = len(leaderboard_data)
     if q:
+        # Both readings of the query: as written, and folded to plain
+        # letters - so typing L7 finds Ⱡ7 and pasting Ⱡ7 finds it too,
+        # whichever symbol alphabet either side used.
         qkey = normalize_name(q)
+        qfold = clean_clan_tag(q)
         leaderboard_data = [p for p in leaderboard_data
-                            if qkey in p['search']]
+                            if qkey in p['search']
+                            or (qfold and qfold in p['search'])]
     found = len(leaderboard_data)
     pages = max(1, (found + PER_PAGE - 1) // PER_PAGE)
     # Clamped, not 404'd: ?page=900 is a stale link, not an error.
