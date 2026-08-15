@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.90.0"
+APP_VERSION = "5.91.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.91.0", "at": "2026-08-15T23:20:00Z", "changes": [
+        "Withdrawing a claim now gives you back that day's try. Claims are limited to three a day, and until now a withdrawn one still counted - so filing a claim, taking it back to fix a note, and filing again could lock you out for the day with nothing actually waiting.",
+        "The lockout message also told the wrong story - it said you had three claims waiting when you had none. The daily limit and the waiting limit now each say which one you hit.",
+    ]},
     {"version": "5.90.0", "at": "2026-08-15T22:15:00Z", "changes": [
         "Today's instability turned out to be the machine running out of memory. Each watched match runs a full copy of the game, about half a gigabyte each, and seven at once was more than the server holds - the browser quietly killed parts of itself to cope, which is what kept knocking watchers over.",
         "Three changes: the tracker watches five matches at a time instead of seven, so it fits; the game pages no longer load advertising and tracking scripts, which were costing real memory on frames nobody ever sees (about a gigabyte freed); and a watcher that dies can no longer leave its copy of the game running behind it.",
@@ -3110,11 +3114,15 @@ def perform_claim(c, me_sub, raw_name, raw_note, rate_src=None):
     c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' "
               "AND google_sub = ?", (me_sub,))
     pending_mine = (c.fetchone() or [0])[0]
-    if pending_mine >= MAX_PENDING_CLAIMS \
-            or rate_hit(c, 'claim', MAX_PENDING_CLAIMS, '-1 day', src=rate_src):
+    if pending_mine >= MAX_PENDING_CLAIMS:
         return 429, {"ok": False,
                      "message": f"You already have {MAX_PENDING_CLAIMS} claims waiting. "
                                 f"Wait for those to be looked at first."}
+    if rate_hit(c, 'claim', MAX_PENDING_CLAIMS, '-1 day', src=rate_src):
+        return 429, {"ok": False,
+                     "message": f"You have started {MAX_PENDING_CLAIMS} claims in the "
+                                f"last day, which is the limit - withdrawn ones "
+                                f"included. Try again tomorrow."}
 
     c.execute("SELECT COALESCE(MAX(id), 0) FROM matches")
     from_match = c.fetchone()[0]
@@ -3194,7 +3202,19 @@ def perform_claim_decide(c, claim_id, approve, decided_by=""):
                  "message": f"'{name}' now belongs to that account."}
 
 
-def perform_claim_withdraw(c, sub_id, name=None):
+def refund_rate(c, kind, n, src=None):
+    """Give back n rate events, newest first. The undo of rate_hit.
+
+    Only called when the thing the event paid for was itself undone, so
+    the limit still counts real, standing actions.
+    """
+    src = src or ip_source()
+    c.execute("DELETE FROM rate_events WHERE rowid IN ("
+              "SELECT rowid FROM rate_events WHERE kind = ? AND src = ? "
+              "ORDER BY created_at DESC LIMIT ?)", (kind, src, int(n)))
+
+
+def perform_claim_withdraw(c, sub_id, name=None, rate_src=None):
     """Take back a claim you have not had answered yet. Does NOT commit.
 
     Withdrawn rather than deleted: the row is what shows a name was asked
@@ -3216,6 +3236,7 @@ def perform_claim_withdraw(c, sub_id, name=None):
                                 else "You have no claim waiting."}
     c.executemany("UPDATE claim_requests SET status = 'withdrawn' WHERE id = ?",
                   [(r[0],) for r in rows])
+    refund_rate(c, 'claim', len(rows), src=rate_src)
     names = ", ".join(r[1] for r in rows)
     return 200, {"ok": True, "withdrawn": [r[1] for r in rows],
                  "message": f"Claim on '{names}' withdrawn. You can claim it again "
@@ -5348,8 +5369,12 @@ def bot_claim_withdraw_route():
         return jsonify({"error": "no discord_id"}), 400
     conn = db()
     c = conn.cursor()
+    # rate_src mirrors how the bot's claim route CHARGES the limit: by
+    # account tag, never by connection - every bot request shares the
+    # droplet's address.
     status, payload = perform_claim_withdraw(c, sub_id,
-                                             (request.json or {}).get('name'))
+                                             (request.json or {}).get('name'),
+                                             rate_src=source_tag(sub_id))
     if status == 200:
         conn.commit()
     conn.close()
