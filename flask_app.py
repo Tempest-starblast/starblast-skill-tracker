@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.87.0"
+APP_VERSION = "5.88.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.88.0", "at": "2026-08-15T13:25:00Z", "changes": [
+        "Fewer matches than usual were tracked between about 04:30 and 13:15 today. Five of the seven watchers lost their connection to the game within seconds of each other and then sat holding their lobbies without reading anything, so only two were doing any work. Four matches they were holding ended without being scored. If you won one in that window and nothing happened, that is why.",
+        "The safeguard meant to catch this only asked whether ANY watcher was still reading, and the two healthy ones kept answering yes for nearly nine hours. It now checks each watcher separately, so one getting stuck is caught within twelve minutes instead of going unnoticed all day.",
+    ]},
     {"version": "5.87.0", "at": "2026-08-15T04:45:00Z", "changes": [
         "Clan tags can be up to 16 characters now. The old limit was 6, counted on the plain-letter reading rather than on what you type - so FV HAWKS came out as FVHAWKS, seven characters, and was turned away as too long. Two characters is still the minimum.",
     ]},
