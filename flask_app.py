@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.86.0"
+APP_VERSION = "5.87.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.87.0", "at": "2026-08-15T04:45:00Z", "changes": [
+        "Clan tags can be up to 16 characters now. The old limit was 6, counted on the plain-letter reading rather than on what you type - so FV HAWKS came out as FVHAWKS, seven characters, and was turned away as too long. Two characters is still the minimum.",
+    ]},
     {"version": "5.86.0", "at": "2026-08-15T04:05:00Z", "changes": [
         "You are now credited for a win if you were in the match from the moment it started being watched and stayed in it, even if you had left before the very end. Only players still on screen in the final moment used to be paid. That is fair when a match ends on a station kill, but most matches wind down instead - and then who happens to still be on screen is close to random. One player was there from the first read, won, and got nothing, while somebody who wandered into the emptying lobby was credited.",
         "This only adds people. Nobody who was paid before is paid less, and joining late still counts half as it always did.",
@@ -4127,10 +4130,12 @@ def clan_code():
         # gets their clan at all. Mint it here, unowned, so the code is
         # what hands it over.
         tag = clean_clan_tag(raw)
-        if not 2 <= len(tag) <= 6 or not any(ch.isalpha() for ch in tag):
+        if (not CLAN_TAG_MIN_LEN <= len(tag) <= CLAN_TAG_MAX_LEN
+                or not any(ch.isalpha() for ch in tag)):
             conn.close()
-            return jsonify({"message": "A clan tag is 2 to 6 letters or numbers, "
-                                       "with at least one letter."}), 400
+            return jsonify({"message": f"A clan tag is {CLAN_TAG_MIN_LEN} to "
+                                       f"{CLAN_TAG_MAX_LEN} letters or numbers, "
+                                       f"with at least one letter."}), 400
         if is_blocked_word(tag):
             conn.close()
             return jsonify({"message": "That tag isn't allowed."}), 400
@@ -6032,12 +6037,22 @@ def absorb_unowned(c, tag):
     return taken
 
 
+# Length bounds for the FOLDED tag - the plain-letter reading, not what
+# was typed. 16 because 6 turned out to be too tight for real clan names:
+# FV HAWKS reads as FVHAWKS, which is seven, and was refused as too long.
+# The floor stays at 2; a one-letter tag carries no more meaning than a
+# smudge and would collide with far too much.
+CLAN_TAG_MIN_LEN = 2
+CLAN_TAG_MAX_LEN = 16
+
+
 def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     """Claim a clan tag. Shared by the website and the bot. Does NOT commit."""
     tag = clean_clan_tag(raw_tag)
-    if not 2 <= len(tag) <= 6:
+    if not CLAN_TAG_MIN_LEN <= len(tag) <= CLAN_TAG_MAX_LEN:
         return 400, {"ok": False,
-                     "message": "A clan tag is 2 to 6 letters or numbers."}
+                     "message": f"A clan tag is {CLAN_TAG_MIN_LEN} to "
+                                f"{CLAN_TAG_MAX_LEN} letters or numbers."}
     if not any(ch.isalpha() for ch in tag):
         return 400, {"ok": False, "message": "A clan tag needs at least one letter."}
     if is_blocked_word(tag):
@@ -6071,7 +6086,7 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
                                 f"Ask {CONTACT_HANDLE} on Discord if you need another."}
 
     now = time.strftime('%Y-%m-%d %H:%M:%S')
-    shown = ' '.join(str(raw_tag or '').split())[:24]
+    shown = ' '.join(str(raw_tag or '').split())[:32]
     c.execute("INSERT INTO clans (tag, display_tag, created_by, created_at) "
               "VALUES (?, ?, ?, ?)",
               (tag, shown if shown and shown != tag else None, sub_id, now))
