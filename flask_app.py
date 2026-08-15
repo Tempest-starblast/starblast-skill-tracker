@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.85.0"
+APP_VERSION = "5.86.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.86.0", "at": "2026-08-15T04:05:00Z", "changes": [
+        "You are now credited for a win if you were in the match from the moment it started being watched and stayed in it, even if you had left before the very end. Only players still on screen in the final moment used to be paid. That is fair when a match ends on a station kill, but most matches wind down instead - and then who happens to still be on screen is close to random. One player was there from the first read, won, and got nothing, while somebody who wandered into the emptying lobby was credited.",
+        "This only adds people. Nobody who was paid before is paid less, and joining late still counts half as it always did.",
+    ]},
     {"version": "5.85.0", "at": "2026-08-14T23:20:00Z", "changes": [
         "The Info page is now translated too. Picking a language used to change the buttons and headings while every explanation stayed in English, which made the language picker close to useless for the people who most needed it. All of it - every card on Info - is now in Espanol, Francais, Deutsch, Italiano, Russian, Vietnamese and Chinese as well.",
         "That page also had two things on it that were no longer true: it told you to pick a language at the bottom of the page, which moved to the header yesterday, and it did not mention that a name reading the same as one already on the board is offered to you to claim.",
