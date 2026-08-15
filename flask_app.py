@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.89.0"
+APP_VERSION = "5.90.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.90.0", "at": "2026-08-15T22:15:00Z", "changes": [
+        "Today's instability turned out to be the machine running out of memory. Each watched match runs a full copy of the game, about half a gigabyte each, and seven at once was more than the server holds - the browser quietly killed parts of itself to cope, which is what kept knocking watchers over.",
+        "Three changes: the tracker watches five matches at a time instead of seven, so it fits; the game pages no longer load advertising and tracking scripts, which were costing real memory on frames nobody ever sees (about a gigabyte freed); and a watcher that dies can no longer leave its copy of the game running behind it.",
+        "Five matches watched reliably beats seven watched badly - this morning it was effectively two.",
+    ]},
     {"version": "5.89.0", "at": "2026-08-15T20:35:00Z", "changes": [
         "Found and fixed what has been eating matches all day. All seven watchers share one browser, and when a watcher lost its connection to it the code treated that as a passing glitch and carried on - so the watcher then sat frozen, holding a live match, until the whole tracker was restarted twelve minutes later. That is why games ended with nothing recorded.",
         "A lost connection now ends that one watch immediately. The lobby goes straight back into the pool and another watcher picks it up where the last one left off, so one failure costs a few seconds on one match instead of stalling everything.",
