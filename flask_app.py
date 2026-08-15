@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.88.0"
+APP_VERSION = "5.89.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.89.0", "at": "2026-08-15T20:35:00Z", "changes": [
+        "Found and fixed what has been eating matches all day. All seven watchers share one browser, and when a watcher lost its connection to it the code treated that as a passing glitch and carried on - so the watcher then sat frozen, holding a live match, until the whole tracker was restarted twelve minutes later. That is why games ended with nothing recorded.",
+        "A lost connection now ends that one watch immediately. The lobby goes straight back into the pool and another watcher picks it up where the last one left off, so one failure costs a few seconds on one match instead of stalling everything.",
+        "If you won a match today between about 04:30 and 20:30 and it never appeared, this is why. Those results cannot be recovered - the tracker never saw how they ended.",
+    ]},
     {"version": "5.88.0", "at": "2026-08-15T13:25:00Z", "changes": [
         "Fewer matches than usual were tracked between about 04:30 and 13:15 today. Five of the seven watchers lost their connection to the game within seconds of each other and then sat holding their lobbies without reading anything, so only two were doing any work. Four matches they were holding ended without being scored. If you won one in that window and nothing happened, that is why.",
         "The safeguard meant to catch this only asked whether ANY watcher was still reading, and the two healthy ones kept answering yes for nearly nine hours. It now checks each watcher separately, so one getting stuck is caught within twelve minutes instead of going unnoticed all day.",
