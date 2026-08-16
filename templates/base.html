@@ -231,6 +231,34 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .langmenu a:hover{background:rgba(153,221,255,.08);color:var(--text)}
 .langmenu a.on{color:var(--blue);font-weight:700}
 @media (max-width:420px){.lpklabel{display:none}}
+/* Your own standing, on every page - the way a game keeps your name and
+   trophy count in the corner. Hidden until /me answers, so signed-out
+   visitors never see an empty box flash. */
+.pchip{display:none;align-items:center;gap:11px;padding:7px 13px;text-decoration:none;
+  background:rgba(0,0,0,.45);border:1px solid rgba(153,221,255,.3);border-radius:3px;
+  flex-shrink:0;max-width:230px}
+.pchip:hover{border-color:rgba(153,221,255,.6);background:rgba(153,221,255,.08)}
+.pchip .pcn{font-size:12.5px;font-weight:700;color:#eaf8ff;letter-spacing:.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px}
+.pchip .pcr{font-size:11px;color:var(--muted);letter-spacing:.4px;white-space:nowrap}
+.pchip .pce{font-size:19px;font-weight:700;color:var(--blue);
+  text-shadow:0 0 8px rgba(153,221,255,.5);font-variant-numeric:tabular-nums}
+
+/* Play is the thing the whole site exists to route people to, so it sits
+   apart from the reading tabs the way a Battle button does. */
+.tabs a.playtab{background:rgba(102,230,184,.10);border:1px solid rgba(102,230,184,.5);
+  color:#eafff5;text-shadow:0 0 8px rgba(102,230,184,.75);padding:10px 11px}
+.tabs a.playtab:hover{background:rgba(102,230,184,.2)}
+.tabs a.playtab.on{border-color:var(--green);background:rgba(102,230,184,.18)}
+
+/* On a phone the nav lives at the bottom, under the thumb. */
+@media (max-width:760px){
+  .tabs{position:fixed;left:0;right:0;bottom:0;z-index:60;margin:0;border-radius:0;
+    border-left:none;border-right:none;border-bottom:none;
+    background:rgba(1,6,12,.94);backdrop-filter:blur(8px);
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+  .page{padding-bottom:96px}
+}
 {% block css %}{% endblock %}
 </style><style>
 /* Width follows the gutter beside the centred page, so it floats on the
@@ -266,6 +294,11 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
         {%- endfor %}
       </div>
     </details>
+    <a class="pchip" id="pchip" href="/account" aria-label="Your account">
+      <span class="pce" id="pchipElo"></span>
+      <span><span class="pcn" id="pchipName"></span><br>
+        <span class="pcr" id="pchipRank"></span></span>
+    </a>
     <div class="brand"><a href="/">Starblast Team Mode Skill Tracker</a></div>
     <div class="authbox">
       <div id="authOut">
@@ -295,7 +328,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   </aside>
   <nav class="tabs">
     <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
-    <a href="/play"      class="{% if page=='play'        %}on{% endif %}">{{ t('Play') }}</a>
+    <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
     <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
     {%- if my_clan %}
     <a href="/myclan"    class="{% if page=='myclan'      %}on{% endif %}">{{ t('Your clan') }}</a>
@@ -303,7 +336,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
     <a href="/reports"   class="{% if page=='reports'     %}on{% endif %}">{{ t('Report') }}</a>
     <a href="/info"      class="{% if page=='info'        %}on{% endif %}">{{ t('Info') }}</a>
     <a href="/changelog" class="{% if page=='changelog'   %}on{% endif %}">{{ t('Changelog') }}</a>
-    <a href="/settings"  class="{% if page=='settings'    %}on{% endif %}">{{ t('Settings') }}</a>
+    <a href="/account"   class="{% if page=='account'     %}on{% endif %}">{{ t('Your account') }}</a>
   </nav>
 </div>
 
@@ -364,6 +397,15 @@ window.addEventListener('DOMContentLoaded', async function(){
         try{ label=sessionStorage.getItem('sb_acct')||label; }catch(e){}
       }
       sbShowSignedIn(label);
+      // The header chip: name, rating, rank - filled from the same /me
+      // call the sign-in state already made, so it costs nothing extra.
+      if(d.stats && d.account_name){
+        document.getElementById('pchipName').textContent = d.account_name;
+        document.getElementById('pchipElo').textContent = d.stats.elo;
+        document.getElementById('pchipRank').textContent = '#' + d.stats.rank
+          + ' \u00b7 ' + d.stats.wins + '-' + d.stats.losses;
+        document.getElementById('pchip').style.display = 'flex';
+      }
     }
   }catch(e){}
 });

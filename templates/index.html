@@ -53,6 +53,29 @@ a.ghost{display:inline-flex;align-items:center;padding:0 14px;
   border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;
   background:transparent;border:1px solid #3a3a3a;color:var(--muted)}
 a.ghost:hover{background:#2a2a2a;color:#fff}
+/* The landing moment: your next match, then who is on top - the shape a
+   game home screen has, instead of a bare table edge. */
+.hero{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 20px;align-items:stretch}
+.playcta{flex:1;min-width:220px;display:flex;flex-direction:column;justify-content:center;
+  gap:6px;text-align:center;text-decoration:none;padding:22px 18px;border-radius:3px;
+  background:rgba(102,230,184,.10);border:1px solid rgba(102,230,184,.55)}
+.playcta:hover{background:rgba(102,230,184,.18)}
+.playcta .p1{font-size:22px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;
+  color:#eafff5;text-shadow:0 0 10px rgba(102,230,184,.8)}
+.playcta .p2{font-size:12.5px;color:var(--muted);letter-spacing:.5px}
+.podium{flex:2;min-width:260px;display:flex;gap:10px;align-items:flex-end}
+.pod{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;text-decoration:none;
+  padding:12px 8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:3px}
+.pod:hover{border-color:rgba(153,221,255,.5)}
+.pod .pm{font-size:22px;line-height:1}
+.pod .pn{font-size:12px;font-weight:700;color:#eaf8ff;max-width:100%;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.pod .pe{font-size:16px;font-weight:700;color:var(--blue);
+  text-shadow:0 0 7px rgba(153,221,255,.45);font-variant-numeric:tabular-nums}
+.pod.p1st{padding-top:22px;border-color:rgba(255,215,106,.5);
+  box-shadow:0 0 14px rgba(255,215,106,.1) inset}
+.pod.p2nd{padding-top:14px}
+@media (max-width:560px){.podium{min-width:0}.pod .pn{font-size:10.5px}}
 /* A first-time visitor lands on three thousand names and a table with no
    way in. One line, dismissed for good when they say so. */
 .newhere{display:flex;align-items:flex-start;gap:12px;margin:0 0 18px;padding:11px 14px;
@@ -100,6 +123,27 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 })();
 </script>
 
+{% if pnum == 1 and not q %}
+<div class="hero">
+  <a class="playcta" href="/play">
+    <span class="p1">&#9654; {{ t('Play') }}</span>
+    <span class="p2">Join a tracked match and climb</span>
+  </a>
+  {% if leaderboard|length >= 3 %}
+  <div class="podium">
+    <a class="pod p2nd" href="/player/{{ leaderboard[1].name|urlencode }}">
+      <span class="pm">&#129352;</span><span class="pn">{{ leaderboard[1].display }}</span>
+      <span class="pe">{{ leaderboard[1].skill }}</span></a>
+    <a class="pod p1st" href="/player/{{ leaderboard[0].name|urlencode }}">
+      <span class="pm">&#129351;</span><span class="pn">{{ leaderboard[0].display }}</span>
+      <span class="pe">{{ leaderboard[0].skill }}</span></a>
+    <a class="pod" href="/player/{{ leaderboard[2].name|urlencode }}">
+      <span class="pm">&#129353;</span><span class="pn">{{ leaderboard[2].display }}</span>
+      <span class="pe">{{ leaderboard[2].skill }}</span></a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 <div class="filters">
   <div class="fgroup">
     {% for key, label in regions %}

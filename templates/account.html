@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}Your account - Starblast Skill Tracker{% endblock %}
+{% block css %}
+/* The hero card: the big number is your rating, the way a trophy count
+   leads a game profile. Everything else hangs off it. */
+.acct{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;margin-bottom:16px}
+.acctcard{flex:2;min-width:260px;background:var(--panel);border:1px solid rgba(153,221,255,.35);
+  border-radius:3px;padding:22px;display:flex;flex-direction:column;gap:6px;
+  box-shadow:0 0 18px rgba(153,221,255,.08) inset}
+.acctname{font-size:20px;font-weight:700;letter-spacing:1px;color:#eaf8ff;
+  text-shadow:var(--glow);overflow-wrap:anywhere}
+.acctelo{font-size:52px;font-weight:700;line-height:1.05;color:var(--blue);
+  text-shadow:0 0 14px rgba(153,221,255,.55);font-variant-numeric:tabular-nums}
+.acctsub{color:var(--muted);font-size:13px;letter-spacing:.6px}
+.acctstats{flex:3;min-width:260px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
+.line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;
+  border-bottom:1px solid var(--line);font-size:14px}
+.line:last-child{border-bottom:none}
+.switch{position:relative;display:inline-block;width:54px;height:30px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;inset:0;background:#3a3a3a;border-radius:30px;transition:.25s}
+.slider:before{content:"";position:absolute;height:24px;width:24px;left:3px;top:3px;background:#f1f1f1;
+  border-radius:50%;transition:.25s}
+input:checked + .slider{background:var(--green)}
+input:checked + .slider:before{transform:translateX(24px)}
+input:disabled + .slider{opacity:.45;cursor:not-allowed}
+.current{font-size:15px;color:var(--text);font-weight:600;margin:0 0 12px}
+.current span{color:var(--dim);font-weight:400}
+.hrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(153,221,255,.08);
+  font-size:13.5px}
+.hrow:last-child{border-bottom:none}
+.sq{width:20px;height:20px;border-radius:3px;flex-shrink:0;display:inline-flex;align-items:center;
+  justify-content:center;font-size:11px;font-weight:700}
+.sq.w{background:rgba(102,230,184,.18);color:var(--green);border:1px solid rgba(102,230,184,.5)}
+.sq.l{background:rgba(255,86,112,.14);color:var(--red);border:1px solid rgba(255,86,112,.45)}
+.hd{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
+.hd.up{color:var(--green)}.hd.dn{color:var(--red)}
+.hhalf{color:var(--amber);font-size:11px;letter-spacing:.5px}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">{{ t('Your account') }}</h1>
+
+{% if not signed_in %}
+<div class="card">
+  <h2>{{ t('Sign in') }}</h2>
+  <p class="desc">Use <b>Sign in with Google</b> or <b>Discord</b> at the top of the page.
+     Your rating, record, match history and settings all live here once you are in.</p>
+</div>
+{% else %}
+
+{% if acct %}
+<div class="acct">
+  <div class="acctcard">
+    <span class="acctname">{% if acct.clan %}<a class="badge" href="/clan/{{ acct.clan }}">{{ acct.clan_display or acct.clan }}</a> {% endif %}{{ acct.display }}</span>
+    <span class="acctelo">{{ acct.elo }}</span>
+    <span class="acctsub">SKILL &middot; {{ t('Rank') }} #{{ acct.rank }} {{ 'of' }} {{ acct.total }}</span>
+    <span class="acctsub"><a href="/player/{{ acct.name|urlencode }}">Public profile &rarr;</a>
+      {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% endif %}</span>
+  </div>
+  <div class="acctstats">
+    <div class="stat"><div class="label">{{ t('Record') }}</div><div class="value">{{ acct.wins }}-{{ acct.losses }}</div></div>
+    <div class="stat"><div class="label">{{ t('Win%') }}</div><div class="value">{{ acct.winrate }}</div></div>
+    <div class="stat"><div class="label">{{ t('Gained') }}</div><div class="value">{{ acct.gained }}</div></div>
+  </div>
+</div>
+
+{% if acct.by_region %}
+<div class="card">
+  <h2>{{ t('Region') }}</h2>
+  <div class="tablewrap" style="border:none">
+  <table>
+    <thead><tr><th>{{ t('Region') }}</th><th class="mid">{{ t('Record') }}</th><th class="num">{{ t('Gained') }}</th></tr></thead>
+    <tbody>
+    {% for r in acct.by_region %}
+    <tr><td>{{ t(r.label) }}</td><td class="mid">{{ r.wins }}-{{ r.losses }}</td>
+        <td class="skill">{{ r.gained }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% if acct.recent %}
+<div class="card">
+  <h2>Recent matches</h2>
+  {% for m in acct.recent %}
+  <div class="hrow">
+    <span class="sq {{ 'w' if m.won else 'l' }}">{{ 'W' if m.won else 'L' }}</span>
+    <span>{{ m.when }}</span>
+    {% if m.half %}<span class="hhalf">HALF</span>{% endif %}
+    <span class="hd {{ 'up' if m.delta >= 0 else 'dn' }}">{{ '%+.2f'|format(m.delta) }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+
+<div class="card">
+  <h2>Account</h2>
+  <div id="signedIn">
+    <p class="current" id="currentName">No name set yet. <span>Pick one below.</span></p>
+    <p class="desc">The name you play under in Starblast, exactly as it appears in the
+       game. Your matches are recorded against it, so a different name here means a
+       different player as far as the tracker is concerned.</p>
+    <div class="row">
+      <input type="text" id="accName" placeholder="Your name in Starblast" maxlength="16" autocomplete="off">
+      <button class="primary" onclick="saveName()">Save</button>
+    </div>
+    <p class="msg" id="nameMsg"></p>
+    <div id="takenBox" style="display:none;margin-top:12px;padding-top:12px;
+         border-top:1px solid var(--line)">
+      <p class="desc" id="takenWhich" style="display:none"></p>
+      <p class="desc" id="takenSame">That name is already on the leaderboard, so it has to be claimed
+         rather than taken - it may carry somebody's record. A claim becomes yours the
+         next time that name wins a tracked match, or {{ contact }} can approve it
+         sooner.</p>
+      <input type="text" id="claimNote" placeholder="Why is it yours? (optional)"
+             maxlength="200" autocomplete="off">
+      <button class="primary" style="margin-top:9px" onclick="doClaim()">{{ t('Claim it') }}</button>
+      <button class="ghost" id="anywayBtn" style="display:none;margin-top:9px"
+              onclick="saveName(true)">Use my name anyway</button>
+      <p class="msg" id="claimMsg"></p>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="claimCard" style="display:none">
+  <h2>Claims you are waiting on</h2>
+  <div id="pendingClaims" style="display:none;margin-top:14px;padding-top:12px;
+       border-top:1px solid var(--line)">
+    <p class="desc">Waiting on a tracked win. Withdraw one if you asked for it by
+       mistake &mdash; you can always claim it again.</p>
+    <div id="claimList"></div>
+    <p class="msg" id="withdrawMsg"></p>
+  </div>
+</div>
+
+<div class="card" id="protCard" style="display:none">
+  <div class="line">
+    <div><b>Protection</b><p class="desc" style="margin:4px 0 0">Only count matches I check
+      into.</p></div>
+    <label class="switch"><input type="checkbox" id="prot" disabled onchange="setProt(this.checked)">
+      <span class="slider"></span></label>
+  </div>
+  <div id="protConfirm" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)"></div>
+  <p class="desc" id="protWhy" style="margin:12px 0 0"></p>
+  <p class="msg" id="protMsg"></p>
+</div>
+
+<p class="foot">Something look wrong? Ask {{ contact }} on Discord.</p>
+
+<script>
+let myName = {{ (account_name or '')|tojson }};
+let claimTarget = null;
+
+async function post(u,b){
+  const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+  return [r, await r.json()];
+}
+function say(id, ok, t){ const m=document.getElementById(id); m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
+function el(t,c,x){ const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e; }
+
+async function loadMe(){
+  try{
+    const d=await (await fetch('/me')).json();
+    if(!d.logged_in) return;
+    document.getElementById('claimCard').style.display='block';
+    document.getElementById('protCard').style.display='block';
+    myName = (d.names && d.names.length) ? d.names[0] : null;
+    showName();
+    loadProt();
+    loadClaims();
+  }catch(e){}
+}
+
+function showName(){
+  const p=document.getElementById('currentName');
+  if(myName){
+    p.textContent='';
+    p.appendChild(document.createTextNode(myName));
+    p.appendChild(el('span',null,' - your account name'));
+    document.getElementById('accName').value=myName;
+  } else {
+    p.textContent='';
+    p.appendChild(document.createTextNode('No name set yet. '));
+    p.appendChild(el('span',null,'Pick one below.'));
+  }
+}
+
+async function saveName(anyway){
+  const n=document.getElementById('accName').value.trim();
+  if(!n){ say('nameMsg',false,'Enter a name.'); return; }
+  try{
+    const [r,d]=await post('/account/name', anyway ? {name:n,anyway:true} : {name:n});
+    say('nameMsg',r.ok,d.message);
+    showTaken(r.status===409, d, n);
+    if(r.ok){ myName=n; showName(); loadProt(); setTimeout(function(){location.reload();}, 900); }
+  }catch(e){ say('nameMsg',false,'Server connection error.'); }
+}
+
+function showTaken(on, d, typed){
+  document.getElementById('takenBox').style.display = on ? 'block' : 'none';
+  if(!on){ claimTarget=null; return; }
+  const near = !!(d && d.suggest_claim);
+  claimTarget = (d && d.claim_name) || typed;
+  document.getElementById('takenSame').style.display = near ? 'none' : 'block';
+  const w=document.getElementById('takenWhich');
+  w.style.display = near ? 'block' : 'none';
+  w.textContent = near
+    ? ('Claim ' + claimTarget + ' and its record becomes yours the next time that name '
+       + 'wins a tracked match. If it is somebody else, save your name anyway.')
+    : '';
+  document.getElementById('anywayBtn').style.display = near ? 'inline-block' : 'none';
+}
+
+async function loadClaims(){
+  try{
+    const d = await (await fetch('/claim/mine')).json();
+    const list = document.getElementById('claimList');
+    const box = document.getElementById('pendingClaims');
+    list.textContent = '';
+    const claims = d.claims || [];
+    box.style.display = claims.length ? 'block' : 'none';
+    claims.forEach(function(c){
+      const row = el('div', 'clanrow');
+      const who = el('div', 'ctag');
+      who.textContent = c.name;
+      const btn = el('button', 'ghost');
+      btn.textContent = 'Withdraw';
+      btn.onclick = function(){ withdrawClaim(c.name); };
+      row.appendChild(who);
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+  }catch(e){}
+}
+async function withdrawClaim(name){
+  try{
+    const [r, d] = await post('/claim/withdraw', {name: name});
+    say('withdrawMsg', d.ok, d.message);
+    if (d.ok) loadClaims();
+  }catch(e){ say('withdrawMsg', false, 'Server connection error.'); }
+}
+async function doClaim(){
+  const n=claimTarget||document.getElementById('accName').value.trim();
+  const note=document.getElementById('claimNote').value.trim();
+  if(!n){ say('claimMsg',false,'Enter the name you play under first.'); return; }
+  try{
+    const [r,d]=await post('/claim',{name:n,note:note});
+    say('claimMsg',r.ok,d.message);
+    if(r.ok){
+      loadClaims();
+      document.getElementById('claimNote').value='';
+      document.getElementById('takenBox').style.display='none';
+    }
+  }catch(e){ say('claimMsg',false,'Server connection error.'); }
+}
+
+async function loadProt(){
+  const s=document.getElementById('prot'), why=document.getElementById('protWhy');
+  if(!myName){
+    s.disabled=true; s.checked=false;
+    why.textContent='Set an account name first - protection applies to it.';
+    return;
+  }
+  try{
+    const r=await fetch('/protection?name='+encodeURIComponent(myName));
+    const d=await r.json();
+    if(!r.ok){ s.disabled=true; s.checked=false; why.textContent=d.message||''; return; }
+    s.checked=!!d.enabled; s.disabled=!d.owned;
+    if(d.hours_left > 0){
+      why.textContent='Protection can only be changed once a day. '
+        + (d.hours_left >= 1 ? Math.floor(d.hours_left)+' hours' : 'Under an hour') + ' to go.';
+    } else if(d.enabled){
+      why.textContent='On. Matches you did not check into are ignored, so nobody else playing '
+        + 'as ' + myName + ' can affect your rating.';
+    } else {
+      why.textContent='Off. Every match ' + myName + ' plays is rated automatically, whoever '
+        + 'is at the controls.';
+    }
+  }catch(e){ s.disabled=true; }
+}
+
+function setProt(on){
+  const sw=document.getElementById('prot');
+  const box=document.getElementById('protConfirm');
+  sw.checked=!on;
+  if(!myName){ say('protMsg',false,'Set an account name first.'); return; }
+  box.innerHTML=''; box.style.display='block';
+  box.appendChild(el('p','desc',
+    'Turn protection ' + (on?'ON':'OFF') + " for '" + myName + "'? " +
+    (on ? 'Only matches you check into on the Play page will count towards your rating, and '
+            + 'it will be marked as confirmed on the leaderboard. '
+        : 'Your rating stops being confirmed - the tick comes off your name on the leaderboard, '
+            + 'and all your matches count again, including any played by someone else using '
+            + 'your name. ') +
+    'This can only be changed once every 24 hours, so you will not be able to undo it until tomorrow.'));
+  const row=el('div','row');
+  const yes=el('button','primary', on?'Yes, turn it on':'Yes, turn it off');
+  yes.onclick=function(){ applyProt(on); };
+  const no=el('button','ghost','Cancel');
+  no.onclick=function(){ box.style.display='none'; box.innerHTML=''; };
+  row.appendChild(yes); row.appendChild(no);
+  box.appendChild(row);
+}
+
+async function applyProt(on){
+  const box=document.getElementById('protConfirm');
+  box.style.display='none'; box.innerHTML='';
+  try{
+    const [r,d]=await post('/protection',{name:myName,enabled:on});
+    say('protMsg',r.ok,d.message);
+    document.getElementById('prot').checked = r.ok ? on : !on;
+    loadProt();
+  }catch(e){ say('protMsg',false,'Server connection error.'); }
+}
+
+window.addEventListener('DOMContentLoaded', loadMe);
+</script>
+{% endif %}
+{% endblock %}

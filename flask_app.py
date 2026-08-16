@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.91.0"
+APP_VERSION = "5.92.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.92.0", "at": "2026-08-16T01:20:00Z", "changes": [
+        "The site has a new layout. Your name, rating and rank now sit in the header on every page, the way a game shows you your own trophies. On a phone the navigation moved to the bottom of the screen where your thumb already is, with Play in the middle.",
+        "The leaderboard opens with the top three on a podium and a proper Play button instead of dropping you straight into a wall of rows.",
+        "Settings has become Your account: your rating, rank, record, per-region results and recent matches, with your name, claims and Protection settings on the same page. Old /settings links land there.",
+    ]},
     {"version": "5.91.0", "at": "2026-08-15T23:20:00Z", "changes": [
         "Withdrawing a claim now gives you back that day's try. Claims are limited to three a day, and until now a withdrawn one still counted - so filing a claim, taking it back to fix a note, and filing again could lock you out for the day with nothing actually waiting.",
         "The lockout message also told the wrong story - it said you had three claims waiting when you had none. The daily limit and the waiting limit now each say which one you hit.",
@@ -3921,7 +3926,22 @@ def me():
         _c2.close()
     except sqlite3.Error:
         pass
-    return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin,
+    stats = None
+    if account_name:
+        try:
+            _c3 = db()
+            _row = _c3.execute("SELECT elo, COALESCE(wins,0), COALESCE(losses,0) "
+                               "FROM players WHERE norm_name = ?",
+                               (normalize_name(account_name),)).fetchone()
+            if _row:
+                _rank = _c3.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?",
+                                    (_row[0],)).fetchone()[0]
+                stats = {"elo": round(_row[0], 2), "rank": _rank,
+                         "wins": _row[1], "losses": _row[2]}
+            _c3.close()
+        except sqlite3.Error:
+            pass
+    return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats,
                     # Defaults to the account name: that is what most
                     # people are called in game, and a blank box on Play
                     # reads as "unknown" rather than "same as my name".
@@ -6569,13 +6589,52 @@ def clans_page():
 
 @app.route('/settings')
 def settings_page():
+    """Settings lives inside Your account now; old links keep working."""
+    return redirect('/account', code=301)
+
+
+@app.route('/account')
+def account_page():
+    """Your stats and your settings, one place - the page a game opens
+    when you tap your own name."""
+    sub_id = current_user()
     conn = db()
     c = conn.cursor()
-    account_name = account_name_for(c, current_user())
+    account_name = account_name_for(c, sub_id)
+    acct = None
+    if account_name:
+        c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
+                  "FROM players WHERE norm_name = ?", (normalize_name(account_name),))
+        row = c.fetchone()
+        if row:
+            name, elo, wins, losses, clan = row
+            c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
+            rank = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM players")
+            total = c.fetchone()[0]
+            played = wins + losses
+            by_region = [r for r in region_split(c, name) if r["played"]]
+            c.execute("SELECT mp.won, mp.delta, COALESCE(mp.half,0), m.played_at "
+                      "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+                      "WHERE mp.norm_name = ? ORDER BY m.played_at DESC LIMIT 10",
+                      (normalize_name(name),))
+            recent = [{"won": r[0], "delta": r[1] or 0, "half": r[2],
+                       "when": str(r[3])[:16]} for r in c.fetchall()]
+            gained = sum(r["gained"] for r in region_split(c, name))
+            acct = {
+                "name": name, "display": display_name(name, clan, clan_display(c, clan)) if clan else name,
+                "elo": f"{elo:.2f}".rstrip('0').rstrip('.'),
+                "rank": rank, "total": total, "wins": wins, "losses": losses,
+                "winrate": f"{round(100 * wins / played)}%" if played else "-",
+                "gained": ("%+.2f" % gained) if played else "-",
+                "clan": clan, "clan_display": clan_display(c, clan) if clan else None,
+                "by_region": by_region, "recent": recent,
+            }
     conn.close()
-    return render_template('settings.html', version=APP_VERSION,
+    return render_template('account.html', version=APP_VERSION,
                            contact=CONTACT_HANDLE, client_id=GOOGLE_CLIENT_ID,
-                           account_name=account_name, page='settings',
+                           account_name=account_name, signed_in=bool(sub_id),
+                           acct=acct, page='account',
                            wins_required=CLAIM_WINS_REQUIRED)
 
 
