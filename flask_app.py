@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.93.0"
+APP_VERSION = "5.94.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.94.0", "at": "2026-08-16T01:40:00Z", "changes": [
+        "The navigation is four tabs now: Leaderboard, Play, Clans, and a menu holding Your account, Your clan, Report, Info and Changelog.",
+    ]},
     {"version": "5.93.0", "at": "2026-08-16T01:15:00Z", "changes": [
         "Shorter words everywhere. Pages now say things once and briefly; the Info page keeps the full explanations.",
     ]},

@@ -259,6 +259,32 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
     padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
   .page{padding-bottom:96px}
 }
+/* Four tabs; everything you read occasionally lives under the menu.
+   Hover opens it on desktop, a tap on touch; from the bottom bar it
+   opens upward. */
+.tabs{overflow:visible}
+.tabmore{position:relative;flex:1;display:flex}
+.tabmore>a{flex:1;text-align:center;padding:11px 12px;border-radius:2px;text-decoration:none;
+  color:var(--muted);font-size:15px;font-weight:700;line-height:1.35}
+.tabmore>a:hover{color:var(--text);background:rgba(153,221,255,.06)}
+.tabmore>a.on{background:rgba(153,221,255,.10);color:#dff4ff;
+  border:1px solid rgba(153,221,255,.35);text-shadow:var(--glow);padding:10px 11px}
+.tabmenu{display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:70;
+  min-width:185px;padding:5px;background:#050d16;border:1px solid var(--line);
+  border-radius:3px;box-shadow:0 12px 30px rgba(0,0,0,.6)}
+.tabmore:hover .tabmenu,.tabmore.open .tabmenu{display:block}
+.tabmenu a{display:block;padding:10px 12px;font-size:13px;font-weight:700;
+  letter-spacing:1.2px;text-transform:uppercase;text-decoration:none;
+  color:var(--muted);border-radius:2px;white-space:nowrap}
+.tabmenu a:hover{background:rgba(153,221,255,.08);color:var(--text)}
+.tabmenu a.on{color:#dff4ff;text-shadow:var(--glow)}
+@media (max-width:760px){
+  .tabmenu{bottom:calc(100% + 8px);top:auto}
+}
+@media (hover:none){
+  .tabmore:hover .tabmenu{display:none}
+  .tabmore.open .tabmenu{display:block !important}
+}
 {% block css %}{% endblock %}
 </style><style>
 /* Width follows the gutter beside the centred page, so it floats on the
@@ -332,13 +358,19 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
     <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
     <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
     <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
-    {%- if my_clan %}
-    <a href="/myclan"    class="{% if page=='myclan'      %}on{% endif %}">{{ t('Your clan') }}</a>
-    {%- endif %}
-    <a href="/reports"   class="{% if page=='reports'     %}on{% endif %}">{{ t('Report') }}</a>
-    <a href="/info"      class="{% if page=='info'        %}on{% endif %}">{{ t('Info') }}</a>
-    <a href="/changelog" class="{% if page=='changelog'   %}on{% endif %}">{{ t('Changelog') }}</a>
-    <a href="/account"   class="{% if page=='account'     %}on{% endif %}">{{ t('Your account') }}</a>
+    <div class="tabmore" id="tabmore">
+      <a href="#" role="button" aria-haspopup="true" aria-label="More"
+         class="{% if page in ('account','myclan','reports','info','changelog') %}on{% endif %}">&#9776;</a>
+      <div class="tabmenu" role="menu">
+        <a href="/account"   role="menuitem" class="{% if page=='account'   %}on{% endif %}">{{ t('Your account') }}</a>
+        {%- if my_clan %}
+        <a href="/myclan"    role="menuitem" class="{% if page=='myclan'    %}on{% endif %}">{{ t('Your clan') }}</a>
+        {%- endif %}
+        <a href="/reports"   role="menuitem" class="{% if page=='reports'   %}on{% endif %}">{{ t('Report') }}</a>
+        <a href="/info"      role="menuitem" class="{% if page=='info'      %}on{% endif %}">{{ t('Info') }}</a>
+        <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}</a>
+      </div>
+    </div>
   </nav>
 </div>
 
@@ -438,5 +470,20 @@ document.addEventListener('keydown', function(e){
   var d = document.querySelector('.langpick[open]');
   if(d) d.open = false;
 });
+</script>
+<script>
+(function(){
+  var m = document.getElementById('tabmore');
+  if(!m) return;
+  m.querySelector('a').addEventListener('click', function(e){
+    e.preventDefault(); e.stopPropagation(); m.classList.toggle('open');
+  });
+  document.addEventListener('click', function(e){
+    if(!m.contains(e.target)) m.classList.remove('open');
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') m.classList.remove('open');
+  });
+})();
 </script>
 </body></html>
