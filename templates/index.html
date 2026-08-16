@@ -55,7 +55,10 @@ a.ghost{display:inline-flex;align-items:center;padding:0 14px;
 a.ghost:hover{background:#2a2a2a;color:#fff}
 /* The testing notice, folded into an "!" by the title. Hover or focus
    opens it; the banner it replaces took a third of the screen. */
-.warn{position:relative;display:inline-flex;align-items:center;vertical-align:-1px;margin-right:10px}
+/* .29em lifts the circle to the CAP centre - measured against the ink of
+   an L on a canvas, not the line box, whose deep descender sits the icon
+   7px low. Em, so the desktop and phone title sizes both stay aligned. */
+.warn{position:relative;display:inline-flex;align-items:center;vertical-align:.29em;margin-right:10px}
 .wmark{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;
   justify-content:center;flex-direction:column;gap:2px;cursor:default;
   background:rgba(255,86,112,.12);border:1px solid var(--red);color:#ff8a95;
