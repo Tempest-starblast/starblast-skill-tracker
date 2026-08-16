@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.0.1"
+APP_VERSION = "6.0.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.0.2", "at": "2026-08-16T18:50:00Z", "changes": [
+        "Found why watchers were dying on arrival: abandoning a dead browser connection quietly poisoned the thread it ran on, and every later watcher given that thread died instantly. Threads now clean themselves on the way in. All five watchers are up.",
+    ]},
     {"version": "6.0.1", "at": "2026-08-16T18:10:00Z", "changes": [
         "Coverage quietly dropped to one watcher this afternoon: new watchers were dying the moment they started, without a trace. Deaths are now logged with their cause, and ten in a row forces a clean restart on its own.",
     ]},
