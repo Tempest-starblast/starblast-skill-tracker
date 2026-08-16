@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.98.1"
+APP_VERSION = "5.98.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.98.2", "at": "2026-08-16T07:45:00Z", "changes": [
+        "Players who never scored no longer count as still playing when deciding a match is over, so lingering spectators cannot hold a finished match open.",
+    ]},
     {"version": "5.98.1", "at": "2026-08-16T07:20:00Z", "changes": [
         "A watched match is now resumed after a restart even when only a couple of players remain in the lobby - winding down no longer makes a finished match invisible.",
     ]},
