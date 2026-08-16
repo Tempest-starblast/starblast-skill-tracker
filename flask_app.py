@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.1.0"
+APP_VERSION = "6.1.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.1.1", "at": "2026-08-16T20:10:00Z", "changes": [
+        "A watcher could keep watching a lobby that had already ended - the game kept feeding it leftover data, so the finished match sat unscored until the watcher's saved progress went stale and the result was lost. Watchers now double-check the live server list every few minutes, however healthy things look, and a finished match is scored within minutes.",
+    ]},
     {"version": "6.1.0", "at": "2026-08-16T19:45:00Z", "changes": [
         "About a third of the watchers now speak to the browser directly instead of through the layer that has been failing all week. Every call they make has a hard time limit, so this kind of watcher cannot freeze - if the browser dies on one, it walks away in seconds. Running side by side with the old kind for a few days; if they prove more reliable, they all switch.",
     ]},
