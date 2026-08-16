@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.2.0"
+APP_VERSION = "6.2.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1729,6 +1729,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.2.1", "at": "2026-08-16T21:55:00Z", "changes": [
+        "A nearly-empty leftover lobby could trap its region's watcher in a loop: watched for a minute, released as not a match, and immediately watched again - fourteen times in half an hour tonight, which parked the whole Asia region since it runs a single watcher. A released leftover now gets a proper cool-down before anyone looks at it again; if its match actually ends in the meantime, the result is still scored within seconds.",
+    ]},
     {"version": "6.2.0", "at": "2026-08-16T20:35:00Z", "changes": [
         "A match that ends while no watcher is attached to it is now scored within seconds of it vanishing from the live server list, instead of waiting for the next restart - one result nearly slipped away exactly that way today.",
         "The one exception: if such a match would be decided by a score margin too close to call after minutes of nobody watching, the result is set aside for review instead of guessed - kept, never thrown away.",
