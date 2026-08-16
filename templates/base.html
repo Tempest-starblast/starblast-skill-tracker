@@ -294,11 +294,13 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
         {%- endfor %}
       </div>
     </details>
+    {%- if page != 'account' %}
     <a class="pchip" id="pchip" href="/account" aria-label="Your account">
       <span class="pce" id="pchipElo"></span>
       <span><span class="pcn" id="pchipName"></span><br>
         <span class="pcr" id="pchipRank"></span></span>
     </a>
+    {%- endif %}
     <div class="brand"><a href="/">Starblast Team Mode Skill Tracker</a></div>
     <div class="authbox">
       <div id="authOut">
@@ -399,7 +401,7 @@ window.addEventListener('DOMContentLoaded', async function(){
       sbShowSignedIn(label);
       // The header chip: name, rating, rank - filled from the same /me
       // call the sign-in state already made, so it costs nothing extra.
-      if(d.stats && d.account_name){
+      if(d.stats && d.account_name && document.getElementById('pchip')){
         document.getElementById('pchipName').textContent = d.account_name;
         document.getElementById('pchipElo').textContent = d.stats.elo;
         document.getElementById('pchipRank').textContent = '#' + d.stats.rank
