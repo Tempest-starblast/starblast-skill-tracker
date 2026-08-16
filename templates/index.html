@@ -53,6 +53,20 @@ a.ghost{display:inline-flex;align-items:center;padding:0 14px;
   border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;
   background:transparent;border:1px solid #3a3a3a;color:var(--muted)}
 a.ghost:hover{background:#2a2a2a;color:#fff}
+/* The testing notice, folded into an "!" by the title. Hover or focus
+   opens it; the banner it replaces took a third of the screen. */
+.warn{position:relative;display:inline-flex;vertical-align:middle;margin-right:10px}
+.wmark{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;
+  justify-content:center;font-size:16px;font-weight:700;cursor:default;
+  background:rgba(255,199,87,.12);border:1px solid var(--amber);color:#f0c04a;
+  text-shadow:0 0 7px rgba(255,199,87,.6)}
+.wpop{display:none;position:absolute;left:0;top:calc(100% + 9px);z-index:80;width:300px;
+  padding:12px 13px;background:#241f14;border:1px solid var(--amber);border-radius:3px;
+  color:#e6d5ad;font-size:12.5px;line-height:1.6;font-weight:400;letter-spacing:normal;
+  text-transform:none;text-shadow:none;white-space:normal}
+.wpop b{display:block;color:#f0c04a;font-size:11px;letter-spacing:.8px;
+  text-transform:uppercase;margin-bottom:6px}
+.warn:hover .wpop,.warn:focus-within .wpop{display:block}
 /* The landing moment: your next match, then who is on top - the shape a
    game home screen has, instead of a bare table edge. */
 .hero{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 20px;align-items:stretch}
@@ -101,7 +115,11 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% macro board(p=1, per=none, reg=none, term=none) -%}
 /?period={{ per if per is not none else period }}&amp;region={{ reg if reg is not none else region }}{% if p and p > 1 %}&amp;page={{ p }}{% endif %}{% set qq = term if term is not none else q %}{% if qq %}&amp;q={{ qq|urlencode }}{% endif %}
 {%- endmacro %}
-<h1 class="ptitle">{{ t('Leaderboard') }}</h1>
+<h1 class="ptitle"><span class="warn" tabindex="0" role="note"
+    aria-label="Testing in progress"><span class="wmark">!</span><span class="wpop">
+    <b>Testing in progress</b>
+    Ratings may be reset again while name-reading is tested.
+    Play normally &mdash; the board just starts over.</span></span>{{ t('Leaderboard') }}</h1>
 <p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.{% if pages > 1 %} {{ t('Page') }} {{ pnum }} / {{ pages }}.{% endif %}</p>
 
 <div class="newhere" id="newhere" hidden>

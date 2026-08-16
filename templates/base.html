@@ -286,22 +286,6 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   .tabmore.open .tabmenu{display:block !important}
 }
 {% block css %}{% endblock %}
-</style><style>
-/* Width follows the gutter beside the centred page, so it floats on the
-   left wherever there is genuinely room for it rather than at one fixed
-   screen size. */
-.resetnote{position:static;width:auto;max-width:660px;margin:0 auto 14px;
-  background:#241f14;border:1px solid var(--amber);
-  border-radius:3px;padding:12px 13px;color:#e6d5ad}
-.resetnote .rnhead{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
-  color:#f0c04a;margin-bottom:7px}
-.resetnote p{margin:0 0 8px;font-size:12px;line-height:1.55}
-.resetnote p:last-child{margin-bottom:0}
-.resetnote b{color:#fff}
-.resetnote .rnfoot{color:#a8946a;font-size:11.5px}
-/* Only floats beside the page when there is genuinely room for it;
-   otherwise it becomes an ordinary banner above the content so it can
-   never sit on top of the leaderboard. */
 </style>
 </head><body>
 
@@ -346,14 +330,6 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
     </div>
   </div>
 
-  <aside class="resetnote" role="note">
-    <div class="rnhead">Testing in progress</div>
-    <p>The leaderboard is likely to be <b>reset again during the next week</b>. Names are now
-       read from the game itself instead of the screen, and that changeover is still being
-       tested &mdash; so ratings here are not final yet.</p>
-    <p class="rnfoot">Play normally. Nothing you do is wasted &mdash; the board just starts
-       over each time.</p>
-  </aside>
   <nav class="tabs">
     <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
     <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
