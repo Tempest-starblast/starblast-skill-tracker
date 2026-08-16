@@ -122,10 +122,10 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 /?period={{ per if per is not none else period }}&amp;region={{ reg if reg is not none else region }}{% if p and p > 1 %}&amp;page={{ p }}{% endif %}{% set qq = term if term is not none else q %}{% if qq %}&amp;q={{ qq|urlencode }}{% endif %}
 {%- endmacro %}
 <h1 class="ptitle"><span class="warn" tabindex="0" role="note"
-    aria-label="Testing in progress"><span class="wmark" aria-hidden="true"></span><span class="wpop">
-    <b>Testing in progress</b>
-    Ratings may be reset again while name-reading is tested.
-    Play normally &mdash; the board just starts over.</span></span>{{ t('Leaderboard') }}</h1>
+    aria-label="Known issues"><span class="wmark" aria-hidden="true"></span><span class="wpop">
+    <b>Known issues</b>
+    Watcher crashes on 15&ndash;16 Aug left some wins unrecorded &mdash; those cannot be
+    recovered. A board reset is still possible while testing continues.</span></span>{{ t('Leaderboard') }}</h1>
 <p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.{% if pages > 1 %} {{ t('Page') }} {{ pnum }} / {{ pages }}.{% endif %}</p>
 
 <div class="newhere" id="newhere" hidden>
