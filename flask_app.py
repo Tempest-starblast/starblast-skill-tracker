@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.98.2"
+APP_VERSION = "6.0.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,18 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.0.0", "at": "2026-08-16T08:30:00Z", "changes": [
+        "This is the Starblast Team Mode Skill Leaderboard now - a leaderboard you climb, not a tracker you have to think about. The Discord bot speaks the same language. Older entries keep their original wording. Everything below is what version 5 built:",
+        "Names are read from the game itself, not from the screen. The board restarted on 10 August, and every result since is exact - no misread letters, no split identities.",
+        "The rating rules settled: a losing team pays as its fullest line-up so leaving early dodges nothing; joining a watched match late counts half; a score of exactly zero is never rated; and a winner who was there from the start and stayed is paid even after leaving before the end.",
+        "Clans, end to end: request one, the owner approves, claim your tag - shown exactly as you style it. Rosters, ranks, invite links, applications, regions, and one Your clan page to run it all.",
+        "Two names per account: the account name your rating lives under, and the play name your ship wears. Claims move a name you actually play to your account, and Protection makes your rating count only matches you checked into.",
+        "Eight languages, the Info page fully translated in all of them.",
+        "A new layout: your name, rating and rank in the header on every page, navigation at the bottom on phones with Play at its centre, a podium over the leaderboard, and a Your account page with your stats, history and settings together.",
+        "A Discord bot with 30 commands that does nearly everything the site does - check in, claim, browse the boards - with no browser and no sign-in.",
+        "Privacy: no IP addresses are stored, anywhere, at all.",
+        "And a long war on lost matches, won in stages: watchers survive restarts through checkpoints, a match that ends unwatched is scored from its last saved state, stuck watchers are caught within minutes, and lingering spectators cannot hold a finished match open.",
+    ]},
     {"version": "5.98.2", "at": "2026-08-16T07:45:00Z", "changes": [
         "Players who never scored no longer count as still playing when deciding a match is over, so lingering spectators cannot hold a finished match open.",
     ]},
@@ -6498,7 +6510,7 @@ def clan_revoke():
 # against names read off the screen, and those were often wrong, so every
 # membership derived from them is suspect. Saying so beats showing a
 # directory that quietly lies.
-CLANS_NOTICE = ("Clans are under construction. The tracker now reads names from the game "
+CLANS_NOTICE = ("Clans are under construction. Names are now read from the game "
                 "itself rather than off the screen, and the old clan tags were matched "
                 "against names that were often misread - so they have been cleared and "
                 "will be rebuilt from real data.")

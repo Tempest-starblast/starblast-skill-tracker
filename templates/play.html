@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Play - Starblast Skill Tracker{% endblock %}
+{% block title %}Play - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
 .fullnote{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;
   font-size:10.5px;font-weight:700;letter-spacing:.3px;background:#1e3320;
@@ -79,7 +79,7 @@
           <div class="msub">{{ l.players }} players &middot; {{ l.mins }} min in &middot; {{ l.status }}{% if l.watching %}
             <span class="halfnote" title="Already being watched. You can still join and press Play - it counts for half, because you were not in it when the watch started.">half elo</span>
           {% elif l.can_checkin %}
-            <span class="fullnote" title="Not being watched yet. Press Play and join before the tracker picks it up and the match counts in full.">full elo</span>{% endif %}</div>
+            <span class="fullnote" title="Not being watched yet. Press Play and join before a watcher picks it up and the match counts in full.">full elo</span>{% endif %}</div>
         </div>
         <div>
           {% if l.can_checkin %}
@@ -178,7 +178,7 @@ async function doClaim(){
 }
 
 // The check-in is made by the account, so no name is sent. Which name you
-// turn up under is the thing the tracker works out for itself.
+// turn up under is worked out automatically from your account.
 async function checkIn(sysId, btn){
   btn.disabled=true;
   try{
@@ -191,12 +191,12 @@ async function checkIn(sysId, btn){
         try{
           await navigator.clipboard.writeText(nm);
           say('lobbyMsg', true, d.message + '  Your name "' + nm +
-              '" is copied - paste it into the game so the tracker can find you.');
+              '" is copied - paste it into the game so the watcher can find you.');
         }catch(e){
-          say('lobbyMsg', true, d.message + '  Play as "' + nm + '" so the tracker can find you.');
+          say('lobbyMsg', true, d.message + '  Play as "' + nm + '" so the watcher can find you.');
         }
       } else if(nm){
-        say('lobbyMsg', true, d.message + '  Play as "' + nm + '" so the tracker can find you.');
+        say('lobbyMsg', true, d.message + '  Play as "' + nm + '" so the watcher can find you.');
       }
       window.open('https://starblast.io/#'+sysId,'_blank');
     } else { btn.disabled=false; }
