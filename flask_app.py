@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.96.1"
+APP_VERSION = "5.97.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.97.0", "at": "2026-08-16T04:40:00Z", "changes": [
+        "Claiming a clan now asks you to set your account name first, so every clan shows who runs it from day one.",
+    ]},
     {"version": "5.96.1", "at": "2026-08-16T02:50:00Z", "changes": [
         "The ! note now lists current known issues instead of the old testing text.",
     ]},
@@ -6152,6 +6155,15 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
                          }.get(state,
                                "You need to be approved to run a clan first. Ask for it "
                                "and the site owner decides.")}
+
+    # A name before a clan. The clan page names its leader by their
+    # leaderboard name; without one the clan reads as run by nobody, and
+    # the leader wonders where their crown went.
+    if not trusted and not account_name_for(c, sub_id):
+        return 400, {"ok": False, "need_name": True,
+                     "message": "Set your account name first - the clan page shows "
+                                "who runs it by that name. Save it on Your account, "
+                                "then claim your tag."}
 
     c.execute("SELECT COUNT(*) FROM clans WHERE created_by = ?", (sub_id,))
     if c.fetchone()[0] >= MAX_CLANS_PER_ACCOUNT:

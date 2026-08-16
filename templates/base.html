@@ -270,10 +270,16 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .tabmore>a:hover{color:var(--text);background:rgba(153,221,255,.06)}
 .tabmore>a.on{background:rgba(153,221,255,.10);color:#dff4ff;
   border:1px solid rgba(153,221,255,.35);text-shadow:var(--glow);padding:10px 11px}
-.tabmenu{display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:70;
+.tabmenu{position:absolute;right:0;top:calc(100% + 8px);z-index:70;
   min-width:185px;padding:5px;background:#050d16;border:1px solid var(--line);
-  border-radius:3px;box-shadow:0 12px 30px rgba(0,0,0,.6)}
-.tabmore:hover .tabmenu,.tabmore.open .tabmenu{display:block}
+  border-radius:3px;box-shadow:0 12px 30px rgba(0,0,0,.6);
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .12s ease, visibility 0s linear .3s}
+/* An invisible strip over the gap, and a .3s linger on the way out - a
+   diagonal path to the menu stays inside the hover area. */
+.tabmenu::before{content:'';position:absolute;left:-30px;right:0;top:-9px;height:9px}
+.tabmore:hover .tabmenu,.tabmore.open .tabmenu{opacity:1;visibility:visible;
+  pointer-events:auto;transition-delay:0s}
 .tabmenu a{display:block;padding:10px 12px;font-size:13px;font-weight:700;
   letter-spacing:1.2px;text-transform:uppercase;text-decoration:none;
   color:var(--muted);border-radius:2px;white-space:nowrap}
@@ -281,10 +287,10 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .tabmenu a.on{color:#dff4ff;text-shadow:var(--glow)}
 @media (max-width:760px){
   .tabmenu{bottom:calc(100% + 8px);top:auto}
+  .tabmenu::before{top:auto;bottom:-9px}
 }
 @media (hover:none){
-  .tabmore:hover .tabmenu{display:none}
-  .tabmore.open .tabmenu{display:block !important}
+  .tabmore:hover:not(.open) .tabmenu{opacity:0;visibility:hidden;pointer-events:none}
 }
 {% block css %}{% endblock %}
 </style>
