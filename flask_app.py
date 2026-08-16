@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.1.1"
+APP_VERSION = "6.2.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1380,6 +1380,42 @@ def game_end():
     # ordered by score and those are the players who decided it.
     half_elo = {normalize_name(n) for n in data.get('half_elo', [])}
 
+    # A whole-match hold: the tracker sets hold_reason when a result is
+    # too uncertain to rate but too real to lose - today that is the
+    # thin-margin orphan rescue (the match ended unwatched and the
+    # winner would be a score guess). Every player lands in
+    # held_results for review; nothing is rated, nothing is discarded,
+    # and the tracker's match_log keeps the full record for a later
+    # decision.
+    hold_reason = data.get('hold_reason')
+    if hold_reason:
+        hconn = db()
+        hc = hconn.cursor()
+        hmid = str(data.get('match_id') or ('sys%s-%s' % (sys_id, int(time.time()))))
+        hnow = time.strftime('%Y-%m-%d %H:%M:%S')
+        hpa = data.get('played_as_map') or {}
+        hsc = data.get('scores') if isinstance(data.get('scores'), dict) else {}
+        hwinners = {str(n) for n in winning_team}
+        heveryone = list(dict.fromkeys(
+            [str(n) for n in winning_team] + [str(n) for n in losing_all]))
+        for hname in heveryone:
+            hs = hsc.get(hname)
+            try:
+                hs = int(hs) if hs is not None else None
+            except (TypeError, ValueError):
+                hs = None
+            hc.execute("INSERT INTO held_results (match_id, sys_id, region, name, norm_name, "
+                       "played_as, won, score, reason, played_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (hmid, sys_id, str(data.get('region') or 'america'), hname,
+                        normalize_name(hname), hpa.get(hname) or hname,
+                        1 if hname in hwinners else 0, hs, str(hold_reason)[:40], hnow))
+        hconn.commit()
+        hconn.close()
+        print("[game_end] held whole match %s (%s): %d players"
+              % (hmid, hold_reason, len(heveryone)), flush=True)
+        return jsonify({"status": "held", "reason": str(hold_reason)[:40],
+                        "players": len(heveryone)}), 200
+
     def scaled(raw, key):
         """Half the swing for a late arrival, full for everyone else.
 
@@ -1693,6 +1729,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.2.0", "at": "2026-08-16T20:35:00Z", "changes": [
+        "A match that ends while no watcher is attached to it is now scored within seconds of it vanishing from the live server list, instead of waiting for the next restart - one result nearly slipped away exactly that way today.",
+        "The one exception: if such a match would be decided by a score margin too close to call after minutes of nobody watching, the result is set aside for review instead of guessed - kept, never thrown away.",
+    ]},
     {"version": "6.1.1", "at": "2026-08-16T20:10:00Z", "changes": [
         "A watcher could keep watching a lobby that had already ended - the game kept feeding it leftover data, so the finished match sat unscored until the watcher's saved progress went stale and the result was lost. Watchers now double-check the live server list every few minutes, however healthy things look, and a finished match is scored within minutes.",
     ]},
