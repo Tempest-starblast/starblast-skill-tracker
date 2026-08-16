@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.92.0"
+APP_VERSION = "5.93.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.93.0", "at": "2026-08-16T01:15:00Z", "changes": [
+        "Shorter words everywhere. Pages now say things once and briefly; the Info page keeps the full explanations.",
+    ]},
     {"version": "5.92.0", "at": "2026-08-16T01:20:00Z", "changes": [
         "The site has a new layout. Your name, rating and rank now sit in the header on every page, the way a game shows you your own trophies. On a phone the navigation moved to the bottom of the screen where your thumb already is, with Play in the middle.",
         "The leaderboard opens with the top three on a podium and a proper Play button instead of dropping you straight into a wall of rows.",

@@ -186,14 +186,11 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
     <button type="submit" class="ghost">{{ t('Search all') }}</button>
     <a class="ghost" href="{{ board(1, term='') }}">{{ t('Clear') }}</a>
   </form>
-  <p class="hint">Type your own name to find yourself on this page &mdash;
-     <b>Search all</b> looks through every page of the board.</p>
   <p class="msg" id="count"></p>
   {% if q %}<p class="msg">{{ found }} player{{ '' if found == 1 else 's' }} on the whole board match &quot;{{ q }}&quot;.</p>{% endif %}
 </div>
 
-<p class="tnote">Only matches shown as <a href="/play">tracked on Play</a> count
-   towards your rating. Check before you join.</p>
+<p class="tnote">Only matches <a href="/play">tracked on Play</a> count.</p>
 <div class="tablewrap">
 <table>
 <thead><tr>

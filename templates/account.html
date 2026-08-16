@@ -43,8 +43,8 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 {% if not signed_in %}
 <div class="card">
   <h2>{{ t('Sign in') }}</h2>
-  <p class="desc">Use <b>Sign in with Google</b> or <b>Discord</b> at the top of the page.
-     Your rating, record, match history and settings all live here once you are in.</p>
+  <p class="desc">Sign in at the top of the page &mdash; your rating, history and
+     settings live here.</p>
 </div>
 {% else %}
 
@@ -100,9 +100,8 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   <h2>Account</h2>
   <div id="signedIn">
     <p class="current" id="currentName">No name set yet. <span>Pick one below.</span></p>
-    <p class="desc">The name you play under in Starblast, exactly as it appears in the
-       game. Your matches are recorded against it, so a different name here means a
-       different player as far as the tracker is concerned.</p>
+    <p class="desc">Exactly as it appears in game &mdash; matches are recorded
+       against it.</p>
     <div class="row">
       <input type="text" id="accName" placeholder="Your name in Starblast" maxlength="16" autocomplete="off">
       <button class="primary" onclick="saveName()">Save</button>
@@ -111,10 +110,8 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
     <div id="takenBox" style="display:none;margin-top:12px;padding-top:12px;
          border-top:1px solid var(--line)">
       <p class="desc" id="takenWhich" style="display:none"></p>
-      <p class="desc" id="takenSame">That name is already on the leaderboard, so it has to be claimed
-         rather than taken - it may carry somebody's record. A claim becomes yours the
-         next time that name wins a tracked match, or {{ contact }} can approve it
-         sooner.</p>
+      <p class="desc" id="takenSame">Already on the leaderboard, so it has to be
+         claimed. It becomes yours next time that name wins a tracked match.</p>
       <input type="text" id="claimNote" placeholder="Why is it yours? (optional)"
              maxlength="200" autocomplete="off">
       <button class="primary" style="margin-top:9px" onclick="doClaim()">{{ t('Claim it') }}</button>
@@ -129,8 +126,7 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   <h2>Claims you are waiting on</h2>
   <div id="pendingClaims" style="display:none;margin-top:14px;padding-top:12px;
        border-top:1px solid var(--line)">
-    <p class="desc">Waiting on a tracked win. Withdraw one if you asked for it by
-       mistake &mdash; you can always claim it again.</p>
+    <p class="desc">Waiting on a tracked win.</p>
     <div id="claimList"></div>
     <p class="msg" id="withdrawMsg"></p>
   </div>

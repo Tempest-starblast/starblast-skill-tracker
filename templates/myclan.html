@@ -71,9 +71,8 @@
   {%- endif %}</p>
 
 {% if not clan.you_named %}
-<p class="mcprompt"><b>You do not appear on your own roster yet.</b>
-   Set the name you play under in <a href="/settings">Settings</a> &mdash; then you show
-   up here with your record, and the clan says who runs it instead of nobody.</p>
+<p class="mcprompt"><b>You do not appear on your own roster yet</b> &mdash;
+   set your name in <a href="/account">{{ t('Your account') }}</a>.</p>
 {% endif %}
 
 {% if clan.can_manage %}
