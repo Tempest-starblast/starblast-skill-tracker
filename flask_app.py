@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "5.95.0"
+APP_VERSION = "5.96.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "5.96.0", "at": "2026-08-16T02:20:00Z", "changes": [
+        "Signed in, the top corner now shows your account box - name, rating, rank - with Sign out under it, instead of a line of text. The testing note is a red ! beside the leaderboard title.",
+    ]},
     {"version": "5.95.0", "at": "2026-08-16T01:55:00Z", "changes": [
         "The testing banner is now a small ! beside the Leaderboard title - hover it for the note.",
     ]},

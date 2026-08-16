@@ -55,16 +55,16 @@ a.ghost{display:inline-flex;align-items:center;padding:0 14px;
 a.ghost:hover{background:#2a2a2a;color:#fff}
 /* The testing notice, folded into an "!" by the title. Hover or focus
    opens it; the banner it replaces took a third of the screen. */
-.warn{position:relative;display:inline-flex;vertical-align:middle;margin-right:10px}
+.warn{position:relative;display:inline-flex;align-items:center;vertical-align:-1px;margin-right:10px}
 .wmark{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;
-  justify-content:center;font-size:16px;font-weight:700;cursor:default;
-  background:rgba(255,199,87,.12);border:1px solid var(--amber);color:#f0c04a;
-  text-shadow:0 0 7px rgba(255,199,87,.6)}
+  justify-content:center;font-size:15px;font-weight:700;cursor:default;line-height:1;
+  background:rgba(255,86,112,.12);border:1px solid var(--red);
+  color:#ff8a95;text-shadow:0 0 7px rgba(255,86,112,.6)}
 .wpop{display:none;position:absolute;left:0;top:calc(100% + 9px);z-index:80;width:300px;
-  padding:12px 13px;background:#241f14;border:1px solid var(--amber);border-radius:3px;
-  color:#e6d5ad;font-size:12.5px;line-height:1.6;font-weight:400;letter-spacing:normal;
+  padding:12px 13px;background:#2a1216;border:1px solid var(--red);border-radius:3px;
+  color:#ffd7dd;font-size:12.5px;line-height:1.6;font-weight:400;letter-spacing:normal;
   text-transform:none;text-shadow:none;white-space:normal}
-.wpop b{display:block;color:#f0c04a;font-size:11px;letter-spacing:.8px;
+.wpop b{display:block;color:#ff8a95;font-size:11px;letter-spacing:.8px;
   text-transform:uppercase;margin-bottom:6px}
 .warn:hover .wpop,.warn:focus-within .wpop{display:block}
 /* The landing moment: your next match, then who is on top - the shape a

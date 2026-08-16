@@ -234,7 +234,8 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 /* Your own standing, on every page - the way a game keeps your name and
    trophy count in the corner. Hidden until /me answers, so signed-out
    visitors never see an empty box flash. */
-.pchip{display:none;align-items:center;gap:11px;padding:7px 13px;text-decoration:none;
+#authIn{flex-direction:column;align-items:flex-end;gap:6px}
+.pchip{display:flex;align-items:center;gap:11px;padding:7px 13px;text-decoration:none;
   background:rgba(0,0,0,.45);border:1px solid rgba(153,221,255,.3);border-radius:3px;
   flex-shrink:0;max-width:230px}
 .pchip:hover{border-color:rgba(153,221,255,.6);background:rgba(153,221,255,.08)}
@@ -304,13 +305,6 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
         {%- endfor %}
       </div>
     </details>
-    {%- if page != 'account' %}
-    <a class="pchip" id="pchip" href="/account" aria-label="Your account">
-      <span class="pce" id="pchipElo"></span>
-      <span><span class="pcn" id="pchipName"></span><br>
-        <span class="pcr" id="pchipRank"></span></span>
-    </a>
-    {%- endif %}
     <div class="brand"><a href="/">Starblast Team Mode Skill Tracker</a></div>
     <div class="authbox">
       <div id="authOut">
@@ -324,9 +318,15 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
         </a>
       </div>
       <div id="authIn" style="display:none">
-        <span class="authname">Signed in as <b id="authName">...</b></span>
+        {%- if page != 'account' %}
+        <a class="pchip" id="pchip" href="/account" aria-label="Your account">
+          <span class="pce" id="pchipElo"></span>
+          <span><span class="pcn" id="pchipName"></span><br>
+            <span class="pcr" id="pchipRank"></span></span>
+        </a>
+        {%- endif %}
+        <button id="authOutBtn" onclick="sbSignOut()">Sign out</button>
       </div>
-      <button id="authOutBtn" style="display:none" onclick="sbSignOut()">Sign out</button>
     </div>
   </div>
 
@@ -368,15 +368,16 @@ function sbJwt(t){
 }
 function sbShowSignedIn(label){
   document.getElementById('authOut').style.display='none';
-  document.getElementById('authIn').style.display='block';
-  document.getElementById('authOutBtn').style.display='inline-block';
-  document.getElementById('authName').textContent=label;
+  document.getElementById('authIn').style.display='flex';
+  // The chip is the signed-in state. Until /me brings the stats it shows
+  // the sign-in label; on the account page there is no chip, just Sign out.
+  var n = document.getElementById('pchipName');
+  if(n && !n.textContent) n.textContent = label;
   if(window.onSignedInReady) window.onSignedInReady(label);
 }
 function sbShowSignedOut(){
   document.getElementById('authOut').style.display='flex';
   document.getElementById('authIn').style.display='none';
-  document.getElementById('authOutBtn').style.display='none';
   if(window.onSignedOutReady) window.onSignedOutReady();
 }
 async function onGoogleAuth(res){
@@ -414,7 +415,6 @@ window.addEventListener('DOMContentLoaded', async function(){
         document.getElementById('pchipElo').textContent = d.stats.elo;
         document.getElementById('pchipRank').textContent = '#' + d.stats.rank
           + ' \u00b7 ' + d.stats.wins + '-' + d.stats.losses;
-        document.getElementById('pchip').style.display = 'flex';
       }
     }
   }catch(e){}
