@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.0.0"
+APP_VERSION = "6.0.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1693,6 +1693,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.0.1", "at": "2026-08-16T18:10:00Z", "changes": [
+        "Coverage quietly dropped to one watcher this afternoon: new watchers were dying the moment they started, without a trace. Deaths are now logged with their cause, and ten in a row forces a clean restart on its own.",
+    ]},
     {"version": "6.0.0", "at": "2026-08-16T08:30:00Z", "changes": [
         "This is the Starblast Team Mode Skill Leaderboard now - a leaderboard you climb, not a tracker you have to think about. The Discord bot speaks the same language. Older entries keep their original wording. Everything below is what version 5 built:",
         "Names are read from the game itself, not from the screen. The board restarted on 10 August, and every result since is exact - no misread letters, no split identities.",
