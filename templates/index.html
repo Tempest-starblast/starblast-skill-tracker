@@ -57,9 +57,12 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
    opens it; the banner it replaces took a third of the screen. */
 .warn{position:relative;display:inline-flex;align-items:center;vertical-align:-1px;margin-right:10px}
 .wmark{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;
-  justify-content:center;font-size:15px;font-weight:700;cursor:default;line-height:1;
-  background:rgba(255,86,112,.12);border:1px solid var(--red);
-  color:#ff8a95;text-shadow:0 0 7px rgba(255,86,112,.6)}
+  justify-content:center;flex-direction:column;gap:2px;cursor:default;
+  background:rgba(255,86,112,.12);border:1px solid var(--red);color:#ff8a95;
+  filter:drop-shadow(0 0 4px rgba(255,86,112,.5))}
+/* The mark is drawn, not typed - the font positions its own ! off centre. */
+.wmark::before{content:'';width:3px;height:9px;border-radius:1.5px;background:currentColor}
+.wmark::after{content:'';width:3px;height:3px;border-radius:50%;background:currentColor}
 .wpop{display:none;position:absolute;left:0;top:calc(100% + 9px);z-index:80;width:300px;
   padding:12px 13px;background:#2a1216;border:1px solid var(--red);border-radius:3px;
   color:#ffd7dd;font-size:12.5px;line-height:1.6;font-weight:400;letter-spacing:normal;
@@ -116,7 +119,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 /?period={{ per if per is not none else period }}&amp;region={{ reg if reg is not none else region }}{% if p and p > 1 %}&amp;page={{ p }}{% endif %}{% set qq = term if term is not none else q %}{% if qq %}&amp;q={{ qq|urlencode }}{% endif %}
 {%- endmacro %}
 <h1 class="ptitle"><span class="warn" tabindex="0" role="note"
-    aria-label="Testing in progress"><span class="wmark">!</span><span class="wpop">
+    aria-label="Testing in progress"><span class="wmark" aria-hidden="true"></span><span class="wpop">
     <b>Testing in progress</b>
     Ratings may be reset again while name-reading is tested.
     Play normally &mdash; the board just starts over.</span></span>{{ t('Leaderboard') }}</h1>
