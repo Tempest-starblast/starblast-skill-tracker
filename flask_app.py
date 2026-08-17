@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.2.1"
+APP_VERSION = "6.3.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1037,6 +1037,17 @@ def init_db():
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_leader_req "
               "ON clan_leader_requests(google_sub, status)")
+    # Whether the person the decision belongs to has seen it on the
+    # account page. Decisions happen on the site or in Discord; either
+    # way the red counter runs on these until the page shows them.
+    for _seen_alter in (
+            "ALTER TABLE claim_requests ADD COLUMN seen INTEGER DEFAULT 0",
+            "ALTER TABLE clan_invites ADD COLUMN seen INTEGER DEFAULT 0",
+            "ALTER TABLE clan_leader_requests ADD COLUMN seen INTEGER DEFAULT 0"):
+        try:
+            c.execute(_seen_alter)
+        except sqlite3.OperationalError:
+            pass
     # Whether the bot has shown this to the owner yet. A request made on the
     # website has no way to reach Discord by itself, so the bot collects
     # them the same way it collects applications.
@@ -1729,6 +1740,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.3.0", "at": "2026-08-17T02:10:00Z", "changes": [
+        "Clan invitations finally have somewhere to land: Your account now has an Invites & updates box where you accept or decline, and a red counter on your name in the header shows how many things are waiting for you.",
+        "Decisions come back to you in the same box - name claims, clan applications and requests to run a clan - whether they were decided on the site or in Discord.",
+        "The Apply button on clan pages works now; it was never being shown. And a clan leader visiting the profile of a player who has no clan can invite them from right there.",
+    ]},
     {"version": "6.2.1", "at": "2026-08-16T21:55:00Z", "changes": [
         "A nearly-empty leftover lobby could trap its region's watcher in a loop: watched for a minute, released as not a match, and immediately watched again - fourteen times in half an hour tonight, which parked the whole Asia region since it runs a single watcher. A released leftover now gets a proper cool-down before anyone looks at it again; if its match actually ends in the meantime, the result is still scored within seconds.",
     ]},
@@ -3970,6 +3986,53 @@ def set_lang(code):
     return resp
 
 
+def notice_invites(c, sub_id):
+    """Clan invitations waiting on this account's names. Actionable,
+    so they count on the badge until actually answered."""
+    if not sub_id:
+        return []
+    c.execute("SELECT i.id, i.clan, i.name FROM clan_invites i "
+              "JOIN players p ON p.name = i.name "
+              "WHERE i.status = 'pending' AND i.direction = 'invite' "
+              "AND p.google_sub = ? ORDER BY i.id", (sub_id,))
+    return [{"id": r[0], "clan": r[1], "name": r[2]} for r in c.fetchall()]
+
+
+def notice_updates(c, sub_id):
+    """Decisions this account has not seen yet - claims, clan
+    applications and leader requests, wherever they were decided.
+    Withdrawn claims are the account's own doing and never listed."""
+    if not sub_id:
+        return []
+    out = []
+    c.execute("SELECT id, name, status FROM claim_requests "
+              "WHERE google_sub = ? AND status IN ('approved', 'declined') "
+              "AND COALESCE(seen, 0) = 0 ORDER BY id", (sub_id,))
+    for r in c.fetchall():
+        out.append({"kind": "claim", "id": r[0], "text":
+                    ("Your claim on '%s' was approved - the name is yours." % r[1])
+                    if r[2] == 'approved' else
+                    ("Your claim on '%s' was declined." % r[1])})
+    c.execute("SELECT id, clan, name, status FROM clan_invites "
+              "WHERE invited_by = ? AND direction = 'application' "
+              "AND status IN ('approved', 'declined') "
+              "AND COALESCE(seen, 0) = 0 ORDER BY id", (sub_id,))
+    for r in c.fetchall():
+        out.append({"kind": "application", "id": r[0], "text":
+                    ("%s accepted '%s' - you are in." % (r[1], r[2]))
+                    if r[3] == 'approved' else
+                    ("%s declined '%s'." % (r[1], r[2]))})
+    c.execute("SELECT id, tag, status FROM clan_leader_requests "
+              "WHERE google_sub = ? AND status IN ('approved', 'denied') "
+              "AND COALESCE(seen, 0) = 0 ORDER BY id", (sub_id,))
+    for r in c.fetchall():
+        out.append({"kind": "leader", "id": r[0], "text":
+                    "Your request to run a clan was approved - create it on the Clans page."
+                    if r[2] == 'approved' else
+                    "Your request to run a clan was denied."})
+    return out
+
+
 @app.route('/me')
 def me():
     """Who is signed in, and which names they own."""
@@ -4036,7 +4099,21 @@ def me():
             _c3.close()
         except sqlite3.Error:
             pass
-    return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats,
+    # Own short-lived connection, same as stats above - the main one
+    # is long closed and reusing it is the recurring closed-DB trap.
+    admin_of = []
+    notices = {"invites": 0, "updates": 0, "total": 0}
+    try:
+        _c4 = db()
+        _cc = _c4.cursor()
+        admin_of = clan_admin_tags(_cc, sub_id)
+        _inv = len(notice_invites(_cc, sub_id))
+        _upd = len(notice_updates(_cc, sub_id))
+        _c4.close()
+        notices = {"invites": _inv, "updates": _upd, "total": _inv + _upd}
+    except sqlite3.Error:
+        pass
+    return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats, "admin_of": admin_of, "notices": notices,
                     # Defaults to the account name: that is what most
                     # people are called in game, and a blank box on Play
                     # reads as "unknown" rather than "same as my name".
@@ -4451,6 +4528,42 @@ def my_clan_invites():
     invites = [{"id": r[0], "clan": r[1], "name": r[2]} for r in c.fetchall()]
     conn.close()
     return jsonify({"invites": invites}), 200
+
+
+@app.route('/me/notices')
+def my_notices():
+    """The account page's inbox: invitations to answer and decisions
+    not yet seen."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"invites": [], "updates": []}), 200
+    conn = db()
+    c = conn.cursor()
+    invites = notice_invites(c, sub_id)
+    updates = notice_updates(c, sub_id)
+    conn.close()
+    return jsonify({"invites": invites, "updates": updates}), 200
+
+
+@app.route('/me/notices/seen', methods=['POST'])
+def my_notices_seen():
+    """Mark this account's decided items as read. Pending invitations
+    are left alone - they stay on the badge until answered."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE claim_requests SET seen = 1 WHERE google_sub = ? "
+              "AND status IN ('approved', 'declined')", (sub_id,))
+    c.execute("UPDATE clan_invites SET seen = 1 WHERE invited_by = ? "
+              "AND direction = 'application' "
+              "AND status IN ('approved', 'declined')", (sub_id,))
+    c.execute("UPDATE clan_leader_requests SET seen = 1 WHERE google_sub = ? "
+              "AND status IN ('approved', 'denied')", (sub_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
 
 
 @app.route('/clan/invite/respond', methods=['POST'])
