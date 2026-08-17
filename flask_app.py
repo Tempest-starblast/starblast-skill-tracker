@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.4.1"
+APP_VERSION = "6.4.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.4.2", "at": "2026-08-17T03:55:00Z", "changes": [
+        "Inviting players who are already in another clan is OFF - it went out earlier tonight by misunderstanding and lasted under an hour. Invitations are for players without a clan; anyone in a clan leaves it first, by their own hand. The green invite icon stays, on clanless profiles only, and any cross-clan invitations filed in that hour were cancelled.",
+    ]},
     {"version": "6.4.1", "at": "2026-08-17T03:35:00Z", "changes": [
         "For a few minutes after 6.4.0 the red counter read zero for everyone - the new match counter was asked one query too late, after its database handle had closed. Caught by the tests and fixed on the spot.",
     ]},
@@ -4512,13 +4515,12 @@ def clan_add():
     if current_clan == known:
         conn.close()
         return jsonify({"message": f"'{stored_name}' is already in {known}."}), 400
-    if current_clan and not owner_sub:
-        # No account means nobody who can consent to the move - and a
-        # direct add would quietly strip another clan's roster.
+    if current_clan:
+        # The owner's rule, restated 17 Aug: a player already in a clan
+        # is never offered around. They leave first, then invitations.
         conn.close()
-        return jsonify({"message": f"'{stored_name}' is in {current_clan} and has no "
-                                   f"account to accept with. They have to leave that "
-                                   f"clan first."}), 400
+        return jsonify({"message": f"'{stored_name}' is in {current_clan}. They have to "
+                                   f"leave that clan before joining {known}."}), 400
 
     if owner_sub:
         c.execute("SELECT id FROM clan_invites WHERE clan = ? AND name = ? AND status = 'pending' "
