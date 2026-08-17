@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.15.0"
+APP_VERSION = "6.16.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1719,47 +1719,11 @@ def game_end():
         print("[game_end] held %d result(s): %r"
               % (len(_held), [(n, r) for n, _, r in _held][:6]), flush=True)
 
-    # A win can finish off a pending claim. Counted only from the match the
-    # claim was filed at, so an old record cannot satisfy a new claim.
-    for winner in updated_winners:
-        key = normalize_name(winner)
-        c.execute("SELECT id, google_sub, verify_from FROM claim_requests "
-                  "WHERE status = 'pending' AND google_sub IS NOT NULL "
-                  "AND name IN (SELECT name FROM players WHERE norm_name = ?) "
-                  "ORDER BY id", (key,))
-        for claim_id, claimant, from_match in c.fetchall():
-            c.execute("SELECT COUNT(*) FROM match_players mp WHERE mp.norm_name = ? "
-                      "AND mp.won = 1 AND mp.match_row > ?", (key, from_match or 0))
-            if c.fetchone()[0] < CLAIM_WINS_REQUIRED:
-                continue
-            # Refuse if the name was taken in the meantime, or if the
-            # claimant has picked up a name since filing - a claim can sit
-            # open for days, so the cap has to be rechecked here too.
-            c.execute("SELECT google_sub FROM players WHERE norm_name = ?", (key,))
-            held = (c.fetchone() or [None])[0]
-            c.execute("SELECT COUNT(*) FROM players WHERE google_sub = ?", (claimant,))
-            already = c.fetchone()[0]
-            if held or already > MAX_NAMES_PER_ACCOUNT:
-                c.execute("UPDATE claim_requests SET status = 'declined' WHERE id = ?", (claim_id,))
-                continue
-            # The account's own row is only in the way if it has a record
-            # of its own. An untouched placeholder is discarded so the
-            # claimed row can become the account name.
-            c.execute("SELECT name, COALESCE(wins, 0) + COALESCE(losses, 0) "
-                      "FROM players WHERE google_sub = ?", (claimant,))
-            mine = c.fetchone()
-            if mine and normalize_name(mine[0]) != key:
-                if mine[1] > 0:
-                    c.execute("UPDATE claim_requests SET status = 'declined' WHERE id = ?",
-                              (claim_id,))
-                    continue
-                c.execute("DELETE FROM players WHERE name = ?", (mine[0],))
-            c.execute("UPDATE players SET google_sub = ? WHERE norm_name = ?", (claimant, key))
-            c.execute("UPDATE claim_requests SET status = 'approved' WHERE id = ?", (claim_id,))
-            c.execute("UPDATE claim_requests SET status = 'declined' WHERE status = 'pending' "
-                      "AND name IN (SELECT name FROM players WHERE norm_name = ?)", (key,))
-            break
-
+    # Wins no longer complete claims (removed 17 Aug 2026, 6.16.0).
+    # The old rule completed a claim when the NAME next won - which an
+    # impostor could satisfy by waiting for the real owner to win.
+    # Claims now complete through the deathmatch-ladder proof in the
+    # bot, or by the owner deciding by hand.
     # A clan's record is counted per match, not per member. sys_id is what
     # makes that possible - without it there is no way to tell two members of
     # one match apart from two separate matches, so nothing is recorded.
@@ -1795,6 +1759,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.16.0", "at": "2026-08-17T23:20:00Z", "changes": [
+        "Claims changed how they complete. Winning a tracked match no longer transfers a name - that could complete an impostor's claim off the real owner's win. Instead: file the claim, then prove the name is yours with one ranked Deathmatch game in Starblast (the bot walks you through it and watches the game's own ladder react, any region). No ECP, or the check fails? The claim waits for the owner to decide by hand.",
+    ]},
     {"version": "6.15.0", "at": "2026-08-17T22:30:00Z", "changes": [
         "Name claims can now lean on the game itself: Starblast publishes its deathmatch ladder, and the bot keeps a daily copy. In a dispute, a claimant who says a ranked name is theirs can prove it by playing one deathmatch game while we watch their live rating move - control of the account, not knowledge of a public number. The ladder history also remembers which names an account has worn.",
     ]},
@@ -3391,10 +3358,11 @@ def perform_claim(c, me_sub, raw_name, raw_note, rate_src=None):
                me_sub, from_match))
     n = CLAIM_WINS_REQUIRED
     return 200, {"ok": True, "name": stored_name,
-                 "message": f"Claim started for '{stored_name}'. Now win "
-                            f"{n} tracked match{'' if n == 1 else 'es'} playing as that "
-                            f"name and it becomes yours automatically. The claim is shown "
-                            f"on that player's page while it is open, so the real owner "
+                 "message": f"Claim started for '{stored_name}'. Prove it is yours "
+                            f"with one ranked Deathmatch game - the Discord bot's "
+                            f"/proveclaim walks you through it - or wait for the "
+                            f"owner to review it. The claim is shown on that "
+                            f"player's page while it is open, so the real owner "
                             f"can report it."}
 
 
@@ -3697,7 +3665,7 @@ def owner_check(c, stored_name, reg_ip):
     if not me_sub:
         return False, ("Sign in first, then use Claim to ask for this name.")
     return False, ("Nobody owns that name yet. Use Claim to ask for it - "
-                   "a claim completes on its own once that name wins a tracked match after you file.")
+                   "prove a claim with one ranked Deathmatch game (the Discord bot walks you through it), or the owner reviews it by hand.")
 
 
 @app.route('/auth/google', methods=['POST'])
@@ -5911,6 +5879,23 @@ def bot_claims_delivered():
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "marked": len(ids)}), 200
+
+
+@app.route('/api/bot/claim/pending')
+def bot_claim_pending():
+    """The pending claims filed by one account - the bot's /proveclaim
+    needs to know what it is proving."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    sub = str(request.args.get('sub') or '')
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT id, name, created_at FROM claim_requests "
+              "WHERE google_sub = ? AND status = 'pending' ORDER BY id",
+              (sub,))
+    out = [{"id": r[0], "name": r[1], "at": r[2]} for r in c.fetchall()]
+    conn.close()
+    return jsonify({"claims": out}), 200
 
 
 @app.route('/api/bot/claim/decide', methods=['POST'])
