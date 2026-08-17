@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.8.0"
+APP_VERSION = "6.8.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.8.1", "at": "2026-08-17T17:05:00Z", "changes": [
+        "Tightened the ten-minute rule on the losing side: it only excuses players who JOINED after the match was being watched. Being there from the start and leaving early is quitting, and quitting never dodges a loss. Winners are unchanged - under ten minutes of play earns nothing, whenever you arrived.",
+    ]},
     {"version": "6.8.0", "at": "2026-08-17T16:35:00Z", "changes": [
         "A match now only counts for the people who actually played it: anyone present for under ten minutes of the watched match is left out of the rating entirely - a winner that brief earns nothing, and a loser that brief is not punished for a defeat that was not theirs. Matches watched for under ten minutes rate everyone as before, since a short watch cannot prove who played.",
     ]},
