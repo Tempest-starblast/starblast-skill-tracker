@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.8.1"
+APP_VERSION = "6.9.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.9.0", "at": "2026-08-17T17:55:00Z", "changes": [
+        "The community has a home: the official Discord server is open, with announcements, a how-it-works guide, match-finding and clan channels, a suggestions box and the bot ready for /rank, /top and /play. The invite lives on the Clans page - come in.",
+    ]},
     {"version": "6.8.1", "at": "2026-08-17T17:05:00Z", "changes": [
         "Tightened the ten-minute rule on the losing side: it only excuses players who JOINED after the match was being watched. Being there from the start and leaving early is quitting, and quitting never dodges a loss. Winners are unchanged - under ten minutes of play earns nothing, whenever you arrived.",
     ]},
