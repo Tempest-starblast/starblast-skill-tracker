@@ -123,7 +123,8 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
          border-top:1px solid var(--line)">
       <p class="desc" id="takenWhich" style="display:none"></p>
       <p class="desc" id="takenSame">Already on the leaderboard, so it has to be
-         claimed. It becomes yours next time that name wins a tracked match.</p>
+         claimed. File the claim, then prove it with one ranked Deathmatch game &mdash;
+         the Discord bot's /proveclaim walks you through it.</p>
       <input type="text" id="claimNote" placeholder="Why is it yours? (optional)"
              maxlength="200" autocomplete="off">
       <button class="primary" style="margin-top:9px" onclick="doClaim()">{{ t('Claim it') }}</button>
@@ -254,8 +255,8 @@ function showTaken(on, d, typed){
   const w=document.getElementById('takenWhich');
   w.style.display = near ? 'block' : 'none';
   w.textContent = near
-    ? ('Claim ' + claimTarget + ' and its record becomes yours the next time that name '
-       + 'wins a tracked match. If it is somebody else, save your name anyway.')
+    ? ('Claim ' + claimTarget + ' and prove it with one ranked Deathmatch game - the '
+       + 'Discord bot walks you through it. If it is somebody else, save your name anyway.')
     : '';
   document.getElementById('anywayBtn').style.display = near ? 'inline-block' : 'none';
 }

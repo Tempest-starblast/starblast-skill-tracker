@@ -66,8 +66,9 @@
 {% if player.pending_claim %}
 <div class="card" style="border-color:#5a4a1e;background:#221f14">
   <h2 style="color:var(--amber,#fbbf24)">Someone is claiming this name</h2>
-  <p class="desc">A signed-in account has claimed <b>{{ player.display }}</b>. It transfers to
-     them automatically once this name wins a tracked match. <b>If this is your name and you
+  <p class="desc">A signed-in account has claimed <b>{{ player.display }}</b>. It only transfers
+     if they prove it with a ranked Deathmatch game, or if the owner approves it by
+     hand. <b>If this is your name and you
      did not do this, report it</b> &mdash; nothing is undone automatically, but it will be
      looked at by hand.</p>
   <button class="danger" onclick="reportName()">This is my name, report it</button>
