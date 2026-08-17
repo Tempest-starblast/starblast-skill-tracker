@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.6.0"
+APP_VERSION = "6.7.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.7.0", "at": "2026-08-17T05:50:00Z", "changes": [
+        "Closed the protection loss-dodge: a check-in that has been tied to a ship you actually played stays with that match forever - checking into another lobby no longer cancels it, so a lost match cannot be shaken off mid-game. Only a check-in you never played is replaced by your next one.",
+        "Playing under one of the game's 44 default commander names (Hari Seldon, HAL 9000, Spock and friends) now switches Protection on automatically and keeps it on - lots of players wear those names at once, so only matches you check into can safely count as yours. Pick a name of your own and Protection is yours to control again.",
+    ]},
     {"version": "6.6.0", "at": "2026-08-17T05:15:00Z", "changes": [
         "The changelog announces itself now: when something new has shipped since you last read it, a red dot sits on the menu button. Opening the menu moves it to the Changelog entry; reading the changelog clears it, and everything released since your last visit is tagged NEW at the top of its entry. Your first visit sets the starting point - no dot until something actually changes.",
     ]},
@@ -3092,6 +3096,17 @@ def protection():
 
     want = 1 if (request.json or {}).get('enabled') else 0
 
+    if not want:
+        c.execute("SELECT COALESCE(game_name, '') FROM players WHERE name = ?",
+                  (stored_name,))
+        _gn = (c.fetchone() or [''])[0]
+        if is_default_game_name(_gn):
+            conn.close()
+            return jsonify({"message": f"Your play name '{_gn}' is one of the game's "
+                                       f"default names, so Protection stays on. Set a "
+                                       f"play name of your own first.",
+                            "enabled": True}), 400
+
     # No match history required. Protection is only useful BEFORE someone
     # else plays under your name, so demanding a tracked match first meant
     # your first match was always the exposed one - and after a board reset
@@ -3165,11 +3180,18 @@ def perform_checkin(c, sub_id, sys_id):
               (who,))
     _row = c.fetchone()
     play_as = (_row[0] if _row else who) or who
+    default_note = ""
+    if is_default_game_name(play_as):
+        c.execute("UPDATE players SET strict_mode = 1 WHERE name = ?", (who,))
+        default_note = (" '%s' is one of the game's default names, so Protection "
+                        "is on automatically - only matches you check into count."
+                        % play_as)
 
     # One live check-in per account. Without this you could check into
     # every fresh lobby at once, watch which one is going well and join
     # only that one - keeping every option open would cost nothing.
-    c.execute("DELETE FROM checkins WHERE sub = ? AND created_at > datetime('now', ?)",
+    c.execute("DELETE FROM checkins WHERE sub = ? AND COALESCE(bound, 0) = 0 "
+              "AND created_at > datetime('now', ?)",
               (sub_id, '-' + str(CHECKIN_VALID_SECONDS) + ' seconds'))
     c.execute("INSERT INTO checkins (player, sub, sys_id, created_at) VALUES (?,?,?,?)",
               (who, sub_id, sys_id, time.strftime('%Y-%m-%d %H:%M:%S')))
@@ -3179,8 +3201,10 @@ def perform_checkin(c, sub_id, sys_id):
             if late else
             " Play under any name you like - the first ship to appear is taken as yours.")
     return 200, {"ok": True,
-                 "message": f"Checked in for this match as '{who}'.{note} Any earlier "
-                            f"check-in is now cancelled.",
+                 "message": f"Checked in for this match as '{who}'.{note}"
+                            f"{default_note} An earlier check-in you had not "
+                            f"played yet is cancelled; one already tied to a "
+                            f"match stays with it.",
                  "sys_id": sys_id, "late": late,
                  "account_name": who, "play_as": play_as}
 
@@ -3740,6 +3764,30 @@ def auth_discord_callback():
     return redirect(back or '/?signin=ok')
 
 
+# The game's own default commander names, extracted from the
+# starblast.io client on 17 Aug 2026 (44 names). Half the ships in any
+# lobby wear one, so an account playing under one can never be told
+# apart from strangers by name alone - Protection is therefore forced
+# on while a default name is the play name: only checked-in matches
+# count, which shields the account AND every stranger sharing the name.
+DEFAULT_GAME_NAMES = {normalize_name(_n) for _n in (
+    'Arkady Darell', 'Bel Riose', 'Cleon I', 'Dors Venabili',
+    'Ebling Mis', 'Gaal Dornick', 'Hari Seldon', 'Hober Mallow',
+    'Janov Pelorat', 'The Mule', 'Preem Palver', 'R.D. Olivaw',
+    'R.G. Reventlov', 'Raych Seldon', 'Salvor Hardin', 'Wanda Seldon',
+    'Yugo Amaryl', 'James T. Kirk', 'Leonard McCoy', 'Hikaru Sulu',
+    'Montgomery Scott', 'Spock', 'Picard', 'Christine Chapel',
+    'Nyota Uhura', 'Pavel Chekov', 'Ford', 'Zaphod', 'Marvin',
+    'Anakin', 'Luke', 'Leia', 'Ackbar', 'Tarkin', 'Jabba', 'Rey',
+    'Kylo', 'Han', 'Vader', 'D.A.R.Y.L.', 'HAL 9000',
+    'Lyta Alexander', 'Stephen Franklin', 'Lennier')}
+
+
+def is_default_game_name(name):
+    """Whether this is one of the names the game hands out for free."""
+    return normalize_name(str(name or '')) in DEFAULT_GAME_NAMES
+
+
 def perform_set_game_name(c, sub_id, raw_name):
     """Set (or clear) the name this account currently plays under.
 
@@ -3759,6 +3807,14 @@ def perform_set_game_name(c, sub_id, raw_name):
     if not name:
         return 200, {"ok": True, "game_name": "",
                      "message": "Cleared. Your profile no longer says what you play as."}
+    if is_default_game_name(name):
+        c.execute("UPDATE players SET strict_mode = 1 WHERE name = ?", (who,))
+        return 200, {"ok": True, "game_name": name, "protection_forced": True,
+                     "message": f"Noted - you play as '{name}'. That is one of the "
+                                f"game's default names, which many players wear at "
+                                f"once - so Protection is now ON automatically: only "
+                                f"matches you check into count, and it stays on "
+                                f"while you use a default name."}
     return 200, {"ok": True, "game_name": name,
                  "message": f"Noted - you play as '{name}'. Your results still appear "
                             f"under '{who}' whenever you press Play."}
