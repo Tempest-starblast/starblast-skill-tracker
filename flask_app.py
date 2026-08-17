@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.11.0"
+APP_VERSION = "6.12.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1756,6 +1756,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.12.0", "at": "2026-08-17T20:15:00Z", "changes": [
+        "Claiming a name counts as joining: file a claim and the Discord server opens up straight away, instead of leaving you waiting as a guest until the claim completes on your next tracked win.",
+    ]},
     {"version": "6.11.0", "at": "2026-08-17T19:55:00Z", "changes": [
         "You can join the leaderboard entirely from Discord now: the server has a register channel with a 60-second walkthrough, and running /setname there is all it takes. The Player role - which opens the rest of the server - is now given for being on the leaderboard and nothing else, so it means something.",
     ]},
@@ -5693,9 +5696,17 @@ def bot_playerrole_undelivered():
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
     c = conn.cursor()
-    c.execute("SELECT DISTINCT p.google_sub FROM players p "
-              "WHERE p.google_sub LIKE 'discord:%' AND p.name IS NOT NULL "
-              "AND p.google_sub NOT IN (SELECT sub FROM discord_role_grants)")
+    # A pending claim counts. A claim only completes on the claimed
+    # name's next tracked win, which can be hours - and the people
+    # claiming are exactly the established players the server most
+    # wants talking, so making them wait as guests is backwards.
+    c.execute("SELECT DISTINCT sub FROM ("
+              "  SELECT google_sub AS sub FROM players "
+              "  WHERE google_sub LIKE 'discord:%' AND name IS NOT NULL "
+              "  UNION "
+              "  SELECT google_sub AS sub FROM claim_requests "
+              "  WHERE google_sub LIKE 'discord:%' AND status = 'pending'"
+              ") WHERE sub NOT IN (SELECT sub FROM discord_role_grants)")
     subs = [r[0] for r in c.fetchall()]
     conn.close()
     return jsonify({"subs": subs}), 200
@@ -5729,6 +5740,11 @@ def bot_playerrole_check():
     c.execute("SELECT 1 FROM players WHERE google_sub = ? "
               "AND name IS NOT NULL LIMIT 1", (sub,))
     qualifies = bool(c.fetchone())
+    if not qualifies:
+        # Same rule as the queue above: a filed claim is joining.
+        c.execute("SELECT 1 FROM claim_requests WHERE google_sub = ? "
+                  "AND status = 'pending' LIMIT 1", (sub,))
+        qualifies = bool(c.fetchone())
     conn.close()
     return jsonify({"player": qualifies}), 200
 
