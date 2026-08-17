@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.13.0"
+APP_VERSION = "6.14.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1407,6 +1407,17 @@ def game_end():
     # ordered by score and those are the players who decided it.
     half_elo = {normalize_name(n) for n in data.get('half_elo', [])}
 
+    # A team that led by a distance and lost anyway to a side that
+    # filled up mid-match. The tracker decides this - only it can see
+    # the scoreboard over time and who arrived - and the site applies
+    # it: that team is not rated at all, and the winners take half,
+    # because arriving late in numbers is not the same as beating the
+    # lead that was already there.
+    dominance_exempt = {normalize_name(n)
+                        for n in (data.get('dominance_exempt') or [])}
+    if data.get('winners_half'):
+        half_elo |= {normalize_name(n) for n in winning_team}
+
     # A whole-match hold: the tracker sets hold_reason when a result is
     # too uncertain to rate but too real to lose - today that is the
     # thin-margin orphan rescue (the match ended unwatched and the
@@ -1500,6 +1511,8 @@ def game_end():
             return 'duplicate-name'
         if protected_without_checkin(player_name):
             return 'protected'
+        if normalize_name(player_name) in dominance_exempt:
+            return 'dominance-flip'
         return None
 
     def skip(player_name):
@@ -1519,6 +1532,8 @@ def game_end():
         # real-player threshold either, which this shares.
         if final_scores.get(player_name) == 0:
             return True
+        if normalize_name(player_name) in dominance_exempt:
+            return True
         return normalize_name(player_name) in ambiguous or protected_without_checkin(player_name)
 
     _in_w, _in_l = list(winning_team), list(losing_all)
@@ -1527,8 +1542,13 @@ def game_end():
     # unknowable (two people using one name), but a protected player is a
     # real person whose real match is being set aside on purpose - that is
     # worth being able to look up later.
-    _held = [(p, 1) for p in _in_w if skip_reason(p) == 'protected']
-    _held += [(p, 0) for p in _in_l if skip_reason(p) == 'protected']
+    _held = [(p, 1, 'protected') for p in _in_w if skip_reason(p) == 'protected']
+    _held += [(p, 0, 'protected') for p in _in_l if skip_reason(p) == 'protected']
+    # Kept too: a result set aside because the match was flipped is a
+    # real match somebody played, and why it went unrated should be
+    # answerable later.
+    _held += [(p, 0, 'dominance-flip') for p in _in_l
+              if skip_reason(p) == 'dominance-flip']
     winning_team = [p for p in winning_team if not skip(p)]
     losing_all = [p for p in losing_all if not skip(p)]
     _lost = [p for p in _in_l if p not in losing_all]
@@ -1665,7 +1685,7 @@ def game_end():
         _mid = str(data.get('match_id') or ('sys%s-%s' % (sys_id, int(time.time()))))
         _now = time.strftime('%Y-%m-%d %H:%M:%S')
         _pa = data.get('played_as_map') or {}
-        for _name, _won in _held:
+        for _name, _won, _reason in _held:
             _sc = final_scores.get(_name)
             try:
                 _sc = int(_sc) if _sc is not None else None
@@ -1675,10 +1695,10 @@ def game_end():
                       "played_as, won, score, reason, played_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                       (_mid, sys_id, str(data.get('region') or 'america'), _name,
                        normalize_name(_name), _pa.get(_name) or _name, _won, _sc,
-                       'protected', _now))
+                       _reason, _now))
         conn.commit()
-        print("[game_end] held %d protected result(s): %r"
-              % (len(_held), [n for n, _ in _held][:6]), flush=True)
+        print("[game_end] held %d result(s): %r"
+              % (len(_held), [(n, r) for n, _, r in _held][:6]), flush=True)
 
     # A win can finish off a pending claim. Counted only from the match the
     # claim was filed at, so an old record cannot satisfy a new claim.
@@ -1756,6 +1776,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.14.0", "at": "2026-08-17T21:40:00Z", "changes": [
+        "Flipped matches no longer punish the team that was winning. If your team led every rival by three quarters again for a solid minute, and then lost to a side that filled up with fresh players mid-match, nobody on your team takes the loss and the winners earn half. ECP players count double towards that, because those are the arrivals that turn a game.",
+        "Measured before shipping: a big lead alone reverses in about a third of all matches, so the lead is never enough on its own - the other side has to have visibly reloaded.",
+    ]},
     {"version": "6.13.0", "at": "2026-08-17T20:40:00Z", "changes": [
         "The Discord guide now spells out both ways a claim goes through: it is sent to the owner to approve, and it also completes on its own the next time that name wins a tracked match. Claiming a name that is not yours on purpose is a permanent ban from the leaderboard and the server.",
         "Added a private claim-disputes channel for the cases where two people say the same name is theirs - invisible unless you are given the Claim Dispute role, so both sides can be heard in one place.",
