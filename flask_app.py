@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.9.1"
+APP_VERSION = "6.10.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1022,6 +1022,13 @@ def init_db():
                     created_at TEXT,
                     status TEXT DEFAULT 'open'
                 )''')
+    # Discord accounts already granted the server's Player role, so the
+    # bot's poll does not grant twice. Sub only - no handles, no dates
+    # beyond when it was granted.
+    c.execute('''CREATE TABLE IF NOT EXISTS discord_role_grants (
+                    sub TEXT PRIMARY KEY,
+                    granted_at TEXT
+                )''')
     c.execute('''CREATE TABLE IF NOT EXISTS rate_events (
                     kind TEXT NOT NULL,
                     src TEXT NOT NULL,
@@ -1749,6 +1756,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.10.0", "at": "2026-08-17T18:50:00Z", "changes": [
+        "Discord roles hand themselves out now: joining the server makes you a Guest automatically, and the Player role arrives on its own - the moment you sign up on the leaderboard with Discord, the first time you use any bot command, or with the Unlock button. Signed up before joining? You land as a Player straight away.",
+    ]},
     {"version": "6.9.1", "at": "2026-08-17T18:20:00Z", "changes": [
         "The Discord server got proper roles: newcomers can read everything and chat in general, and one press of the Unlock button in start-here opens the rest - match-finding, clans, suggestions and voice. Announcements and the guides stay read-only for everyone.",
     ]},
@@ -5661,6 +5671,54 @@ def bot_clan_app_decide_route():
         conn.commit()
     conn.close()
     return jsonify(payload), 200
+
+
+@app.route('/api/bot/playerrole/undelivered')
+def bot_playerrole_undelivered():
+    """Discord accounts that own a named row and have not yet been
+    granted the server's Player role. The bot polls and grants."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT p.google_sub FROM players p "
+              "WHERE p.google_sub LIKE 'discord:%' AND p.name IS NOT NULL "
+              "AND p.google_sub NOT IN (SELECT sub FROM discord_role_grants)")
+    subs = [r[0] for r in c.fetchall()]
+    conn.close()
+    return jsonify({"subs": subs}), 200
+
+
+@app.route('/api/bot/playerrole/delivered', methods=['POST'])
+def bot_playerrole_delivered():
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    subs = (request.json or {}).get('subs') or []
+    conn = db()
+    c = conn.cursor()
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    for s in subs:
+        c.execute("INSERT OR IGNORE INTO discord_role_grants (sub, granted_at) "
+                  "VALUES (?, ?)", (str(s), now))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": len(subs)}), 200
+
+
+@app.route('/api/bot/playerrole/check')
+def bot_playerrole_check():
+    """Does this Discord account own a named row? Asked when somebody
+    joins the server, so signing up first still lands them as Player."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    sub = str(request.args.get('sub') or '')
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM players WHERE google_sub = ? "
+              "AND name IS NOT NULL LIMIT 1", (sub,))
+    qualifies = bool(c.fetchone())
+    conn.close()
+    return jsonify({"player": qualifies}), 200
 
 
 @app.route('/api/bot/claims/undelivered')
