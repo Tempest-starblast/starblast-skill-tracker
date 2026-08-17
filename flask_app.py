@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.10.0"
+APP_VERSION = "6.10.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1756,6 +1756,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.10.1", "at": "2026-08-17T19:05:00Z", "changes": [
+        "The Discord bot is called Starblast Team Mode Skill Bot now, matching the leaderboard's name. Same bot, same commands.",
+    ]},
     {"version": "6.10.0", "at": "2026-08-17T18:50:00Z", "changes": [
         "Discord roles hand themselves out now: joining the server makes you a Guest automatically, and the Player role arrives on its own - the moment you sign up on the leaderboard with Discord, the first time you use any bot command, or with the Unlock button. Signed up before joining? You land as a Player straight away.",
     ]},
