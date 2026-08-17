@@ -247,6 +247,11 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;
   justify-content:center;padding:0 5px;flex-shrink:0}
 .tabmenu .pbadge{display:inline-flex;margin-left:7px;vertical-align:middle}
+/* The changelog dot: something shipped since this reader last looked. */
+.cdot{display:inline-block;width:9px;height:9px;border-radius:50%;
+  background:var(--red,#ff5670)}
+.tabmore>a .cdot{position:absolute;top:8px;right:10px}
+.tabmenu .cdot{margin-left:7px;vertical-align:middle}
 .pchip .pce{font-size:19px;font-weight:700;color:var(--blue);
   text-shadow:0 0 8px rgba(153,221,255,.5);font-variant-numeric:tabular-nums}
 
@@ -348,7 +353,8 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
     <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
     <div class="tabmore" id="tabmore">
       <a href="#" role="button" aria-haspopup="true" aria-label="More"
-         class="{% if page in ('account','myclan','reports','info','changelog') %}on{% endif %}">&#9776;</a>
+         class="{% if page in ('account','myclan','reports','info','changelog') %}on{% endif %}"
+         style="position:relative">&#9776;<span class="cdot" id="clogDot" style="display:none"></span></a>
       <div class="tabmenu" role="menu">
         <a href="/account"   role="menuitem" class="{% if page=='account'   %}on{% endif %}">{{ t('Your account') }}<span class="pbadge" id="menuBadge" style="display:none"></span></a>
         {%- if my_clan %}
@@ -356,7 +362,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
         {%- endif %}
         <a href="/reports"   role="menuitem" class="{% if page=='reports'   %}on{% endif %}">{{ t('Report') }}</a>
         <a href="/info"      role="menuitem" class="{% if page=='info'      %}on{% endif %}">{{ t('Info') }}</a>
-        <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}</a>
+        <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}<span class="cdot" id="clogMenuDot" style="display:none"></span></a>
       </div>
     </div>
   </nav>
@@ -480,6 +486,35 @@ document.addEventListener('keydown', function(e){
   document.addEventListener('keydown', function(e){
     if(e.key === 'Escape') m.classList.remove('open');
   });
+
+  // Changelog dot, staged: on the menu button until the menu is opened,
+  // on the Changelog entry until the changelog itself is read. A first
+  // visit records where the reader started and shows nothing - there is
+  // no "since last time" yet.
+  var CUR = {{ version|tojson }};
+  var seen = null, ack = null;
+  try{
+    seen = localStorage.getItem('sbClogSeen');
+    ack = localStorage.getItem('sbClogMenuAck');
+  }catch(e){}
+  if (seen === null){
+    try{
+      localStorage.setItem('sbClogSeen', CUR);
+      localStorage.setItem('sbClogMenuAck', CUR);
+    }catch(e){}
+    return;
+  }
+  if (seen === CUR) return;
+  var mdot = document.getElementById('clogMenuDot');
+  if (mdot) mdot.style.display = '';
+  var dot = document.getElementById('clogDot');
+  if (dot && ack !== CUR) dot.style.display = '';
+  function ackMenu(){
+    try{ localStorage.setItem('sbClogMenuAck', CUR); }catch(e){}
+    if (dot) dot.style.display = 'none';
+  }
+  m.addEventListener('mouseenter', ackMenu);
+  m.querySelector('a').addEventListener('click', ackMenu);
 })();
 </script>
 </body></html>

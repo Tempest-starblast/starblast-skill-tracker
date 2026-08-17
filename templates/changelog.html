@@ -7,13 +7,14 @@
 .rel .when{font-size:12px;font-weight:400;color:var(--dim)}
 .rel ul{margin:0;padding-left:20px}
 .rel li{color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:9px}
+.relnew{color:var(--blue);font-size:11px;letter-spacing:.5px;font-weight:700}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Changelog</h1>
 <p class="psub">Every change made to the leaderboard, newest first. Times are Eastern (US); releases before 10 August have no recorded time.</p>
 
 {% for r in changelog %}
-<div class="card rel">
+<div class="card rel" data-v="{{ r.version }}">
   <h2>{{ r.version }}{% if r.at %}<span class="when"><time class="et"
       datetime="{{ r.at }}">{{ r.at[:16]|replace('T', ' ') }} UTC</time></span>{% endif %}</h2>
   <ul>{% for c in r.changes %}<li>{{ c }}</li>{% endfor %}</ul>
@@ -21,6 +22,39 @@
 {% else %}
 <div class="card"><p class="empty">Nothing logged yet.</p></div>
 {% endfor %}
+<script>
+// Everything released since this reader's last visit gets a NEW tag; the
+// visit itself then counts as caught-up, which is what clears the red dot
+// on the menu. First-time readers have no "last visit", so nothing is
+// tagged - the base script has already recorded where they started.
+(function(){
+  var CUR = {{ version|tojson }};
+  function newer(a, b){
+    var x = String(a).split('.'), y = String(b).split('.');
+    for (var i = 0; i < Math.max(x.length, y.length); i++){
+      var d = (parseInt(x[i] || 0, 10) || 0) - (parseInt(y[i] || 0, 10) || 0);
+      if (d) return d > 0;
+    }
+    return false;
+  }
+  var last = null;
+  try{ last = localStorage.getItem('sbClogSeen'); }catch(e){}
+  if (last && last !== CUR){
+    document.querySelectorAll('.rel[data-v]').forEach(function(card){
+      if (newer(card.dataset.v, last)){
+        var chip = document.createElement('span');
+        chip.className = 'relnew';
+        chip.textContent = 'NEW';
+        card.querySelector('h2').appendChild(chip);
+      }
+    });
+  }
+  try{
+    localStorage.setItem('sbClogSeen', CUR);
+    localStorage.setItem('sbClogMenuAck', CUR);
+  }catch(e){}
+})();
+</script>
 <script>
 // Deliberately fixed to Eastern, not the reader's zone: a release time is
 // a shared fact. The abbreviation comes from the browser, so it reads EDT
