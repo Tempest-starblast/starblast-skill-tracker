@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.14.0"
+APP_VERSION = "6.14.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1776,6 +1776,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.14.1", "at": "2026-08-17T21:15:00Z", "changes": [
+        "Tightened the flipped-match rule within the hour: on its first evening it was excusing roughly one loss in three, because it counted every new face over a whole match - and teams churn constantly. Now only players who arrive AFTER your team is already dominating, and who then stay at least five minutes, count as reinforcements. Genuine flips are still covered; ordinary comings and goings are not.",
+    ]},
     {"version": "6.14.0", "at": "2026-08-17T21:40:00Z", "changes": [
         "Flipped matches no longer punish the team that was winning. If your team led every rival by three quarters again for a solid minute, and then lost to a side that filled up with fresh players mid-match, nobody on your team takes the loss and the winners earn half. ECP players count double towards that, because those are the arrivals that turn a game.",
         "Measured before shipping: a big lead alone reverses in about a third of all matches, so the lead is never enough on its own - the other side has to have visibly reloaded.",
