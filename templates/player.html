@@ -7,11 +7,13 @@
   border-radius:12px;background:#2b2617;border:1px solid #6b5320;color:#f0c04a;
   font-size:11.5px;font-weight:700;text-decoration:none;vertical-align:middle}
 .leads:hover{background:#3a3320;color:#ffd76a}
-.invchip{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
-  border-radius:50%;margin-left:8px;background:rgba(102,230,184,.12);
-  border:1px solid rgba(102,230,184,.55);color:var(--green);font-size:16px;font-weight:700;
-  cursor:pointer;text-decoration:none;vertical-align:middle;line-height:1}
-.invchip:hover{background:rgba(102,230,184,.25)}
+.invchip{display:inline-flex;align-items:center;gap:5px;margin-left:8px;padding:2px 9px;
+  border-radius:12px;background:rgba(102,230,184,.10);border:1px solid rgba(102,230,184,.55);
+  color:var(--green);font-size:11.5px;font-weight:700;cursor:pointer;text-decoration:none;
+  vertical-align:middle}
+.invchip:hover{background:rgba(102,230,184,.22)}
+.invchip.sent{cursor:default;opacity:.75}
+.invchip.sent:hover{background:rgba(102,230,184,.10)}
 {% endblock %}
 {% block body %}
 {% if player %}
@@ -159,20 +161,37 @@ async function meGate(){
     if (cc && (mine.indexOf(pn) !== -1 || (pclan && adm.indexOf(pclan) !== -1)))
       cc.style.display = 'block';
     const slot = document.getElementById('invSlot');
-    if (!slot || pclan || mine.indexOf(pn) !== -1) return;
+    if (!slot || pclan || mine.indexOf(pn) !== -1 || !adm.length) return;
+    // Which of my clans already have an invitation out for this player.
+    // Those render settled - the chip says Invited and stays that way on
+    // every visit while the invitation is open.
+    let already = {};
+    try{
+      const st = await (await fetch('/clan/admin/state')).json();
+      (st.clans || []).forEach(function(cl){
+        if ((cl.pending || []).some(function(p){ return p.name === pn; }))
+          already[cl.tag] = true;
+      });
+    }catch(e){}
     adm.forEach(function(tag){
       const a = document.createElement('a');
-      a.className = 'invchip';
-      a.textContent = '+';
-      a.title = 'Invite to ' + tag;
-      a.setAttribute('role', 'button');
-      a.setAttribute('aria-label', 'Invite to ' + tag);
-      a.onclick = function(){ sendInvite(tag, a); };
+      if (already[tag]){
+        a.className = 'invchip sent';
+        a.textContent = '✓ Invited to ' + tag;
+      } else {
+        a.className = 'invchip';
+        a.textContent = '+ Invite to ' + tag;
+        a.setAttribute('role', 'button');
+        a.setAttribute('aria-label', 'Invite ' + pn + ' to ' + tag);
+        a.onclick = function(){ sendInvite(tag, a); };
+      }
       slot.appendChild(a);
     });
   }catch(e){}
 }
 async function sendInvite(tag, chip){
+  if (!window.confirm('Invite ' + {{ player.name|tojson }} + ' to ' + tag + '? '
+      + 'They get the invitation on their account page and decide.')) return;
   const msg = document.getElementById('invMsg');
   msg.className='msg'; msg.textContent='Sending...';
   try{
@@ -180,7 +199,12 @@ async function sendInvite(tag, chip){
       body:JSON.stringify({clan: tag, name: {{ player.name|tojson }}})});
     const d = await res.json();
     msg.textContent = d.message; msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
-    if (res.ok && chip) chip.style.opacity = .45;
+    if (res.ok && chip){
+      chip.className = 'invchip sent';
+      chip.textContent = '✓ Invited to ' + tag;
+      chip.onclick = null;
+      chip.removeAttribute('role');
+    }
   }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; }
 }
 meGate();
