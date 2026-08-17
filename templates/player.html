@@ -7,12 +7,18 @@
   border-radius:12px;background:#2b2617;border:1px solid #6b5320;color:#f0c04a;
   font-size:11.5px;font-weight:700;text-decoration:none;vertical-align:middle}
 .leads:hover{background:#3a3320;color:#ffd76a}
+.invchip{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
+  border-radius:50%;margin-left:8px;background:rgba(102,230,184,.12);
+  border:1px solid rgba(102,230,184,.55);color:var(--green);font-size:16px;font-weight:700;
+  cursor:pointer;text-decoration:none;vertical-align:middle;line-height:1}
+.invchip:hover{background:rgba(102,230,184,.25)}
 {% endblock %}
 {% block body %}
 {% if player %}
 <h1 class="ptitle">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}
 {%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}"
-   title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}</h1>
+   title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span></h1>
+<p class="msg" id="invMsg"></p>
 <p class="psub">Rank #{{ player.rank }} of {{ player.rank_of }}{% if primary %} &middot;
    {% if primary.only %}Plays in <b>{{ primary.label }}</b>{% else %}Mainly
    <b>{{ primary.label }}</b> ({{ primary.share }}% of matches){% endif %}{% endif %}
@@ -101,18 +107,11 @@
 {% endif %}
 
 {% if player.clan %}
-<div class="card">
+<div class="card" id="clanCard" style="display:none">
   <h2>Clan tag</h2>
   <p class="desc">Listed in <a href="/clan/{{ player.clan }}">{{ player.clan }}</a>.</p>
   <button id="clanBtn" class="danger" onclick="removeClan()">Remove clan tag</button>
   <p class="msg" id="clanMsg"></p>
-</div>
-{% else %}
-<div class="card" id="inviteCard" style="display:none">
-  <h2>{{ t('Invite to clan') }}</h2>
-  <p class="desc">They get the invitation on their account page and decide.</p>
-  <div class="row" id="inviteBtns"></div>
-  <p class="msg" id="inviteMsg"></p>
 </div>
 {% endif %}
 
@@ -142,38 +141,48 @@ async function removeClan(){
   }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; btn.disabled=false; }
 }
 
-// If this clanless player is somebody a signed-in clan leader could use,
-// offer the invitation right here. The invite lands on the player's own
-// account page and does nothing until they accept - same rule as always.
-async function offerInvite(){
-  const card = document.getElementById('inviteCard');
-  if (!card) return;
+// One /me call gates both member-only affordances. The Remove clan tag
+// button only ever worked for the name's owner or that clan's own staff -
+// the server refuses everyone else - so nobody else gets shown it. The
+// green + by the name is for leaders of OTHER clans: the invitation lands
+// on the player's account page and moving is entirely their choice.
+async function meGate(){
   try{
     const me = await (await fetch('/me')).json();
-    if (!me.logged_in || !(me.admin_of || []).length) return;
-    if ((me.names || []).indexOf({{ player.name|tojson }}) !== -1) return;
-    const btns = document.getElementById('inviteBtns');
-    me.admin_of.forEach(function(tag){
-      const b = document.createElement('button');
-      b.className = 'primary';
-      b.textContent = 'Invite to ' + tag;
-      b.onclick = function(){ sendInvite(tag); };
-      btns.appendChild(b);
+    if (!me.logged_in) return;
+    const mine = me.names || [], adm = me.admin_of || [];
+    const pn = {{ player.name|tojson }};
+    const pclan = {{ (player.clan or '')|tojson }};
+    const cc = document.getElementById('clanCard');
+    if (cc && (mine.indexOf(pn) !== -1 || (pclan && adm.indexOf(pclan) !== -1)))
+      cc.style.display = 'block';
+    const slot = document.getElementById('invSlot');
+    if (!slot || mine.indexOf(pn) !== -1) return;
+    adm.forEach(function(tag){
+      if (tag === pclan) return;
+      const a = document.createElement('a');
+      a.className = 'invchip';
+      a.textContent = '+';
+      a.title = 'Invite to ' + tag;
+      a.setAttribute('role', 'button');
+      a.setAttribute('aria-label', 'Invite to ' + tag);
+      a.onclick = function(){ sendInvite(tag, a); };
+      slot.appendChild(a);
     });
-    card.style.display = 'block';
   }catch(e){}
 }
-async function sendInvite(tag){
-  const msg = document.getElementById('inviteMsg');
+async function sendInvite(tag, chip){
+  const msg = document.getElementById('invMsg');
   msg.className='msg'; msg.textContent='Sending...';
   try{
     const res = await fetch('/clan/add',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({clan: tag, name: {{ player.name|tojson }}})});
     const d = await res.json();
     msg.textContent = d.message; msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+    if (res.ok && chip) chip.style.opacity = .45;
   }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; }
 }
-offerInvite();
+meGate();
 </script>
 {% else %}
 <h1 class="ptitle">Not found</h1>
