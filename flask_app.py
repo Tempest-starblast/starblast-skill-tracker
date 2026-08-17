@@ -16,10 +16,16 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.16.0"
+APP_VERSION = "6.17.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
+# The site owner (the bot application owner id). Gates the owner-only
+# sandbox switch. A set so a second identity can be added if needed.
+OWNER_SUBS = {"discord:1078474542026076160"}
+# The throwaway account the owner impersonates for testing. Never a
+# real person; its rows are wiped on entry so each test starts blank.
+SANDBOX_SUB = "test:sandbox"
 
 # One name per Google account. A network was never a person - everyone
 # behind one home, school or mobile connection shared a single address, so
@@ -1263,7 +1269,9 @@ def client_ip():
 def inject_auth():
     """The sign-in control sits in the shared header, so every template needs
     the client id and whether somebody is signed in."""
-    return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user())}
+    return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user()),
+            "is_owner": current_user() in OWNER_SUBS,
+            "dev_testing": bool(session.get("dev_real_owner"))}
 
 
 @app.route('/register', methods=['POST'])
@@ -1759,6 +1767,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.17.0", "at": "2026-08-18T00:05:00Z", "changes": [
+        "Owner tooling: the site owner can step into a blank sandbox account from Your account to experience the site as a new player - claiming, naming and all - with a banner always offering the way straight back. Nothing done in the sandbox touches the real account.",
+    ]},
     {"version": "6.16.0", "at": "2026-08-17T23:20:00Z", "changes": [
         "Claims changed how they complete. Winning a tracked match no longer transfers a name - that could complete an impostor's claim off the real owner's win. Instead: file the claim, then prove the name is yours with one ranked Deathmatch game in Starblast (the bot walks you through it and watches the game's own ladder react, any region). No ECP, or the check fails? The claim waits for the owner to decide by hand.",
     ]},
@@ -3618,6 +3629,14 @@ def current_user():
     return session.get('google_sub')
 
 
+def is_site_owner():
+    """True when the REAL signed-in account is an owner. While the owner
+    is impersonating the sandbox, current_user() is the sandbox - so the
+    stashed real id is what counts."""
+    real = session.get('dev_real_owner') or current_user()
+    return real in OWNER_SUBS
+
+
 def safe_next(raw):
     """A path on this site to return to after signing in, or None.
 
@@ -4062,6 +4081,36 @@ def set_account_name():
     conn.commit()
     conn.close()
     return jsonify({"message": msg}), 200
+
+
+@app.route('/dev/actas', methods=['POST'])
+def dev_actas():
+    """Owner steps into the blank sandbox account. Verified against the
+    REAL current user, and the real id is stashed so /dev/restore can
+    only ever hand it back."""
+    if current_user() not in OWNER_SUBS:
+        return jsonify({"error": "Not allowed."}), 403
+    conn = db()
+    c = conn.cursor()
+    # Fresh slate: the sandbox is never a real person, so wiping its
+    # rows is safe and makes every test start as a nameless newcomer.
+    c.execute("DELETE FROM players WHERE google_sub = ?", (SANDBOX_SUB,))
+    c.execute("DELETE FROM claim_requests WHERE google_sub = ?", (SANDBOX_SUB,))
+    conn.commit()
+    conn.close()
+    session['dev_real_owner'] = current_user()
+    session['google_sub'] = SANDBOX_SUB
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/dev/restore', methods=['POST'])
+def dev_restore():
+    """Return to the real owner account. Safe by construction: it only
+    restores the id a prior owner-verified /dev/actas stashed."""
+    real = session.pop('dev_real_owner', None)
+    if real:
+        session['google_sub'] = real
+    return jsonify({"ok": True}), 200
 
 
 @app.route('/logout', methods=['POST'])
