@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.4.2"
+APP_VERSION = "6.5.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.5.0", "at": "2026-08-17T04:55:00Z", "changes": [
+        "Invitations can be taken back: a Cancel next to the Invited marker on the player's profile, and a new Invited list on Your clan showing every invitation still waiting, each with its own Cancel. A cancelled invitation simply disappears from the player's account.",
+    ]},
+    {"version": "6.4.3", "at": "2026-08-17T04:20:00Z", "changes": [
+        "The invite control on profiles is a proper labelled button now - + Invite to your clan, aligned with the name - with an are-you-sure step before anything is sent. Once sent it settles into an Invited marker, and it stays that way on later visits while the invitation is open.",
+    ]},
     {"version": "6.4.2", "at": "2026-08-17T03:55:00Z", "changes": [
         "Inviting players who are already in another clan is OFF - it went out earlier tonight by misunderstanding and lasted under an hour. Invitations are for players without a clan; anyone in a clan leaves it first, by their own hand. The green invite icon stays, on clanless profiles only, and any cross-clan invitations filed in that hour were cancelled.",
     ]},
@@ -4639,6 +4645,34 @@ def clan_invite_respond():
                     else f"Invitation from {clan} declined."}), 200
 
 
+@app.route('/clan/invite/cancel', methods=['POST'])
+def clan_invite_cancel():
+    """Take back a pending invitation, as staff of the clan that sent
+    it. The player's inbox and badge only ever show pending rows, so a
+    cancelled invitation vanishes from their side without a trace."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT clan, name, status FROM clan_invites WHERE id = ? "
+              "AND direction = 'invite'", (data.get('id'),))
+    row = c.fetchone()
+    if not row or row[2] != 'pending':
+        conn.close()
+        return jsonify({"message": "That invitation is no longer open."}), 404
+    clan, name, _ = row
+    if clan not in clan_admin_tags(c, sub_id):
+        conn.close()
+        return jsonify({"message": "You are not an admin of that clan."}), 403
+    c.execute("UPDATE clan_invites SET status = 'cancelled' WHERE id = ?",
+              (data.get('id'),))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Invitation to {name} taken back."}), 200
+
+
 INVITE_LINK_DAYS = 7
 
 
@@ -6775,6 +6809,10 @@ def my_clan_page():
         "size": len(members), "region": region,
         "region_label": REGION_LABELS.get(region, ""), "regions": REGIONS,
         "applications": clan_applications(c, tag),
+        "invited": [{"id": r[0], "name": r[1]} for r in c.execute(
+            "SELECT id, name FROM clan_invites WHERE clan = ? "
+            "AND status = 'pending' AND direction = 'invite' "
+            "ORDER BY name", (tag,)).fetchall()],
         "role": role, "role_label": CLAN_ROLE_LABELS.get(role, ""),
         "can_manage": clan_rank(role) >= clan_rank('coleader'),
         "is_leader": role == 'leader',
