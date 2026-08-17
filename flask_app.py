@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.9.0"
+APP_VERSION = "6.9.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.9.1", "at": "2026-08-17T18:20:00Z", "changes": [
+        "The Discord server got proper roles: newcomers can read everything and chat in general, and one press of the Unlock button in start-here opens the rest - match-finding, clans, suggestions and voice. Announcements and the guides stay read-only for everyone.",
+    ]},
     {"version": "6.9.0", "at": "2026-08-17T17:55:00Z", "changes": [
         "The community has a home: the official Discord server is open, with announcements, a how-it-works guide, match-finding and clan channels, a suggestions box and the bot ready for /rank, /top and /play. The invite lives on the Clans page - come in.",
     ]},
