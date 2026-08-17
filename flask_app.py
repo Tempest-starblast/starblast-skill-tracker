@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.10.2"
+APP_VERSION = "6.10.3"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1756,6 +1756,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.10.3", "at": "2026-08-17T19:40:00Z", "changes": [
+        "Dropped a leftover NA: the bot now says it is watching team mode, and two page titles that still called this the NA leaderboard were corrected. Every region has been covered for a while - the wording had not caught up.",
+    ]},
     {"version": "6.10.2", "at": "2026-08-17T19:25:00Z", "changes": [
         "The bot has a face: a new profile picture (a podium with a gold star), a banner, and a proper About Me on its Discord profile.",
     ]},
