@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.17.0"
+APP_VERSION = "6.18.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1767,6 +1767,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.18.0", "at": "2026-08-18T00:45:00Z", "changes": [
+        "Long games are no longer dropped at 90 minutes. A watcher now only gives up a match at the time limit if another game is actually waiting for the slot - if nothing is queued, it stays on your game until it truly ends. And a game being watched stays on the live list however long it runs, instead of vanishing at 90 minutes.",
+    ]},
     {"version": "6.17.0", "at": "2026-08-18T00:05:00Z", "changes": [
         "Owner tooling: the site owner can step into a blank sandbox account from Your account to experience the site as a new player - claiming, naming and all - with a banner always offering the way straight back. Nothing done in the sandbox touches the real account.",
     ]},
