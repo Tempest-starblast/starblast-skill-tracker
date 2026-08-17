@@ -144,8 +144,10 @@ async function removeClan(){
 // One /me call gates both member-only affordances. The Remove clan tag
 // button only ever worked for the name's owner or that clan's own staff -
 // the server refuses everyone else - so nobody else gets shown it. The
-// green + by the name is for leaders of OTHER clans: the invitation lands
-// on the player's account page and moving is entirely their choice.
+// green + by the name is for leaders looking at a player with NO clan:
+// the invitation lands on the player's account page and joining is their
+// choice. A player already in a clan is never offered around - the
+// owner's rule - so no icon appears on their profile at all.
 async function meGate(){
   try{
     const me = await (await fetch('/me')).json();
@@ -157,9 +159,8 @@ async function meGate(){
     if (cc && (mine.indexOf(pn) !== -1 || (pclan && adm.indexOf(pclan) !== -1)))
       cc.style.display = 'block';
     const slot = document.getElementById('invSlot');
-    if (!slot || mine.indexOf(pn) !== -1) return;
+    if (!slot || pclan || mine.indexOf(pn) !== -1) return;
     adm.forEach(function(tag){
-      if (tag === pclan) return;
       const a = document.createElement('a');
       a.className = 'invchip';
       a.textContent = '+';
