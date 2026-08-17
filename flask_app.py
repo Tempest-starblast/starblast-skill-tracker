@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.10.3"
+APP_VERSION = "6.11.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1756,6 +1756,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.11.0", "at": "2026-08-17T19:55:00Z", "changes": [
+        "You can join the leaderboard entirely from Discord now: the server has a register channel with a 60-second walkthrough, and running /setname there is all it takes. The Player role - which opens the rest of the server - is now given for being on the leaderboard and nothing else, so it means something.",
+    ]},
     {"version": "6.10.3", "at": "2026-08-17T19:40:00Z", "changes": [
         "Dropped a leftover NA: the bot now says it is watching team mode, and two page titles that still called this the NA leaderboard were corrected. Every region has been covered for a while - the wording had not caught up.",
     ]},
