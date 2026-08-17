@@ -3,6 +3,7 @@ import re
 import unicodedata
 from urllib.parse import quote
 import random
+import json
 import sqlite3
 import os
 import time
@@ -15,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.14.1"
+APP_VERSION = "6.15.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1029,6 +1030,24 @@ def init_db():
                     sub TEXT PRIMARY KEY,
                     granted_at TEXT
                 )''')
+    # The game's own deathmatch ladder, snapshotted daily by the bot
+    # (the free tier here cannot fetch starblast.io itself). account_id
+    # is the game's stable ECP id, so across days this table remembers
+    # which names an account has worn - claim-dispute evidence.
+    c.execute('''CREATE TABLE IF NOT EXISTS game_ladder (
+                    day TEXT NOT NULL,
+                    region TEXT NOT NULL,
+                    position INTEGER,
+                    account_id TEXT NOT NULL,
+                    name TEXT,
+                    norm_name TEXT,
+                    official REAL,
+                    live REAL,
+                    custom TEXT,
+                    PRIMARY KEY (day, region, account_id)
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_ladder_norm "
+              "ON game_ladder(norm_name, day)")
     c.execute('''CREATE TABLE IF NOT EXISTS rate_events (
                     kind TEXT NOT NULL,
                     src TEXT NOT NULL,
@@ -1776,6 +1795,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.15.0", "at": "2026-08-17T22:30:00Z", "changes": [
+        "Name claims can now lean on the game itself: Starblast publishes its deathmatch ladder, and the bot keeps a daily copy. In a dispute, a claimant who says a ranked name is theirs can prove it by playing one deathmatch game while we watch their live rating move - control of the account, not knowledge of a public number. The ladder history also remembers which names an account has worn.",
+    ]},
     {"version": "6.14.1", "at": "2026-08-17T21:15:00Z", "changes": [
         "Tightened the flipped-match rule within the hour: on its first evening it was excusing roughly one loss in three, because it counted every new face over a whole match - and teams churn constantly. Now only players who arrive AFTER your team is already dominating, and who then stay at least five minutes, count as reinforcements. Genuine flips are still covered; ordinary comings and goings are not.",
     ]},
@@ -5778,6 +5800,70 @@ def bot_playerrole_check():
         qualifies = bool(c.fetchone())
     conn.close()
     return jsonify({"player": qualifies}), 200
+
+
+@app.route('/api/bot/gamerank/push', methods=['POST'])
+def bot_gamerank_push():
+    """Today's ladder snapshot, pushed by the bot. Replaces today's
+    rows so re-pushing is safe; older days accumulate as history."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    rows = data.get('rows') or []
+    day = str(data.get('day') or time.strftime('%Y-%m-%d'))
+    conn = db()
+    c = conn.cursor()
+    c.execute("DELETE FROM game_ladder WHERE day = ?", (day,))
+    kept = 0
+    for r in rows[:2000]:
+        try:
+            c.execute("INSERT OR REPLACE INTO game_ladder "
+                      "(day, region, position, account_id, name, norm_name, "
+                      "official, live, custom) VALUES (?,?,?,?,?,?,?,?,?)",
+                      (day, str(r.get('region') or ''), r.get('position'),
+                       str(r.get('account_id') or ''), r.get('name'),
+                       normalize_name(str(r.get('name') or '')) or None,
+                       r.get('official'), r.get('live'),
+                       json.dumps(r.get('custom')) if r.get('custom') else None))
+            kept += 1
+        except sqlite3.Error:
+            continue
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "day": day, "rows": kept}), 200
+
+
+@app.route('/api/bot/gamerank')
+def bot_gamerank():
+    """Ladder standing for a name: latest snapshot plus every name the
+    matching account ids have worn across snapshots."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    name = str(request.args.get('name') or '').strip()
+    if not name:
+        return jsonify({"matches": []}), 200
+    norm = normalize_name(name)
+    conn = db()
+    c = conn.cursor()
+    latest = (c.execute("SELECT MAX(day) FROM game_ladder").fetchone()
+              or [None])[0]
+    out = []
+    if latest and norm:
+        rows = c.execute(
+            "SELECT region, position, account_id, name, official, live, custom "
+            "FROM game_ladder WHERE day = ? AND norm_name = ?",
+            (latest, norm)).fetchall()
+        for region, pos, aid, nm, official, live, custom in rows:
+            history = [r[0] for r in c.execute(
+                "SELECT DISTINCT name FROM game_ladder "
+                "WHERE account_id = ? AND name IS NOT NULL", (aid,)).fetchall()]
+            out.append({"region": region, "position": pos,
+                        "account_id": aid, "name": nm,
+                        "official": official, "live": live,
+                        "custom": json.loads(custom) if custom else None,
+                        "names_worn": history})
+    conn.close()
+    return jsonify({"day": latest, "matches": out}), 200
 
 
 @app.route('/api/bot/claims/undelivered')
