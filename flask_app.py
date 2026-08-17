@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.12.0"
+APP_VERSION = "6.13.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1756,6 +1756,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.13.0", "at": "2026-08-17T20:40:00Z", "changes": [
+        "The Discord guide now spells out both ways a claim goes through: it is sent to the owner to approve, and it also completes on its own the next time that name wins a tracked match. Claiming a name that is not yours on purpose is a permanent ban from the leaderboard and the server.",
+        "Added a private claim-disputes channel for the cases where two people say the same name is theirs - invisible unless you are given the Claim Dispute role, so both sides can be heard in one place.",
+    ]},
     {"version": "6.12.0", "at": "2026-08-17T20:15:00Z", "changes": [
         "Claiming a name counts as joining: file a claim and the Discord server opens up straight away, instead of leaving you waiting as a guest until the claim completes on your next tracked win.",
     ]},
