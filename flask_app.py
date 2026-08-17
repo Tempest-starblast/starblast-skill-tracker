@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.10.1"
+APP_VERSION = "6.10.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1756,6 +1756,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.10.2", "at": "2026-08-17T19:25:00Z", "changes": [
+        "The bot has a face: a new profile picture (a podium with a gold star), a banner, and a proper About Me on its Discord profile.",
+    ]},
     {"version": "6.10.1", "at": "2026-08-17T19:05:00Z", "changes": [
         "The Discord bot is called Starblast Team Mode Skill Bot now, matching the leaderboard's name. Same bot, same commands.",
     ]},
