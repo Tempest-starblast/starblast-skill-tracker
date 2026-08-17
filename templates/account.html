@@ -157,6 +157,27 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   <p class="msg" id="protMsg"></p>
 </div>
 
+{% if is_owner %}
+<div class="card" style="border-color:rgba(216,160,42,.5)">
+  <h2 style="color:var(--amber,#d8a02a)">Owner tools</h2>
+  <p class="desc">Step into a blank sandbox account to see the site as a brand-new
+     player would &mdash; try setting a taken name, claiming, the lot. A banner at the
+     top brings you straight back to your own account. Nothing you do as the sandbox
+     touches your real account.</p>
+  <button class="primary" onclick="devActAs()">Test as a new player</button>
+  <p class="msg" id="devMsg"></p>
+</div>
+<script>
+async function devActAs(){
+  try{
+    const r = await fetch('/dev/actas', {method:'POST'});
+    if(r.ok){ location.href = '/account'; }
+    else { document.getElementById('devMsg').textContent = 'Could not switch.'; }
+  }catch(e){ document.getElementById('devMsg').textContent = 'Server error.'; }
+}
+</script>
+{% endif %}
+
 <p class="foot">Something look wrong? Ask {{ contact }} on Discord.</p>
 
 <script>
