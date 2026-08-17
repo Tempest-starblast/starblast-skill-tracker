@@ -120,6 +120,20 @@
   {% endfor %}
   <p class="msg" id="appMsg"></p>
 </div>
+
+<div class="card">
+  <h2>{{ t('Invited') }}</h2>
+  <p class="desc">Waiting on the player. An invitation can be taken back until they answer.</p>
+  {% for i in clan.invited %}
+  <div class="mcrow">
+    <div><a class="pname" href="/player/{{ i.name|urlencode }}">{{ i.name }}</a></div>
+    <div><button class="danger" onclick="cancelInvite({{ i.id }})">{{ t('Cancel invite') }}</button></div>
+  </div>
+  {% else %}
+  <p class="empty">No invitations are out right now.</p>
+  {% endfor %}
+  <p class="msg" id="invitedMsg"></p>
+</div>
 {% endif %}
 
 <div class="card">
@@ -257,6 +271,14 @@ async function decideApp(id, accept){
     say('appMsg', r.ok, d.message);
     if (r.ok) reloadSoon();
   }catch(e){ say('appMsg', false, 'Server connection error.'); }
+}
+async function cancelInvite(id){
+  if (!window.confirm('Take back this invitation?')) return;
+  try{
+    const [r, d] = await post('/clan/invite/cancel', {id: id});
+    say('invitedMsg', r.ok, d.message);
+    if (r.ok) reloadSoon();
+  }catch(e){ say('invitedMsg', false, 'Server connection error.'); }
 }
 async function addMember(){
   const who = document.getElementById('memberName').value.trim();

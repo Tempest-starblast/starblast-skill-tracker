@@ -14,6 +14,9 @@
 .invchip:hover{background:rgba(102,230,184,.22)}
 .invchip.sent{cursor:default;opacity:.75}
 .invchip.sent:hover{background:rgba(102,230,184,.10)}
+.invchip.cancel{background:rgba(255,86,112,.08);border-color:rgba(255,86,112,.45);
+  color:var(--red)}
+.invchip.cancel:hover{background:rgba(255,86,112,.18)}
 {% endblock %}
 {% block body %}
 {% if player %}
@@ -146,66 +149,87 @@ async function removeClan(){
 // One /me call gates both member-only affordances. The Remove clan tag
 // button only ever worked for the name's owner or that clan's own staff -
 // the server refuses everyone else - so nobody else gets shown it. The
-// green + by the name is for leaders looking at a player with NO clan:
+// green chip by the name is for leaders looking at a player with NO clan:
 // the invitation lands on the player's account page and joining is their
 // choice. A player already in a clan is never offered around - the
-// owner's rule - so no icon appears on their profile at all.
+// owner's rule - so no chip appears on their profile at all. While an
+// invitation is open the chip reads Invited, with Cancel beside it.
+const PN = {{ player.name|tojson }};
+let MY_TAGS = [];
 async function meGate(){
   try{
     const me = await (await fetch('/me')).json();
     if (!me.logged_in) return;
     const mine = me.names || [], adm = me.admin_of || [];
-    const pn = {{ player.name|tojson }};
     const pclan = {{ (player.clan or '')|tojson }};
     const cc = document.getElementById('clanCard');
-    if (cc && (mine.indexOf(pn) !== -1 || (pclan && adm.indexOf(pclan) !== -1)))
+    if (cc && (mine.indexOf(PN) !== -1 || (pclan && adm.indexOf(pclan) !== -1)))
       cc.style.display = 'block';
-    const slot = document.getElementById('invSlot');
-    if (!slot || pclan || mine.indexOf(pn) !== -1 || !adm.length) return;
-    // Which of my clans already have an invitation out for this player.
-    // Those render settled - the chip says Invited and stays that way on
-    // every visit while the invitation is open.
-    let already = {};
-    try{
-      const st = await (await fetch('/clan/admin/state')).json();
-      (st.clans || []).forEach(function(cl){
-        if ((cl.pending || []).some(function(p){ return p.name === pn; }))
-          already[cl.tag] = true;
-      });
-    }catch(e){}
-    adm.forEach(function(tag){
-      const a = document.createElement('a');
-      if (already[tag]){
-        a.className = 'invchip sent';
-        a.textContent = '✓ Invited to ' + tag;
-      } else {
-        a.className = 'invchip';
-        a.textContent = '+ Invite to ' + tag;
-        a.setAttribute('role', 'button');
-        a.setAttribute('aria-label', 'Invite ' + pn + ' to ' + tag);
-        a.onclick = function(){ sendInvite(tag, a); };
-      }
-      slot.appendChild(a);
-    });
+    if (!document.getElementById('invSlot') || pclan
+        || mine.indexOf(PN) !== -1 || !adm.length) return;
+    MY_TAGS = adm;
+    renderChips();
   }catch(e){}
 }
-async function sendInvite(tag, chip){
-  if (!window.confirm('Invite ' + {{ player.name|tojson }} + ' to ' + tag + '? '
-      + 'They get the invitation on their account page and decide.')) return;
+async function renderChips(){
+  const slot = document.getElementById('invSlot');
+  // Which of my clans already have an invitation out for this player.
+  let open = {};
+  try{
+    const st = await (await fetch('/clan/admin/state')).json();
+    (st.clans || []).forEach(function(cl){
+      (cl.pending || []).forEach(function(p){
+        if (p.name === PN) open[cl.tag] = p.id;
+      });
+    });
+  }catch(e){}
+  slot.textContent = '';
+  MY_TAGS.forEach(function(tag){
+    if (open[tag] !== undefined){
+      const s = document.createElement('span');
+      s.className = 'invchip sent';
+      s.textContent = '✓ Invited to ' + tag;
+      slot.appendChild(s);
+      const x = document.createElement('a');
+      x.className = 'invchip cancel';
+      x.textContent = '× Cancel';
+      x.setAttribute('role', 'button');
+      x.setAttribute('aria-label', 'Cancel the invitation to ' + tag);
+      x.onclick = function(){ cancelInvite(tag, open[tag]); };
+      slot.appendChild(x);
+    } else {
+      const a = document.createElement('a');
+      a.className = 'invchip';
+      a.textContent = '+ Invite to ' + tag;
+      a.setAttribute('role', 'button');
+      a.setAttribute('aria-label', 'Invite ' + PN + ' to ' + tag);
+      a.onclick = function(){ sendInvite(tag); };
+      slot.appendChild(a);
+    }
+  });
+}
+function invSay(res, d){
   const msg = document.getElementById('invMsg');
-  msg.className='msg'; msg.textContent='Sending...';
+  msg.textContent = d.message; msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+}
+async function sendInvite(tag){
+  if (!window.confirm('Invite ' + PN + ' to ' + tag + '? '
+      + 'They get the invitation on their account page and decide.')) return;
   try{
     const res = await fetch('/clan/add',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({clan: tag, name: {{ player.name|tojson }}})});
-    const d = await res.json();
-    msg.textContent = d.message; msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
-    if (res.ok && chip){
-      chip.className = 'invchip sent';
-      chip.textContent = '✓ Invited to ' + tag;
-      chip.onclick = null;
-      chip.removeAttribute('role');
-    }
-  }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; }
+      body:JSON.stringify({clan: tag, name: PN})});
+    invSay(res, await res.json());
+    if (res.ok) renderChips();
+  }catch(e){ invSay({ok:false}, {message:'Server connection error.'}); }
+}
+async function cancelInvite(tag, id){
+  if (!window.confirm('Take back the invitation to ' + tag + '?')) return;
+  try{
+    const res = await fetch('/clan/invite/cancel',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id: id})});
+    invSay(res, await res.json());
+    if (res.ok) renderChips();
+  }catch(e){ invSay({ok:false}, {message:'Server connection error.'}); }
 }
 meGate();
 </script>
