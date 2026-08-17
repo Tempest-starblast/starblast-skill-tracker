@@ -17,6 +17,14 @@
 <h1 class="ptitle">Clans</h1>
 <p class="psub">{{ total }} clan{{ '' if total == 1 else 's' }} claimed.</p>
 
+<div class="card" style="border-color:rgba(88,101,242,.55)">
+  <h2 style="color:#8b9cff">{{ t('Join the community') }}</h2>
+  <p class="desc">Clans organise, recruit and argue about the leaderboard on Discord &mdash;
+     the bot works there too (/rank, /top, /play).</p>
+  <a class="primary" style="display:inline-block;text-decoration:none;padding:10px 18px"
+     href="https://discord.gg/5qaVZNWVyJ" target="_blank" rel="noopener">Join the Discord server</a>
+</div>
+
 <div class="card" id="requestCard" style="display:none">
   <h2>{{ t('Request a clan') }}</h2>
   <p class="desc">Approved by hand &mdash; {{ contact }} decides on Discord, and
