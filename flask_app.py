@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.3.0"
+APP_VERSION = "6.4.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -973,6 +973,15 @@ def init_db():
     inv_cols = [row[1] for row in c.fetchall()]
     if 'direction' not in inv_cols:
         c.execute("ALTER TABLE clan_invites ADD COLUMN direction TEXT DEFAULT 'invite'")
+    # A result nobody has looked at yet lights the account counter and
+    # glows on its first view. Backfilled as already-seen when the
+    # column is born: history is not news - only results recorded
+    # after this shipped should ever count.
+    c.execute("PRAGMA table_info(match_players)")
+    _mp_cols = [row[1] for row in c.fetchall()]
+    if 'seen' not in _mp_cols:
+        c.execute("ALTER TABLE match_players ADD COLUMN seen INTEGER DEFAULT 0")
+        c.execute("UPDATE match_players SET seen = 1")
     c.execute("""CREATE TABLE IF NOT EXISTS bug_reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     kind TEXT,
@@ -1740,6 +1749,14 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.4.1", "at": "2026-08-17T03:35:00Z", "changes": [
+        "For a few minutes after 6.4.0 the red counter read zero for everyone - the new match counter was asked one query too late, after its database handle had closed. Caught by the tests and fixed on the spot.",
+    ]},
+    {"version": "6.4.0", "at": "2026-08-17T03:05:00Z", "changes": [
+        "Every match you play announces itself now: win or lose, the result counts on the red badge and glows as NEW in Recent matches on Your account the first time you look. Once seen, it goes back to normal.",
+        "Clan leaders can invite players who are already in another clan - the invite is the green + next to the name on their profile, it waits on that player's own account page, and moving is entirely their choice.",
+        "The Remove clan tag button now only appears for the name's owner and that clan's own staff. It always refused everyone else - but it should never have been offered to them either.",
+    ]},
     {"version": "6.3.0", "at": "2026-08-17T02:10:00Z", "changes": [
         "Clan invitations finally have somewhere to land: Your account now has an Invites & updates box where you accept or decline, and a red counter on your name in the header shows how many things are waiting for you.",
         "Decisions come back to you in the same box - name claims, clan applications and requests to run a clan - whether they were decided on the site or in Discord.",
@@ -4033,6 +4050,18 @@ def notice_updates(c, sub_id):
     return out
 
 
+def notice_result_count(c, sub_id):
+    """Match results recorded since this account last opened its page.
+    Counts across every name the account owns, and the account page
+    clears the same set, so the badge can never get stuck."""
+    if not sub_id:
+        return 0
+    c.execute("SELECT COUNT(*) FROM match_players mp "
+              "JOIN players p ON p.norm_name = mp.norm_name "
+              "WHERE p.google_sub = ? AND COALESCE(mp.seen, 0) = 0", (sub_id,))
+    return c.fetchone()[0]
+
+
 @app.route('/me')
 def me():
     """Who is signed in, and which names they own."""
@@ -4102,15 +4131,17 @@ def me():
     # Own short-lived connection, same as stats above - the main one
     # is long closed and reusing it is the recurring closed-DB trap.
     admin_of = []
-    notices = {"invites": 0, "updates": 0, "total": 0}
+    notices = {"invites": 0, "updates": 0, "results": 0, "total": 0}
     try:
         _c4 = db()
         _cc = _c4.cursor()
         admin_of = clan_admin_tags(_cc, sub_id)
         _inv = len(notice_invites(_cc, sub_id))
         _upd = len(notice_updates(_cc, sub_id))
+        _res = notice_result_count(_cc, sub_id)
         _c4.close()
-        notices = {"invites": _inv, "updates": _upd, "total": _inv + _upd}
+        notices = {"invites": _inv, "updates": _upd, "results": _res,
+                   "total": _inv + _upd + _res}
     except sqlite3.Error:
         pass
     return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats, "admin_of": admin_of, "notices": notices,
@@ -4481,10 +4512,13 @@ def clan_add():
     if current_clan == known:
         conn.close()
         return jsonify({"message": f"'{stored_name}' is already in {known}."}), 400
-    if current_clan:
+    if current_clan and not owner_sub:
+        # No account means nobody who can consent to the move - and a
+        # direct add would quietly strip another clan's roster.
         conn.close()
-        return jsonify({"message": f"'{stored_name}' is in {current_clan}. They have to "
-                                   f"leave that clan before joining {known}."}), 400
+        return jsonify({"message": f"'{stored_name}' is in {current_clan} and has no "
+                                   f"account to accept with. They have to leave that "
+                                   f"clan first."}), 400
 
     if owner_sub:
         c.execute("SELECT id FROM clan_invites WHERE clan = ? AND name = ? AND status = 'pending' "
@@ -6831,12 +6865,22 @@ def account_page():
             total = c.fetchone()[0]
             played = wins + losses
             by_region = [r for r in region_split(c, name) if r["played"]]
-            c.execute("SELECT mp.won, mp.delta, COALESCE(mp.half,0), m.played_at "
+            c.execute("SELECT mp.won, mp.delta, COALESCE(mp.half,0), m.played_at, "
+                      "COALESCE(mp.seen, 0) "
                       "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
                       "WHERE mp.norm_name = ? ORDER BY m.played_at DESC LIMIT 10",
                       (normalize_name(name),))
             recent = [{"won": r[0], "delta": r[1] or 0, "half": r[2],
-                       "when": str(r[3])[:16]} for r in c.fetchall()]
+                       "when": str(r[3])[:16], "unseen": not r[4]}
+                      for r in c.fetchall()]
+            # This render IS the notification. Clear every owned name,
+            # not just the shown ten, so the counter matches what the
+            # badge promised and can never get stuck on an old match.
+            c.execute("UPDATE match_players SET seen = 1 "
+                      "WHERE COALESCE(seen, 0) = 0 AND norm_name IN "
+                      "(SELECT norm_name FROM players WHERE google_sub = ?)",
+                      (sub_id,))
+            conn.commit()
             gained = sum(r["gained"] for r in region_split(c, name))
             acct = {
                 "name": name, "display": display_name(name, clan, clan_display(c, clan)) if clan else name,
