@@ -107,6 +107,13 @@
   <button id="clanBtn" class="danger" onclick="removeClan()">Remove clan tag</button>
   <p class="msg" id="clanMsg"></p>
 </div>
+{% else %}
+<div class="card" id="inviteCard" style="display:none">
+  <h2>{{ t('Invite to clan') }}</h2>
+  <p class="desc">They get the invitation on their account page and decide.</p>
+  <div class="row" id="inviteBtns"></div>
+  <p class="msg" id="inviteMsg"></p>
+</div>
 {% endif %}
 
 <script>
@@ -134,6 +141,39 @@ async function removeClan(){
     if(res.ok){ setTimeout(function(){location.reload();},1400); } else { btn.disabled=false; }
   }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; btn.disabled=false; }
 }
+
+// If this clanless player is somebody a signed-in clan leader could use,
+// offer the invitation right here. The invite lands on the player's own
+// account page and does nothing until they accept - same rule as always.
+async function offerInvite(){
+  const card = document.getElementById('inviteCard');
+  if (!card) return;
+  try{
+    const me = await (await fetch('/me')).json();
+    if (!me.logged_in || !(me.admin_of || []).length) return;
+    if ((me.names || []).indexOf({{ player.name|tojson }}) !== -1) return;
+    const btns = document.getElementById('inviteBtns');
+    me.admin_of.forEach(function(tag){
+      const b = document.createElement('button');
+      b.className = 'primary';
+      b.textContent = 'Invite to ' + tag;
+      b.onclick = function(){ sendInvite(tag); };
+      btns.appendChild(b);
+    });
+    card.style.display = 'block';
+  }catch(e){}
+}
+async function sendInvite(tag){
+  const msg = document.getElementById('inviteMsg');
+  msg.className='msg'; msg.textContent='Sending...';
+  try{
+    const res = await fetch('/clan/add',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({clan: tag, name: {{ player.name|tojson }}})});
+    const d = await res.json();
+    msg.textContent = d.message; msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+  }catch(e){ msg.textContent='Server connection error.'; msg.className='msg err'; }
+}
+offerInvite();
 </script>
 {% else %}
 <h1 class="ptitle">Not found</h1>

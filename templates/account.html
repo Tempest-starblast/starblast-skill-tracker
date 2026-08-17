@@ -96,6 +96,13 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 {% endif %}
 {% endif %}
 
+<div class="card" id="inboxCard" style="display:none">
+  <h2>{{ t('Invites & updates') }}</h2>
+  <div id="inviteList"></div>
+  <div id="updateList"></div>
+  <p class="msg" id="inboxMsg"></p>
+</div>
+
 <div class="card">
   <h2>Account</h2>
   <div id="signedIn">
@@ -167,7 +174,45 @@ async function loadMe(){
     showName();
     loadProt();
     loadClaims();
+    loadInbox();
   }catch(e){}
+}
+
+async function loadInbox(){
+  try{
+    const d = await (await fetch('/me/notices')).json();
+    const inv = d.invites || [], upd = d.updates || [];
+    const card = document.getElementById('inboxCard');
+    const il = document.getElementById('inviteList');
+    const ul = document.getElementById('updateList');
+    il.textContent = ''; ul.textContent = '';
+    if (!inv.length && !upd.length){ card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    inv.forEach(function(v){
+      const row = el('div', 'clanrow');
+      row.appendChild(el('div', 'ctag', v.clan + ' invited ' + v.name));
+      const yes = el('button', 'primary', 'Accept');
+      yes.onclick = function(){ answerInvite(v.id, true); };
+      const no = el('button', 'ghost', 'Decline');
+      no.onclick = function(){ answerInvite(v.id, false); };
+      row.appendChild(yes); row.appendChild(no);
+      il.appendChild(row);
+    });
+    upd.forEach(function(u){ ul.appendChild(el('p', 'desc', u.text)); });
+    if (upd.length){
+      // Shown once counts as seen; the badge clears on the next page.
+      // Invitations are different - they stay until actually answered.
+      post('/me/notices/seen', {}).catch(function(){});
+    }
+  }catch(e){}
+}
+async function answerInvite(id, accept){
+  try{
+    const [r, d] = await post('/clan/invite/respond', {id: id, accept: accept});
+    say('inboxMsg', r.ok, d.message);
+    loadInbox();
+    if (r.ok && accept) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('inboxMsg', false, 'Server connection error.'); }
 }
 
 function showName(){

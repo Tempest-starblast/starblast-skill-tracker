@@ -140,6 +140,9 @@ async function leaveClan(){
     if (d.ok) setTimeout(function(){ location.reload(); }, 1200);
   }catch(e){ say('meMsg', false, 'Server connection error.'); }
 }
+// Without this call none of the above ever ran: the apply card, the row
+// highlight and the Leave button all waited on a refresh nobody started.
+refresh();
 </script>
 {% else %}
 <h1 class="ptitle">Not found</h1>

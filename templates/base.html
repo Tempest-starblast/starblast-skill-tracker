@@ -242,6 +242,11 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .pchip .pcn{font-size:12.5px;font-weight:700;color:#eaf8ff;letter-spacing:.5px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px}
 .pchip .pcr{font-size:11px;color:var(--muted);letter-spacing:.4px;white-space:nowrap}
+/* The red counter: invitations waiting plus decisions not yet seen. */
+.pbadge{min-width:18px;height:18px;border-radius:9px;background:var(--red,#ff5670);
+  color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;
+  justify-content:center;padding:0 5px;flex-shrink:0}
+.tabmenu .pbadge{display:inline-flex;margin-left:7px;vertical-align:middle}
 .pchip .pce{font-size:19px;font-weight:700;color:var(--blue);
   text-shadow:0 0 8px rgba(153,221,255,.5);font-variant-numeric:tabular-nums}
 
@@ -329,6 +334,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
           <span class="pce" id="pchipElo"></span>
           <span><span class="pcn" id="pchipName"></span><br>
             <span class="pcr" id="pchipRank"></span></span>
+          <span class="pbadge" id="pchipBadge" style="display:none"></span>
         </a>
         {%- endif %}
         <button id="authOutBtn" onclick="sbSignOut()">Sign out</button>
@@ -344,7 +350,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
       <a href="#" role="button" aria-haspopup="true" aria-label="More"
          class="{% if page in ('account','myclan','reports','info','changelog') %}on{% endif %}">&#9776;</a>
       <div class="tabmenu" role="menu">
-        <a href="/account"   role="menuitem" class="{% if page=='account'   %}on{% endif %}">{{ t('Your account') }}</a>
+        <a href="/account"   role="menuitem" class="{% if page=='account'   %}on{% endif %}">{{ t('Your account') }}<span class="pbadge" id="menuBadge" style="display:none"></span></a>
         {%- if my_clan %}
         <a href="/myclan"    role="menuitem" class="{% if page=='myclan'    %}on{% endif %}">{{ t('Your clan') }}</a>
         {%- endif %}
@@ -421,6 +427,14 @@ window.addEventListener('DOMContentLoaded', async function(){
         document.getElementById('pchipElo').textContent = d.stats.elo;
         document.getElementById('pchipRank').textContent = '#' + d.stats.rank
           + ' \u00b7 ' + d.stats.wins + '-' + d.stats.losses;
+      }
+      // Invitations waiting plus decisions not yet seen. Both live on
+      // the account page, which is where the counter points.
+      if(d.notices && d.notices.total){
+        var pb=document.getElementById('pchipBadge');
+        if(pb){ pb.textContent=d.notices.total; pb.style.display=''; }
+        var mb=document.getElementById('menuBadge');
+        if(mb){ mb.textContent=d.notices.total; mb.style.display=''; }
       }
     }
   }catch(e){}
