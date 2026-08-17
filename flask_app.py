@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.7.0"
+APP_VERSION = "6.8.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.8.0", "at": "2026-08-17T16:35:00Z", "changes": [
+        "A match now only counts for the people who actually played it: anyone present for under ten minutes of the watched match is left out of the rating entirely - a winner that brief earns nothing, and a loser that brief is not punished for a defeat that was not theirs. Matches watched for under ten minutes rate everyone as before, since a short watch cannot prove who played.",
+    ]},
     {"version": "6.7.0", "at": "2026-08-17T05:50:00Z", "changes": [
         "Closed the protection loss-dodge: a check-in that has been tied to a ship you actually played stays with that match forever - checking into another lobby no longer cancels it, so a lost match cannot be shaken off mid-game. Only a check-in you never played is replaced by your next one.",
         "Playing under one of the game's 44 default commander names (Hari Seldon, HAL 9000, Spock and friends) now switches Protection on automatically and keeps it on - lots of players wear those names at once, so only matches you check into can safely count as yours. Pick a name of your own and Protection is yours to control again.",
