@@ -15,7 +15,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.5.0"
+APP_VERSION = "6.6.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1749,6 +1749,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.6.0", "at": "2026-08-17T05:15:00Z", "changes": [
+        "The changelog announces itself now: when something new has shipped since you last read it, a red dot sits on the menu button. Opening the menu moves it to the Changelog entry; reading the changelog clears it, and everything released since your last visit is tagged NEW at the top of its entry. Your first visit sets the starting point - no dot until something actually changes.",
+    ]},
     {"version": "6.5.0", "at": "2026-08-17T04:55:00Z", "changes": [
         "Invitations can be taken back: a Cancel next to the Invited marker on the player's profile, and a new Invited list on Your clan showing every invitation still waiting, each with its own Cancel. A cancelled invitation simply disappears from the player's account.",
     ]},
