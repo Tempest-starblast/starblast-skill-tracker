@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.22.0"
+APP_VERSION = "6.23.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1801,6 +1801,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.23.0", "at": "2026-08-18T03:40:00Z", "changes": [
+        "The Discord invite is now on the main leaderboard page too, not only the Clans page.",
+    ]},
     {"version": "6.22.0", "at": "2026-08-18T03:10:00Z", "changes": [
         "Each match in the results feed now names the server it was played on, its number, and how long the match was tracked for.",
     ]},
