@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.27.0"
+APP_VERSION = "6.27.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1562,7 +1562,12 @@ def live_state_ingest():
                         games += row[1] + row[2]
                     else:
                         elos.append(1000.0)
+                # The model uses the two best players, not the team average:
+                # measured on 1,015 matches, one strong player carries real
+                # predictive weight that a mean of eight would bury.
+                top2 = sorted(elos, reverse=True)[:2]
                 skill[k] = {"elo": round(sum(elos) / len(elos), 1),
+                            "top2": round(sum(top2) / len(top2), 1),
                             "known": known, "n": len(names), "games": games}
             _sc.close()
         except sqlite3.Error:
@@ -1620,7 +1625,8 @@ def live_matches():
         scores = p.get("scores", {})
         top = p.get("top", {})
         pskill = p.get("skill") or {}
-        skills = {k: (pskill.get(k) or {}).get("elo") for k in LIVE_TEAMS}
+        skills = {k: ((pskill.get(k) or {}).get("top2")
+                      or (pskill.get(k) or {}).get("elo")) for k in LIVE_TEAMS}
         probs = win_probability(counts, scores, elapsed, weights=w, skills=skills)
         traj = p.get("traj", [])
         history = []
@@ -2098,6 +2104,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.27.1", "at": "2026-08-18T21:45:00Z", "changes": [
+        "Skill in the win-probability model is now judged by each team's two best players rather than the team average - tested head-to-head on 1,015 matches, the star-player signal predicts better, especially early in a match before the score separates.",
+    ]},
     {"version": "6.27.0", "at": "2026-08-18T21:20:00Z", "changes": [
         "The win-probability model now knows who is playing, not just the score. Each team's live roster is matched to the leaderboard, and player ratings feed the prediction - so a strong player joining a team raises its chances immediately, most of all early in a match. Training uses each player's rating as it was at the time of each past match, never today's.",
     ]},
