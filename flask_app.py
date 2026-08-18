@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.20.0"
+APP_VERSION = "6.22.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -963,6 +963,11 @@ def init_db():
         c.execute("ALTER TABLE match_players ADD COLUMN team TEXT")
     except sqlite3.OperationalError:
         pass
+    for _mcol in ('lobby_name TEXT', 'tracked_reads INTEGER'):
+        try:
+            c.execute('ALTER TABLE matches ADD COLUMN ' + _mcol)
+        except sqlite3.OperationalError:
+            pass
     # Which region a match was played in - the leaderboard filters on it and
     # the site cannot infer it after the fact.
     try:
@@ -1701,9 +1706,11 @@ def game_end():
     if applied:
         match_id = str(data.get('match_id') or f"sys{sys_id}-{int(time.time())}")
         now_ts = time.strftime('%Y-%m-%d %H:%M:%S')
-        c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, region) "
-                  "VALUES (?, ?, ?, ?)",
-                  (match_id, sys_id, now_ts, str(data.get('region') or 'america')))
+        c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, "
+                  "region, lobby_name, tracked_reads) VALUES (?, ?, ?, ?, ?, ?)",
+                  (match_id, sys_id, now_ts, str(data.get('region') or 'america'),
+                   (str(data.get('lobby_name'))[:60] if data.get('lobby_name') else None),
+                   int(data.get('tracked_reads') or 0)))
         c.execute("SELECT id FROM matches WHERE match_id = ?", (match_id,))
         mrow = c.fetchone()
         if mrow:
@@ -1794,6 +1801,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.22.0", "at": "2026-08-18T03:10:00Z", "changes": [
+        "Each match in the results feed now names the server it was played on, its number, and how long the match was tracked for.",
+    ]},
+    {"version": "6.21.0", "at": "2026-08-18T02:40:00Z", "changes": [
+        "The match-results feed now shows the flipped team too. When a team led big and lost to late reinforcements, it takes no loss - so it used to just vanish from the result, making a three-team match look like two. It is now listed as flipped, with a note, so every side is accounted for.",
+    ]},
     {"version": "6.20.0", "at": "2026-08-18T02:00:00Z", "changes": [
         "The Discord match-results feed now shows the teams - winners together, each losing team on its own line - with every player's skill change beside their name.",
     ]},
@@ -5863,12 +5876,13 @@ def bot_matches_undelivered():
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
     c = conn.cursor()
-    c.execute("SELECT id, match_id, COALESCE(region, 'america'), played_at "
+    c.execute("SELECT id, match_id, COALESCE(region, 'america'), played_at, "
+              "lobby_name, COALESCE(tracked_reads, 0), sys_id "
               "FROM matches WHERE COALESCE(announced, 0) = 0 "
               "ORDER BY id LIMIT 15")
     rows = c.fetchall()
     out = []
-    for mid, match_id, region, played_at in rows:
+    for mid, match_id, region, played_at, lobby_name, treads, sysid in rows:
         c.execute("SELECT name, won, COALESCE(delta, 0), COALESCE(team, '') "
                   "FROM match_players WHERE match_row = ? "
                   "ORDER BY won DESC, delta DESC", (mid,))
@@ -5882,9 +5896,20 @@ def bot_matches_undelivered():
             else:
                 lose1.append(e)
         losing_teams = [t for t in (lose1, lose2) if t]
+        # A team exempted by the flip rule is not rated (it led big and
+        # lost to reinforcements), so it is absent from match_players -
+        # which made a 3-team match look like 2. Surface it from
+        # held_results so the feed accounts for every side.
+        c.execute("SELECT name FROM held_results "
+                  "WHERE match_id = ? AND reason = 'dominance-flip' "
+                  "ORDER BY name", (match_id,))
+        exempt = [r[0] for r in c.fetchall()]
+        mins = int(round((treads or 0) * 10 / 60.0))
         out.append({"id": mid, "match_id": match_id, "region": region,
                     "played_at": played_at, "winners": winners,
-                    "losing_teams": losing_teams})
+                    "losing_teams": losing_teams, "exempt": exempt,
+                    "lobby_name": lobby_name, "sys_id": sysid,
+                    "tracked_minutes": mins})
     conn.close()
     return jsonify({"matches": out}), 200
 
