@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.25.0"
+APP_VERSION = "6.26.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -160,11 +160,13 @@ _WP_W = [1.1295076628447995, 0.46926494423388093, 1.5665834227690387,
 _WP_TSCALE = 1400.0
 
 
-def win_probability(counts, scores, elapsed_seconds=None):
+def win_probability(counts, scores, elapsed_seconds=None, weights=None):
     """Each team's probability of winning, from current counts + scores (and
     how long the match has run). A team with 0 players is out (probability 0).
-    Returns {team_key: prob} summing to 1 over the teams that can still win."""
+    Returns {team_key: prob} summing to 1 over the teams that can still win.
+    `weights` lets the daily-retrained model override the built-in defaults."""
     import math
+    W = weights if (weights and len(weights) == 10) else _WP_W
     keys = list(LIVE_TEAMS)
     score = {k: max(0.0, float(scores.get(k, 0) or 0)) for k in keys}
     count = {k: max(0, int(counts.get(k, 0) or 0)) for k in keys}
@@ -194,7 +196,7 @@ def win_probability(counts, scores, elapsed_seconds=None):
         tsc = 1.0 if s == smax else 0.0
         tcc = 1.0 if n == nmax else 0.0
         x = [ss, cs, sm, cm, tsc, tcc, ss * prog, sm * prog, cs * prog, cm * prog]
-        util[k] = sum(_WP_W[i] * x[i] for i in range(10))
+        util[k] = sum(W[i] * x[i] for i in range(10))
     m = max(util.values())
     ex = {k: math.exp(util[k] - m) for k in alive}
     z = sum(ex.values())
@@ -210,7 +212,26 @@ def live_db():
     conn.execute("CREATE TABLE IF NOT EXISTS live ("
                  "sys_id INTEGER PRIMARY KEY, updated REAL, elapsed REAL, "
                  "region TEXT, name TEXT, payload TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS model ("
+                 "id INTEGER PRIMARY KEY, weights TEXT, meta TEXT, updated REAL)")
     return conn
+
+
+def load_live_model():
+    """Current win-probability weights + metadata, set by the daily retrain.
+    Falls back to the built-in weights until the first retrain has run."""
+    try:
+        conn = live_db()
+        r = conn.execute("SELECT weights, meta FROM model WHERE id=1").fetchone()
+        conn.close()
+        if r and r[0]:
+            w = json.loads(r[0])
+            meta = json.loads(r[1]) if r[1] else {}
+            if isinstance(w, list) and len(w) == 10:
+                return w, meta
+    except Exception:
+        pass
+    return None, None
 
 
 
@@ -1534,6 +1555,7 @@ def live_matches():
         return jsonify({"error": "Not allowed."}), 403
     now = time.time()
     out = []
+    w, model_meta = load_live_model()
     try:
         conn = live_db()
         c = conn.cursor()
@@ -1551,13 +1573,13 @@ def live_matches():
         counts = p.get("counts", {})
         scores = p.get("scores", {})
         top = p.get("top", {})
-        probs = win_probability(counts, scores, elapsed)
+        probs = win_probability(counts, scores, elapsed, weights=w)
         traj = p.get("traj", [])
         history = []
         for row in traj[-40:]:
             try:
                 t, ct, sc = row
-                hp = win_probability(ct, sc, t)
+                hp = win_probability(ct, sc, t, weights=w)
                 history.append([round(t, 0), round(hp["team_1"], 3),
                                 round(hp["team_2"], 3), round(hp["team_3"], 3)])
             except Exception:
@@ -1570,7 +1592,31 @@ def live_matches():
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
                     "teams": teams, "history": history})
-    return jsonify({"matches": out, "count": len(out)}), 200
+    return jsonify({"matches": out, "count": len(out),
+                    "model": model_meta or {"builtin": True}}), 200
+
+
+@app.route('/api/live/model', methods=['POST'])
+def live_model_update():
+    """The daily retrain on the droplet posts refreshed win-probability weights
+    here (same shared key as the tracker). Weights live in live.db, so the model
+    improves without any code deploy. Rejected unless it is 10 valid numbers."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    w = d.get("weights")
+    meta = d.get("meta") or {}
+    if not (isinstance(w, list) and len(w) == 10
+            and all(isinstance(x, (int, float)) for x in w)):
+        return jsonify({"error": "weights must be 10 numbers"}), 400
+    conn = live_db()
+    conn.execute("INSERT INTO model (id, weights, meta, updated) VALUES (1,?,?,?) "
+                 "ON CONFLICT(id) DO UPDATE SET weights=excluded.weights, "
+                 "meta=excluded.meta, updated=excluded.updated",
+                 (json.dumps(w), json.dumps(meta), time.time()))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
 
 
 @app.route('/api/game_end', methods=['POST'])
@@ -1977,6 +2023,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.26.0", "at": "2026-08-18T20:40:00Z", "changes": [
+        "The win-probability model now retrains automatically every day on the latest matches, and only replaces itself when the new version scores at least as well. The admin live view shows when it last trained and how accurate it is.",
+    ]},
     {"version": "6.25.0", "at": "2026-08-18T20:10:00Z", "changes": [
         "Added an admin-only live view that shows each tracked match's win probability for every team, updating in real time. The estimate comes from a model trained on ~143,000 ten-second snapshots across 1,011 past matches.",
     ]},
@@ -4554,6 +4603,8 @@ def me():
     except sqlite3.Error:
         pass
     return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats, "admin_of": admin_of, "notices": notices,
+                    # Reveals the owner-only live win-probability tab in the menu.
+                    "is_owner": is_site_owner(),
                     # Defaults to the account name: that is what most
                     # people are called in game, and a blank box on Play
                     # reads as "unknown" rather than "same as my name".

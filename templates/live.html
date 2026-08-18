@@ -34,6 +34,7 @@
   <div class="lv-sub">Every match the tracker is watching right now, with each team's chance of winning.
     Trained on ~143,000 ten-second snapshots from past matches. Only you can see this page.</div>
   <div class="lv-status"><span class="lv-dot"></span><span id="lvStatus">Connecting…</span></div>
+  <div class="lv-status" id="lvModel" style="margin-top:3px;opacity:.85"></div>
 </div>
 
 <div class="lv-wrap" id="lvWrap"></div>
@@ -99,6 +100,12 @@
       var r=await fetch('/api/live/matches',{cache:'no-store'});
       if(r.status===403){ status.textContent='Not authorized.'; return; }
       var d=await r.json();
+      var mo=d.model||{};
+      var mel=document.getElementById('lvModel');
+      if(mo.builtin){ mel.textContent='Model: built-in baseline · daily auto-retrain will replace it after the next run.'; }
+      else{ mel.textContent='Model: retrained '+(mo.trained_at||'?')+' on '+(mo.n_matches||'?').toLocaleString()+
+        ' matches · '+Math.round((mo.accuracy||0)*100)+'% top-pick accuracy · retrains daily'+
+        (mo.deployed===false?' · (last run kept the previous model)':''); }
       var ms=(d.matches||[]);
       if(!ms.length){ wrap.innerHTML=''; empty.style.display=''; }
       else{ empty.style.display='none'; wrap.innerHTML=ms.map(card).join(''); }
