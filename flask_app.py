@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.24.0"
+APP_VERSION = "6.25.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -137,6 +137,80 @@ def _load_api_keys():
 
 def api_key_ok(key):
     return bool(key) and key in _load_api_keys()
+
+
+# --- Live match state (owner-only win-probability view) --------------------
+# The website cannot reach the tracker (PythonAnywhere blocks outbound calls),
+# so a small feed process on the droplet tails the tracker's per-read log and
+# POSTs each watched lobby's live team scores/counts to /api/live/state. Kept
+# in its OWN sqlite file so these frequent writes never contend with players.db.
+LIVE_DB_PATH = os.path.join(BASE_DIR, 'live.db')
+LIVE_STALE_SECONDS = 70    # a lobby not updated within this is treated as gone
+LIVE_TRAJ_CAP = 60         # recent reads kept per lobby (for the sparkline)
+LIVE_TEAMS = ("team_1", "team_2", "team_3")
+
+# Trained win-probability model: a conditional logit over the alive teams,
+# trained on ~143k ten-second reads across 1011 matches (see winprob notes).
+# Features per team: score_share, count_share, score_margin, count_margin,
+# top_score, top_count, then each share/margin x game-progress.
+_WP_W = [1.1295076628447995, 0.46926494423388093, 1.5665834227690387,
+         0.5415906485501419, 0.08886121945581577, 0.20478138329227297,
+         -0.23838655751300555, -0.7290679303463938, 0.23254840970750054,
+         0.22969712735760298]
+_WP_TSCALE = 1400.0
+
+
+def win_probability(counts, scores, elapsed_seconds=None):
+    """Each team's probability of winning, from current counts + scores (and
+    how long the match has run). A team with 0 players is out (probability 0).
+    Returns {team_key: prob} summing to 1 over the teams that can still win."""
+    import math
+    keys = list(LIVE_TEAMS)
+    score = {k: max(0.0, float(scores.get(k, 0) or 0)) for k in keys}
+    count = {k: max(0, int(counts.get(k, 0) or 0)) for k in keys}
+    alive = [k for k in keys if count[k] > 0]
+    if not alive:
+        tot = sum(score.values()) or 1.0
+        return {k: score[k] / tot for k in keys}
+    if len(alive) == 1:
+        return {k: (1.0 if k == alive[0] else 0.0) for k in keys}
+    if elapsed_seconds is None:
+        prog = min(1.0, max(score.values()) / 74000.0)
+    else:
+        prog = min(1.0, max(0.0, float(elapsed_seconds)) / _WP_TSCALE)
+    ssum = sum(score[k] for k in alive) + 1.0
+    nsum = sum(count[k] for k in alive) + 1.0
+    smax = max(score[k] for k in alive)
+    nmax = max(count[k] for k in alive)
+    util = {}
+    for k in alive:
+        s, n = score[k], count[k]
+        os_ = max((score[j] for j in alive if j != k), default=0.0)
+        on_ = max((count[j] for j in alive if j != k), default=0)
+        ss = s / ssum
+        cs = n / nsum
+        sm = (s - os_) / ssum
+        cm = (n - on_) / nsum
+        tsc = 1.0 if s == smax else 0.0
+        tcc = 1.0 if n == nmax else 0.0
+        x = [ss, cs, sm, cm, tsc, tcc, ss * prog, sm * prog, cs * prog, cm * prog]
+        util[k] = sum(_WP_W[i] * x[i] for i in range(10))
+    m = max(util.values())
+    ex = {k: math.exp(util[k] - m) for k in alive}
+    z = sum(ex.values())
+    out = {k: 0.0 for k in keys}
+    for k in alive:
+        out[k] = ex[k] / z
+    return out
+
+
+def live_db():
+    conn = sqlite3.connect(LIVE_DB_PATH, timeout=5)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("CREATE TABLE IF NOT EXISTS live ("
+                 "sys_id INTEGER PRIMARY KEY, updated REAL, elapsed REAL, "
+                 "region TEXT, name TEXT, payload TEXT)")
+    return conn
 
 
 
@@ -1397,6 +1471,108 @@ def expected_score(own_elo, opponent_rating):
     return 1 / (1 + 10 ** ((opponent_rating - own_elo) / ELO_SCALE))
 
 
+@app.route('/live')
+def live_view():
+    """Owner-only page: watch live win probabilities for every tracked match."""
+    if not is_site_owner():
+        return redirect('/')
+    return render_template('live.html', page='live', version=APP_VERSION)
+
+
+@app.route('/api/live/state', methods=['POST'])
+def live_state_ingest():
+    """The droplet feed posts one watched lobby's live team state here every
+    ~10s. Stored in live.db (a separate file) for the owner-only /live view.
+    Authenticated with the same shared key the tracker uses for results."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    try:
+        sys_id = int(d.get("sys_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad sys_id"}), 400
+    counts = d.get("counts") or {}
+    scores = d.get("scores") or {}
+    top = d.get("top") or {}
+    region = str(d.get("region") or "")[:16]
+    name = str(d.get("name") or "")[:40]
+    elapsed = float(d.get("elapsed") or 0)
+    now = time.time()
+    ct = {k: int(counts.get(k, 0) or 0) for k in LIVE_TEAMS}
+    sc = {k: int(scores.get(k, 0) or 0) for k in LIVE_TEAMS}
+    conn = live_db()
+    c = conn.cursor()
+    row = c.execute("SELECT payload FROM live WHERE sys_id=?", (sys_id,)).fetchone()
+    traj = []
+    if row:
+        try:
+            traj = (json.loads(row[0]) or {}).get("traj", [])
+        except Exception:
+            traj = []
+    # A reset (a new match starting in the same lobby) begins a fresh trajectory.
+    if elapsed < 12 and traj:
+        traj = []
+    traj.append([round(elapsed, 1), ct, sc])
+    traj = traj[-LIVE_TRAJ_CAP:]
+    payload = {"counts": ct, "scores": sc,
+               "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
+               "traj": traj}
+    c.execute("INSERT INTO live (sys_id, updated, elapsed, region, name, payload) "
+              "VALUES (?,?,?,?,?,?) ON CONFLICT(sys_id) DO UPDATE SET "
+              "updated=excluded.updated, elapsed=excluded.elapsed, "
+              "region=excluded.region, name=excluded.name, payload=excluded.payload",
+              (sys_id, now, elapsed, region, name, json.dumps(payload)))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/api/live/matches')
+def live_matches():
+    """Owner-only: every actively-watched lobby with live win probabilities."""
+    if not is_site_owner():
+        return jsonify({"error": "Not allowed."}), 403
+    now = time.time()
+    out = []
+    try:
+        conn = live_db()
+        c = conn.cursor()
+        rows = c.execute("SELECT sys_id, updated, elapsed, region, name, payload "
+                         "FROM live WHERE updated > ? ORDER BY region, sys_id",
+                         (now - LIVE_STALE_SECONDS,)).fetchall()
+        conn.close()
+    except Exception:
+        rows = []
+    for sys_id, updated, elapsed, region, name, payload in rows:
+        try:
+            p = json.loads(payload) or {}
+        except Exception:
+            continue
+        counts = p.get("counts", {})
+        scores = p.get("scores", {})
+        top = p.get("top", {})
+        probs = win_probability(counts, scores, elapsed)
+        traj = p.get("traj", [])
+        history = []
+        for row in traj[-40:]:
+            try:
+                t, ct, sc = row
+                hp = win_probability(ct, sc, t)
+                history.append([round(t, 0), round(hp["team_1"], 3),
+                                round(hp["team_2"], 3), round(hp["team_3"], 3)])
+            except Exception:
+                pass
+        teams = [{"key": k, "label": "Team %s" % k[-1],
+                  "score": int(scores.get(k, 0) or 0),
+                  "count": int(counts.get(k, 0) or 0),
+                  "top": top.get(k, ""),
+                  "prob": round(probs.get(k, 0.0), 4)} for k in LIVE_TEAMS]
+        out.append({"sys_id": sys_id, "region": region, "name": name,
+                    "elapsed": int(elapsed), "age": round(now - updated, 1),
+                    "teams": teams, "history": history})
+    return jsonify({"matches": out, "count": len(out)}), 200
+
+
 @app.route('/api/game_end', methods=['POST'])
 def game_end():
     if not api_key_ok(request.headers.get('X-API-Key')):
@@ -1801,6 +1977,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.25.0", "at": "2026-08-18T20:10:00Z", "changes": [
+        "Added an admin-only live view that shows each tracked match's win probability for every team, updating in real time. The estimate comes from a model trained on ~143,000 ten-second snapshots across 1,011 past matches.",
+    ]},
     {"version": "6.24.0", "at": "2026-08-18T19:07:15Z", "changes": [
         "Ratings now use a full chess-style Elo scale. Everyone starts at 1000, and most players sit between about 500 and 1800. Nobody can bottom out at zero any more - the lowest a rating can fall is 500. Every existing rating and its full match history was converted exactly, so the standings are unchanged; only the numbers are bigger.",
     ]},
