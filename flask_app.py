@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.26.0"
+APP_VERSION = "6.27.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -160,13 +160,22 @@ _WP_W = [1.1295076628447995, 0.46926494423388093, 1.5665834227690387,
 _WP_TSCALE = 1400.0
 
 
-def win_probability(counts, scores, elapsed_seconds=None, weights=None):
+def win_probability(counts, scores, elapsed_seconds=None, weights=None,
+                    skills=None):
     """Each team's probability of winning, from current counts + scores (and
     how long the match has run). A team with 0 players is out (probability 0).
     Returns {team_key: prob} summing to 1 over the teams that can still win.
-    `weights` lets the daily-retrained model override the built-in defaults."""
+
+    `weights` lets the daily-retrained model override the built-in defaults.
+    A 13-weight model adds roster skill: `skills` maps team -> mean leaderboard
+    Elo of its current players (unknown players count as STARTING_ELO). Skill
+    is worth the most early, before the score has separated - so two of the
+    three skill terms fade as the match progresses. With no skill data the
+    skill features are neutral and the model behaves like the 10-feature one."""
     import math
-    W = weights if (weights and len(weights) == 10) else _WP_W
+    W = _WP_W
+    if weights and len(weights) in (10, 13):
+        W = weights
     keys = list(LIVE_TEAMS)
     score = {k: max(0.0, float(scores.get(k, 0) or 0)) for k in keys}
     count = {k: max(0, int(counts.get(k, 0) or 0)) for k in keys}
@@ -196,7 +205,14 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None):
         tsc = 1.0 if s == smax else 0.0
         tcc = 1.0 if n == nmax else 0.0
         x = [ss, cs, sm, cm, tsc, tcc, ss * prog, sm * prog, cs * prog, cm * prog]
-        util[k] = sum(W[i] * x[i] for i in range(10))
+        if len(W) == 13:
+            sk = {j: float((skills or {}).get(j) or 1000.0) for j in alive}
+            sk_sum = sum(sk.values()) or 1.0
+            rival = max((sk[j] for j in alive if j != k), default=1000.0)
+            sk_margin = (sk[k] - rival) / 1000.0
+            x += [sk_margin, sk_margin * (1.0 - prog),
+                  sk[k] / sk_sum - 1.0 / len(alive)]
+        util[k] = sum(W[i] * x[i] for i in range(len(W)))
     m = max(util.values())
     ex = {k: math.exp(util[k] - m) for k in alive}
     z = sum(ex.values())
@@ -227,7 +243,7 @@ def load_live_model():
         if r and r[0]:
             w = json.loads(r[0])
             meta = json.loads(r[1]) if r[1] else {}
-            if isinstance(w, list) and len(w) == 10:
+            if isinstance(w, list) and len(w) in (10, 13):
                 return w, meta
     except Exception:
         pass
@@ -1521,6 +1537,36 @@ def live_state_ingest():
     now = time.time()
     ct = {k: int(counts.get(k, 0) or 0) for k in LIVE_TEAMS}
     sc = {k: int(scores.get(k, 0) or 0) for k in LIVE_TEAMS}
+    # Roster skill: who is on each team right now, joined to the leaderboard.
+    # A player the board does not know counts as a fresh 1000 - same rule the
+    # trainer uses, so live and training see skill identically.
+    skill = {}
+    rosters = d.get("rosters") or {}
+    if isinstance(rosters, dict) and any(rosters.values()):
+        try:
+            _sc = db(timeout=3)
+            _scc = _sc.cursor()
+            for k in LIVE_TEAMS:
+                names = [str(n)[:32] for n in (rosters.get(k) or [])][:16]
+                if not names:
+                    continue
+                elos, games, known = [], 0, 0
+                for nm in names:
+                    row = _scc.execute(
+                        "SELECT elo, COALESCE(wins,0), COALESCE(losses,0) "
+                        "FROM players WHERE norm_name = ?",
+                        (normalize_name(nm),)).fetchone()
+                    if row:
+                        known += 1
+                        elos.append(float(row[0]))
+                        games += row[1] + row[2]
+                    else:
+                        elos.append(1000.0)
+                skill[k] = {"elo": round(sum(elos) / len(elos), 1),
+                            "known": known, "n": len(names), "games": games}
+            _sc.close()
+        except sqlite3.Error:
+            skill = {}
     conn = live_db()
     c = conn.cursor()
     row = c.execute("SELECT payload FROM live WHERE sys_id=?", (sys_id,)).fetchone()
@@ -1537,7 +1583,7 @@ def live_state_ingest():
     traj = traj[-LIVE_TRAJ_CAP:]
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
-               "traj": traj}
+               "skill": skill, "traj": traj}
     c.execute("INSERT INTO live (sys_id, updated, elapsed, region, name, payload) "
               "VALUES (?,?,?,?,?,?) ON CONFLICT(sys_id) DO UPDATE SET "
               "updated=excluded.updated, elapsed=excluded.elapsed, "
@@ -1573,13 +1619,15 @@ def live_matches():
         counts = p.get("counts", {})
         scores = p.get("scores", {})
         top = p.get("top", {})
-        probs = win_probability(counts, scores, elapsed, weights=w)
+        pskill = p.get("skill") or {}
+        skills = {k: (pskill.get(k) or {}).get("elo") for k in LIVE_TEAMS}
+        probs = win_probability(counts, scores, elapsed, weights=w, skills=skills)
         traj = p.get("traj", [])
         history = []
         for row in traj[-40:]:
             try:
                 t, ct, sc = row
-                hp = win_probability(ct, sc, t, weights=w)
+                hp = win_probability(ct, sc, t, weights=w, skills=skills)
                 history.append([round(t, 0), round(hp["team_1"], 3),
                                 round(hp["team_2"], 3), round(hp["team_3"], 3)])
             except Exception:
@@ -1588,6 +1636,7 @@ def live_matches():
                   "score": int(scores.get(k, 0) or 0),
                   "count": int(counts.get(k, 0) or 0),
                   "top": top.get(k, ""),
+                  "skill": pskill.get(k) or None,
                   "prob": round(probs.get(k, 0.0), 4)} for k in LIVE_TEAMS]
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
@@ -1606,9 +1655,9 @@ def live_model_update():
     d = request.json or {}
     w = d.get("weights")
     meta = d.get("meta") or {}
-    if not (isinstance(w, list) and len(w) == 10
+    if not (isinstance(w, list) and len(w) in (10, 13)
             and all(isinstance(x, (int, float)) for x in w)):
-        return jsonify({"error": "weights must be 10 numbers"}), 400
+        return jsonify({"error": "weights must be 10 or 13 numbers"}), 400
     conn = live_db()
     conn.execute("INSERT INTO model (id, weights, meta, updated) VALUES (1,?,?,?) "
                  "ON CONFLICT(id) DO UPDATE SET weights=excluded.weights, "
@@ -1617,6 +1666,32 @@ def live_model_update():
     conn.commit()
     conn.close()
     return jsonify({"ok": True}), 200
+
+
+@app.route('/api/live/skill_export')
+def live_skill_export():
+    """Everything the daily retrain needs to know player skill AT MATCH TIME:
+    each rated player's current elo/wins/losses, plus every match delta with
+    its timestamp. The trainer walks the deltas backwards from the current
+    rating, so a match from last week is judged by last week's ratings - not
+    today's, which would let the model peek at the future."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    players = {}
+    for norm, elo, w_, l_ in c.execute(
+            "SELECT norm_name, elo, COALESCE(wins,0), COALESCE(losses,0) "
+            "FROM players WHERE COALESCE(wins,0)+COALESCE(losses,0) > 0 "
+            "AND norm_name IS NOT NULL"):
+        players[norm] = [round(float(elo), 2), w_, l_]
+    history = [[at, norm, d] for at, norm, d in c.execute(
+        "SELECT m.played_at, mp.norm_name, mp.delta FROM match_players mp "
+        "JOIN matches m ON m.id = mp.match_row WHERE mp.delta IS NOT NULL "
+        "ORDER BY m.played_at")]
+    conn.close()
+    return jsonify({"players": players, "history": history,
+                    "starting_elo": STARTING_ELO}), 200
 
 
 @app.route('/api/game_end', methods=['POST'])
@@ -2023,6 +2098,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.27.0", "at": "2026-08-18T21:20:00Z", "changes": [
+        "The win-probability model now knows who is playing, not just the score. Each team's live roster is matched to the leaderboard, and player ratings feed the prediction - so a strong player joining a team raises its chances immediately, most of all early in a match. Training uses each player's rating as it was at the time of each past match, never today's.",
+    ]},
     {"version": "6.26.0", "at": "2026-08-18T20:40:00Z", "changes": [
         "The win-probability model now retrains automatically every day on the latest matches, and only replaces itself when the new version scores at least as well. The admin live view shows when it last trained and how accurate it is.",
     ]},

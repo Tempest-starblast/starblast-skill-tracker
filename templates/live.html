@@ -75,11 +75,12 @@
     var rows='';
     teams.forEach(function(t){
       var out = t.count<=0;
+      var sk = t.skill && t.skill.elo ? ' &middot; avg '+Math.round(t.skill.elo) : '';
       rows+='<div class="lv-team'+(out?' lv-out':'')+'">'+
         '<span class="lv-chip" style="background:'+COLORS[t.key]+'"></span>'+
         '<span class="lv-name">'+(t.top?esc(t.top):('<small>'+t.label+'</small>'))+
           ' <small>'+t.label+'</small></span>'+
-        '<span class="lv-meta">'+t.score.toLocaleString()+' pts &middot; '+t.count+'p</span>'+
+        '<span class="lv-meta">'+t.score.toLocaleString()+' pts &middot; '+t.count+'p'+sk+'</span>'+
         '<span class="lv-pct" style="color:'+COLORS[t.key]+'">'+(out?'out':Math.round(t.prob*100)+'%')+'</span>'+
       '</div>';
     });
@@ -104,8 +105,8 @@
       var mel=document.getElementById('lvModel');
       if(mo.builtin){ mel.textContent='Model: built-in baseline · daily auto-retrain will replace it after the next run.'; }
       else{ mel.textContent='Model: retrained '+(mo.trained_at||'?')+' on '+(mo.n_matches||'?').toLocaleString()+
-        ' matches · '+Math.round((mo.accuracy||0)*100)+'% top-pick accuracy · retrains daily'+
-        (mo.deployed===false?' · (last run kept the previous model)':''); }
+        ' matches · '+Math.round((mo.accuracy||0)*100)+'% top-pick accuracy'+
+        (mo.skill?' · skill-aware (rosters + leaderboard ratings)':'')+' · retrains daily'; }
       var ms=(d.matches||[]);
       if(!ms.length){ wrap.innerHTML=''; empty.style.display=''; }
       else{ empty.style.display='none'; wrap.innerHTML=ms.map(card).join(''); }
