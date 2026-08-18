@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.23.0"
+APP_VERSION = "6.24.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -79,9 +79,9 @@ CLAIM_WINS_REQUIRED = 1
 # there would hand out ratings for a match nobody had finished.
 ABANDON_MAX_REAL_PLAYERS = 10
 
-STARTING_ELO = 5
-ELO_K = 2      # max elo swing for a single match, approached as the result gets more lopsided
-ELO_SCALE = 20  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
+STARTING_ELO = 1000
+ELO_K = 200    # max elo swing for a single match, approached as the result gets more lopsided
+ELO_SCALE = 2000  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
 
 # Anchored to this file's own directory rather than a bare relative path,
 # since different hosts (PythonAnywhere vs the droplet) run this with
@@ -1694,7 +1694,7 @@ def game_end():
         loss = scaled(ELO_K * expected_score(own_elo, winning_team_rating),
                       normalize_name(player))
         c.execute(
-            "UPDATE players SET elo = ROUND(MAX(0, elo - ?), 2), losses = losses + 1 WHERE norm_name = ?",
+            "UPDATE players SET elo = ROUND(MAX(500, elo - ?), 2), losses = losses + 1 WHERE norm_name = ?",
             (loss, normalize_name(player))
         )
         if c.rowcount > 0:
@@ -1801,6 +1801,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.24.0", "at": "2026-08-18T19:07:15Z", "changes": [
+        "Ratings now use a full chess-style Elo scale. Everyone starts at 1000, and most players sit between about 500 and 1800. Nobody can bottom out at zero any more - the lowest a rating can fall is 500. Every existing rating and its full match history was converted exactly, so the standings are unchanged; only the numbers are bigger.",
+    ]},
     {"version": "6.23.0", "at": "2026-08-18T03:40:00Z", "changes": [
         "The Discord invite is now on the main leaderboard page too, not only the Clans page.",
     ]},
