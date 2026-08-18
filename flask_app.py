@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.18.0"
+APP_VERSION = "6.20.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -956,10 +956,28 @@ def init_db():
         c.execute("ALTER TABLE match_players ADD COLUMN score INTEGER")
     except sqlite3.OperationalError:
         pass
+    # Which side a player was on: 'win', 'lose1' or 'lose2'. The DB knew
+    # won/lost but not WHICH losing team, so the results feed could not
+    # show teams. NULL on rows from before this - all already announced.
+    try:
+        c.execute("ALTER TABLE match_players ADD COLUMN team TEXT")
+    except sqlite3.OperationalError:
+        pass
     # Which region a match was played in - the leaderboard filters on it and
     # the site cannot infer it after the fact.
     try:
         c.execute("ALTER TABLE matches ADD COLUMN region TEXT DEFAULT 'america'")
+    except sqlite3.OperationalError:
+        pass
+    # Whether this match has been posted to the Discord results feed.
+    # Backfilled to 1 when the column is born so the bot does not replay
+    # every historical match on first run - history is not news.
+    c.execute("PRAGMA table_info(matches)")
+    if 'announced' not in [r[1] for r in c.fetchall()]:
+        c.execute("ALTER TABLE matches ADD COLUMN announced INTEGER DEFAULT 0")
+        c.execute("UPDATE matches SET announced = 1")
+    try:
+        pass
     except sqlite3.OperationalError:
         pass
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_region ON matches(region, played_at)")
@@ -1692,6 +1710,13 @@ def game_end():
             c.execute("SELECT COUNT(*) FROM match_players WHERE match_row = ?", (mrow[0],))
             if c.fetchone()[0] == 0:
                 scores = data.get('scores') if isinstance(data.get('scores'), dict) else {}
+                team_of = {}
+                for _nm in winning_team:
+                    team_of[normalize_name(_nm)] = 'win'
+                for _nm in losing_team_1:
+                    team_of[normalize_name(_nm)] = 'lose1'
+                for _nm in losing_team_2:
+                    team_of[normalize_name(_nm)] = 'lose2'
                 for pname, won, delta in applied:
                     raw_score = scores.get(pname)
                     try:
@@ -1702,11 +1727,13 @@ def game_end():
                     # answer when no rewrite happened - an unclaimed player
                     # played as exactly who they appear to be.
                     played_as = (data.get('played_as_map') or {}).get(pname) or pname
-                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as) "
-                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as, team) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                               (mrow[0], pname, normalize_name(pname), won, delta,
                                1 if normalize_name(pname) in half_elo else 0,
-                               raw_score, played_as))
+                               raw_score, played_as,
+                               team_of.get(normalize_name(pname),
+                                           'win' if won else 'lose1')))
 
     if _held:
         _mid = str(data.get('match_id') or ('sys%s-%s' % (sys_id, int(time.time()))))
@@ -1767,6 +1794,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.20.0", "at": "2026-08-18T02:00:00Z", "changes": [
+        "The Discord match-results feed now shows the teams - winners together, each losing team on its own line - with every player's skill change beside their name.",
+    ]},
+    {"version": "6.19.0", "at": "2026-08-18T01:20:00Z", "changes": [
+        "The Discord server has a live match-results feed now: as each tracked match finishes, the bot posts its winners and losers to a match-results channel. Only matches from here on are posted - the history stays where it is.",
+    ]},
     {"version": "6.18.0", "at": "2026-08-18T00:45:00Z", "changes": [
         "Long games are no longer dropped at 90 minutes. A watcher now only gives up a match at the time limit if another game is actually waiting for the slot - if nothing is queued, it stays on your game until it truly ends. And a game being watched stays on the live list however long it runs, instead of vanishing at 90 minutes.",
     ]},
@@ -5820,6 +5853,57 @@ def bot_playerrole_check():
         qualifies = bool(c.fetchone())
     conn.close()
     return jsonify({"player": qualifies}), 200
+
+
+@app.route('/api/bot/matches/undelivered')
+def bot_matches_undelivered():
+    """Decided matches not yet posted to the Discord results feed, with
+    their winners and losers. Oldest first so the feed reads in order."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT id, match_id, COALESCE(region, 'america'), played_at "
+              "FROM matches WHERE COALESCE(announced, 0) = 0 "
+              "ORDER BY id LIMIT 15")
+    rows = c.fetchall()
+    out = []
+    for mid, match_id, region, played_at in rows:
+        c.execute("SELECT name, won, COALESCE(delta, 0), COALESCE(team, '') "
+                  "FROM match_players WHERE match_row = ? "
+                  "ORDER BY won DESC, delta DESC", (mid,))
+        winners, lose1, lose2 = [], [], []
+        for name, won, delta, team in c.fetchall():
+            e = {"name": name, "delta": round(delta, 2)}
+            if won:
+                winners.append(e)
+            elif team == 'lose2':
+                lose2.append(e)
+            else:
+                lose1.append(e)
+        losing_teams = [t for t in (lose1, lose2) if t]
+        out.append({"id": mid, "match_id": match_id, "region": region,
+                    "played_at": played_at, "winners": winners,
+                    "losing_teams": losing_teams})
+    conn.close()
+    return jsonify({"matches": out}), 200
+
+
+@app.route('/api/bot/matches/delivered', methods=['POST'])
+def bot_matches_delivered():
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(x) for x in ((request.json or {}).get('ids') or [])
+           if str(x).lstrip('-').isdigit()]
+    if not ids:
+        return jsonify({"ok": True, "count": 0}), 200
+    conn = db()
+    c = conn.cursor()
+    c.executemany("UPDATE matches SET announced = 1 WHERE id = ?",
+                  [(i,) for i in ids])
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": len(ids)}), 200
 
 
 @app.route('/api/bot/gamerank/push', methods=['POST'])
