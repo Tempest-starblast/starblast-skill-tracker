@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.27.1"
+APP_VERSION = "6.27.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1686,11 +1686,11 @@ def live_skill_export():
     conn = db()
     c = conn.cursor()
     players = {}
-    for norm, elo, w_, l_ in c.execute(
-            "SELECT norm_name, elo, COALESCE(wins,0), COALESCE(losses,0) "
+    for norm, elo, w_, l_, clan in c.execute(
+            "SELECT norm_name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
             "FROM players WHERE COALESCE(wins,0)+COALESCE(losses,0) > 0 "
             "AND norm_name IS NOT NULL"):
-        players[norm] = [round(float(elo), 2), w_, l_]
+        players[norm] = [round(float(elo), 2), w_, l_, clan or ""]
     history = [[at, norm, d] for at, norm, d in c.execute(
         "SELECT m.played_at, mp.norm_name, mp.delta FROM match_players mp "
         "JOIN matches m ON m.id = mp.match_row WHERE mp.delta IS NOT NULL "
@@ -2104,6 +2104,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.27.2", "at": "2026-08-18T23:05:00Z", "changes": [
+        "Groundwork for a more accurate win-probability model: the training data export now includes clan membership (to test whether coordinated clan stacks predict wins), and the live feed records each team's station status for future use.",
+    ]},
     {"version": "6.27.1", "at": "2026-08-18T21:45:00Z", "changes": [
         "Skill in the win-probability model is now judged by each team's two best players rather than the team average - tested head-to-head on 1,015 matches, the star-player signal predicts better, especially early in a match before the score separates.",
     ]},
