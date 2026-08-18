@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.27.2"
+APP_VERSION = "6.28.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -161,20 +161,23 @@ _WP_TSCALE = 1400.0
 
 
 def win_probability(counts, scores, elapsed_seconds=None, weights=None,
-                    skills=None):
+                    skills=None, depth=None, window=None):
     """Each team's probability of winning, from current counts + scores (and
     how long the match has run). A team with 0 players is out (probability 0).
     Returns {team_key: prob} summing to 1 over the teams that can still win.
 
-    `weights` lets the daily-retrained model override the built-in defaults.
-    A 13-weight model adds roster skill: `skills` maps team -> mean leaderboard
-    Elo of its current players (unknown players count as STARTING_ELO). Skill
-    is worth the most early, before the score has separated - so two of the
-    three skill terms fade as the match progresses. With no skill data the
-    skill features are neutral and the model behaves like the 10-feature one."""
+    `weights` lets the daily-retrained model override the built-in defaults,
+    and its LENGTH selects the feature set (each size is a prefix of the next,
+    so old models keep working):
+      10  score/count only
+      13  + roster skill: `skills` maps team -> top-2 leaderboard Elo
+      19  + time-shape over `window` (recent [(t, scores)] reads: lead share,
+          drawdown from peak, 60s trend) and roster `depth` per team
+          ((winrate, games, clan-stack)). Every extra feature is neutral when
+          its data is missing, so the model degrades gracefully."""
     import math
     W = _WP_W
-    if weights and len(weights) in (10, 13):
+    if weights and len(weights) in (10, 13, 19):
         W = weights
     keys = list(LIVE_TEAMS)
     score = {k: max(0.0, float(scores.get(k, 0) or 0)) for k in keys}
@@ -205,13 +208,44 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
         tsc = 1.0 if s == smax else 0.0
         tcc = 1.0 if n == nmax else 0.0
         x = [ss, cs, sm, cm, tsc, tcc, ss * prog, sm * prog, cs * prog, cm * prog]
-        if len(W) == 13:
+        if len(W) >= 13:
             sk = {j: float((skills or {}).get(j) or 1000.0) for j in alive}
             sk_sum = sum(sk.values()) or 1.0
             rival = max((sk[j] for j in alive if j != k), default=1000.0)
             sk_margin = (sk[k] - rival) / 1000.0
             x += [sk_margin, sk_margin * (1.0 - prog),
                   sk[k] / sk_sum - 1.0 / len(alive)]
+        if len(W) == 19:
+            led = 0.0
+            peak = s
+            s_old = None
+            if window:
+                tops = 0
+                tcur = window[-1][0]
+                for (tw, sw) in window:
+                    vals = {j: sw.get(j, 0) for j in keys}
+                    if vals.get(k, 0) == max(vals.values()) and vals.get(k, 0) > 0:
+                        tops += 1
+                    if sw.get(k, 0) > peak:
+                        peak = sw.get(k, 0)
+                    if s_old is None and tcur - tw <= 60.5:
+                        s_old = sw.get(k, 0)
+                led = tops / len(window)
+            dd = (peak - s) / (peak + 1000.0)
+            tr = 0.0
+            if s_old is not None:
+                tr = max(-1.0, min(1.0, (s - s_old) / ssum))
+            dp = depth or {}
+            wr_k, g_k, st_k = dp.get(k) or (0.5, 0, 0)
+            r_wr = max(((dp.get(j) or (0.5, 0, 0))[0] for j in alive if j != k),
+                       default=0.5)
+            r_g = max(((dp.get(j) or (0.5, 0, 0))[1] for j in alive if j != k),
+                      default=0)
+            r_st = max(((dp.get(j) or (0.5, 0, 0))[2] for j in alive if j != k),
+                       default=0)
+            x += [led, dd, tr, wr_k - r_wr,
+                  (math.log1p(g_k) - math.log1p(r_g)) / 8.0,
+                  (st_k - r_st) / 4.0]
         util[k] = sum(W[i] * x[i] for i in range(len(W)))
     m = max(util.values())
     ex = {k: math.exp(util[k] - m) for k in alive}
@@ -243,7 +277,7 @@ def load_live_model():
         if r and r[0]:
             w = json.loads(r[0])
             meta = json.loads(r[1]) if r[1] else {}
-            if isinstance(w, list) and len(w) in (10, 13):
+            if isinstance(w, list) and len(w) in (10, 13, 19):
                 return w, meta
     except Exception:
         pass
@@ -1550,24 +1584,34 @@ def live_state_ingest():
                 names = [str(n)[:32] for n in (rosters.get(k) or [])][:16]
                 if not names:
                     continue
-                elos, games, known = [], 0, 0
+                elos, wrs, games, known = [], [], 0, 0
+                clans = {}
                 for nm in names:
                     row = _scc.execute(
-                        "SELECT elo, COALESCE(wins,0), COALESCE(losses,0) "
+                        "SELECT elo, COALESCE(wins,0), COALESCE(losses,0), clan "
                         "FROM players WHERE norm_name = ?",
                         (normalize_name(nm),)).fetchone()
                     if row:
                         known += 1
                         elos.append(float(row[0]))
-                        games += row[1] + row[2]
+                        g = row[1] + row[2]
+                        games += g
+                        wrs.append((row[1] / g) if g else 0.5)
+                        if row[3]:
+                            clans[row[3]] = clans.get(row[3], 0) + 1
                     else:
                         elos.append(1000.0)
+                        wrs.append(0.5)
                 # The model uses the two best players, not the team average:
                 # measured on 1,015 matches, one strong player carries real
-                # predictive weight that a mean of eight would bury.
+                # predictive weight that a mean of eight would bury. Winrate,
+                # experience and the largest same-clan group feed the
+                # roster-depth features (measured worth keeping too).
                 top2 = sorted(elos, reverse=True)[:2]
                 skill[k] = {"elo": round(sum(elos) / len(elos), 1),
                             "top2": round(sum(top2) / len(top2), 1),
+                            "wr": round(sum(wrs) / len(wrs), 3),
+                            "stk": max(clans.values()) if clans else 0,
                             "known": known, "n": len(names), "games": games}
             _sc.close()
         except sqlite3.Error:
@@ -1627,13 +1671,23 @@ def live_matches():
         pskill = p.get("skill") or {}
         skills = {k: ((pskill.get(k) or {}).get("top2")
                       or (pskill.get(k) or {}).get("elo")) for k in LIVE_TEAMS}
-        probs = win_probability(counts, scores, elapsed, weights=w, skills=skills)
+        dpt = {k: ((pskill.get(k) or {}).get("wr", 0.5),
+                   (pskill.get(k) or {}).get("games", 0),
+                   (pskill.get(k) or {}).get("stk", 0)) for k in LIVE_TEAMS
+               if pskill.get(k)}
         traj = p.get("traj", [])
+        wnd = [(r_[0], r_[2]) for r_ in traj[-60:] if len(r_) == 3]
+        probs = win_probability(counts, scores, elapsed, weights=w,
+                                skills=skills, depth=dpt, window=wnd)
         history = []
-        for row in traj[-40:]:
+        for i, row in enumerate(traj[-40:]):
             try:
                 t, ct, sc = row
-                hp = win_probability(ct, sc, t, weights=w, skills=skills)
+                base_i = len(traj) - min(len(traj), 40) + i
+                w_i = [(r_[0], r_[2]) for r_ in traj[max(0, base_i - 59):base_i + 1]
+                       if len(r_) == 3]
+                hp = win_probability(ct, sc, t, weights=w, skills=skills,
+                                     depth=dpt, window=w_i)
                 history.append([round(t, 0), round(hp["team_1"], 3),
                                 round(hp["team_2"], 3), round(hp["team_3"], 3)])
             except Exception:
@@ -1661,9 +1715,9 @@ def live_model_update():
     d = request.json or {}
     w = d.get("weights")
     meta = d.get("meta") or {}
-    if not (isinstance(w, list) and len(w) in (10, 13)
+    if not (isinstance(w, list) and len(w) in (10, 13, 19)
             and all(isinstance(x, (int, float)) for x in w)):
-        return jsonify({"error": "weights must be 10 or 13 numbers"}), 400
+        return jsonify({"error": "weights must be 10, 13 or 19 numbers"}), 400
     conn = live_db()
     conn.execute("INSERT INTO model (id, weights, meta, updated) VALUES (1,?,?,?) "
                  "ON CONFLICT(id) DO UPDATE SET weights=excluded.weights, "
@@ -2104,6 +2158,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.28.0", "at": "2026-08-18T23:40:00Z", "changes": [
+        "The win-probability model got smarter: it now also weighs how long a team has held the lead, whether it is falling off its peak, its score trend over the last minute, and each roster's win record, experience and clan stacking. Each signal was tested on over 1,000 matches and kept only because it measurably improved prediction. Training data now accumulates permanently, so the daily retrain keeps getting better.",
+    ]},
     {"version": "6.27.2", "at": "2026-08-18T23:05:00Z", "changes": [
         "Groundwork for a more accurate win-probability model: the training data export now includes clan membership (to test whether coordinated clan stacks predict wins), and the live feed records each team's station status for future use.",
     ]},
