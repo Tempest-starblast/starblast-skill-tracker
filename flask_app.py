@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.32.0"
+APP_VERSION = "6.33.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2334,6 +2334,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.33.0", "at": "2026-08-19T23:20:00Z", "changes": [
+        "Matches can no longer be held open by idle ships parked in a lobby just to stop it from ending. The watcher now ignores them, so a finished game is scored and its watcher freed for the next match instead of hanging until the time cap - which had been leaving real games unscored and unwatched. Lobbies a watcher has already left are also dropped from the live list right away, so a dead game stops showing as tracked.",
+    ]},
     {"version": "6.32.0", "at": "2026-08-19T08:00:00Z", "changes": [
         "The site got a deep-space makeover - a darker, starrier backdrop with a faint nebula haze, matching Starblast's own look. Same layout throughout.",
     ]},
