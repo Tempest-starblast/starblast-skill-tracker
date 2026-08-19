@@ -10,7 +10,7 @@
   /* starblast.io's actual palette, read off the live menu: ice-cyan text
      rgba(204,245,255,.9), cyan glow #99ddff, flat black translucent
      panels, near-square corners. Names unchanged - pages depend on them. */
-  --bg:#04060b; --panel:rgba(6,10,18,.4); --panel2:rgba(3,7,14,.5);
+  --bg:#020306; --panel:rgba(6,10,18,.38); --panel2:rgba(3,7,14,.48);
   --blur:saturate(120%) blur(9px);
   --line:rgba(153,221,255,.16);
   --text:rgba(204,245,255,.92); --muted:#7fa3b8; --dim:#5d7f93;
@@ -19,10 +19,10 @@
   --card:#050d16;
   /* Default 'system' colour - the leaderboard's purple/violet nebula.
      Each page paints a different system; see body.pg-* far below. */
-  /* 'Ember' - a dark crimson/red nebula haze. */
-  --neb-a:rgba(118,40,66,.36); --neb-b:rgba(140,54,54,.32);
-  --neb-c:rgba(150,66,60,.22);  --neb-d:rgba(66,28,44,.32);
-  --neb-top:rgba(12,3,6,.55);
+  /* 'Ember' - a dark crimson/red nebula haze, kept low so the field stays dark. */
+  --neb-a:rgba(100,34,56,.26); --neb-b:rgba(120,44,46,.24);
+  --neb-c:rgba(128,54,50,.15);  --neb-d:rgba(54,22,38,.24);
+  --neb-top:rgba(6,2,4,.62);
 }
 *{box-sizing:border-box}
 body{
@@ -234,6 +234,12 @@ a.pname:hover{color:#fff;text-shadow:var(--glow)}
     radial-gradient(780px 640px at 83% 42%, var(--neb-c), transparent 60%),
     radial-gradient(840px 660px at 19% 30%, var(--neb-d), transparent 62%),
     var(--bg)}
+/* Constellations - faint star-lines strung across the whole field, one
+   zero-request SVG behind the drifting stars and every panel. */
+.constellations{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.constellations svg{position:absolute;top:50%;left:50%;width:108vw;height:108vh;
+  min-width:1250px;min-height:800px;transform:translate(-50%,-50%);opacity:.9}
+@media (max-width:760px){.constellations svg{opacity:.62}}
 /* Per-page themes (nebula colour + planets) are reserved for SEASONS -
    the body.pg-<page> class is emitted below so they can be switched on
    later without touching markup. For now every page shares one dark,
@@ -356,6 +362,34 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 </style>
 </head><body class="pg-{{ page or 'leaderboard' }}">
 <div class="spacescape" aria-hidden="true"></div>
+<div class="constellations" aria-hidden="true"><svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<g stroke="rgba(176,204,236,.14)" stroke-width="1" fill="none">
+<polyline points="140,90 230,150 330,110 410,200"/><line x1="330" y1="110" x2="300" y2="240"/>
+<polyline points="620,120 720,80 820,150 760,250"/>
+<polyline points="1120,110 1230,170 1350,120 1450,210"/><line x1="1350" y1="120" x2="1300" y2="260"/>
+<polyline points="180,470 300,540 230,660 360,640"/>
+<polyline points="720,470 840,430 940,520 860,600 760,560"/>
+<polyline points="1250,460 1380,510 1480,440"/><line x1="1380" y1="510" x2="1400" y2="600"/>
+<polyline points="260,820 380,780 470,880 360,930"/>
+<polyline points="1140,720 1260,690 1360,790 1450,730"/><line x1="1360" y1="790" x2="1320" y2="880"/>
+<polyline points="700,840 820,880 920,820"/>
+<polyline points="500,300 560,410 470,470"/>
+<polyline points="1050,880 1140,940 980,960"/>
+</g>
+<g fill="rgba(226,238,255,.6)">
+<circle cx="140" cy="90" r="2.3"/><circle cx="230" cy="150" r="1.8"/><circle cx="330" cy="110" r="2.3"/><circle cx="410" cy="200" r="1.8"/><circle cx="300" cy="240" r="1.6"/>
+<circle cx="620" cy="120" r="1.8"/><circle cx="720" cy="80" r="2.4"/><circle cx="820" cy="150" r="1.8"/><circle cx="760" cy="250" r="1.6"/>
+<circle cx="1120" cy="110" r="1.8"/><circle cx="1230" cy="170" r="2.3"/><circle cx="1350" cy="120" r="1.8"/><circle cx="1450" cy="210" r="2.2"/><circle cx="1300" cy="260" r="1.6"/>
+<circle cx="180" cy="470" r="1.8"/><circle cx="300" cy="540" r="2.3"/><circle cx="230" cy="660" r="1.8"/><circle cx="360" cy="640" r="1.7"/>
+<circle cx="720" cy="470" r="1.8"/><circle cx="840" cy="430" r="2.4"/><circle cx="940" cy="520" r="1.9"/><circle cx="860" cy="600" r="1.7"/><circle cx="760" cy="560" r="1.6"/>
+<circle cx="1250" cy="460" r="1.8"/><circle cx="1380" cy="510" r="2.3"/><circle cx="1480" cy="440" r="1.8"/><circle cx="1400" cy="600" r="1.6"/>
+<circle cx="260" cy="820" r="1.8"/><circle cx="380" cy="780" r="2.2"/><circle cx="470" cy="880" r="1.8"/><circle cx="360" cy="930" r="1.6"/>
+<circle cx="1140" cy="720" r="1.8"/><circle cx="1260" cy="690" r="2.3"/><circle cx="1360" cy="790" r="1.8"/><circle cx="1450" cy="730" r="1.8"/><circle cx="1320" cy="880" r="1.6"/>
+<circle cx="700" cy="840" r="1.8"/><circle cx="820" cy="880" r="2.2"/><circle cx="920" cy="820" r="1.8"/>
+<circle cx="500" cy="300" r="1.8"/><circle cx="560" cy="410" r="2.1"/><circle cx="470" cy="470" r="1.6"/>
+<circle cx="1050" cy="880" r="1.8"/><circle cx="1140" cy="940" r="2.1"/><circle cx="980" cy="960" r="1.6"/>
+</g>
+</svg></div>
 
 {% if dev_testing %}
 <div class="devbar">
