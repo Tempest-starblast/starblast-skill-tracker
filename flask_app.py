@@ -2335,7 +2335,7 @@ def game_end():
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
     {"version": "6.32.0", "at": "2026-08-19T08:00:00Z", "changes": [
-        "The site got a deep-space makeover: each page now has its own nebula and planets, the way each Starblast server is a differently lit corner of space - purple on the leaderboard, blue on Play, green on Clans, and so on. Same layout, just a lot more starry.",
+        "The site got a deep-space makeover - a darker, starrier backdrop with a faint nebula haze, matching Starblast's own look. Same layout throughout.",
     ]},
     {"version": "6.31.0", "at": "2026-08-19T04:10:00Z", "changes": [
         "Floods are now caught while they are happening, not only afterwards: a match being swarmed is flagged live, and the finished result is sent for review so it can be voided if the flood decided it.",

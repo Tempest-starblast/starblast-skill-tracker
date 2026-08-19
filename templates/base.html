@@ -18,10 +18,9 @@
   --card:#050d16;
   /* Default 'system' colour - the leaderboard's purple/violet nebula.
      Each page paints a different system; see body.pg-* far below. */
-  --neb-a:rgba(88,44,116,.44); --neb-b:rgba(126,60,136,.42);
-  --neb-c:rgba(150,66,122,.3);  --neb-d:rgba(58,36,86,.34);
-  --neb-top:rgba(8,4,15,.5);
-  --body-lit:#c089d8; --body-mid:#6a3a86; --body-dark:#2a1640;
+  --neb-a:rgba(62,34,84,.24); --neb-b:rgba(82,42,90,.22);
+  --neb-c:rgba(50,32,66,.16);  --neb-d:rgba(38,28,58,.2);
+  --neb-top:rgba(3,2,8,.55);
 }
 *{box-sizing:border-box}
 body{
@@ -221,20 +220,10 @@ a.pname:hover{color:#fff;text-shadow:var(--glow)}
     radial-gradient(780px 640px at 83% 42%, var(--neb-c), transparent 60%),
     radial-gradient(840px 660px at 19% 30%, var(--neb-d), transparent 62%),
     var(--bg)}
-/* Painted celestial bodies - a distant sun, a ringed gas giant, a second
-   planet and a moon. One zero-request SVG, recoloured per page so the
-   scene belongs to that page's system. */
-.scenery{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
-.scenery svg{position:absolute;top:50%;left:50%;width:110vw;height:110vh;
-  min-width:1250px;min-height:780px;transform:translate(-50%,-50%);opacity:.92}
-@media (max-width:760px){.scenery svg{opacity:.6}}
-/* Each page its own system colour, the way each Starblast server is a
-   differently lit corner of space: nebula (--neb-*) + bodies (--body-*). */
-body.pg-play{--neb-a:rgba(42,70,140,.44);--neb-b:rgba(48,96,150,.4);--neb-c:rgba(70,60,150,.3);--neb-d:rgba(30,40,90,.36);--neb-top:rgba(4,8,20,.5);--body-lit:#8fb4f0;--body-mid:#3f5fb0;--body-dark:#141f52}
-body.pg-clans{--neb-a:rgba(40,112,82,.4);--neb-b:rgba(46,130,96,.38);--neb-c:rgba(82,120,50,.26);--neb-d:rgba(26,60,54,.34);--neb-top:rgba(4,12,10,.5);--body-lit:#8fdca0;--body-mid:#3f8f66;--body-dark:#163a2a}
-body.pg-account,body.pg-myclan{--neb-a:rgba(120,40,72,.42);--neb-b:rgba(140,52,60,.4);--neb-c:rgba(150,62,112,.28);--neb-d:rgba(70,30,50,.34);--neb-top:rgba(14,4,8,.5);--body-lit:#e493a4;--body-mid:#a04858;--body-dark:#421a28}
-body.pg-info,body.pg-changelog,body.pg-reports{--neb-a:rgba(52,46,94,.34);--neb-b:rgba(62,50,102,.3);--neb-c:rgba(82,60,112,.22);--neb-d:rgba(34,32,64,.3);--neb-top:rgba(6,6,14,.5);--body-lit:#a8a0d0;--body-mid:#5a5290;--body-dark:#262250}
-body.pg-live,body.pg-flood{--neb-a:rgba(46,52,78,.34);--neb-b:rgba(56,58,88,.3);--neb-c:rgba(70,66,100,.22);--neb-d:rgba(30,34,54,.3);--neb-top:rgba(6,7,14,.5);--body-lit:#9aa4c0;--body-mid:#565e80;--body-dark:#232942}
+/* Per-page themes (nebula colour + planets) are reserved for SEASONS -
+   the body.pg-<page> class is emitted below so they can be switched on
+   later without touching markup. For now every page shares one dark,
+   starry look. */
 /* Keyboard focus was invisible everywhere except the period menu, so a
    sighted keyboard user had no way to tell what was selected. One rule,
    :focus-visible, so a mouse click does not draw it. */
@@ -352,30 +341,6 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 </style>
 </head><body class="pg-{{ page or 'leaderboard' }}">
 <div class="spacescape" aria-hidden="true"></div>
-<div class="scenery" aria-hidden="true"><svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<defs>
-<radialGradient id="sun" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fff" stop-opacity=".95"/><stop offset="12%" stop-color="var(--body-lit)" stop-opacity=".8"/><stop offset="34%" stop-color="var(--body-lit)" stop-opacity=".22"/><stop offset="100%" stop-color="var(--body-lit)" stop-opacity="0"/></radialGradient>
-<radialGradient id="giant" cx="36%" cy="30%" r="80%"><stop offset="0%" stop-color="var(--body-lit)"/><stop offset="46%" stop-color="var(--body-mid)"/><stop offset="82%" stop-color="var(--body-dark)"/><stop offset="100%" stop-color="#05070d"/></radialGradient>
-<radialGradient id="giant2" cx="34%" cy="30%" r="80%"><stop offset="0%" stop-color="var(--body-lit)"/><stop offset="52%" stop-color="var(--body-mid)"/><stop offset="100%" stop-color="#06060e"/></radialGradient>
-<radialGradient id="moon" cx="36%" cy="32%" r="76%"><stop offset="0%" stop-color="#c6ccd8"/><stop offset="58%" stop-color="#5a6070"/><stop offset="100%" stop-color="#14161f"/></radialGradient>
-<linearGradient id="ring" x1="0" y1="0" x2="1" y2="0.2"><stop offset="0%" stop-color="var(--body-lit)" stop-opacity="0"/><stop offset="28%" stop-color="var(--body-lit)" stop-opacity=".5"/><stop offset="50%" stop-color="#fff" stop-opacity=".6"/><stop offset="72%" stop-color="var(--body-lit)" stop-opacity=".5"/><stop offset="100%" stop-color="var(--body-lit)" stop-opacity="0"/></linearGradient>
-</defs>
-<!-- distant sun with glare -->
-<circle cx="1180" cy="230" r="340" fill="url(#sun)" opacity=".85"/>
-<circle cx="1180" cy="230" r="24" fill="#fff" opacity=".92"/>
-<!-- big ringed gas giant, lower-left: ring behind, planet, shadow, rim -->
-<g transform="rotate(-15 250 760)">
-<ellipse cx="250" cy="760" rx="300" ry="60" fill="none" stroke="url(#ring)" stroke-width="16" opacity=".85"/>
-<circle cx="250" cy="760" r="152" fill="url(#giant)"/>
-<circle cx="250" cy="760" r="152" fill="none" stroke="var(--body-lit)" stroke-opacity=".18" stroke-width="1.5"/>
-</g>
-<!-- second planet, right -->
-<circle cx="1360" cy="560" r="98" fill="url(#giant2)"/>
-<circle cx="1298" cy="516" r="98" fill="#04060c" opacity=".32"/>
-<!-- moon, upper-left -->
-<circle cx="470" cy="300" r="34" fill="url(#moon)"/>
-<circle cx="456" cy="288" r="34" fill="#04060c" opacity=".26"/>
-</svg></div>
 
 {% if dev_testing %}
 <div class="devbar">
