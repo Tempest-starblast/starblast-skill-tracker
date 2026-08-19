@@ -37,6 +37,10 @@
   <div class="lv-status" id="lvModel" style="margin-top:3px;opacity:.85"></div>
 </div>
 
+<div id="lvFlood" style="display:none;max-width:1100px;margin:0 auto 14px;
+  background:rgba(255,120,120,.08);border:1px solid rgba(255,140,140,.5);
+  border-radius:10px;padding:12px 15px;color:#ffdede;font-size:13.5px;line-height:1.6"></div>
+
 <div class="lv-wrap" id="lvWrap"></div>
 <div class="lv-empty" id="lvEmpty" style="display:none">No matches are being tracked right now. This fills in as soon as the tracker picks up a live game.</div>
 
@@ -85,10 +89,21 @@
       '</div>';
     });
     var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
+    var fl='';
+    if(m.flood_max >= 2){
+      var bits=[];
+      Object.keys(m.flood||{}).forEach(function(t){
+        bits.push('Team '+t.slice(-1)+': <b>'+esc(m.flood[t].name)+'</b> &times;'+m.flood[t].n);
+      });
+      var sev = m.flood_max >= 5;
+      fl='<div style="margin-top:10px;padding:8px 10px;border-radius:7px;font-size:12px;'
+        +'background:rgba(255,120,120,'+(sev?'.14':'.06')+');border:1px solid rgba(255,140,140,'+(sev?'.55':'.25')+');color:#ffdede">'
+        +(sev?'⚠ <b>Flood</b> &mdash; ':'duplicate ships &mdash; ')+bits.join(' &middot; ')+'</div>';
+    }
     return '<div class="lv-card">'+
       '<div class="lv-ctop"><b>'+esc(m.name||('Lobby '+m.sys_id))+'</b>'+
         '<span>'+esc(reg)+' &middot; '+mmss(m.elapsed)+'</span></div>'+
-      bar+rows+spark(m.history)+
+      bar+rows+fl+spark(m.history)+
     '</div>';
   }
 
@@ -107,6 +122,13 @@
       else{ mel.textContent='Model: retrained '+(mo.trained_at||'?')+' on '+(mo.n_matches||'?').toLocaleString()+
         ' matches · '+Math.round((mo.accuracy||0)*100)+'% top-pick accuracy'+
         (mo.skill?' · skill-aware (rosters + leaderboard ratings)':'')+' · retrains daily'; }
+      var fa=d.flood_alert||{}; var fbox=document.getElementById('lvFlood');
+      if(fa.count){
+        fbox.style.display='';
+        fbox.innerHTML='<b style="color:#ff9a9a">⚠ Flood in progress</b> &mdash; '+fa.count+
+          ' lobby'+(fa.count===1?'':'s')+' with '+fa.significant_at+'+ ships under one name right now'+
+          ' (#'+(fa.lobbies||[]).join(', #')+'). Flagged below, and sent to Discord.';
+      } else { fbox.style.display='none'; }
       var ms=(d.matches||[]);
       if(!ms.length){ wrap.innerHTML=''; empty.style.display=''; }
       else{ empty.style.display='none'; wrap.innerHTML=ms.map(card).join(''); }

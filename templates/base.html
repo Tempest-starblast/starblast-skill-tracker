@@ -416,6 +416,29 @@ function sbShowSignedIn(label){
   if(n && !n.textContent) n.textContent = label;
   if(window.onSignedInReady) window.onSignedInReady(label);
 }
+// Owner-only: a flood happening right now follows you onto any page.
+// Dismissable, and it stays dismissed for that lobby-count until it changes.
+function sbFloodAlert(n){
+  try{ if(sessionStorage.getItem('sbFloodAck') === String(n)) return; }catch(e){}
+  var el = document.createElement('div');
+  el.id = 'sbFloodToast';
+  el.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:9999;max-width:330px;'
+    + 'background:#2a1116;border:1px solid rgba(255,140,140,.55);border-radius:10px;'
+    + 'padding:12px 14px;color:#ffdede;font-size:13px;line-height:1.5;'
+    + 'box-shadow:0 8px 26px rgba(0,0,0,.5)';
+  el.innerHTML = '<b style="color:#ff9a9a">⚠ Flood in progress</b><br>'
+    + n + ' tracked ' + (n === 1 ? 'match has' : 'matches have') + ' several ships under one name right now.'
+    + '<div style="margin-top:9px"><a href="/live" style="color:#99DDFF">Watch it live</a>'
+    + ' &middot; <a href="/flood" style="color:#99DDFF">Flood review</a>'
+    + ' &middot; <a href="#" id="sbFloodX" style="color:#8aa0b0">dismiss</a></div>';
+  document.body.appendChild(el);
+  var x = document.getElementById('sbFloodX');
+  if(x) x.onclick = function(ev){
+    ev.preventDefault();
+    try{ sessionStorage.setItem('sbFloodAck', String(n)); }catch(e){}
+    el.remove();
+  };
+}
 function sbShowSignedOut(){
   document.getElementById('authOut').style.display='flex';
   document.getElementById('authIn').style.display='none';
@@ -453,6 +476,7 @@ window.addEventListener('DOMContentLoaded', async function(){
       if(d.is_owner){
         var lt=document.getElementById('liveTab'); if(lt) lt.style.display='';
         var ft=document.getElementById('floodTab'); if(ft) ft.style.display='';
+        if(d.live_flood > 0) sbFloodAlert(d.live_flood);
       }
       // The header chip: name, rating, rank - filled from the same /me
       // call the sign-in state already made, so it costs nothing extra.

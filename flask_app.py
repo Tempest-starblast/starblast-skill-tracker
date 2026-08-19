@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.30.0"
+APP_VERSION = "6.31.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1146,6 +1146,24 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_flood "
               "ON matches(flood_max, played_at)")
 
+    # Flood alerts waiting to reach the owner. 'live' is raised while a
+    # match is still being played (so it can be watched, or voided after);
+    # 'result' carries the finished match and what it paid out.
+    c.execute('''CREATE TABLE IF NOT EXISTS flood_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT NOT NULL,
+                    sys_id INTEGER,
+                    match_id TEXT,
+                    lobby_name TEXT,
+                    region TEXT,
+                    worst INTEGER,
+                    detail TEXT,
+                    created_at TEXT,
+                    delivered INTEGER DEFAULT 0
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_flood_alerts "
+              "ON flood_alerts(delivered, id)")
+
     # One row per clan MEMBER per match (owner's rule, 2026-08-18): two
     # clanmates on the winning team = two clan wins. The original design
     # deduped to one row per clan per match; the owner explicitly chose
@@ -1581,6 +1599,46 @@ def flood_view():
                            significant=FLOOD_SIGNIFICANT)
 
 
+@app.route('/api/bot/floods/undelivered')
+def api_floods_undelivered():
+    """Flood alerts the bot has not shown the owner yet."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT id, kind, sys_id, match_id, lobby_name, region, worst, "
+              "detail, created_at FROM flood_alerts WHERE delivered = 0 "
+              "ORDER BY id LIMIT 20")
+    out = []
+    for r in c.fetchall():
+        try:
+            detail = json.loads(r[7]) if r[7] else {}
+        except (TypeError, ValueError):
+            detail = {}
+        out.append({"id": r[0], "kind": r[1], "sys_id": r[2], "match_id": r[3],
+                    "lobby_name": r[4], "region": r[5], "worst": r[6],
+                    "detail": detail, "at": r[8]})
+    conn.close()
+    return jsonify({"floods": out, "count": len(out)}), 200
+
+
+@app.route('/api/bot/floods/delivered', methods=['POST'])
+def api_floods_delivered():
+    """Mark flood alerts as shown, so they are not posted twice."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = (request.json or {}).get('ids') or []
+    ids = [int(i) for i in ids if str(i).isdigit()][:50]
+    if not ids:
+        return jsonify({"ok": True, "marked": 0}), 200
+    conn = db()
+    conn.execute("UPDATE flood_alerts SET delivered = 1 WHERE id IN (%s)"
+                 % ",".join("?" * len(ids)), ids)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "marked": len(ids)}), 200
+
+
 @app.route('/api/flood')
 def api_flood():
     """Owner-only. With ?q= it returns one match in full - the result, who
@@ -1716,9 +1774,16 @@ def live_state_ingest():
         traj = []
     traj.append([round(elapsed, 1), ct, sc])
     traj = traj[-LIVE_TRAJ_CAP:]
+    # Is somebody flooding this lobby right now? Raised while the match is
+    # still live so it can be watched as it happens, not only judged after.
+    live_flood, flood_worst = roster_flood(rosters)
+    if flood_worst >= FLOOD_SIGNIFICANT:
+        queue_flood_alert('live', sys_id, live_flood, flood_worst,
+                          lobby_name=name, region=region)
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
-               "skill": skill, "traj": traj}
+               "skill": skill, "flood": live_flood, "flood_max": flood_worst,
+               "traj": traj}
     c.execute("INSERT INTO live (sys_id, updated, elapsed, region, name, payload) "
               "VALUES (?,?,?,?,?,?) ON CONFLICT(sys_id) DO UPDATE SET "
               "updated=excluded.updated, elapsed=excluded.elapsed, "
@@ -1786,9 +1851,15 @@ def live_matches():
                   "prob": round(probs.get(k, 0.0), 4)} for k in LIVE_TEAMS]
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
-                    "teams": teams, "history": history})
+                    "teams": teams, "history": history,
+                    "flood": p.get("flood") or {},
+                    "flood_max": p.get("flood_max") or 0})
+    flooded = [m for m in out if m["flood_max"] >= FLOOD_SIGNIFICANT]
     return jsonify({"matches": out, "count": len(out),
-                    "model": model_meta or {"builtin": True}}), 200
+                    "model": model_meta or {"builtin": True},
+                    "flood_alert": {"count": len(flooded),
+                                    "significant_at": FLOOD_SIGNIFICANT,
+                                    "lobbies": [m["sys_id"] for m in flooded]}}), 200
 
 
 @app.route('/api/live/model', methods=['POST'])
@@ -2146,10 +2217,12 @@ def game_end():
 
     # Write the match itself down. INSERT OR IGNORE plus the empty check
     # means a match reported twice is stored once, matching the elo guard.
+    _flood_json, _flood_max, _match_id = None, 0, None
     if applied:
         match_id = str(data.get('match_id') or f"sys{sys_id}-{int(time.time())}")
         now_ts = time.strftime('%Y-%m-%d %H:%M:%S')
         flood_json, flood_max = summarize_flood(data.get('dup_names'))
+        _flood_json, _flood_max, _match_id = flood_json, flood_max, match_id
         c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, "
                   "region, lobby_name, tracked_reads, flood, flood_max) "
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -2238,6 +2311,20 @@ def game_end():
     conn.commit()
     conn.close()
 
+    # After the match is safely written: if it was flooded, put the finished
+    # result in front of the owner with what it paid out, so it can be voided
+    # if the flood decided it. Queued on its own connection, hence after close.
+    if _flood_max >= FLOOD_SIGNIFICANT:
+        queue_flood_alert('result', sys_id,
+                          {"teams": json.loads(_flood_json) if _flood_json else {},
+                           "winners": [{"name": p, "delta": d}
+                                       for p, w, d in applied if w],
+                           "losers": [{"name": p, "delta": d}
+                                      for p, w, d in applied if not w]},
+                          _flood_max, lobby_name=data.get('lobby_name'),
+                          region=data.get('region'), match_id=_match_id,
+                          dedupe_seconds=0)
+
     return jsonify({
         "status": "success",
         "updated_winners": updated_winners,
@@ -2247,6 +2334,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.31.0", "at": "2026-08-19T04:10:00Z", "changes": [
+        "Floods are now caught while they are happening, not only afterwards: a match being swarmed is flagged live, and the finished result is sent for review so it can be voided if the flood decided it.",
+    ]},
     {"version": "6.30.0", "at": "2026-08-19T01:30:00Z", "changes": [
         "Every match now records whether several ships were flying under the same name at once - the fingerprint of someone spawning a swarm to ruin a game. Ships like that were already never rated, but a flood can still decide who wins, so the evidence is kept: report a match and it can be checked against what the watcher actually saw. The game's own default nicknames are excluded, since every player who never typed a name shares one.",
     ]},
@@ -4398,6 +4488,79 @@ def is_default_game_name(name):
 FLOOD_SIGNIFICANT = 5
 
 
+def roster_flood(rosters):
+    """Live flood reading from the current rosters: per team, the name with
+    the most ships flying under it right now, ignoring the game's own default
+    nicknames. Returns ({team: {"name":.., "n":..}}, worst_n)."""
+    out = {}
+    worst = 0
+    for team, names in (rosters or {}).items():
+        if not isinstance(names, (list, tuple)) or not names:
+            continue
+        tally = {}
+        for nm in names:
+            nm = str(nm)
+            if is_default_game_name(nm) or not normalize_name(nm):
+                continue
+            tally[nm] = tally.get(nm, 0) + 1
+        if not tally:
+            continue
+        top = max(tally, key=lambda k: tally[k])
+        if tally[top] >= 2:
+            out[str(team)] = {"name": top[:64], "n": tally[top]}
+            worst = max(worst, tally[top])
+    return out, worst
+
+
+def live_flood_count():
+    """How many lobbies are being flooded right now. Cheap enough to answer
+    on every /me, and it is what makes the alert reach the owner wherever
+    they are on the site."""
+    try:
+        conn = live_db()
+        rows = conn.execute("SELECT payload FROM live WHERE updated > ?",
+                            (time.time() - LIVE_STALE_SECONDS,)).fetchall()
+        conn.close()
+    except Exception:
+        return 0
+    n = 0
+    for (payload,) in rows:
+        try:
+            if (json.loads(payload) or {}).get("flood_max", 0) >= FLOOD_SIGNIFICANT:
+                n += 1
+        except (TypeError, ValueError):
+            pass
+    return n
+
+
+def queue_flood_alert(kind, sys_id, detail, worst, lobby_name=None,
+                      region=None, match_id=None, dedupe_seconds=1800):
+    """Put a flood in front of the owner, once. A live flood re-alerting
+    every ten seconds would be noise, so the same lobby stays quiet for
+    `dedupe_seconds` after an alert of the same kind."""
+    try:
+        conn = db(timeout=4)
+        c = conn.cursor()
+        if dedupe_seconds:
+            c.execute("SELECT 1 FROM flood_alerts WHERE kind = ? AND sys_id = ? "
+                      "AND created_at > datetime('now', ?) LIMIT 1",
+                      (kind, sys_id, '-%d seconds' % int(dedupe_seconds)))
+            if c.fetchone():
+                conn.close()
+                return False
+        c.execute("INSERT INTO flood_alerts (kind, sys_id, match_id, lobby_name, "
+                  "region, worst, detail, created_at, delivered) "
+                  "VALUES (?,?,?,?,?,?,?,?,0)",
+                  (kind, sys_id, match_id, lobby_name, region, int(worst or 0),
+                   json.dumps(detail, ensure_ascii=False),
+                   time.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error:
+        return False
+
+
 def summarize_flood(dup_names):
     """Turn the watcher's raw duplicate-ship counts into stored evidence.
 
@@ -4885,6 +5048,9 @@ def me():
     return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats, "admin_of": admin_of, "notices": notices,
                     # Reveals the owner-only live win-probability tab in the menu.
                     "is_owner": is_site_owner(),
+                    # Lobbies being flooded right this moment, so the alert
+                    # can follow the owner onto any page of the site.
+                    "live_flood": (live_flood_count() if is_site_owner() else 0),
                     # Defaults to the account name: that is what most
                     # people are called in game, and a blank box on Play
                     # reads as "unknown" rather than "same as my name".
