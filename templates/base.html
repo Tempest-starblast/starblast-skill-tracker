@@ -18,9 +18,10 @@
   --card:#050d16;
   /* Default 'system' colour - the leaderboard's purple/violet nebula.
      Each page paints a different system; see body.pg-* far below. */
-  --neb-a:rgba(62,34,84,.24); --neb-b:rgba(82,42,90,.22);
-  --neb-c:rgba(50,32,66,.16);  --neb-d:rgba(38,28,58,.2);
-  --neb-top:rgba(3,2,8,.55);
+  /* 'Ember' - a dark crimson/red nebula haze. */
+  --neb-a:rgba(118,40,66,.36); --neb-b:rgba(140,54,54,.32);
+  --neb-c:rgba(150,66,60,.22);  --neb-d:rgba(66,28,44,.32);
+  --neb-top:rgba(12,3,6,.55);
 }
 *{box-sizing:border-box}
 body{
@@ -42,26 +43,35 @@ body::before,body::after{
 }
 body::before{
   background-image:
-    radial-gradient(1.5px 1.5px at 25px 35px, rgba(255,255,255,.92), transparent),
-    radial-gradient(1px 1px at 125px 90px, rgba(226,238,255,.72), transparent),
-    radial-gradient(1px 1px at 60px 155px, rgba(255,255,255,.6), transparent),
-    radial-gradient(1.3px 1.3px at 210px 55px, rgba(255,255,255,.8), transparent),
-    radial-gradient(1px 1px at 292px 128px, rgba(216,232,255,.6), transparent),
-    radial-gradient(1px 1px at 172px 205px, rgba(255,255,255,.68), transparent),
-    radial-gradient(1.6px 1.6px at 320px 222px, rgba(255,255,255,.7), transparent),
-    radial-gradient(1px 1px at 18px 240px, rgba(226,238,255,.55), transparent),
-    radial-gradient(1px 1px at 250px 18px, rgba(255,255,255,.62), transparent);
-  background-size:340px 260px;
+    radial-gradient(1.6px 1.6px at 25px 35px, rgba(255,255,255,.95), transparent),
+    radial-gradient(1px 1px at 125px 90px, rgba(226,238,255,.78), transparent),
+    radial-gradient(1px 1px at 60px 155px, rgba(255,255,255,.66), transparent),
+    radial-gradient(1.4px 1.4px at 210px 55px, rgba(255,255,255,.85), transparent),
+    radial-gradient(1px 1px at 292px 128px, rgba(216,232,255,.66), transparent),
+    radial-gradient(1px 1px at 172px 205px, rgba(255,255,255,.72), transparent),
+    radial-gradient(1.7px 1.7px at 320px 222px, rgba(255,255,255,.75), transparent),
+    radial-gradient(1px 1px at 18px 240px, rgba(226,238,255,.6), transparent),
+    radial-gradient(1px 1px at 250px 18px, rgba(255,255,255,.66), transparent),
+    radial-gradient(1.4px 1.4px at 95px 32px, rgba(255,255,255,.82), transparent),
+    radial-gradient(1px 1px at 155px 172px, rgba(255,255,255,.6), transparent),
+    radial-gradient(1px 1px at 42px 108px, rgba(226,238,255,.64), transparent),
+    radial-gradient(1.3px 1.3px at 268px 198px, rgba(255,255,255,.74), transparent),
+    radial-gradient(1px 1px at 205px 120px, rgba(255,255,255,.58), transparent),
+    radial-gradient(1px 1px at 110px 240px, rgba(255,255,255,.6), transparent);
+  background-size:320px 250px;
   animation:drift 240s linear infinite;
 }
 body::after{
   background-image:
-    radial-gradient(1px 1px at 60px 20px, rgba(255,255,255,.6), transparent),
-    radial-gradient(1px 1px at 180px 140px, rgba(220,235,255,.5), transparent),
-    radial-gradient(1.4px 1.4px at 340px 220px, rgba(255,255,255,.45), transparent),
-    radial-gradient(1px 1px at 110px 250px, rgba(255,255,255,.5), transparent),
-    radial-gradient(1px 1px at 392px 80px, rgba(226,238,255,.42), transparent);
-  background-size:420px 300px;
+    radial-gradient(1px 1px at 60px 20px, rgba(255,255,255,.66), transparent),
+    radial-gradient(1px 1px at 180px 140px, rgba(220,235,255,.56), transparent),
+    radial-gradient(1.5px 1.5px at 340px 220px, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 110px 250px, rgba(255,255,255,.55), transparent),
+    radial-gradient(1px 1px at 392px 80px, rgba(226,238,255,.48), transparent),
+    radial-gradient(1.4px 1.4px at 250px 40px, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 30px 190px, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 300px 300px, rgba(220,235,255,.45), transparent);
+  background-size:400px 300px;
   animation:drift 400s linear infinite reverse, twinkle 7s ease-in-out infinite;
 }
 @keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(340px,260px,0)}}
