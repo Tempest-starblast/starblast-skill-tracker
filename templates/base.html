@@ -385,6 +385,7 @@ async function devRestore(){
         <a href="/info"      role="menuitem" class="{% if page=='info'      %}on{% endif %}">{{ t('Info') }}</a>
         <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}<span class="cdot" id="clogMenuDot" style="display:none"></span></a>
         <a href="/live" role="menuitem" id="liveTab" style="display:none" class="{% if page=='live' %}on{% endif %}">Win probability</a>
+        <a href="/flood" role="menuitem" id="floodTab" style="display:none" class="{% if page=='flood' %}on{% endif %}">Flood review</a>
       </div>
     </div>
   </nav>
@@ -449,7 +450,10 @@ window.addEventListener('DOMContentLoaded', async function(){
       }
       sbShowSignedIn(label);
       // Owner-only: reveal the live win-probability monitor in the menu.
-      if(d.is_owner){ var lt=document.getElementById('liveTab'); if(lt) lt.style.display=''; }
+      if(d.is_owner){
+        var lt=document.getElementById('liveTab'); if(lt) lt.style.display='';
+        var ft=document.getElementById('floodTab'); if(ft) ft.style.display='';
+      }
       // The header chip: name, rating, rank - filled from the same /me
       // call the sign-in state already made, so it costs nothing extra.
       if(d.stats && d.account_name && document.getElementById('pchip')){

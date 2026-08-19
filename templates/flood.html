@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block body %}
+<style>
+.fl-head{max-width:1000px;margin:0 auto 16px}
+.fl-head h1{font-size:20px;letter-spacing:.4px;margin:0 0 4px}
+.fl-sub{color:var(--dim,#8aa0b0);font-size:13px;line-height:1.55}
+.fl-wrap{max-width:1000px;margin:0 auto}
+.fl-search{display:flex;gap:8px;margin:14px 0 18px}
+.fl-search input{flex:1;background:rgba(153,221,255,.05);border:1px solid rgba(153,221,255,.2);
+  border-radius:8px;padding:11px 13px;color:var(--text);font-size:14px}
+.fl-search button{background:rgba(153,221,255,.12);border:1px solid rgba(153,221,255,.35);
+  border-radius:8px;color:#dff4ff;padding:11px 18px;font-size:13px;cursor:pointer}
+.fl-search button:hover{background:rgba(153,221,255,.2)}
+.fl-card{background:rgba(153,221,255,.04);border:1px solid rgba(153,221,255,.14);
+  border-radius:10px;padding:14px 15px;margin-bottom:12px}
+.fl-card.sig{border-color:rgba(255,140,140,.45);background:rgba(255,120,120,.06)}
+.fl-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.fl-top b{font-size:14px;letter-spacing:.3px}
+.fl-when{color:var(--dim,#8aa0b0);font-size:12px}
+.fl-badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;
+  letter-spacing:.5px;font-weight:700;margin-left:6px}
+.fl-badge.hi{background:rgba(255,120,120,.18);color:#ff9a9a;border:1px solid rgba(255,140,140,.5)}
+.fl-badge.lo{background:rgba(153,221,255,.12);color:#9ddcff;border:1px solid rgba(153,221,255,.3)}
+.fl-ev{margin-top:10px;font-size:13px;line-height:1.7}
+.fl-ev code{background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px}
+.fl-players{margin-top:12px;width:100%;border-collapse:collapse;font-size:12.5px}
+.fl-players td{padding:4px 6px;border-top:1px solid rgba(153,221,255,.08)}
+.fl-players .w{color:#66E6B8}.fl-players .l{color:#ff9a9a}
+.fl-empty{color:var(--dim,#8aa0b0);font-size:14px;text-align:center;margin:34px 0}
+</style>
+
+<div class="fl-head">
+  <h1>Flood review</h1>
+  <div class="fl-sub">Matches where several ships carried the same name at once &mdash; the fingerprint of
+    someone spawning a swarm. The game's own default nicknames are excluded, since everyone who never typed
+    a name shares one. Nothing here is judged automatically: {{ significant }}+ ships under one name is
+    flagged for a look, and you decide. Only you can see this page.</div>
+</div>
+
+<div class="fl-wrap">
+  <form class="fl-search" onsubmit="doSearch(event)">
+    <input id="q" type="text" placeholder="Lobby number from the report (e.g. 1257)" autocomplete="off">
+    <button type="submit">Look up</button>
+  </form>
+  <div id="out"></div>
+</div>
+
+<script>
+(function(){
+  function esc(x){ var d=document.createElement('div'); d.textContent=(x==null?'':String(x)); return d.innerHTML; }
+  function evidence(fl){
+    var parts=[];
+    Object.keys(fl||{}).forEach(function(team){
+      Object.keys(fl[team]).forEach(function(nm){
+        parts.push('<div>Team '+team.slice(-1)+': <code>'+esc(nm)+'</code> &times; <b>'+fl[team][nm]+'</b> ships at once</div>');
+      });
+    });
+    return parts.length ? '<div class="fl-ev">'+parts.join('')+'</div>' : '';
+  }
+  function badge(m){
+    return m.significant ? '<span class="fl-badge hi">FLAGGED</span>'
+                         : '<span class="fl-badge lo">minor</span>';
+  }
+  function card(m, players){
+    var rows='';
+    if(players && players.length){
+      rows='<table class="fl-players">'+players.map(function(p){
+        return '<tr><td class="'+(p.won?'w':'l')+'">'+(p.won?'WON':'lost')+'</td>'+
+               '<td>'+esc(p.name)+'</td><td>'+(p.team||'')+'</td>'+
+               '<td>'+(p.score==null?'':p.score.toLocaleString()+' pts')+'</td>'+
+               '<td class="'+(p.won?'w':'l')+'">'+(p.delta>0?'+':'')+(p.delta==null?'':p.delta)+'</td></tr>';
+      }).join('')+'</table>';
+    }
+    return '<div class="fl-card'+(m.significant?' sig':'')+'">'+
+      '<div class="fl-top"><b>'+esc(m.lobby_name||('Lobby '+m.sys_id))+' &middot; #'+m.sys_id+badge(m)+'</b>'+
+      '<span class="fl-when">'+esc(m.at)+' UTC &middot; '+esc(m.region||'')+'</span></div>'+
+      evidence(m.flood)+rows+'</div>';
+  }
+  async function load(q){
+    var out=document.getElementById('out');
+    out.innerHTML='<div class="fl-empty">Loading…</div>';
+    try{
+      var r=await fetch('/api/flood'+(q?('?q='+encodeURIComponent(q)):''),{cache:'no-store'});
+      if(r.status===403){ out.innerHTML='<div class="fl-empty">Not authorized.</div>'; return; }
+      var d=await r.json();
+      if(q){
+        if(!d.found){ out.innerHTML='<div class="fl-empty">No match found for &ldquo;'+esc(q)+'&rdquo;. Try the lobby number shown in the report.</div>'; return; }
+        var m=d.match;
+        out.innerHTML=card(m, m.players)+
+          (m.flood_max ? '' : '<div class="fl-empty">No duplicate ships were seen in this match &mdash; whatever happened, it was not name-flooding the watcher could see.</div>');
+      } else {
+        if(!d.matches.length){ out.innerHTML='<div class="fl-empty">No matches with duplicate-ship evidence yet.</div>'; return; }
+        out.innerHTML='<div class="fl-sub" style="margin-bottom:12px">'+d.count+' recent match'+(d.count===1?'':'es')+' with duplicate ships. Search a lobby number to see one in full.</div>'+
+          d.matches.map(function(m){ return card(m, null); }).join('');
+      }
+    }catch(e){ out.innerHTML='<div class="fl-empty">Could not load.</div>'; }
+  }
+  window.doSearch=function(e){ e.preventDefault(); load(document.getElementById('q').value.trim()); };
+  load('');
+})();
+</script>
+{% endblock %}

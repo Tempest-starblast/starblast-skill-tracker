@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.29.0"
+APP_VERSION = "6.30.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1133,6 +1133,19 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_region ON matches(region, played_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_row ON match_players(match_row)")
 
+    # Flood evidence: how badly one name was duplicated in this match, and
+    # by whom. Recorded for every match, judged by nobody - it exists so a
+    # match somebody reports as ruined by ship-flooding can be assessed
+    # against what the watcher actually saw.
+    c.execute("PRAGMA table_info(matches)")
+    _m_cols = [row[1] for row in c.fetchall()]
+    if 'flood_max' not in _m_cols:
+        c.execute("ALTER TABLE matches ADD COLUMN flood_max INTEGER DEFAULT 0")
+    if 'flood' not in _m_cols:
+        c.execute("ALTER TABLE matches ADD COLUMN flood TEXT")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_matches_flood "
+              "ON matches(flood_max, played_at)")
+
     # One row per clan MEMBER per match (owner's rule, 2026-08-18): two
     # clanmates on the winning team = two clan wins. The original design
     # deduped to one row per clan per match; the owner explicitly chose
@@ -1557,6 +1570,70 @@ def live_view():
     if not is_site_owner():
         return redirect('/')
     return render_template('live.html', page='live', version=APP_VERSION)
+
+
+@app.route('/flood')
+def flood_view():
+    """Owner-only: assess a match somebody reported as ruined by flooding."""
+    if not is_site_owner():
+        return redirect('/')
+    return render_template('flood.html', page='flood', version=APP_VERSION,
+                           significant=FLOOD_SIGNIFICANT)
+
+
+@app.route('/api/flood')
+def api_flood():
+    """Owner-only. With ?q= it returns one match in full - the result, who
+    was rated, and the duplicate-ship evidence - so a reported match can be
+    judged. Without it, the recent matches that carried flood evidence."""
+    if not is_site_owner():
+        return jsonify({"error": "Not allowed."}), 403
+    q = (request.args.get('q') or '').strip()
+    conn = db()
+    c = conn.cursor()
+
+    def flood_of(raw):
+        try:
+            return json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            return {}
+
+    if q:
+        row = None
+        if q.isdigit():
+            c.execute("SELECT id, match_id, sys_id, played_at, region, lobby_name, "
+                      "tracked_reads, flood, flood_max FROM matches WHERE sys_id = ? "
+                      "ORDER BY played_at DESC LIMIT 1", (int(q),))
+            row = c.fetchone()
+        if not row:
+            c.execute("SELECT id, match_id, sys_id, played_at, region, lobby_name, "
+                      "tracked_reads, flood, flood_max FROM matches "
+                      "WHERE match_id = ? LIMIT 1", (q,))
+            row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"found": False, "query": q}), 200
+        c.execute("SELECT name, won, delta, team, score FROM match_players "
+                  "WHERE match_row = ? ORDER BY won DESC, delta DESC", (row[0],))
+        players = [{"name": r[0], "won": bool(r[1]), "delta": r[2],
+                    "team": r[3], "score": r[4]} for r in c.fetchall()]
+        conn.close()
+        return jsonify({"found": True, "match": {
+            "match_id": row[1], "sys_id": row[2], "at": row[3],
+            "region": row[4], "lobby_name": row[5], "tracked_reads": row[6],
+            "flood": flood_of(row[7]), "flood_max": row[8] or 0,
+            "significant": (row[8] or 0) >= FLOOD_SIGNIFICANT,
+            "players": players}}), 200
+
+    c.execute("SELECT match_id, sys_id, played_at, region, lobby_name, "
+              "flood, flood_max FROM matches WHERE COALESCE(flood_max,0) >= 2 "
+              "ORDER BY played_at DESC LIMIT 60")
+    out = [{"match_id": r[0], "sys_id": r[1], "at": r[2], "region": r[3],
+            "lobby_name": r[4], "flood": flood_of(r[5]), "flood_max": r[6] or 0,
+            "significant": (r[6] or 0) >= FLOOD_SIGNIFICANT} for r in c.fetchall()]
+    conn.close()
+    return jsonify({"matches": out, "count": len(out),
+                    "significant_at": FLOOD_SIGNIFICANT}), 200
 
 
 @app.route('/api/live/state', methods=['POST'])
@@ -2072,11 +2149,13 @@ def game_end():
     if applied:
         match_id = str(data.get('match_id') or f"sys{sys_id}-{int(time.time())}")
         now_ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        flood_json, flood_max = summarize_flood(data.get('dup_names'))
         c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, "
-                  "region, lobby_name, tracked_reads) VALUES (?, ?, ?, ?, ?, ?)",
+                  "region, lobby_name, tracked_reads, flood, flood_max) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                   (match_id, sys_id, now_ts, str(data.get('region') or 'america'),
                    (str(data.get('lobby_name'))[:60] if data.get('lobby_name') else None),
-                   int(data.get('tracked_reads') or 0)))
+                   int(data.get('tracked_reads') or 0), flood_json, flood_max))
         c.execute("SELECT id FROM matches WHERE match_id = ?", (match_id,))
         mrow = c.fetchone()
         if mrow:
@@ -2168,6 +2247,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.30.0", "at": "2026-08-19T01:30:00Z", "changes": [
+        "Every match now records whether several ships were flying under the same name at once - the fingerprint of someone spawning a swarm to ruin a game. Ships like that were already never rated, but a flood can still decide who wins, so the evidence is kept: report a match and it can be checked against what the watcher actually saw. The game's own default nicknames are excluded, since every player who never typed a name shares one.",
+    ]},
     {"version": "6.29.0", "at": "2026-08-19T00:30:00Z", "changes": [
         "Clan wins now stack: every clanmate on the winning team adds a win to the clan's record, and every rated clanmate on a losing team adds a loss. Playing together counts more.",
         "Corrected match #1257 on 340 Eletaeguli: the watcher scored the start of the NEXT round instead of the match that actually ended, awarding the win to the wrong team. The result was reversed and re-rated with the real winners. A watcher fix to prevent this is in the works.",
@@ -4307,6 +4389,43 @@ DEFAULT_GAME_NAMES = {normalize_name(_n) for _n in (
 def is_default_game_name(name):
     """Whether this is one of the names the game hands out for free."""
     return normalize_name(str(name or '')) in DEFAULT_GAME_NAMES
+
+
+# How many ships sharing one name before a match is worth a human look.
+# Measured over 1077 matches: at 5+ the swarmed team lost every single time,
+# which is what being flooded looks like. 3-4 also catches ordinary noise,
+# so that range is recorded but not flagged.
+FLOOD_SIGNIFICANT = 5
+
+
+def summarize_flood(dup_names):
+    """Turn the watcher's raw duplicate-ship counts into stored evidence.
+
+    `dup_names` is {team: {name: most ships seen sharing that name at once}}.
+    The game's own default nicknames are dropped: everyone who never typed a
+    name is 'VADER', so duplicates of those are ordinary rather than a flood.
+    Returns (json_or_None, worst_count) - the number is what makes a match
+    findable later; the detail is what makes it assessable.
+    """
+    if not isinstance(dup_names, dict):
+        return None, 0
+    kept = {}
+    worst = 0
+    for team, names in dup_names.items():
+        if not isinstance(names, dict):
+            continue
+        for nm, count in names.items():
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                continue
+            if count < 2 or is_default_game_name(nm) or not normalize_name(nm):
+                continue
+            kept.setdefault(str(team), {})[str(nm)[:64]] = count
+            worst = max(worst, count)
+    if not kept:
+        return None, 0
+    return json.dumps(kept, ensure_ascii=False), worst
 
 
 def perform_set_game_name(c, sub_id, raw_name):
