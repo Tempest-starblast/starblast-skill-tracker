@@ -10,7 +10,8 @@
   /* starblast.io's actual palette, read off the live menu: ice-cyan text
      rgba(204,245,255,.9), cyan glow #99ddff, flat black translucent
      panels, near-square corners. Names unchanged - pages depend on them. */
-  --bg:#04060b; --panel:rgba(2,10,18,.62); --panel2:rgba(1,6,12,.72);
+  --bg:#04060b; --panel:rgba(6,10,18,.4); --panel2:rgba(3,7,14,.5);
+  --blur:saturate(120%) blur(9px);
   --line:rgba(153,221,255,.16);
   --text:rgba(204,245,255,.92); --muted:#7fa3b8; --dim:#5d7f93;
   --green:#66e6b8; --blue:#9adcff; --red:#ff5670; --amber:#ffc757;
@@ -81,7 +82,7 @@ body::after{
 .topbar,.page{position:relative;z-index:1}
 a{color:inherit}
 
-.topbar{background:rgba(1,6,12,.78);border-bottom:1px solid var(--line);padding:16px 20px}
+.topbar{background:rgba(2,6,12,.5);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-bottom:1px solid var(--line);padding:16px 20px}
 .brandrow{max-width:1100px;margin:0 auto 14px;display:flex;align-items:center;gap:12px}
 .brand{flex:1;text-align:center}
 .brand a{
@@ -115,7 +116,8 @@ a{color:inherit}
 }
 
 .tabs{max-width:1100px;margin:0 auto;display:flex;gap:3px;padding:4px;overflow-x:auto;
-  background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:3px}
+  background:rgba(0,0,0,.3);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--line);border-radius:3px}
 .tabs a{flex:1;text-align:center;padding:11px 12px;border-radius:2px;text-decoration:none;
   color:var(--muted);font-size:13px;font-weight:700;white-space:nowrap;
   letter-spacing:1.2px;text-transform:uppercase;transition:color .15s, background .15s,
@@ -134,16 +136,17 @@ a{color:inherit}
 .sub{font-size:13px;font-weight:700;letter-spacing:1.2px;margin:18px 0 8px;
   text-transform:uppercase;color:#bfe6f5}
 
-.card{background:var(--panel);border:1px solid var(--line);border-radius:3px;
-  padding:22px;margin-bottom:16px;
-  box-shadow:0 14px 36px rgba(0,0,0,.45), 0 0 0 1px rgba(153,221,255,.03)}
+.card{background:var(--panel);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--line);border-radius:3px;padding:22px;margin-bottom:16px;
+  box-shadow:0 14px 36px rgba(0,0,0,.4), 0 0 0 1px rgba(153,221,255,.03)}
 .card h2{font-size:14px;margin:0 0 6px;letter-spacing:1.6px;text-transform:uppercase;
   color:#cfeefc;text-shadow:0 0 6px rgba(153,221,255,.35)}
 .card .desc{color:var(--muted);font-size:13px;margin:0 0 14px;line-height:1.65}
 .card .desc a{color:var(--blue)}
 
 input[type=text],select{width:100%;padding:12px 14px;font-size:15px;
-  background:rgba(0,0,0,.5);border:1px solid var(--line);border-radius:2px;
+  background:rgba(0,0,0,.34);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--line);border-radius:2px;
   color:var(--text);outline:none;font-family:inherit;transition:border-color .15s,
   box-shadow .15s}
 select{cursor:pointer}
@@ -170,11 +173,12 @@ button:disabled{background:rgba(0,0,0,.3);color:var(--dim);cursor:default;
   border-color:var(--line);text-shadow:none}
 
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:3px;
-  background:var(--panel);box-shadow:0 14px 36px rgba(0,0,0,.45)}
+  background:var(--panel);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  box-shadow:0 14px 36px rgba(0,0,0,.4)}
 table{width:100%;border-collapse:collapse;background:transparent;border:none}
 .tablewrap table{border:none}
 th,td{padding:13px 16px;text-align:left;border-bottom:1px solid rgba(153,221,255,.08)}
-th{background:rgba(0,0,0,.5);color:var(--dim);font-size:11px;font-weight:700;
+th{background:rgba(0,0,0,.26);color:var(--dim);font-size:11px;font-weight:700;
   text-transform:uppercase;letter-spacing:1.4px}
 tr:last-child td{border-bottom:none}
 tbody tr{transition:background .12s}
@@ -197,8 +201,8 @@ a.pname:hover{color:#fff;text-shadow:var(--glow)}
 .badge:hover{background:rgba(153,221,255,.18);color:#dff4ff}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.stat{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:3px;
-  padding:16px;text-align:center}
+.stat{background:rgba(0,0,0,.28);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--line);border-radius:3px;padding:16px;text-align:center}
 .stat .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;
   font-weight:700}
 .stat .value{font-size:27px;font-weight:700;margin-top:6px;color:#eaf8ff;
@@ -261,7 +265,8 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   transition:transform .18s ease}
 .langpick[open] .lchev{transform:translateY(1px) rotate(-135deg)}
 .langmenu{position:absolute;left:0;top:calc(100% + 6px);z-index:60;min-width:174px;
-  padding:5px;background:#050d16;border:1px solid var(--line);border-radius:3px;
+  padding:5px;background:rgba(6,11,20,.86);backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);border:1px solid var(--line);border-radius:3px;
   box-shadow:0 12px 30px rgba(0,0,0,.6)}
 .langmenu a{display:block;padding:7px 10px;font-size:13px;text-decoration:none;
   color:var(--muted);border-radius:2px;white-space:nowrap}
