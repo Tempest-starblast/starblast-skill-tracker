@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.28.0"
+APP_VERSION = "6.29.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1133,17 +1133,26 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_region ON matches(region, played_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_row ON match_players(match_row)")
 
-    # One row per clan per match, so a clan that fielded five players in a
-    # winning match still records exactly one win. Summing members' individual
-    # win columns counted the same match once per member, which made a clan's
-    # record scale with its size rather than its results.
+    # One row per clan MEMBER per match (owner's rule, 2026-08-18): two
+    # clanmates on the winning team = two clan wins. The original design
+    # deduped to one row per clan per match; the owner explicitly chose
+    # stacking - playing together should count more, not the same.
     c.execute('''CREATE TABLE IF NOT EXISTS clan_results (
                     clan TEXT NOT NULL,
                     sys_id INTEGER NOT NULL,
                     won INTEGER NOT NULL,
                     created_at TEXT
                 )''')
-    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_results ON clan_results(clan, sys_id)")
+    c.execute("PRAGMA table_info(clan_results)")
+    _cr_cols = [row[1] for row in c.fetchall()]
+    if 'member' not in _cr_cols:
+        c.execute("ALTER TABLE clan_results ADD COLUMN member TEXT")
+        # Old one-per-clan rows keep counting as a single result; a fixed
+        # marker (not NULL) so the unique index can actually dedupe them.
+        c.execute("UPDATE clan_results SET member = '(match)' WHERE member IS NULL")
+    c.execute("DROP INDEX IF EXISTS idx_clan_results")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_results_m "
+              "ON clan_results(clan, sys_id, member)")
     c.execute("PRAGMA table_info(clan_invites)")
     inv_cols = [row[1] for row in c.fetchall()]
     if 'direction' not in inv_cols:
@@ -2123,28 +2132,29 @@ def game_end():
     # impostor could satisfy by waiting for the real owner to win.
     # Claims now complete through the deathmatch-ladder proof in the
     # bot, or by the owner deciding by hand.
-    # A clan's record is counted per match, not per member. sys_id is what
-    # makes that possible - without it there is no way to tell two members of
-    # one match apart from two separate matches, so nothing is recorded.
+    # A clan's record is counted per MEMBER per match (owner's rule: clan
+    # wins stack). sys_id is what makes that possible - without it there is
+    # no way to tell one match from another, so nothing is recorded.
     if sys_id is not None:
-        def clans_of(names):
-            found = set()
-            for n in names:
-                c.execute("SELECT clan FROM players WHERE norm_name = ?", (normalize_name(n),))
-                r = c.fetchone()
-                if r and r[0]:
-                    found.add(r[0])
-            return found
-
-        won_clans = clans_of(winning_team)
-        lost_clans = clans_of(losing_all) - won_clans
+        # One row per rated clan member: every clanmate on the winning team
+        # adds a clan win, every rated clanmate on a losing team adds a clan
+        # loss. A clan split across teams records both sides - each member
+        # carries their own result.
         now = time.strftime('%Y-%m-%d %H:%M:%S')
-        for tag in won_clans:
-            c.execute("INSERT OR IGNORE INTO clan_results (clan, sys_id, won, created_at) "
-                      "VALUES (?, ?, 1, ?)", (tag, sys_id, now))
-        for tag in lost_clans:
-            c.execute("INSERT OR IGNORE INTO clan_results (clan, sys_id, won, created_at) "
-                      "VALUES (?, ?, 0, ?)", (tag, sys_id, now))
+
+        def clan_of(nm):
+            r2 = c.execute("SELECT clan FROM players WHERE norm_name = ?",
+                           (normalize_name(nm),)).fetchone()
+            return r2[0] if r2 and r2[0] else None
+
+        for _pl, _won in ([(p, 1) for p in updated_winners]
+                          + [(p, 0) for p in updated_losers]):
+            _tag = clan_of(_pl)
+            if _tag:
+                c.execute("INSERT OR IGNORE INTO clan_results "
+                          "(clan, sys_id, won, created_at, member) "
+                          "VALUES (?, ?, ?, ?, ?)",
+                          (_tag, sys_id, _won, now, normalize_name(_pl)))
 
     conn.commit()
     conn.close()
@@ -2158,6 +2168,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.29.0", "at": "2026-08-19T00:30:00Z", "changes": [
+        "Clan wins now stack: every clanmate on the winning team adds a win to the clan's record, and every rated clanmate on a losing team adds a loss. Playing together counts more.",
+        "Corrected match #1257 on 340 Eletaeguli: the watcher scored the start of the NEXT round instead of the match that actually ended, awarding the win to the wrong team. The result was reversed and re-rated with the real winners. A watcher fix to prevent this is in the works.",
+    ]},
     {"version": "6.28.0", "at": "2026-08-18T23:40:00Z", "changes": [
         "The win-probability model got smarter: it now also weighs how long a team has held the lead, whether it is falling off its peak, its score trend over the last minute, and each roster's win record, experience and clan stacking. Each signal was tested on over 1,000 matches and kept only because it measurably improved prediction. Training data now accumulates permanently, so the daily retrain keeps getting better.",
     ]},
@@ -4833,13 +4847,10 @@ def clan_page(tag):
         })
 
     # The sum of the members' own records, which is every match they have
-    # ever played rather than only those since clan tracking began. The
-    # per-match count in clan_results is still recorded and is the more
-    # honest figure - a single match won by several clanmates counts once
-    # there and once per member here - but with clans this small nobody has
-    # yet won a match alongside a clanmate, so the totals agree and the
-    # longer history is worth more. Switch back to clan_wins/clan_losses
-    # once clans routinely play together.
+    # ever played rather than only those since clan tracking began.
+    # clan_results now ALSO counts per member (owner's stacking rule, 6.29.0),
+    # so the two agree in spirit; the lifetime sum stays on display because
+    # it carries the longer history.
     clan_wins, clan_losses = total_wins, total_losses
     played = clan_wins + clan_losses
     clan = {
