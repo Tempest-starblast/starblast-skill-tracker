@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.33.0"
+APP_VERSION = "6.34.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -82,6 +82,14 @@ ABANDON_MAX_REAL_PLAYERS = 10
 STARTING_ELO = 1000
 ELO_K = 200    # max elo swing for a single match, approached as the result gets more lopsided
 ELO_SCALE = 2000  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
+
+# Minimum end-of-match score to be rated at all. Below this a player did
+# too little to have played the match - it caught pure idlers who were on
+# a team but never fought. Was an exact-0 check; raised to a real floor so
+# a near-idle "1 crystal" player does not collect a win either. A player
+# with NO recorded score is still rated (missing evidence never drops
+# anyone - the board simply dropped them from its top rows).
+MIN_RATED_SCORE = 100
 
 # Anchored to this file's own directory rather than a bare relative path,
 # since different hosts (PythonAnywhere vs the droplet) run this with
@@ -2069,8 +2077,9 @@ def game_end():
             return 'unreadable-name'
         if is_default_name(player_name):
             return 'default-name'
-        if final_scores.get(player_name) == 0:
-            return 'zero-score'
+        _sc = final_scores.get(player_name)
+        if _sc is not None and _sc < MIN_RATED_SCORE:
+            return 'low-score'
         if normalize_name(player_name) in ambiguous:
             return 'duplicate-name'
         if protected_without_checkin(player_name):
@@ -2090,11 +2099,12 @@ def game_end():
             return True
         if is_default_name(player_name):
             return True
-        # Finished on exactly 0 points: present, but never played. Rating
-        # them hands wins to spectators idling in small lobbies - and a
-        # 0-score "player" should not count towards the abandoned-match
-        # real-player threshold either, which this shares.
-        if final_scores.get(player_name) == 0:
+        # Under MIN_RATED_SCORE: present, but barely played. Rating them
+        # hands wins to spectators idling in small lobbies - and a near-idle
+        # "player" should not count towards the abandoned-match real-player
+        # threshold either, which this shares. A missing score is kept.
+        _sc = final_scores.get(player_name)
+        if _sc is not None and _sc < MIN_RATED_SCORE:
             return True
         if normalize_name(player_name) in dominance_exempt:
             return True
@@ -2115,6 +2125,22 @@ def game_end():
               if skip_reason(p) == 'dominance-flip']
     winning_team = [p for p in winning_team if not skip(p)]
     losing_all = [p for p in losing_all if not skip(p)]
+    # The same name on BOTH the winning and losing side is two different
+    # people sharing a nickname - one account cannot have both won and lost
+    # the same match, and there is no way to tell which player owns it. So
+    # rate neither: the cross-team twin of the duplicate-name rule. Without
+    # this the single row took a win AND a loss in one match (its team was
+    # last-write-wins, so it even showed on the wrong side) - confirmed live
+    # on "BODIE", match sb_live_5427.
+    _both = ({normalize_name(p) for p in winning_team}
+             & {normalize_name(p) for p in losing_all})
+    if _both:
+        print("[game_end] sys=%s dropping %d name(s) present on both sides: %r"
+              % (sys_id, len(_both), sorted(_both)[:8]), flush=True)
+        winning_team = [p for p in winning_team if normalize_name(p) not in _both]
+        losing_all = [p for p in losing_all if normalize_name(p) not in _both]
+        losing_team_1 = [p for p in losing_team_1 if normalize_name(p) not in _both]
+        losing_team_2 = [p for p in losing_team_2 if normalize_name(p) not in _both]
     _lost = [p for p in _in_l if p not in losing_all]
     print("[game_end] sys=%s region=%s got W=%d L=%d -> kept W=%d L=%d%s"
           % (sys_id, data.get('region'), len(_in_w), len(_in_l),
@@ -2334,6 +2360,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.34.0", "at": "2026-08-20T00:30:00Z", "changes": [
+        "Players who stayed the whole match now get credited even if they spent it below their team's top 8 on the scoreboard. The watcher only ever saw a team's top 8 by score, so a lower-scoring teammate who was there start to finish looked like a late arrival and earned nothing. It now follows the full roster to decide who was present, while still only rating the top 8 - so the people who actually played the match are the ones paid for it.",
+        "A player needs at least 100 points at the end to be rated now (it was any score above zero). Someone who barely touched the match no longer collects a win or dodges a loss.",
+        "Fixed a bug where two different players using the same name on opposite teams could land a single account with both a win and a loss for one match. When a name shows up on both sides there is no way to tell which player owns it, so that name is now left unrated for that match.",
+    ]},
     {"version": "6.33.0", "at": "2026-08-19T23:20:00Z", "changes": [
         "Matches can no longer be held open by idle ships parked in a lobby just to stop it from ending. The watcher now ignores them, so a finished game is scored and its watcher freed for the next match instead of hanging until the time cap - which had been leaving real games unscored and unwatched. Lobbies a watcher has already left are also dropped from the live list right away, so a dead game stops showing as tracked.",
     ]},
