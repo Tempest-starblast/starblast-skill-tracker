@@ -84,12 +84,12 @@ ELO_K = 200    # max elo swing for a single match, approached as the result gets
 ELO_SCALE = 2000  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
 
 # Minimum end-of-match score to be rated at all. Below this a player did
-# too little to have played the match - it caught pure idlers who were on
-# a team but never fought. Was an exact-0 check; raised to a real floor so
-# a near-idle "1 crystal" player does not collect a win either. A player
-# with NO recorded score is still rated (missing evidence never drops
-# anyone - the board simply dropped them from its top rows).
-MIN_RATED_SCORE = 100
+# too little to have played the match - a barely-participating player on a
+# team should not collect a win or dodge a loss. Was an exact-0 check;
+# raised to a real floor. A player with NO recorded score is still rated
+# (missing evidence never drops anyone - the board simply dropped them from
+# its top rows).
+MIN_RATED_SCORE = 1000
 
 # Anchored to this file's own directory rather than a bare relative path,
 # since different hosts (PythonAnywhere vs the droplet) run this with
@@ -2362,7 +2362,7 @@ def game_end():
 CHANGELOG = [
     {"version": "6.34.0", "at": "2026-08-20T00:30:00Z", "changes": [
         "Players who stayed the whole match now get credited even if they spent it below their team's top 8 on the scoreboard. The watcher only ever saw a team's top 8 by score, so a lower-scoring teammate who was there start to finish looked like a late arrival and earned nothing. It now follows the full roster to decide who was present, while still only rating the top 8 - so the people who actually played the match are the ones paid for it.",
-        "A player needs at least 100 points at the end to be rated now (it was any score above zero). Someone who barely touched the match no longer collects a win or dodges a loss.",
+        "A player needs at least 1000 points at the end to be rated now (it was any score above zero). Someone who barely touched the match no longer collects a win or dodges a loss.",
         "Fixed a bug where two different players using the same name on opposite teams could land a single account with both a win and a loss for one match. When a name shows up on both sides there is no way to tell which player owns it, so that name is now left unrated for that match.",
     ]},
     {"version": "6.33.0", "at": "2026-08-19T23:20:00Z", "changes": [
