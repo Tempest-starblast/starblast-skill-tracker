@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.35.0"
+APP_VERSION = "6.36.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1450,6 +1450,19 @@ def init_db():
         updated_at TEXT
     )''')
 
+    # A verified Discord identity bound to an account, so a Google user can
+    # be reached on Discord and use the bot as that account. account_sub is
+    # the account it belongs to (one link per account); discord_id is UNIQUE
+    # so one Discord can only be bound to one account. Set only after Discord
+    # OAuth - the id is proven, never typed.
+    c.execute('''CREATE TABLE IF NOT EXISTS discord_links (
+        account_sub TEXT PRIMARY KEY,
+        discord_id  TEXT NOT NULL UNIQUE,
+        username    TEXT,
+        display     TEXT,
+        linked_at   TEXT
+    )''')
+
     # Keep the identity key in step with every row.
     for (row_name,) in c.execute("SELECT name FROM players").fetchall():
         c.execute("UPDATE players SET norm_name = ? WHERE name = ?",
@@ -2360,6 +2373,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.36.0", "at": "2026-08-20T19:30:00Z", "changes": [
+        "You can now link your Discord to your account. On Your account, press Link Discord and approve on Discord - it is verified, never typed. Once linked, the bot treats you as this account, you can sign in with either Google or Discord and land on the same account, and your handle is on file so you can be reached. If that Discord already has its own account here, linking is refused rather than merging two histories.",
+    ]},
     {"version": "6.35.0", "at": "2026-08-20T06:20:00Z", "changes": [
         "Added Persian (فارسی) as a language. Pick it in the header on any page - the labels and the whole Info page are translated, and the page switches to right-to-left.",
     ]},
@@ -4406,19 +4422,68 @@ def discord_handle(c, sub_id):
     return row[1] or row[0] or None
 
 
+def account_for_discord_id(c, discord_id):
+    """The account a Discord identity should act as: the account it is bound
+    to in Settings, or its own 'discord:<id>' identity when unbound. Used
+    everywhere a Discord id becomes an account - the site's Discord sign-in
+    and every bot endpoint - so a bound player is ONE account however they
+    arrive."""
+    did = str(discord_id or '').strip()
+    if not did:
+        return None
+    c.execute("SELECT account_sub FROM discord_links WHERE discord_id = ?", (did,))
+    row = c.fetchone()
+    return (row[0] if row and row[0] else 'discord:' + did)
+
+
+def discord_account(discord_id):
+    """account_for_discord_id with its own short-lived connection, for the
+    bot routes that resolve the id before they open a cursor of their own."""
+    did = str(discord_id or '').strip()
+    if not did:
+        return None
+    conn = db()
+    try:
+        return account_for_discord_id(conn.cursor(), did)
+    finally:
+        conn.close()
+
+
+def linked_discord_for(c, account_sub):
+    """The Discord {id, username, display} bound to this account, or None."""
+    if not account_sub:
+        return None
+    c.execute("SELECT discord_id, username, display FROM discord_links "
+              "WHERE account_sub = ?", (account_sub,))
+    row = c.fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "username": row[1], "display": row[2]}
+
+
 @app.route('/auth/discord')
 def auth_discord_start():
-    """Send the player to Discord to approve the sign-in."""
+    """Send the player to Discord to approve a sign-in - or, with ?mode=link
+    while already signed in, to BIND their Discord to the current account
+    instead of switching to it."""
     if not (DISCORD_CLIENT_ID and not DISCORD_CLIENT_ID.startswith('DISCORD_CLIENT_ID')
             and DISCORD_CLIENT_SECRET):
         return redirect('/?signin=unavailable')
     from urllib.parse import urlencode
+    link_mode = request.args.get('mode') == 'link'
+    # Linking needs an account to bind to; bounce to the account page if not
+    # signed in rather than silently turning it into a plain sign-in.
+    if link_mode and not current_user():
+        return redirect('/account')
     # The state is what stops someone handing you a link that quietly signs
     # you into *their* account: the value has to come back unchanged, and
     # only this browser's session knows what was sent.
     state = secrets.token_urlsafe(24)
     session.permanent = True
     session['discord_state'] = state
+    session['discord_mode'] = 'link' if link_mode else 'signin'
+    # Bind to whoever started the link, read back at the callback.
+    session['discord_link_account'] = current_user() if link_mode else None
     # Where to go once Discord sends them back. An invite link needs this:
     # without it the player signs in and lands on the front page, with no
     # sign of the clan they were trying to join.
@@ -4488,11 +4553,53 @@ def auth_discord_callback():
     if not discord_id:
         return redirect('/?signin=failed')
 
+    username = info.get('username') or ''
+    display = info.get('global_name') or info.get('username') or ''
     sub_id = 'discord:' + discord_id
+    # Keep the handle current whichever path we take.
+    remember_discord_user(sub_id, username, display)
+
+    mode = session.pop('discord_mode', 'signin')
+    link_account = session.pop('discord_link_account', None)
+
+    if mode == 'link':
+        # Bind this VERIFIED Discord to the account that started the link.
+        # The session identity is left untouched: they stay on their account.
+        if not link_account:
+            return redirect('/account?link=failed')
+        conn = db()
+        c = conn.cursor()
+        # Conflict 1: this Discord already has its own account here with a
+        # record - two rating histories must not be merged silently.
+        c.execute("SELECT 1 FROM players WHERE google_sub = ? LIMIT 1", (sub_id,))
+        owns_account = c.fetchone() is not None
+        # Conflict 2: already bound to a different account.
+        c.execute("SELECT account_sub FROM discord_links WHERE discord_id = ?",
+                  (discord_id,))
+        bound = c.fetchone()
+        if (owns_account and sub_id != link_account) or (bound and bound[0] != link_account):
+            conn.close()
+            return redirect('/account?link=taken')
+        # Re-linking replaces the account's previous Discord.
+        c.execute("DELETE FROM discord_links WHERE account_sub = ?", (link_account,))
+        c.execute("INSERT INTO discord_links "
+                  "(account_sub, discord_id, username, display, linked_at) "
+                  "VALUES (?, ?, ?, ?, ?)",
+                  (link_account, discord_id, username, display,
+                   time.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        conn.close()
+        return redirect('/account?link=ok')
+
+    # Sign-in: land on the BOUND account if this Discord is linked, otherwise
+    # on its own identity. This is what lets "Sign in with Discord" reach a
+    # Google account it was bound to - one account, never two.
+    conn = db()
+    c = conn.cursor()
+    account = account_for_discord_id(c, discord_id)
+    conn.close()
     session.permanent = True
-    session['google_sub'] = sub_id
-    remember_discord_user(sub_id, info.get('username') or '',
-                          info.get('global_name') or info.get('username') or '')
+    session['google_sub'] = account
     back = safe_next(session.pop('discord_next', None))
     return redirect(back or '/?signin=ok')
 
@@ -6146,7 +6253,7 @@ def bot_checkin_route():
         return jsonify({"error": "no discord_id"}), 400
     conn = db()
     c = conn.cursor()
-    status, payload = perform_checkin(c, 'discord:' + discord_id, data.get('sys_id'))
+    status, payload = perform_checkin(c, account_for_discord_id(c, discord_id), data.get('sys_id'))
     if status == 200:
         conn.commit()
     conn.close()
@@ -6156,9 +6263,9 @@ def bot_checkin_route():
 
 
 def _bot_sub():
-    """The account behind a bot request, or None."""
-    discord_id = str((request.json or {}).get('discord_id', '')).strip()
-    return ('discord:' + discord_id) if discord_id else None
+    """The account behind a bot request, or None. Resolves a Discord that
+    was bound in Settings to the account it belongs to."""
+    return discord_account((request.json or {}).get('discord_id'))
 
 
 @app.route('/api/bot/clan/leader/request', methods=['POST'])
@@ -6267,7 +6374,7 @@ def bot_clan_leader_state_route():
     discord_id = str(request.args.get('discord_id', '')).strip()
     conn = db()
     c = conn.cursor()
-    state = clan_leader_state(c, 'discord:' + discord_id) if discord_id else 'none'
+    state = clan_leader_state(c, account_for_discord_id(c, discord_id)) if discord_id else 'none'
     c.execute("SELECT id, google_sub, handle, tag, note, created_at "
               "FROM clan_leader_requests WHERE status = 'pending' ORDER BY id")
     pending = [{"id": r[0],
@@ -6881,7 +6988,7 @@ def bot_clan_mine_route():
     discord_id = str(request.args.get('discord_id', '')).strip()
     if not discord_id:
         return jsonify({"error": "no discord_id"}), 400
-    sub_id = 'discord:' + discord_id
+    sub_id = discord_account(discord_id)
     conn = db()
     c = conn.cursor()
     out = []
@@ -6959,7 +7066,7 @@ def bot_me_route():
     discord_id = str(request.args.get('discord_id', '')).strip()
     if not discord_id:
         return jsonify({"error": "no discord_id"}), 400
-    sub_id = 'discord:' + discord_id
+    sub_id = discord_account(discord_id)
     conn = db()
     c = conn.cursor()
     c.execute("SELECT name, elo, wins, losses, clan, google_sub FROM players "
@@ -7016,7 +7123,7 @@ def bot_set_name_route():
     name = str(data.get('name', '')).strip()
     if not discord_id:
         return jsonify({"error": "no discord_id"}), 400
-    sub_id = 'discord:' + discord_id
+    sub_id = discord_account(discord_id)
     if not is_valid_name_format(name):
         return jsonify({"ok": False, "message": "That name cannot be used. Try another."}), 200
     if is_blocked_word(name):
@@ -7090,7 +7197,7 @@ def bot_protection_route():
         want = 1 if data.get('enabled') else 0
     if not discord_id:
         return jsonify({"error": "no discord_id"}), 400
-    sub_id = 'discord:' + discord_id
+    sub_id = discord_account(discord_id)
 
     conn = db()
     c = conn.cursor()
@@ -7167,10 +7274,13 @@ def bot_register_route():
     if is_default_name(name):
         return jsonify({"ok": False, "message": "That is one of Starblast's default names, given to anyone who joins without typing one. Too many players share it for it to be tracked. Pick a name of your own in game."}), 200
 
-    sub_id = 'discord:' + discord_id
+    # Keep the handle current against the Discord identity itself, but
+    # register the name on the account this Discord acts as - its own, or the
+    # one it is bound to.
     if data.get('username'):
-        remember_discord_user(sub_id, data.get('username'),
+        remember_discord_user('discord:' + discord_id, data.get('username'),
                               data.get('display') or data.get('username'))
+    sub_id = discord_account(discord_id)
 
     conn = db()
     c = conn.cursor()
@@ -8070,12 +8180,38 @@ def account_page():
                 "clan": clan, "clan_display": clan_display(c, clan) if clan else None,
                 "by_region": by_region, "recent": recent,
             }
+    # Discord link status for the settings section. A Discord sign-in IS its
+    # own Discord (nothing to link); a Google account may have one bound.
+    is_discord_acct = bool(sub_id and str(sub_id).startswith('discord:'))
+    if is_discord_acct:
+        discord_link = {"handle": discord_handle(c, sub_id) or '', "own": True}
+    else:
+        ld = linked_discord_for(c, sub_id) if sub_id else None
+        discord_link = ({"handle": ld.get('display') or ld.get('username') or '',
+                         "own": False} if ld else None)
     conn.close()
     return render_template('account.html', version=APP_VERSION,
                            contact=CONTACT_HANDLE, client_id=GOOGLE_CLIENT_ID,
                            account_name=account_name, signed_in=bool(sub_id),
                            acct=acct, page='account',
+                           discord_link=discord_link,
+                           discord_can_link=bool(sub_id) and not is_discord_acct,
+                           link_status=request.args.get('link'),
                            wins_required=CLAIM_WINS_REQUIRED)
+
+
+@app.route('/account/discord/unlink', methods=['POST'])
+def account_discord_unlink():
+    """Remove the Discord bound to the signed-in account."""
+    sub_id = current_user()
+    if not sub_id:
+        return redirect('/account')
+    conn = db()
+    c = conn.cursor()
+    c.execute("DELETE FROM discord_links WHERE account_sub = ?", (sub_id,))
+    conn.commit()
+    conn.close()
+    return redirect('/account?link=removed')
 
 
 @app.route('/manage')

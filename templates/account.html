@@ -135,6 +135,30 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   </div>
 </div>
 
+<div class="card">
+  <h2>Discord</h2>
+  {% if link_status == 'ok' %}<p class="msg" style="color:var(--good,#66e6b8)">Discord linked.</p>
+  {% elif link_status == 'removed' %}<p class="msg">Discord unlinked.</p>
+  {% elif link_status == 'taken' %}<p class="msg" style="color:var(--bad,#ff6b6b)">That Discord already has its own account here &mdash; sign in with it directly instead.</p>
+  {% elif link_status == 'failed' %}<p class="msg" style="color:var(--bad,#ff6b6b)">That didn&#39;t go through. Please try again.</p>{% endif %}
+  {% if discord_link and discord_link.own %}
+    <p class="current">Signed in with Discord{% if discord_link.handle %} as <b>{{ discord_link.handle }}</b>{% endif %}.</p>
+    <p class="desc">Your account already is your Discord &mdash; there is nothing to link.</p>
+  {% elif discord_link %}
+    <p class="current">Linked to <b>{{ discord_link.handle }}</b>.</p>
+    <p class="desc">You can be reached on Discord and use the bot as this account, and
+       signing in with Discord brings you to this same account.</p>
+    <form method="post" action="/account/discord/unlink" style="margin-top:10px">
+      <button class="ghost" type="submit">{{ t('Remove') }}</button>
+    </form>
+  {% elif discord_can_link %}
+    <p class="desc">Link your Discord so you can be contacted and use the bot as this
+       account. It opens Discord to confirm &mdash; your handle is verified, never typed.</p>
+    <button class="primary" style="margin-top:10px"
+            onclick="location.href='/auth/discord?mode=link'">Link Discord</button>
+  {% endif %}
+</div>
+
 <div class="card" id="claimCard" style="display:none">
   <h2>Claims you are waiting on</h2>
   <div id="pendingClaims" style="display:none;margin-top:14px;padding-top:12px;
