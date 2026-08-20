@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<!DOCTYPE html><html lang="{{ lang or 'en' }}"{% if lang == 'fa' %} dir="rtl"{% endif %}><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Starblast Team Mode Skill Leaderboard{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

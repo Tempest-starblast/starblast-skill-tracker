@@ -107,7 +107,7 @@ CARDS = [
 
  ("Languages",
   '<p>Pick a language in the header of any page &mdash; English, Espa&ntilde;ol,'
-  ' Fran&ccedil;ais, Deutsch, Italiano, Русский, Tiếng Việt or 中文. The whole site is'
+  ' Fran&ccedil;ais, Deutsch, Italiano, Русский, Tiếng Việt, 中文 or فارسی. The whole site is'
   ' translated, this page included. The English is the original, so if a translation ever'
   ' reads oddly, that is where the meaning lives.</p>'),
 

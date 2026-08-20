@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.34.0"
+APP_VERSION = "6.35.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2360,6 +2360,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.35.0", "at": "2026-08-20T06:20:00Z", "changes": [
+        "Added Persian (فارسی) as a language. Pick it in the header on any page - the labels and the whole Info page are translated, and the page switches to right-to-left.",
+    ]},
     {"version": "6.34.0", "at": "2026-08-20T00:30:00Z", "changes": [
         "Players who stayed the whole match now get credited even if they spent it below their team's top 8 on the scoreboard. The watcher only ever saw a team's top 8 by score, so a lower-scoring teammate who was there start to finish looked like a late arrival and earned nothing. It now follows the full roster to decide who was present, while still only rating the top 8 - so the people who actually played the match are the ones paid for it.",
         "A player needs at least 1000 points at the end to be rated now (it was any score above zero). Someone who barely touched the match no longer collects a win or dodges a loss.",
