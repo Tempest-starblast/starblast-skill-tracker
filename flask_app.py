@@ -16,7 +16,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.36.0"
+APP_VERSION = "6.37.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2061,11 +2061,61 @@ def game_end():
     # the leaderboard still grows on its own.
     c.execute("SELECT name FROM players WHERE strict_mode = 1")
     protected = {normalize_name(row[0]) for row in c.fetchall()}
+    # Everyone who checked into THIS lobby, computed always (not only when a
+    # protected player is present) because a check-in also proves you are the
+    # real owner of a name against an impersonator flying the same one.
     checked_in = set()
-    if sys_id is not None and protected:
+    if sys_id is not None:
         c.execute("SELECT player FROM checkins WHERE sys_id = ? AND created_at > datetime('now', ?)",
                   (sys_id, f'-{CHECKIN_VALID_SECONDS} seconds'))
         checked_in = {normalize_name(row[0]) for row in c.fetchall()}
+
+    # ---- Ship-bound crediting ------------------------------------------
+    # A check-in binds the account to ONE ship id (the first ship flying
+    # its play name to appear after the check-in). Credit those accounts
+    # from THEIR ship: its team decides win or loss, its score is their
+    # score. A same-name ship - even on another team - is somebody else,
+    # so it can neither blur the result nor hang its loss on the owner.
+    _bound_keys = set()
+    _ships = data.get('ship_scores') if isinstance(data.get('ship_scores'), dict) else {}
+    if sys_id is not None and _ships:
+        c.execute("SELECT sub, ship_id FROM name_bindings WHERE sys_id = ?",
+                  (sys_id,))
+        for _sub, _ship_id in c.fetchall():
+            _ent = _ships.get(str(_ship_id))
+            if not _ent:
+                continue
+            _acct = account_name_for(c, _sub)
+            if not _acct:
+                continue
+            _role = _ent.get('role')
+            if _role not in ('win', 'lose1', 'lose2'):
+                continue
+            _key = normalize_name(_acct)
+            # One placement, decided by the ship - drop every name-based
+            # occurrence (which may include an impersonator's) first.
+            winning_team = [p for p in winning_team if normalize_name(p) != _key]
+            losing_team_1 = [p for p in losing_team_1 if normalize_name(p) != _key]
+            losing_team_2 = [p for p in losing_team_2 if normalize_name(p) != _key]
+            (winning_team if _role == 'win'
+             else losing_team_1 if _role == 'lose1'
+             else losing_team_2).append(_acct)
+            try:
+                _sc = int(_ent.get('score'))
+            except (TypeError, ValueError):
+                _sc = None
+            if _sc is not None:
+                if not isinstance(data.get('scores'), dict):
+                    data['scores'] = {}
+                data['scores'][_acct] = _sc
+            _bound_keys.add(_key)
+            print("[game_end] sys=%s ship-bound credit: %r -> %s (score %s)"
+                  % (sys_id, _acct, _role, _sc), flush=True)
+        if _bound_keys:
+            losing_all = losing_team_1 + losing_team_2
+            # A binding is proof of ownership (it comes from a check-in),
+            # so the duplicate-name drop no longer applies to these.
+            checked_in |= _bound_keys
 
     def protected_without_checkin(player_name):
         key = normalize_name(player_name)
@@ -2078,7 +2128,10 @@ def game_end():
 
     # The tracker flags a name it saw more than once in the same lobby.
     # Two identical names means one is an impersonator and there is no way
-    # to tell which, so neither is rated.
+    # to tell which, so neither is rated - UNLESS one of them checked in,
+    # which an impersonator cannot do, so a check-in settles it in favour of
+    # the real owner. (Confirmed live: L7 Tempest, match #5536 - checked in,
+    # scored 15293, won, but a transient same-name read denied the win.)
     def skip_reason(player_name):
         """Why this player is not rated, or None if they are.
 
@@ -2093,7 +2146,8 @@ def game_end():
         _sc = final_scores.get(player_name)
         if _sc is not None and _sc < MIN_RATED_SCORE:
             return 'low-score'
-        if normalize_name(player_name) in ambiguous:
+        if (normalize_name(player_name) in ambiguous
+                and normalize_name(player_name) not in checked_in):
             return 'duplicate-name'
         if protected_without_checkin(player_name):
             return 'protected'
@@ -2121,7 +2175,8 @@ def game_end():
             return True
         if normalize_name(player_name) in dominance_exempt:
             return True
-        return normalize_name(player_name) in ambiguous or protected_without_checkin(player_name)
+        key = normalize_name(player_name)
+        return (key in ambiguous and key not in checked_in) or protected_without_checkin(player_name)
 
     _in_w, _in_l = list(winning_team), list(losing_all)
     # Anyone whose result is being withheld by PROTECTION specifically.
@@ -2147,6 +2202,9 @@ def game_end():
     # on "BODIE", match sb_live_5427.
     _both = ({normalize_name(p) for p in winning_team}
              & {normalize_name(p) for p in losing_all})
+    # A ship-bound account was already placed on exactly one team by its
+    # ship; it cannot be the unknowable cross-team case.
+    _both -= _bound_keys
     if _both:
         print("[game_end] sys=%s dropping %d name(s) present on both sides: %r"
               % (sys_id, len(_both), sorted(_both)[:8]), flush=True)
@@ -2373,6 +2431,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.37.0", "at": "2026-08-20T21:30:00Z", "changes": [
+        "Checking in now protects you from name copycats completely. Your check-in was already tied to your actual ship; now the result is scored from that ship too - its team decides your win or loss and its score is your score. Someone flying your exact name, even on another team, can no longer block your result or hang their loss on you. Without a check-in, two identical names in one lobby are still impossible to tell apart, so neither is rated - checking in is what settles it.",
+    ]},
     {"version": "6.36.0", "at": "2026-08-20T19:30:00Z", "changes": [
         "You can now link your Discord to your account. On Your account, press Link Discord and approve on Discord - it is verified, never typed. Once linked, the bot treats you as this account, you can sign in with either Google or Discord and land on the same account, and your handle is on file so you can be reached. If that Discord already has its own account here, linking is refused rather than merging two histories.",
     ]},
@@ -4261,13 +4322,11 @@ def bind_appearances_to_checkins(c):
             continue
         name, ship_id, region = hit
         taken.add((sys_id, ship_id))
-        who = account_name_for(c, sub_id)
-        # Never bind an account to its own account name - that is already
-        # the row results land on, and a self-binding would be a no-op that
-        # only confuses the audit trail.
-        if who and normalize_name(who) == normalize_name(name):
-            c.execute("UPDATE checkins SET bound = 1 WHERE rowid = ?", (rowid,))
-            continue
+        # A self-binding (account name == play name) used to be skipped as
+        # a no-op. It is not one any more: the binding carries the SHIP ID,
+        # which is what credits the real owner when an impersonator flies
+        # the same name (L7 Tempest, match #5536 - checked in, denied by a
+        # name duplicate). Every check-in binds its ship now.
         c.execute("INSERT OR REPLACE INTO name_bindings "
                   "(sub, in_game_name, sys_id, ship_id, region, bound_at) "
                   "VALUES (?,?,?,?,?,?)",
