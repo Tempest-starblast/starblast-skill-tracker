@@ -48,7 +48,7 @@ CARDS = [
   '<p><b>Andarsene in anticipo non evita la sconfitta.</b> Una squadra che perde viene'
   ' addebitata con la sua formazione più completa, non con chi era ancora lì alla'
   ' fine.</p>'
-  '<p><b>Un punteggio di esattamente 0 non viene valutato affatto</b>, vinta o persa.'
+  '<p><b>Un punteggio sotto [[MINSCORE]] non viene valutato affatto</b>, vinta o persa.'
   ' Stare fermi in una lobby non è giocare.</p>'),
 
  ("Due nomi",

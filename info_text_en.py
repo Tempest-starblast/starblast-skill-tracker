@@ -47,7 +47,7 @@ CARDS = [
  ("Two rules worth knowing",
   '<p><b>Leaving early does not dodge a loss.</b> A losing team is charged as its fullest'
   ' roster, not as whoever was still there at the end.</p>'
-  '<p><b>A score of exactly 0 is not rated at all</b>, win or lose. Sitting in a lobby is'
+  '<p><b>A score under [[MINSCORE]] is not rated at all</b>, win or lose. Sitting in a lobby is'
   ' not playing.</p>'),
 
  ("Two names",

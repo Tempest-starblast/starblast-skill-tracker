@@ -50,7 +50,7 @@ CARDS = [
  ("Deux règles à connaître",
   '<p><b>Partir tôt n&#39;évite pas la défaite.</b> Une équipe perdante est comptée avec'
   ' son effectif le plus complet, et non avec ceux qui étaient encore là à la fin.</p>'
-  '<p><b>Un score de très exactement 0 n&#39;est pas classé du tout</b>, victoire ou'
+  '<p><b>Un score inférieur à [[MINSCORE]] n&#39;est pas classé du tout</b>, victoire ou'
   ' défaite. Rester assis dans un salon, ce n&#39;est pas jouer.</p>'),
 
  ("Deux noms",

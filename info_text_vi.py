@@ -44,7 +44,7 @@ CARDS = [
  ("Hai điều nên biết",
   '<p><b>Thoát sớm không tránh được trận thua.</b> Đội thua bị tính theo đội hình đông'
   ' nhất của mình, chứ không phải theo ai còn trụ lại đến cuối.</p>'
-  '<p><b>Điểm đúng bằng 0 thì không được tính</b>, dù thắng hay thua. Ngồi trong phòng'
+  '<p><b>Điểm dưới [[MINSCORE]] thì không được tính</b>, dù thắng hay thua. Ngồi trong phòng'
   ' không phải là chơi.</p>'),
 
  ("Hai cái tên",

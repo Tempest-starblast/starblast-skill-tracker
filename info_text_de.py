@@ -51,7 +51,7 @@ CARDS = [
  ("Zwei Regeln, die man kennen sollte",
   '<p><b>Früh gehen erspart die Niederlage nicht.</b> Ein verlierendes Team wird mit seiner'
   ' vollsten Aufstellung belastet, nicht mit denen, die am Ende noch da waren.</p>'
-  '<p><b>Ein Punktestand von exakt 0 wird überhaupt nicht gewertet</b>, ob Sieg oder'
+  '<p><b>Ein Punktestand unter [[MINSCORE]] wird überhaupt nicht gewertet</b>, ob Sieg oder'
   ' Niederlage. In einer Lobby zu sitzen ist kein Spielen.</p>'),
 
  ("Zwei Namen",

@@ -49,7 +49,7 @@ CARDS = [
  ("Dos reglas que conviene saber",
   '<p><b>Irse antes de tiempo no libra de la derrota.</b> A un equipo perdedor se le cobra'
   ' con su plantilla más completa, no con quien siguiera ahí al final.</p>'
-  '<p><b>Una puntuación de exactamente 0 no se valora</b>, ni ganando ni perdiendo. Estar'
+  '<p><b>Una puntuación por debajo de [[MINSCORE]] no se valora</b>, ni ganando ni perdiendo. Estar'
   ' sentado en una sala no es jugar.</p>'),
 
  ("Dos nombres",

@@ -14,6 +14,7 @@ filled in at render time, so no number or handle is written down twice:
 
     [[ELO]]      the starting rating
     [[K]]        the most one match can move you
+    [[MINSCORE]] the minimum score to be rated at all
     [[CONTACT]]  the Discord handle to ask
 
 A language whose module is missing or broken falls back to English, one
@@ -24,7 +25,8 @@ import importlib
 
 from markupsafe import escape
 
-TOKENS = (("[[ELO]]", "elo"), ("[[K]]", "k"), ("[[CONTACT]]", "contact"))
+TOKENS = (("[[ELO]]", "elo"), ("[[K]]", "k"), ("[[MINSCORE]]", "minscore"),
+          ("[[CONTACT]]", "contact"))
 
 _CACHE = {}
 

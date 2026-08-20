@@ -8254,6 +8254,7 @@ def info_page():
                            contact=CONTACT_HANDLE,
                            info=info_i18n.page(current_lang(),
                                                elo=STARTING_ELO, k=ELO_K,
+                                               minscore=MIN_RATED_SCORE,
                                                contact=CONTACT_HANDLE))
 
 
