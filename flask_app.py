@@ -10,13 +10,14 @@ import time
 import secrets
 import hmac
 import hashlib
+import zlib
 from datetime import timedelta
 import i18n
 import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.37.0"
+APP_VERSION = "6.38.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -154,7 +155,9 @@ def api_key_ok(key):
 # in its OWN sqlite file so these frequent writes never contend with players.db.
 LIVE_DB_PATH = os.path.join(BASE_DIR, 'live.db')
 LIVE_STALE_SECONDS = 70    # a lobby not updated within this is treated as gone
-LIVE_TRAJ_CAP = 60         # recent reads kept per lobby (for the sparkline)
+LIVE_TRAJ_CAP = 600        # reads kept per lobby: the WHOLE match (~100 min at
+                           # ~10s/read), so a finished match can be snapshotted
+                           # as a replay. The /live view still slices the tail.
 LIVE_TEAMS = ("team_1", "team_2", "team_3")
 
 # Trained win-probability model: a conditional logit over the alive teams,
@@ -1715,6 +1718,76 @@ def api_flood():
                     "significant_at": FLOOD_SIGNIFICANT}), 200
 
 
+@app.route('/api/replay/<int:mid>')
+def replay_data(mid):
+    """Everything the replay page draws, from the trajectory frozen at
+    match end. Public: the result itself already is."""
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT mr.data, m.lobby_name, m.region, m.played_at, m.sys_id "
+                  "FROM match_replays mr JOIN matches m ON m.id = mr.match_row "
+                  "WHERE mr.match_row = ?", (mid,))
+        row = c.fetchone()
+    except sqlite3.Error:
+        row = None
+    if not row:
+        conn.close()
+        return jsonify({"error": "No replay recorded for that match."}), 404
+    c.execute("SELECT name, team, won, delta, COALESCE(half,0), score "
+              "FROM match_players WHERE match_row = ? ORDER BY score DESC", (mid,))
+    players = [{"name": r[0], "team": r[1], "won": bool(r[2]),
+                "delta": r[3], "half": r[4], "score": r[5]} for r in c.fetchall()]
+    conn.close()
+    try:
+        p = json.loads(zlib.decompress(row[0]).decode('utf-8'))
+    except Exception:
+        return jsonify({"error": "Replay data unreadable."}), 500
+    traj = [r for r in (p.get("traj") or []) if isinstance(r, list) and len(r) == 3]
+    pskill = p.get("skill") or {}
+    skills = {k: ((pskill.get(k) or {}).get("top2")
+                  or (pskill.get(k) or {}).get("elo")) for k in LIVE_TEAMS}
+    dpt = {k: ((pskill.get(k) or {}).get("wr", 0.5),
+               (pskill.get(k) or {}).get("games", 0),
+               (pskill.get(k) or {}).get("stk", 0)) for k in LIVE_TEAMS
+           if pskill.get(k)}
+    w, _meta = load_live_model()
+    # Down-sample to ~200 drawn points; each point's probability still sees
+    # the full 60-read window behind it, exactly like the live view.
+    idxs = list(range(len(traj)))
+    if len(idxs) > 200:
+        step = len(idxs) / 200.0
+        idxs = [int(i * step) for i in range(200)]
+        if idxs[-1] != len(traj) - 1:
+            idxs.append(len(traj) - 1)
+    points = []
+    for i in idxs:
+        t, ct, sc = traj[i]
+        wnd = [(r[0], r[2]) for r in traj[max(0, i - 59):i + 1]]
+        try:
+            hp = win_probability(ct, sc, t, weights=w, skills=skills,
+                                 depth=dpt, window=wnd)
+        except Exception:
+            hp = {}
+        points.append({"t": round(t, 0),
+                       "sc": [int((sc or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
+                       "ct": [int((ct or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
+                       "p": [round(hp.get(k, 0.0), 3) for k in LIVE_TEAMS]})
+    return jsonify({
+        "name": p.get("name") or row[1] or "", "region": row[2] or "",
+        "played_at": str(row[3] or ""), "sys_id": row[4],
+        "top": p.get("top") or {}, "skill": pskill,
+        "players": players, "points": points,
+    }), 200
+
+
+@app.route('/replay/<int:mid>')
+def replay_page(mid):
+    """The journal replay: how a finished match unfolded, read by read."""
+    return render_template('replay.html', mid=mid, version=APP_VERSION,
+                           page='replay')
+
+
 @app.route('/api/live/state', methods=['POST'])
 def live_state_ingest():
     """The droplet feed posts one watched lobby's live team state here every
@@ -2357,6 +2430,45 @@ def game_end():
                                team_of.get(normalize_name(pname),
                                            'win' if won else 'lose1')))
 
+    # ---- Replay snapshot ------------------------------------------------
+    # The live feed has been accumulating this match's trajectory (score/
+    # count per ~10s read) in live.db for the /live view. The match just
+    # ended, so freeze that trajectory against the match row - compressed,
+    # a few KB - and the journal replay page can draw the whole game.
+    # Old replays are pruned so this can never grow without bound.
+    try:
+        if applied and _match_id:
+            c.execute("SELECT id FROM matches WHERE match_id = ?", (_match_id,))
+            _mr = c.fetchone()
+            _lconn = live_db()
+            _lrow = _lconn.execute("SELECT updated, region, name, payload FROM live "
+                                   "WHERE sys_id = ?", (sys_id,)).fetchone()
+            _lconn.close()
+            if _mr and _lrow and time.time() - _lrow[0] < 45 * 60:
+                _lp = json.loads(_lrow[3]) or {}
+                _traj = _lp.get("traj") or []
+                if len(_traj) >= 6:
+                    _blob = zlib.compress(json.dumps({
+                        "traj": _traj,
+                        "skill": _lp.get("skill") or {},
+                        "top": _lp.get("top") or {},
+                        "region": _lrow[1], "name": _lrow[2],
+                    }, separators=(',', ':')).encode('utf-8'), 6)
+                    c.execute("CREATE TABLE IF NOT EXISTS match_replays ("
+                              "match_row INTEGER PRIMARY KEY, data BLOB, "
+                              "created_at TEXT)")
+                    c.execute("INSERT OR IGNORE INTO match_replays "
+                              "(match_row, data, created_at) VALUES (?,?,?)",
+                              (_mr[0], sqlite3.Binary(_blob),
+                               time.strftime('%Y-%m-%d %H:%M:%S')))
+                    c.execute("DELETE FROM match_replays WHERE "
+                              "created_at < datetime('now', '-90 days')")
+                    print("[game_end] replay snapshot: match %s, %d reads, %d bytes"
+                          % (_mr[0], len(_traj), len(_blob)), flush=True)
+    except Exception as _re:
+        # A replay must never cost the result itself.
+        print("[game_end] replay snapshot failed: %s" % _re, flush=True)
+
     if _held:
         _mid = str(data.get('match_id') or ('sys%s-%s' % (sys_id, int(time.time()))))
         _now = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -2431,6 +2543,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.38.0", "at": "2026-08-20T22:40:00Z", "changes": [
+        "Every finished match now gets a replay page: score and player-count graphs over the whole game, plus each team's win probability at every moment, computed with the same model the live view uses. The Discord results feed links each match's replay. Replays are built from the watcher's own journal - nothing is recorded on anyone's computer - and are kept for 90 days.",
+    ]},
     {"version": "6.37.0", "at": "2026-08-20T21:30:00Z", "changes": [
         "Checking in now protects you from name copycats completely. Your check-in was already tied to your actual ship; now the result is scored from that ship too - its team decides your win or loss and its score is your score. Someone flying your exact name, even on another team, can no longer block your result or hang their loss on you. Without a check-in, two identical names in one lobby are still impossible to tell apart, so neither is rated - checking in is what settles it.",
     ]},
@@ -6790,11 +6905,20 @@ def bot_matches_undelivered():
                   "ORDER BY name", (match_id,))
         exempt = [r[0] for r in c.fetchall()]
         mins = int(round((treads or 0) * 10 / 60.0))
+        # The journal replay, when one was frozen for this match - the bot
+        # appends it as a link so the feed is where replays are found.
+        replay_url = None
+        try:
+            c.execute("SELECT 1 FROM match_replays WHERE match_row = ?", (mid,))
+            if c.fetchone():
+                replay_url = "https://starblastelo.pythonanywhere.com/replay/%d" % mid
+        except sqlite3.Error:
+            pass
         out.append({"id": mid, "match_id": match_id, "region": region,
                     "played_at": played_at, "winners": winners,
                     "losing_teams": losing_teams, "exempt": exempt,
                     "lobby_name": lobby_name, "sys_id": sysid,
-                    "tracked_minutes": mins})
+                    "tracked_minutes": mins, "replay_url": replay_url})
     conn.close()
     return jsonify({"matches": out}), 200
 

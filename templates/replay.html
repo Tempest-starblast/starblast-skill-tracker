@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Match replay - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.rphead{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;margin-bottom:4px}
+.rphead .sub{color:var(--muted,#8aa0b0);font-size:13px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:2px 0 10px;font-size:12.5px}
+.legend .sw{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.chartwrap{overflow-x:auto}
+.chartwrap svg{display:block;width:100%;height:auto}
+.rteam{margin:10px 0 2px;font-weight:700;font-size:13.5px}
+.rrow{display:flex;justify-content:space-between;gap:10px;padding:5px 2px;
+  border-bottom:1px solid var(--line);font-size:13px}
+.rrow:last-child{border-bottom:none}
+.rrow .d{font-variant-numeric:tabular-nums}
+.up{color:#66e6b8}.down{color:#ff7a7a}
+.rnote{color:var(--muted,#8aa0b0);font-size:12.5px;margin-top:8px}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Match replay</h1>
+<div class="rphead" id="rpHead"><span class="sub">Loading&hellip;</span></div>
+
+<div class="card">
+  <h2>Win probability</h2>
+  <div class="legend" id="legend1"></div>
+  <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <p class="rnote">Computed read by read with the same model the live view uses &mdash; what each team&#39;s chances looked like at that moment.</p>
+</div>
+
+<div class="card">
+  <h2>Scores</h2>
+  <div class="legend" id="legend2"></div>
+  <div class="chartwrap"><svg id="chartS" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
+</div>
+
+<div class="card">
+  <h2>Players</h2>
+  <div class="legend" id="legend3"></div>
+  <div class="chartwrap"><svg id="chartC" viewBox="0 0 860 170" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <div id="result"></div>
+</div>
+
+<script>
+const MID = {{ mid|tojson }};
+const COLS = ['#6ec1ff', '#ff8a7a', '#8dff9e'];
+const LBL = ['Team 1', 'Team 2', 'Team 3'];
+
+function esc(s){const d=document.createElement('span');d.textContent=String(s==null?'':s);return d.innerHTML;}
+function fmtT(sec){const m=Math.floor(sec/60);return m+'m';}
+
+function axis(svg, W, H, padL, padB, tmax, ymax, yfmt){
+  let g='';
+  for(let i=0;i<=4;i++){
+    const y=(H-padB)-(H-padB-12)*i/4, v=ymax*i/4;
+    g+=`<line x1="${padL}" y1="${y}" x2="${W-8}" y2="${y}" stroke="rgba(153,221,255,.12)"/>`;
+    g+=`<text x="${padL-7}" y="${y+4}" text-anchor="end" font-size="11" fill="#8aa0b0">${yfmt(v)}</text>`;
+  }
+  const steps=Math.min(8, Math.max(2, Math.floor(tmax/600)));
+  for(let i=0;i<=steps;i++){
+    const t=tmax*i/steps, x=padL+(W-padL-16)*i/steps;
+    g+=`<text x="${x}" y="${H-4}" text-anchor="middle" font-size="11" fill="#8aa0b0">${fmtT(t)}</text>`;
+  }
+  return g;
+}
+
+function lines(svg, pts, get, ymax, yfmt){
+  const W=860, H=+svg.getAttribute('viewBox').split(' ')[3], padL=44, padB=22;
+  const tmax=Math.max(1, pts[pts.length-1].t);
+  let g=axis(svg,W,H,padL,padB,tmax,ymax,yfmt);
+  for(let k=0;k<3;k++){
+    const pl=pts.map(p=>{
+      const x=padL+(W-padL-16)*(p.t/tmax);
+      const y=(H-padB)-(H-padB-12)*(Math.min(get(p,k),ymax)/ymax);
+      return x.toFixed(1)+','+y.toFixed(1);
+    }).join(' ');
+    g+=`<polyline points="${pl}" fill="none" stroke="${COLS[k]}" stroke-width="2" stroke-linejoin="round"/>`;
+  }
+  svg.innerHTML=g;
+}
+
+function legend(el, tops){
+  el.innerHTML=[0,1,2].map(k=>`<span><span class="sw" style="background:${COLS[k]}"></span>${LBL[k]}${tops&&tops[k]?' &middot; '+esc(tops[k]):''}</span>`).join('');
+}
+
+fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
+  const head=document.getElementById('rpHead');
+  if(d.error){head.innerHTML='<span class="sub">'+esc(d.error)+'</span>';return;}
+  const dur=d.points.length?fmtT(d.points[d.points.length-1].t):'?';
+  head.innerHTML='<h2 style="margin:0">'+esc(d.name||('#'+d.sys_id))+'</h2>'
+    +'<span class="sub">'+esc(d.region)+' &middot; '+esc(d.played_at)+' &middot; '+dur+' tracked</span>';
+  const tops=[1,2,3].map(i=>(d.top||{})['team_'+i]||'');
+  legend(document.getElementById('legend1'),tops);
+  legend(document.getElementById('legend2'),tops);
+  legend(document.getElementById('legend3'),tops);
+  const smax=Math.max(1,...d.points.map(p=>Math.max(...p.sc)));
+  lines(document.getElementById('chartP'), d.points, (p,k)=>p.p[k], 1, v=>Math.round(v*100)+'%');
+  lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v));
+  lines(document.getElementById('chartC'), d.points, (p,k)=>p.ct[k], 8, v=>Math.round(v));
+  // Final result, grouped by team.
+  const groups={'win':'Winners','lose1':'Losers','lose2':'Losers'};
+  let html='';
+  ['win','lose1','lose2'].forEach(team=>{
+    const rows=(d.players||[]).filter(p=>p.team===team);
+    if(!rows.length)return;
+    html+='<div class="rteam">'+groups[team]+(team==='lose2'?' (2)':team==='lose1'&&(d.players||[]).some(p=>p.team==='lose2')?' (1)':'')+'</div>';
+    rows.forEach(p=>{
+      const cls=p.won?'up':'down', sign=p.delta>=0?'+':'';
+      html+='<div class="rrow"><span>'+esc(p.name)+(p.half?' <span class="sub">(half)</span>':'')+'</span>'
+        +'<span class="d '+cls+'">'+sign+(p.delta==null?'':p.delta.toFixed(1))
+        +(p.score!=null?' <span style="color:var(--muted,#8aa0b0)">&middot; '+p.score+'</span>':'')+'</span></div>';
+    });
+  });
+  document.getElementById('result').innerHTML=html||'<p class="rnote">No rated players in this match.</p>';
+}).catch(()=>{document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
+</script>
+{% endblock %}
