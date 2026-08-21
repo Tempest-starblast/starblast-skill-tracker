@@ -1758,20 +1758,30 @@ def replay_data(mid):
         runs.append(_cur)
     if runs:
         traj = max(runs, key=len)
-    # Drop single-read glitches: a frame whose total is under half of BOTH
-    # neighbours' totals is a partial read, not the match - one of them drew
-    # a one-read 100% spike across the win-probability chart.
+    # Single-read glitches - a frame whose total is under half of BOTH
+    # neighbours' totals is a reconnect's half-loaded answer, not the match
+    # (one drew a one-read 100% spike across the win-probability chart).
+    # They are removed from the lines and reported as GAPS, so the chart
+    # shows a grey "no reliable data" band instead of either a fake spike
+    # or a silently smoothed-over stretch.
     def _rtot(r):
         return sum(int(v or 0) for v in (r[2] or {}).values())
+    _gaps_raw = []
     if len(traj) >= 3:
         _keep = [traj[0]]
         for _j in range(1, len(traj) - 1):
             _t = _rtot(traj[_j])
             if _t * 2 < _rtot(traj[_j - 1]) and _t * 2 < _rtot(traj[_j + 1]):
+                _gaps_raw.append((traj[_j - 1][0], traj[_j + 1][0]))
                 continue
             _keep.append(traj[_j])
         _keep.append(traj[-1])
         traj = _keep
+    # Missed reads are gaps too: a frozen client leaves 25s+ holes where
+    # nothing was seen at all.
+    for _j in range(1, len(traj)):
+        if traj[_j][0] - traj[_j - 1][0] > 25:
+            _gaps_raw.append((traj[_j - 1][0], traj[_j][0]))
     # The NEXT match's opening frozen by mistake (before the snapshot guard
     # existed) is not this game: its final team scores are nowhere near the
     # match's reported ones. That is the only refusal - a short recording
@@ -1814,6 +1824,14 @@ def replay_data(mid):
                        "sc": [int((sc or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "ct": [int((ct or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "p": [round(hp.get(k, 0.0), 3) for k in LIVE_TEAMS]})
+    # Rebase and merge the gap intervals for the chart's grey bands.
+    _gaps = []
+    for _s, _e in sorted(_gaps_raw):
+        _s, _e = max(0.0, _s - _t0), max(0.0, _e - _t0)
+        if _gaps and _s <= _gaps[-1][1]:
+            _gaps[-1][1] = max(_gaps[-1][1], _e)
+        else:
+            _gaps.append([_s, _e])
     return jsonify({
         "name": p.get("name") or row[1] or "", "region": row[2] or "",
         "played_at": str(row[3] or ""), "sys_id": row[4],
@@ -1821,6 +1839,7 @@ def replay_data(mid):
         # So the page can say "covers the last X of a ~Y-minute match"
         # when the recording is partial.
         "tracked_seconds": int(row[5] or 0) * 10,
+        "gaps": [[round(a), round(b)] for a, b in _gaps],
         "players": players, "points": points,
     }), 200
 

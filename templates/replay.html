@@ -66,19 +66,33 @@ function axis(svg, W, H, padL, padB, tmax, ymax, yfmt){
   return g;
 }
 
-function lines(svg, pts, get, ymax, yfmt){
+function lines(svg, pts, get, ymax, yfmt, gaps){
   const W=860, H=+svg.getAttribute('viewBox').split(' ')[3], padL=44, padB=22;
   const tmax=Math.max(1, pts[pts.length-1].t);
+  const X=t=>Math.min(Math.max(padL+(W-padL-16)*(t/tmax),padL),W-8);
   let g=axis(svg,W,H,padL,padB,tmax,ymax,yfmt);
+  // Grey "no reliable data" bands: a frozen or half-loaded reader, shown
+  // honestly as a hole rather than a spike or a smoothed-over stretch.
+  (gaps||[]).forEach(gp=>{
+    const x1=X(gp[0]), x2=Math.max(X(gp[1]), x1+3);
+    g+=`<rect x="${x1.toFixed(1)}" y="12" width="${(x2-x1).toFixed(1)}" height="${H-padB-12}" fill="rgba(160,175,195,.10)" stroke="rgba(160,175,195,.18)" stroke-dasharray="3 4"/>`;
+  });
+  // A line break wherever a segment would cross a gap - no line is drawn
+  // through a hole in the data.
+  const crosses=(a,b)=>(gaps||[]).some(gp=>a<gp[1]&&b>gp[0]);
   for(let k=0;k<3;k++){
-    const pl=pts.map(p=>{
-      let x=padL+(W-padL-16)*(p.t/tmax);
-      let y=(H-padB)-(H-padB-12)*(Math.min(get(p,k),ymax)/ymax);
-      x=Math.min(Math.max(x,padL),W-8);
+    let run=[];
+    const flush=()=>{ if(run.length>1)
+      g+=`<polyline points="${run.join(' ')}" fill="none" stroke="${COLS[k]}" stroke-width="2" stroke-linejoin="round"/>`;
+      run=[]; };
+    for(let i=0;i<pts.length;i++){
+      if(i>0&&crosses(pts[i-1].t,pts[i].t)) flush();
+      const x=X(pts[i].t);
+      let y=(H-padB)-(H-padB-12)*(Math.min(get(pts[i],k),ymax)/ymax);
       y=Math.min(Math.max(y,12),H-padB);
-      return x.toFixed(1)+','+y.toFixed(1);
-    }).join(' ');
-    g+=`<polyline points="${pl}" fill="none" stroke="${COLS[k]}" stroke-width="2" stroke-linejoin="round"/>`;
+      run.push(x.toFixed(1)+','+y.toFixed(1));
+    }
+    flush();
   }
   svg.innerHTML=g;
 }
@@ -104,9 +118,9 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
   legend(document.getElementById('legend2'),tops);
   legend(document.getElementById('legend3'),tops);
   const smax=Math.max(1,...d.points.map(p=>Math.max(...p.sc)));
-  lines(document.getElementById('chartP'), d.points, (p,k)=>p.p[k], 1, v=>Math.round(v*100)+'%');
-  lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v));
-  lines(document.getElementById('chartC'), d.points, (p,k)=>p.ct[k], 8, v=>Math.round(v));
+  lines(document.getElementById('chartP'), d.points, (p,k)=>p.p[k], 1, v=>Math.round(v*100)+'%', d.gaps);
+  lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v), d.gaps);
+  lines(document.getElementById('chartC'), d.points, (p,k)=>p.ct[k], 8, v=>Math.round(v), d.gaps);
   // Final result, grouped by team.
   const groups={'win':'Winners','lose1':'Losers','lose2':'Losers'};
   let html='';
