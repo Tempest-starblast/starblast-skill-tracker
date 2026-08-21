@@ -68,6 +68,22 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   </div>
 </div>
 
+{% if acct.wipe_available %}
+<div class="card" style="border-color:rgba(216,160,42,.5)">
+  <h2 style="color:var(--amber,#d8a02a)">You just claimed this name</h2>
+  <p class="desc">Before you claimed it, other people may have played under
+     <b>{{ acct.name }}</b> and built this record: <b>{{ acct.wins }}-{{ acct.losses }}</b>,
+     rating <b>{{ acct.elo }}</b>. You can wipe it and start clean at 1000 &mdash; or keep
+     it as yours. This choice is offered once.</p>
+  <form method="post" action="/account/wipe" style="display:flex;gap:10px;margin-top:12px"
+        onsubmit="return this.choice.value!=='wipe' || confirm('Wipe {{ acct.wins }} wins and {{ acct.losses }} losses and reset to 1000? This cannot be undone.')">
+    <input type="hidden" name="choice" value="">
+    <button class="primary" type="submit" onclick="this.form.choice.value='wipe'">Wipe wins and losses</button>
+    <button class="ghost" type="submit" onclick="this.form.choice.value='keep'">Keep the record</button>
+  </form>
+</div>
+{% endif %}
+
 {% if acct.by_region %}
 <div class="card">
   <h2>{{ t('Region') }}</h2>

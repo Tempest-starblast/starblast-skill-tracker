@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.47.0"
+APP_VERSION = "6.48.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1360,6 +1360,12 @@ def init_db():
         # in /api/game_end would put the tag straight back the next time that
         # player was read, so every correction would quietly undo itself.
         c.execute("ALTER TABLE players ADD COLUMN clan_locked INTEGER DEFAULT 0")
+    if 'wipe_available' not in existing_cols:
+        # Claim-time record wipe: offered once, right after a claim
+        # completes, because strangers may have played under the name
+        # before its real owner claimed it.
+        c.execute("ALTER TABLE players ADD COLUMN wipe_available INTEGER DEFAULT 0")
+        c.execute("ALTER TABLE players ADD COLUMN wiped_before TEXT")
     if 'google_sub' not in existing_cols:
         # Proof of ownership is moving from "same network" to "same Google
         # account". An IP is not an identity: phones change theirs
@@ -2762,6 +2768,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.48.0", "at": "2026-08-21T22:40:00Z", "changes": [
+        "Winning is decided by the finish. The winners are the closing roster's top 8 - being around for ten minutes earlier no longer collects a win by itself, though the ten-minute presence requirement still filters out brief visitors.",
+        "Claiming a name now comes with a one-time choice. A name's record may have been built by strangers before its real owner claimed it - so the moment a claim completes, the new owner sees the wins and losses it carries and can either wipe them (starting clean at 1000) or keep them. Offered once, right after the claim; match records themselves are untouched.",
+    ]},
     {"version": "6.47.0", "at": "2026-08-21T21:10:00Z", "changes": [
         "Whole teams, not top-8s. A live dig into the game client showed the scoreboard actually carries EVERY scoring ship - the 8-per-team limit was our own old assumption. Team scores everywhere (live view, replays, the win-probability model's inputs) now cover the full team, and the replay's player chart shows every ship in the lobby from the game's complete ship list, with the scale growing to fit - so a flooded team's 15 ships reads as exactly that. Who gets rated is unchanged: the top 8 by score. The win-probability model will fold the richer data in through its daily retraining.",
         "The replay player chart no longer hides teams behind each other when their counts are equal - all three lines stay visible.",
@@ -3817,7 +3827,7 @@ def player_progress():
               "m.id, m.played_at, m.lobby_name, COALESCE(m.region,'america'), "
               "(SELECT 1 FROM match_replays mr WHERE mr.match_row = m.id) "
               "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
-              "WHERE mp.norm_name = ? ORDER BY m.played_at, m.id", (key,))
+              "WHERE mp.norm_name = ? AND m.played_at > COALESCE((SELECT wiped_before FROM players WHERE norm_name = mp.norm_name), '') ORDER BY m.played_at, m.id", (key,))
     rows = c.fetchall()
     conn.close()
     cur = float(prow[1])
@@ -3887,7 +3897,7 @@ def player_profile(name):
 
     c.execute("SELECT m.played_at, mp.won, mp.delta, mp.half, mp.score, mp.played_as "
               "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
-              "WHERE mp.norm_name = ? ORDER BY m.id DESC LIMIT 15",
+              "WHERE mp.norm_name = ? AND m.played_at > COALESCE((SELECT wiped_before FROM players WHERE norm_name = mp.norm_name), '') ORDER BY m.id DESC LIMIT 15",
               (normalize_name(name),))
     history = [{"at": (r[0] or '')[5:16].replace('-', '/'),
                 # Same instant, marked as UTC so the browser can localise
@@ -3908,7 +3918,7 @@ def player_profile(name):
               "SUM(CASE WHEN mp.won = 1 THEN 0 ELSE 1 END), "
               "SUM(COALESCE(mp.delta, 0)) "
               "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
-              "WHERE mp.norm_name = ? GROUP BY 1", (normalize_name(name),))
+              "WHERE mp.norm_name = ? AND m.played_at > COALESCE((SELECT wiped_before FROM players WHERE norm_name = mp.norm_name), '') GROUP BY 1", (normalize_name(name),))
     split = {r[0]: (r[1] or 0, r[2] or 0, r[3] or 0) for r in c.fetchall()}
     # Every region is listed even when empty. "No matches in Europe" is a
     # real answer to the question, and a row appearing only once a player
@@ -4576,7 +4586,8 @@ def perform_claim_decide(c, claim_id, approve, decided_by=""):
                          "message": f"That account already plays as '{mine[0]}', which "
                                     f"has a record of its own."}
         c.execute("DELETE FROM players WHERE name = ?", (mine[0],))
-    c.execute("UPDATE players SET google_sub = ? WHERE norm_name = ?", (claimant, key))
+    c.execute("UPDATE players SET google_sub = ?, wipe_available = 1 "
+              "WHERE norm_name = ?", (claimant, key))
     c.execute("UPDATE claim_requests SET status = 'approved' WHERE id = ?", (claim_id,))
     # Anyone else waiting on the same name is answered by the same decision.
     c.execute("UPDATE claim_requests SET status = 'declined' WHERE status = 'pending' "
@@ -6479,7 +6490,7 @@ def region_split(c, name):
               "SUM(CASE WHEN mp.won = 1 THEN 0 ELSE 1 END), "
               "SUM(COALESCE(mp.delta, 0)) "
               "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
-              "WHERE mp.norm_name = ? GROUP BY 1", (normalize_name(name),))
+              "WHERE mp.norm_name = ? AND m.played_at > COALESCE((SELECT wiped_before FROM players WHERE norm_name = mp.norm_name), '') GROUP BY 1", (normalize_name(name),))
     split = {r[0]: (r[1] or 0, r[2] or 0, r[3] or 0) for r in c.fetchall()}
     out = []
     for key, label in REGIONS:
@@ -6518,7 +6529,7 @@ def bot_player(c, row, history=0, regions=0):
     if history:
         c.execute("SELECT m.played_at, mp.won, mp.delta, mp.half "
                   "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
-                  "WHERE mp.norm_name = ? ORDER BY m.id DESC LIMIT ?",
+                  "WHERE mp.norm_name = ? AND m.played_at > COALESCE((SELECT wiped_before FROM players WHERE norm_name = mp.norm_name), '') ORDER BY m.id DESC LIMIT ?",
                   (normalize_name(stored_name), int(history)))
         out["history"] = [
             {"at": r[0], "won": bool(r[1]),
@@ -8637,11 +8648,12 @@ def account_page():
     account_name = account_name_for(c, sub_id)
     acct = None
     if account_name:
-        c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
+        c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan, "
+                  "COALESCE(wipe_available,0) "
                   "FROM players WHERE norm_name = ?", (normalize_name(account_name),))
         row = c.fetchone()
         if row:
-            name, elo, wins, losses, clan = row
+            name, elo, wins, losses, clan, wipe_avail = row
             c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
             rank = c.fetchone()[0]
             c.execute("SELECT COUNT(*) FROM players")
@@ -8651,7 +8663,7 @@ def account_page():
             c.execute("SELECT mp.won, mp.delta, COALESCE(mp.half,0), m.played_at, "
                       "COALESCE(mp.seen, 0) "
                       "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
-                      "WHERE mp.norm_name = ? ORDER BY m.played_at DESC LIMIT 10",
+                      "WHERE mp.norm_name = ? AND m.played_at > COALESCE((SELECT wiped_before FROM players WHERE norm_name = mp.norm_name), '') ORDER BY m.played_at DESC LIMIT 10",
                       (normalize_name(name),))
             recent = [{"won": r[0], "delta": r[1] or 0, "half": r[2],
                        "when": str(r[3])[:16], "unseen": not r[4]}
@@ -8673,6 +8685,7 @@ def account_page():
                 "gained": ("%+.2f" % gained) if played else "-",
                 "clan": clan, "clan_display": clan_display(c, clan) if clan else None,
                 "by_region": by_region, "recent": recent,
+                "wipe_available": int(wipe_avail or 0),
             }
     # Discord link status for the settings section. A Discord sign-in IS its
     # own Discord (nothing to link); a Google account may have one bound.
@@ -8692,6 +8705,37 @@ def account_page():
                            discord_can_link=bool(sub_id) and not is_discord_acct,
                            link_status=request.args.get('link'),
                            wins_required=CLAIM_WINS_REQUIRED)
+
+
+@app.route('/account/wipe', methods=['POST'])
+def account_wipe():
+    """The one-time claim wipe. A freshly claimed name may carry a record
+    other people built before its real owner arrived; right after a claim
+    completes - and only then - the owner may wipe it and start clean at
+    the starting rating. 'Keep' dismisses the offer instead. Match records
+    themselves are untouched (they belong to the matches); the profile
+    simply starts counting from the wipe."""
+    sub_id = current_user()
+    if not sub_id:
+        return redirect('/account')
+    choice = str(request.form.get('choice') or '')
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name FROM players WHERE google_sub = ? "
+              "AND COALESCE(wipe_available,0) = 1", (sub_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return redirect('/account')
+    if choice == 'wipe':
+        c.execute("UPDATE players SET elo = ?, wins = 0, losses = 0, "
+                  "wiped_before = ?, wipe_available = 0 WHERE name = ?",
+                  (STARTING_ELO, time.strftime('%Y-%m-%d %H:%M:%S'), row[0]))
+    else:
+        c.execute("UPDATE players SET wipe_available = 0 WHERE name = ?", (row[0],))
+    conn.commit()
+    conn.close()
+    return redirect('/account?wiped=' + ('1' if choice == 'wipe' else '0'))
 
 
 @app.route('/account/discord/unlink', methods=['POST'])
