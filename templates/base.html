@@ -458,6 +458,7 @@ async function devRestore(){
         {%- if my_clan %}
         <a href="/myclan"    role="menuitem" class="{% if page=='myclan'    %}on{% endif %}">{{ t('Your clan') }}</a>
         {%- endif %}
+        <a href="/replays"   role="menuitem" class="{% if page=='replays'   %}on{% endif %}">{{ t('Replays') }}</a>
         <a href="/reports"   role="menuitem" class="{% if page=='reports'   %}on{% endif %}">{{ t('Report') }}</a>
         <a href="/info"      role="menuitem" class="{% if page=='info'      %}on{% endif %}">{{ t('Info') }}</a>
         <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}<span class="cdot" id="clogMenuDot" style="display:none"></span></a>

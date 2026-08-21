@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.43.0"
+APP_VERSION = "6.44.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1859,6 +1859,59 @@ def replay_page(mid):
                            page='replay')
 
 
+@app.route('/replays')
+def replays_index():
+    """Every match that has a replay, newest first - searchable by date and
+    server number, ten a page. The browsable archive behind the menu entry."""
+    try:
+        pg = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        pg = 1
+    date = str(request.args.get('date') or '').strip()[:10]
+    sysq = str(request.args.get('sys') or '').strip()[:12]
+    where, args = [], []
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
+        where.append("m.played_at LIKE ?")
+        args.append(date + '%')
+    else:
+        date = ''
+    if sysq.isdigit():
+        where.append("m.sys_id = ?")
+        args.append(int(sysq))
+    else:
+        sysq = ''
+    cond = (" WHERE " + " AND ".join(where)) if where else ""
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT COUNT(*) FROM match_replays mr "
+                  "JOIN matches m ON m.id = mr.match_row" + cond, args)
+        total = c.fetchone()[0]
+    except sqlite3.Error:
+        total = 0
+    pages = max(1, (total + 9) // 10)
+    pg = min(pg, pages)
+    rows = []
+    if total:
+        c.execute("SELECT m.id, m.lobby_name, m.sys_id, "
+                  "COALESCE(m.region,'america'), m.played_at, "
+                  "COALESCE(m.tracked_reads, 0) FROM match_replays mr "
+                  "JOIN matches m ON m.id = mr.match_row" + cond +
+                  " ORDER BY m.played_at DESC, m.id DESC LIMIT 10 OFFSET ?",
+                  args + [(pg - 1) * 10])
+        labels = dict(REGIONS)
+        for mid, name, sysid, region, at, treads in c.fetchall():
+            rows.append({"id": mid, "name": name or ("#%s" % sysid),
+                         "sys": sysid, "region": labels.get(region, region),
+                         "at": str(at or '')[:16],
+                         "at_utc": ((at or '').replace(' ', 'T') + 'Z') if at else '',
+                         "mins": int(round(treads * 10 / 60.0))})
+    conn.close()
+    return render_template('replays.html', version=APP_VERSION, page='replays',
+                           rows=rows, total=total, pg=pg, pages=pages,
+                           date=date, sysq=sysq)
+
+
 @app.route('/api/live/state', methods=['POST'])
 def live_state_ingest():
     """The droplet feed posts one watched lobby's live team state here every
@@ -2671,6 +2724,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.44.0", "at": "2026-08-21T09:50:00Z", "changes": [
+        "Replays has its own place in the menu: every match with a replay, newest first, ten a page, with each match's region and time - and you can search by date or by server number. Open any row to watch that game's whole story.",
+    ]},
     {"version": "6.43.0", "at": "2026-08-21T09:20:00Z", "changes": [
         "Replays now exist for practically every match. Two bugs were quietly eating them: a match that ended with everyone leaving (most of them) was mistaken for a recording of the wrong game, and any watcher restart threw away every recording in progress. Both fixed - the check now looks at the whole recording's peak, and recordings survive restarts.",
         "There is a dedicated #match-replays channel on Discord: one line per finished match with its replay link, a browsable list of games to rewatch. (The channel appears once it is created on the server - the bot fills it automatically.)",
