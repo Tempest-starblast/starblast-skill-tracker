@@ -362,7 +362,9 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 /* ---- Layout pack (owner's pick, 21 Aug 2026): slim sticky tab bar,
    organised flyout, app-style bottom bar on phones. The tab bar lives
    OUTSIDE .topbar so it can stick on its own; theme untouched. ---- */
-.tabs{position:relative;background:rgba(2,5,10,.6);border:1px solid var(--line);
+/* No position here: the phone rule above pins the bar to the bottom and
+   a later plain rule would override it by source order. */
+.tabs{background:rgba(2,5,10,.6);border:1px solid var(--line);
   border-radius:3px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
 .tabs a{transition:color .15s ease,background .15s ease}
 #tabGlider{position:absolute;bottom:3px;height:2px;border-radius:2px;left:0;width:0;
