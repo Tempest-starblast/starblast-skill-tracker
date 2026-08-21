@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.44.0"
+APP_VERSION = "6.45.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2724,6 +2724,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.45.0", "at": "2026-08-21T10:10:00Z", "changes": [
+        "The changelog groups releases under the day they went out, so a busy day reads as one block and nothing gets buried under a stack of version numbers.",
+    ]},
     {"version": "6.44.0", "at": "2026-08-21T09:50:00Z", "changes": [
         "Replays has its own place in the menu: every match with a replay, newest first, ten a page, with each match's region and time - and you can search by date or by server number. Open any row to watch that game's whole story.",
     ]},
@@ -8807,7 +8810,32 @@ def api_reports():
 
 @app.route('/changelog')
 def changelog_page():
-    return render_template('changelog.html', changelog=CHANGELOG,
+    """Releases grouped under the day they went out (Eastern, the site's
+    fixed release zone), so a busy day reads as one block instead of a
+    pile of version numbers. Undated pre-10-August releases group under
+    'Earlier'."""
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        from zoneinfo import ZoneInfo
+        _eastern = ZoneInfo("America/New_York")
+    except Exception:
+        _eastern = _tz.utc
+    groups = []
+    for r in CHANGELOG:
+        at = r.get("at")
+        day = "Earlier"
+        if at:
+            try:
+                _d = _dt.strptime(str(at)[:19], "%Y-%m-%dT%H:%M:%S")
+                _d = _d.replace(tzinfo=_tz.utc).astimezone(_eastern)
+                day = _d.strftime("%d %B %Y").lstrip("0")
+            except ValueError:
+                pass
+        if groups and groups[-1]["day"] == day:
+            groups[-1]["entries"].append(r)
+        else:
+            groups.append({"day": day, "entries": [r]})
+    return render_template('changelog.html', groups=groups,
                            version=APP_VERSION, page='changelog')
 
 
