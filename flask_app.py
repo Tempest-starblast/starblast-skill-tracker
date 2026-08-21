@@ -7117,12 +7117,25 @@ def bot_playerrole_undelivered():
     # name's next tracked win, which can be hours - and the people
     # claiming are exactly the established players the server most
     # wants talking, so making them wait as guests is backwards.
+    # Three ways to deserve the Player role: an account created via Discord
+    # sign-in that owns a name, a pending claim from one, and - since the
+    # Settings link shipped - a GOOGLE account that owns a name and has a
+    # verified Discord bound to it (this last one was missing: Paladin
+    # linked in Settings and stayed a guest).
     c.execute("SELECT DISTINCT sub FROM ("
               "  SELECT google_sub AS sub FROM players "
               "  WHERE google_sub LIKE 'discord:%' AND name IS NOT NULL "
               "  UNION "
               "  SELECT google_sub AS sub FROM claim_requests "
               "  WHERE google_sub LIKE 'discord:%' AND status = 'pending'"
+              "  UNION "
+              "  SELECT 'discord:' || dl.discord_id AS sub FROM discord_links dl "
+              "  JOIN players p ON p.google_sub = dl.account_sub "
+              "  WHERE p.name IS NOT NULL "
+              "  UNION "
+              "  SELECT 'discord:' || dl.discord_id AS sub FROM discord_links dl "
+              "  JOIN claim_requests cr ON cr.google_sub = dl.account_sub "
+              "  WHERE cr.status = 'pending'"
               ") WHERE sub NOT IN (SELECT sub FROM discord_role_grants)")
     subs = [r[0] for r in c.fetchall()]
     conn.close()
