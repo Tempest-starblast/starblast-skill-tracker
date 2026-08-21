@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.41.0"
+APP_VERSION = "6.42.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2659,6 +2659,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.42.0", "at": "2026-08-21T08:50:00Z", "changes": [
+        "Joining a losing team to help no longer traps you. A ship under 100 points at the moment a team's line-up locks in was never really part of that team - so a reinforcement who arrives, judges the game lost, and leaves takes no loss. Once you are genuinely on the roster, no score gets you off it: dying on purpose is not an exit.",
+    ]},
     {"version": "6.41.0", "at": "2026-08-21T08:30:00Z", "changes": [
         "Flood rules. A flood is now detected the moment it happens: ten or more zero-score ships arriving within one ten-second window, or ten or more ships flying one name - counted against the game's full ship list, not just the visible scoreboard, so a swarm hiding below the top 8 is seen too. Once a match is flooded, a team holding over double both rivals' scores combined is declared the winner on the spot: the swarm decides nothing.",
         "Losing no longer has a score floor. The 1000-point minimum was letting whole losing teams dodge their losses - and any floor can be gamed by dying on purpose. The assembled losing team takes the loss whatever the scoreboard says; the 1000-point minimum still applies to collecting wins, so idlers earn nothing.",
