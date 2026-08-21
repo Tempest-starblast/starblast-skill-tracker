@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.46.0"
+APP_VERSION = "6.47.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1753,7 +1753,7 @@ def replay_data(mid):
         p = json.loads(zlib.decompress(row[0]).decode('utf-8'))
     except Exception:
         return jsonify({"error": "Replay data unreadable."}), 500
-    traj = [r for r in (p.get("traj") or []) if isinstance(r, list) and len(r) == 3]
+    traj = [r for r in (p.get("traj") or []) if isinstance(r, list) and len(r) >= 3]
     # Replays frozen before the ingest guard existed can hold two timebases
     # (the feed clock restarted mid-stream). Points from different clocks
     # cannot share one axis - keep the longest single-clock run.
@@ -1828,7 +1828,8 @@ def replay_data(mid):
             idxs.append(len(traj) - 1)
     points = []
     for i in idxs:
-        t, ct, sc = traj[i]
+        t, ct, sc = traj[i][0], traj[i][1], traj[i][2]
+        fcrow = traj[i][3] if len(traj[i]) > 3 else None
         wnd = [(r[0], r[2]) for r in traj[max(0, i - 59):i + 1]]
         try:
             hp = win_probability(ct, sc, t, weights=w, skills=skills,
@@ -1836,6 +1837,8 @@ def replay_data(mid):
         except Exception:
             hp = {}
         points.append({"t": round(max(0.0, t - _t0), 0),
+                       "fc": ([int((fcrow or {}).get(k, 0) or 0) for k in LIVE_TEAMS]
+                              if fcrow else None),
                        "sc": [int((sc or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "ct": [int((ct or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "p": [round(hp.get(k, 0.0), 3) for k in LIVE_TEAMS]})
@@ -1940,6 +1943,11 @@ def live_state_ingest():
     now = time.time()
     ct = {k: int(counts.get(k, 0) or 0) for k in LIVE_TEAMS}
     sc = {k: int(scores.get(k, 0) or 0) for k in LIVE_TEAMS}
+    # FULL ship counts from the game's complete ship cache - the panel
+    # counts cap at the visible 8, so this is what shows a 15-ship flood.
+    fc = d.get("fullc")
+    fc = ({k: int(fc.get(k, 0) or 0) for k in LIVE_TEAMS}
+          if isinstance(fc, dict) else None)
     # Roster skill: who is on each team right now, joined to the leaderboard.
     # A player the board does not know counts as a fresh 1000 - same rule the
     # trainer uses, so live and training see skill identically.
@@ -2007,7 +2015,7 @@ def live_state_ingest():
                       (sys_id, now, row[0]))
             c.execute("DELETE FROM live_prev WHERE saved < ?", (now - 6 * 3600,))
         traj = []
-    traj.append([round(elapsed, 1), ct, sc])
+    traj.append([round(elapsed, 1), ct, sc] + ([fc] if fc else []))
     traj = traj[-LIVE_TRAJ_CAP:]
     # Is somebody flooding this lobby right now? Raised while the match is
     # still live so it can be watched as it happens, not only judged after.
@@ -2062,16 +2070,16 @@ def live_matches():
                    (pskill.get(k) or {}).get("stk", 0)) for k in LIVE_TEAMS
                if pskill.get(k)}
         traj = p.get("traj", [])
-        wnd = [(r_[0], r_[2]) for r_ in traj[-60:] if len(r_) == 3]
+        wnd = [(r_[0], r_[2]) for r_ in traj[-60:] if len(r_) >= 3]
         probs = win_probability(counts, scores, elapsed, weights=w,
                                 skills=skills, depth=dpt, window=wnd)
         history = []
         for i, row in enumerate(traj[-40:]):
             try:
-                t, ct, sc = row
+                t, ct, sc = row[0], row[1], row[2]
                 base_i = len(traj) - min(len(traj), 40) + i
                 w_i = [(r_[0], r_[2]) for r_ in traj[max(0, base_i - 59):base_i + 1]
-                       if len(r_) == 3]
+                       if len(r_) >= 3]
                 hp = win_probability(ct, sc, t, weights=w, skills=skills,
                                      depth=dpt, window=w_i)
                 history.append([round(t, 0), round(hp["team_1"], 3),
@@ -2754,6 +2762,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.47.0", "at": "2026-08-21T21:10:00Z", "changes": [
+        "Whole teams, not top-8s. A live dig into the game client showed the scoreboard actually carries EVERY scoring ship - the 8-per-team limit was our own old assumption. Team scores everywhere (live view, replays, the win-probability model's inputs) now cover the full team, and the replay's player chart shows every ship in the lobby from the game's complete ship list, with the scale growing to fit - so a flooded team's 15 ships reads as exactly that. Who gets rated is unchanged: the top 8 by score. The win-probability model will fold the richer data in through its daily retraining.",
+        "The replay player chart no longer hides teams behind each other when their counts are equal - all three lines stay visible.",
+    ]},
     {"version": "6.46.0", "at": "2026-08-21T10:40:00Z", "changes": [
         "The site is easier to get around. The tab bar is its own slim strip that stays with you as you scroll, with Replays promoted to a real tab and a glowing underline that slides between tabs. The menu is organised into sections (You / Community / Site) instead of one long list. On phones the bar sits at the bottom under your thumb, with your account one tap away. Pages fade in and panels respond to the pointer - same look, smoother site.",
     ]},

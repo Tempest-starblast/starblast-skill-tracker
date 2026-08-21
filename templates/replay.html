@@ -36,6 +36,9 @@
   <h2>Players</h2>
   <div class="legend" id="legend3"></div>
   <div class="chartwrap"><svg id="chartC" viewBox="0 0 860 170" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <p class="rnote">Every ship in the lobby, from the game&#39;s full ship list &mdash; a team
+     holding far more than its players is being flooded. Team scores above are the sum of
+     every scoring ship on the team.</p>
   <div id="result"></div>
 </div>
 
@@ -66,7 +69,7 @@ function axis(svg, W, H, padL, padB, tmax, ymax, yfmt){
   return g;
 }
 
-function lines(svg, pts, get, ymax, yfmt, gaps){
+function lines(svg, pts, get, ymax, yfmt, gaps, dodge){
   const W=860, H=+svg.getAttribute('viewBox').split(' ')[3], padL=44, padB=22;
   const tmax=Math.max(1, pts[pts.length-1].t);
   const X=t=>Math.min(Math.max(padL+(W-padL-16)*(t/tmax),padL),W-8);
@@ -89,6 +92,9 @@ function lines(svg, pts, get, ymax, yfmt, gaps){
       if(i>0&&crosses(pts[i-1].t,pts[i].t)) flush();
       const x=X(pts[i].t);
       let y=(H-padB)-(H-padB-12)*(Math.min(get(pts[i],k),ymax)/ymax);
+      /* Integer counts sit exactly on top of each other when teams are
+         equal - a tiny per-team offset keeps all three lines visible. */
+      if(dodge) y+=(k-1)*2.4;
       y=Math.min(Math.max(y,12),H-padB);
       run.push(x.toFixed(1)+','+y.toFixed(1));
     }
@@ -120,7 +126,12 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
   const smax=Math.max(1,...d.points.map(p=>Math.max(...p.sc)));
   lines(document.getElementById('chartP'), d.points, (p,k)=>p.p[k], 1, v=>Math.round(v*100)+'%', d.gaps);
   lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v), d.gaps);
-  lines(document.getElementById('chartC'), d.points, (p,k)=>p.ct[k], 8, v=>Math.round(v), d.gaps);
+  // ALL ships, from the game's full ship cache when recorded (older
+  // replays fall back to the visible-panel counts, capped at 8). The
+  // scale grows to fit - a flooded team's 15+ ships shows as exactly that.
+  const getC=(p,k)=>(p.fc?p.fc[k]:p.ct[k]);
+  const cmax=Math.max(8,...d.points.map(p=>Math.max(getC(p,0),getC(p,1),getC(p,2))));
+  lines(document.getElementById('chartC'), d.points, getC, cmax, v=>Math.round(v), d.gaps, true);
   // Final result, grouped by team.
   const groups={'win':'Winners','lose1':'Losers','lose2':'Losers'};
   let html='';
