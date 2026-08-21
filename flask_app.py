@@ -1744,6 +1744,22 @@ def replay_data(mid):
     except Exception:
         return jsonify({"error": "Replay data unreadable."}), 500
     traj = [r for r in (p.get("traj") or []) if isinstance(r, list) and len(r) == 3]
+    # Replays frozen before the ingest guard existed can hold two timebases
+    # (the feed clock restarted mid-stream). Points from different clocks
+    # cannot share one axis - keep the longest single-clock run.
+    runs, _cur = [], []
+    for r in traj:
+        if _cur and r[0] < _cur[-1][0] - 30:
+            runs.append(_cur)
+            _cur = []
+        _cur.append(r)
+    if _cur:
+        runs.append(_cur)
+    if runs:
+        traj = max(runs, key=len)
+    # Draw from zero: the watch usually begins ~20 minutes into the match,
+    # and the chart is of what was watched.
+    _t0 = traj[0][0] if traj else 0.0
     pskill = p.get("skill") or {}
     skills = {k: ((pskill.get(k) or {}).get("top2")
                   or (pskill.get(k) or {}).get("elo")) for k in LIVE_TEAMS}
@@ -1769,7 +1785,7 @@ def replay_data(mid):
                                  depth=dpt, window=wnd)
         except Exception:
             hp = {}
-        points.append({"t": round(t, 0),
+        points.append({"t": round(max(0.0, t - _t0), 0),
                        "sc": [int((sc or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "ct": [int((ct or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "p": [round(hp.get(k, 0.0), 3) for k in LIVE_TEAMS]})
@@ -1865,6 +1881,12 @@ def live_state_ingest():
             traj = []
     # A reset (a new match starting in the same lobby) begins a fresh trajectory.
     if elapsed < 12 and traj:
+        traj = []
+    # The feed's clock can also restart mid-stream (a feed restart, or a new
+    # match the <12s rule missed - seen live: 10..671s then 67s). A backwards
+    # jump is a new timebase, and two timebases on one axis is what drew one
+    # match's chart inside another's.
+    if traj and elapsed < traj[-1][0] - 30:
         traj = []
     traj.append([round(elapsed, 1), ct, sc])
     traj = traj[-LIVE_TRAJ_CAP:]

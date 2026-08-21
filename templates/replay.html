@@ -45,7 +45,10 @@ const COLS = ['#6ec1ff', '#ff8a7a', '#8dff9e'];
 const LBL = ['Team 1', 'Team 2', 'Team 3'];
 
 function esc(s){const d=document.createElement('span');d.textContent=String(s==null?'':s);return d.innerHTML;}
-function fmtT(sec){const m=Math.floor(sec/60);return m+'m';}
+function fmtT(sec){
+  if(sec<600){const m=Math.floor(sec/60),s=Math.round(sec%60);return m+':'+(s<10?'0':'')+s;}
+  return Math.floor(sec/60)+'m';
+}
 
 function axis(svg, W, H, padL, padB, tmax, ymax, yfmt){
   let g='';
@@ -68,8 +71,10 @@ function lines(svg, pts, get, ymax, yfmt){
   let g=axis(svg,W,H,padL,padB,tmax,ymax,yfmt);
   for(let k=0;k<3;k++){
     const pl=pts.map(p=>{
-      const x=padL+(W-padL-16)*(p.t/tmax);
-      const y=(H-padB)-(H-padB-12)*(Math.min(get(p,k),ymax)/ymax);
+      let x=padL+(W-padL-16)*(p.t/tmax);
+      let y=(H-padB)-(H-padB-12)*(Math.min(get(p,k),ymax)/ymax);
+      x=Math.min(Math.max(x,padL),W-8);
+      y=Math.min(Math.max(y,12),H-padB);
       return x.toFixed(1)+','+y.toFixed(1);
     }).join(' ');
     g+=`<polyline points="${pl}" fill="none" stroke="${COLS[k]}" stroke-width="2" stroke-linejoin="round"/>`;
