@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.45.0"
+APP_VERSION = "6.46.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2724,6 +2724,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.46.0", "at": "2026-08-21T10:40:00Z", "changes": [
+        "The site is easier to get around. The tab bar is its own slim strip that stays with you as you scroll, with Replays promoted to a real tab and a glowing underline that slides between tabs. The menu is organised into sections (You / Community / Site) instead of one long list. On phones the bar sits at the bottom under your thumb, with your account one tap away. Pages fade in and panels respond to the pointer - same look, smoother site.",
+    ]},
     {"version": "6.45.0", "at": "2026-08-21T10:10:00Z", "changes": [
         "The changelog groups releases under the day they went out, so a busy day reads as one block and nothing gets buried under a stack of version numbers.",
     ]},

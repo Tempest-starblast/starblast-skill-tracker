@@ -358,6 +358,39 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 @media (hover:none){
   .tabmore:hover:not(.open) .tabmenu{opacity:0;visibility:hidden;pointer-events:none}
 }
+
+/* ---- Layout pack (owner's pick, 21 Aug 2026): slim sticky tab bar,
+   organised flyout, app-style bottom bar on phones. The tab bar lives
+   OUTSIDE .topbar so it can stick on its own; theme untouched. ---- */
+.tabs{position:relative;background:rgba(2,5,10,.6);border:1px solid var(--line);
+  border-radius:3px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
+.tabs a{transition:color .15s ease,background .15s ease}
+#tabGlider{position:absolute;bottom:3px;height:2px;border-radius:2px;left:0;width:0;
+  background:var(--blue,#9adcff);box-shadow:0 0 9px rgba(153,221,255,.8);
+  opacity:0;transition:left .22s ease,width .22s ease,opacity .15s ease;
+  pointer-events:none}
+.metab{display:none}
+@media (min-width:761px){
+  .tabs{position:sticky;top:8px;z-index:80;margin-top:10px;
+    background:rgba(2,5,10,.82)}
+}
+@media (max-width:760px){
+  .metab{display:block}
+  .tabs a{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #tabGlider{display:none}
+}
+/* The organised flyout: small section headings turn the pile into a map. */
+.tabmenu{min-width:212px;padding:7px}
+.tmsec{font-size:9.5px;letter-spacing:1.6px;color:#5d7f93;text-transform:uppercase;
+  padding:9px 12px 3px;user-select:none}
+.tabmenu .tmsec:first-child{padding-top:4px}
+/* Smoothness: pages fade in, cards lift a touch under the pointer. */
+@keyframes sbPgIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.page{animation:sbPgIn .28s ease}
+.card{transition:transform .16s ease,border-color .16s ease}
+@media (hover:hover){
+  .card:hover{transform:translateY(-1px);border-color:rgba(153,221,255,.3)}
+}
 {% block css %}{% endblock %}
 </style>
 </head><body class="pg-{{ page or 'leaderboard' }}">
@@ -444,30 +477,59 @@ async function devRestore(){
       </div>
     </div>
   </div>
-
-  <nav class="tabs">
-    <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
-    <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
-    <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
-    <div class="tabmore" id="tabmore">
-      <a href="#" role="button" aria-haspopup="true" aria-label="More"
-         class="{% if page in ('account','myclan','reports','info','changelog') %}on{% endif %}"
-         style="position:relative">&#9776;<span class="cdot" id="clogDot" style="display:none"></span></a>
-      <div class="tabmenu" role="menu">
-        <a href="/account"   role="menuitem" class="{% if page=='account'   %}on{% endif %}">{{ t('Your account') }}<span class="pbadge" id="menuBadge" style="display:none"></span></a>
-        {%- if my_clan %}
-        <a href="/myclan"    role="menuitem" class="{% if page=='myclan'    %}on{% endif %}">{{ t('Your clan') }}</a>
-        {%- endif %}
-        <a href="/replays"   role="menuitem" class="{% if page=='replays'   %}on{% endif %}">{{ t('Replays') }}</a>
-        <a href="/reports"   role="menuitem" class="{% if page=='reports'   %}on{% endif %}">{{ t('Report') }}</a>
-        <a href="/info"      role="menuitem" class="{% if page=='info'      %}on{% endif %}">{{ t('Info') }}</a>
-        <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}<span class="cdot" id="clogMenuDot" style="display:none"></span></a>
-        <a href="/live" role="menuitem" id="liveTab" style="display:none" class="{% if page=='live' %}on{% endif %}">Win probability</a>
-        <a href="/flood" role="menuitem" id="floodTab" style="display:none" class="{% if page=='flood' %}on{% endif %}">Flood review</a>
-      </div>
-    </div>
-  </nav>
 </div>
+
+{# The tab bar lives OUTSIDE the header so it can stick to the top of the
+   viewport on its own - and so the title and the tabs are visually
+   separate things (owner's call). On phones it pins to the bottom. #}
+<nav class="tabs" id="mainTabs">
+  <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
+  <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
+  <a href="/replays"   class="{% if page=='replays'     %}on{% endif %}">{{ t('Replays') }}</a>
+  <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
+  <a href="/account"   class="metab {% if page=='account' %}on{% endif %}">{{ t('Your account') }}</a>
+  <div class="tabmore" id="tabmore">
+    <a href="#" role="button" aria-haspopup="true" aria-label="More"
+       class="{% if page in ('account','myclan','reports','info','changelog') %}on{% endif %}"
+       style="position:relative">&#9776;<span class="cdot" id="clogDot" style="display:none"></span></a>
+    <div class="tabmenu" role="menu">
+      <div class="tmsec">You</div>
+      <a href="/account"   role="menuitem" class="{% if page=='account'   %}on{% endif %}">{{ t('Your account') }}<span class="pbadge" id="menuBadge" style="display:none"></span></a>
+      {%- if my_clan %}
+      <a href="/myclan"    role="menuitem" class="{% if page=='myclan'    %}on{% endif %}">{{ t('Your clan') }}</a>
+      {%- endif %}
+      <div class="tmsec">Community</div>
+      <a href="/reports"   role="menuitem" class="{% if page=='reports'   %}on{% endif %}">{{ t('Report') }}</a>
+      <div class="tmsec">Site</div>
+      <a href="/info"      role="menuitem" class="{% if page=='info'      %}on{% endif %}">{{ t('Info') }}</a>
+      <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}<span class="cdot" id="clogMenuDot" style="display:none"></span></a>
+      <div class="tmsec" id="ownerSec" style="display:none">Owner</div>
+      <a href="/live" role="menuitem" id="liveTab" style="display:none" class="{% if page=='live' %}on{% endif %}">Win probability</a>
+      <a href="/flood" role="menuitem" id="floodTab" style="display:none" class="{% if page=='flood' %}on{% endif %}">Flood review</a>
+    </div>
+  </div>
+  <span id="tabGlider" aria-hidden="true"></span>
+</nav>
+<script>
+// The sliding underline: sits under whichever top-level tab is active and
+// glides between them. Hidden on phones (the bar is at the bottom there)
+// and on pages whose home is the flyout rather than a tab.
+(function(){
+  var bar = document.getElementById('mainTabs'),
+      g = document.getElementById('tabGlider');
+  if (!bar || !g) return;
+  function place(){
+    if (window.innerWidth <= 760){ g.style.opacity = '0'; return; }
+    var on = bar.querySelector(':scope > a.on');
+    if (!on){ g.style.opacity = '0'; return; }
+    g.style.left = (on.offsetLeft + 8) + 'px';
+    g.style.width = Math.max(0, on.offsetWidth - 16) + 'px';
+    g.style.opacity = '1';
+  }
+  window.addEventListener('resize', place);
+  place(); setTimeout(place, 150);
+})();
+</script>
 
 <div class="page">
 {% block body %}{% endblock %}
@@ -554,6 +616,7 @@ window.addEventListener('DOMContentLoaded', async function(){
       if(d.is_owner){
         var lt=document.getElementById('liveTab'); if(lt) lt.style.display='';
         var ft=document.getElementById('floodTab'); if(ft) ft.style.display='';
+        var os=document.getElementById('ownerSec'); if(os) os.style.display='';
         if(d.live_flood > 0) sbFloodAlert(d.live_flood);
       }
       // The header chip: name, rating, rank - filled from the same /me
