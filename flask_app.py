@@ -1725,7 +1725,8 @@ def replay_data(mid):
     conn = db()
     c = conn.cursor()
     try:
-        c.execute("SELECT mr.data, m.lobby_name, m.region, m.played_at, m.sys_id "
+        c.execute("SELECT mr.data, m.lobby_name, m.region, m.played_at, m.sys_id, "
+                  "COALESCE(m.tracked_reads, 0) "
                   "FROM match_replays mr JOIN matches m ON m.id = mr.match_row "
                   "WHERE mr.match_row = ?", (mid,))
         row = c.fetchone()
@@ -1757,6 +1758,16 @@ def replay_data(mid):
         runs.append(_cur)
     if runs:
         traj = max(runs, key=len)
+    # A sliver, or the NEXT match's opening frozen by mistake before the
+    # snapshot guard existed: under five minutes of data, or final team
+    # scores nowhere near the match's reported ones, is not this game.
+    # Refusing honestly beats charting the wrong one.
+    _span = (traj[-1][0] - traj[0][0]) if len(traj) >= 2 else 0.0
+    _pmax = max([int(p.get("score") or 0) for p in players] or [0])
+    _tsc = max([int(v or 0) for v in (traj[-1][2] or {}).values()] or [0]) if traj else 0
+    if _span < 300 or (_pmax > 0 and _tsc < 0.5 * _pmax):
+        return jsonify({"error": "The recording for this match does not cover "
+                                 "the game - no replay is available."}), 404
     # Draw from zero: the watch usually begins ~20 minutes into the match,
     # and the chart is of what was watched.
     _t0 = traj[0][0] if traj else 0.0
@@ -2469,7 +2480,35 @@ def game_end():
             if _mr and _lrow and time.time() - _lrow[0] < 45 * 60:
                 _lp = json.loads(_lrow[3]) or {}
                 _traj = _lp.get("traj") or []
-                if len(_traj) >= 6:
+                # The same lobby hosts the NEXT match the moment this one
+                # ends, and the live row resets to it - so a late-arriving
+                # result must not freeze the new game's opening minutes as
+                # the old game's replay (seen live: a 3-minute, 502-point,
+                # one-team "replay" of a full match). Scores are the
+                # discriminator - a clock can restart mid-match, but a
+                # finished game's totals dwarf a fresh one's: the
+                # trajectory's final best team must be at least half the
+                # best reported player score.
+                _repmax = 0
+                if isinstance(data.get('scores'), dict):
+                    for _v in data['scores'].values():
+                        try:
+                            _repmax = max(_repmax, int(_v))
+                        except (TypeError, ValueError):
+                            pass
+                _trajmax = 0
+                if _traj:
+                    _trajmax = max([int(v or 0) for v in (_traj[-1][2] or {}).values()]
+                                   or [0])
+                _span = (_traj[-1][0] - _traj[0][0]) if len(_traj) >= 2 else 0.0
+                _covers = (_span >= 300
+                           and (_repmax <= 0 or _trajmax >= 0.5 * _repmax))
+                if len(_traj) >= 6 and not _covers:
+                    print("[game_end] replay skipped for match %s: %ds span, "
+                          "ends at %d points vs a reported best of %d - a "
+                          "sliver or the next game's opening, not this match."
+                          % (_mr[0], int(_span), _trajmax, _repmax), flush=True)
+                if len(_traj) >= 6 and _covers:
                     _blob = zlib.compress(json.dumps({
                         "traj": _traj,
                         "skill": _lp.get("skill") or {},
