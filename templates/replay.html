@@ -45,9 +45,10 @@ const COLS = ['#6ec1ff', '#ff8a7a', '#8dff9e'];
 const LBL = ['Team 1', 'Team 2', 'Team 3'];
 
 function esc(s){const d=document.createElement('span');d.textContent=String(s==null?'':s);return d.innerHTML;}
+let SHORT_SPAN=false; /* set from the data: one format for the whole axis */
 function fmtT(sec){
-  if(sec<600){const m=Math.floor(sec/60),s=Math.round(sec%60);return m+':'+(s<10?'0':'')+s;}
-  return Math.floor(sec/60)+'m';
+  if(SHORT_SPAN){const m=Math.floor(sec/60),s=Math.round(sec%60);return m+':'+(s<10?'0':'')+s;}
+  return Math.round(sec/60)+'m';
 }
 
 function axis(svg, W, H, padL, padB, tmax, ymax, yfmt){
@@ -89,6 +90,7 @@ function legend(el, tops){
 fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
   const head=document.getElementById('rpHead');
   if(d.error){head.innerHTML='<span class="sub">'+esc(d.error)+'</span>';return;}
+  SHORT_SPAN=d.points.length&&d.points[d.points.length-1].t<1200;
   const dur=d.points.length?fmtT(d.points[d.points.length-1].t):'?';
   head.innerHTML='<h2 style="margin:0">'+esc(d.name||('#'+d.sys_id))+'</h2>'
     +'<span class="sub">'+esc(d.region)+' &middot; '+esc(d.played_at)+' &middot; '+dur+' tracked</span>';
