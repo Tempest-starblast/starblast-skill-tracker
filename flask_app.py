@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.42.0"
+APP_VERSION = "6.43.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1790,7 +1790,13 @@ def replay_data(mid):
     # of the RIGHT game is served and labelled partial instead.
     _span = (traj[-1][0] - traj[0][0]) if len(traj) >= 2 else 0.0
     _pmax = max([int(p.get("score") or 0) for p in players] or [0])
-    _tsc = max([int(v or 0) for v in (traj[-1][2] or {}).values()] or [0]) if traj else 0
+    # Peak across the whole recording - the final frame of a normal match
+    # reads near-zero once everyone has left.
+    _tsc = 0
+    for _r in traj:
+        _fm = max([int(v or 0) for v in (_r[2] or {}).values()] or [0])
+        if _fm > _tsc:
+            _tsc = _fm
     if _pmax > 0 and _tsc < 0.5 * _pmax:
         return jsonify({"error": "The recording for this match does not cover "
                                  "the game - no replay is available."}), 404
@@ -2548,10 +2554,16 @@ def game_end():
                             _repmax = max(_repmax, int(_v))
                         except (TypeError, ValueError):
                             pass
+                # PEAK team score across the whole trajectory, not the final
+                # frame: most matches end drained (everyone leaves before
+                # the lobby dies), so the last frame reads near-zero even in
+                # a complete recording. A wrong-game capture has a tiny peak
+                # too, so the test still discriminates.
                 _trajmax = 0
-                if _traj:
-                    _trajmax = max([int(v or 0) for v in (_traj[-1][2] or {}).values()]
-                                   or [0])
+                for _r in _traj:
+                    _fm = max([int(v or 0) for v in (_r[2] or {}).values()] or [0])
+                    if _fm > _trajmax:
+                        _trajmax = _fm
                 _span = (_traj[-1][0] - _traj[0][0]) if len(_traj) >= 2 else 0.0
                 # Owner's rule: EVERY match gets a replay - a short one is
                 # stored and labelled partial rather than refused. The only
@@ -2659,6 +2671,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.43.0", "at": "2026-08-21T09:20:00Z", "changes": [
+        "Replays now exist for practically every match. Two bugs were quietly eating them: a match that ended with everyone leaving (most of them) was mistaken for a recording of the wrong game, and any watcher restart threw away every recording in progress. Both fixed - the check now looks at the whole recording's peak, and recordings survive restarts.",
+        "There is a dedicated #match-replays channel on Discord: one line per finished match with its replay link, a browsable list of games to rewatch. (The channel appears once it is created on the server - the bot fills it automatically.)",
+    ]},
     {"version": "6.42.0", "at": "2026-08-21T08:50:00Z", "changes": [
         "Joining a losing team to help no longer traps you. A ship under 100 points at the moment a team's line-up locks in was never really part of that team - so a reinforcement who arrives, judges the game lost, and leaves takes no loss. Once you are genuinely on the roster, no score gets you off it: dying on purpose is not an exit.",
     ]},
