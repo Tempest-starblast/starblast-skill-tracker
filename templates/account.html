@@ -86,6 +86,9 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 {% endif %}
 
 {% if acct.recent %}
+{% set progress_name = acct.name %}
+{% include 'progress_chart.html' %}
+
 <div class="card">
   <h2>Recent matches</h2>
   {% for m in acct.recent %}

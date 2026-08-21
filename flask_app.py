@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.39.0"
+APP_VERSION = "6.40.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1758,6 +1758,20 @@ def replay_data(mid):
         runs.append(_cur)
     if runs:
         traj = max(runs, key=len)
+    # Drop single-read glitches: a frame whose total is under half of BOTH
+    # neighbours' totals is a partial read, not the match - one of them drew
+    # a one-read 100% spike across the win-probability chart.
+    def _rtot(r):
+        return sum(int(v or 0) for v in (r[2] or {}).values())
+    if len(traj) >= 3:
+        _keep = [traj[0]]
+        for _j in range(1, len(traj) - 1):
+            _t = _rtot(traj[_j])
+            if _t * 2 < _rtot(traj[_j - 1]) and _t * 2 < _rtot(traj[_j + 1]):
+                continue
+            _keep.append(traj[_j])
+        _keep.append(traj[-1])
+        traj = _keep
     # The NEXT match's opening frozen by mistake (before the snapshot guard
     # existed) is not this game: its final team scores are nowhere near the
     # match's reported ones. That is the only refusal - a short recording
@@ -2610,6 +2624,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.40.0", "at": "2026-08-21T05:40:00Z", "changes": [
+        "Every profile now has an interactive skill-progress chart - your rating after every match you have ever played. Hover any point for that match's details (server, result, points gained or lost, score), click a point to open the match's replay, and filter to your last 20 or 50 games. Wins are green dots, losses red, half-counted matches show as rings, and your peak rating is marked. It is on your own account page too.",
+        "Replay charts no longer show one-moment 100% spikes: a single garbled reading of the scoreboard could look like a team losing everything for ten seconds, and the win-probability line believed it. Glitched readings are now filtered out of replays, old and new.",
+    ]},
     {"version": "6.39.0", "at": "2026-08-21T01:20:00Z", "changes": [
         "Marathon games are no longer thrown away. Past the 90-minute watch limit, a team holding four times the points of both other teams combined - for a sustained stretch, so one misread can never decide it - is declared the winner and the match is scored normally. Before this, a two-hour game with a crushing lead could end as 'abandoned' and count for nothing.",
     ]},
@@ -3609,6 +3627,52 @@ def leaderboard_sort_key(row):
     played = wins + losses
     rate = (wins / played) if played else -1
     return (-elo, -rate, -wins, name.lower())
+
+
+@app.route('/api/player/progress')
+def player_progress():
+    """Every rated match a player has, oldest first, with their rating
+    after each - the data behind the interactive progress chart.
+
+    The series is reconstructed BACKWARDS from the current rating (rating
+    after match i = current minus every delta that came after i), so hand
+    corrections and retro-credits land where they were applied instead of
+    assuming everyone started clean at STARTING_ELO."""
+    name = str(request.args.get('name') or '').strip()
+    key = normalize_name(name)
+    if not key:
+        return jsonify({"error": "No name given."}), 400
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, elo FROM players WHERE norm_name = ?", (key,))
+    prow = c.fetchone()
+    if not prow:
+        conn.close()
+        return jsonify({"error": "That player is not on the board."}), 404
+    c.execute("SELECT mp.won, mp.delta, COALESCE(mp.half,0), mp.score, "
+              "m.id, m.played_at, m.lobby_name, COALESCE(m.region,'america'), "
+              "(SELECT 1 FROM match_replays mr WHERE mr.match_row = m.id) "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? ORDER BY m.played_at, m.id", (key,))
+    rows = c.fetchall()
+    conn.close()
+    cur = float(prow[1])
+    after = []
+    run = cur
+    for r in reversed(rows):
+        after.append(run)
+        run -= float(r[1] or 0)
+    after.reverse()
+    out = []
+    for i, r in enumerate(rows):
+        out.append({"won": bool(r[0]), "delta": round(float(r[1] or 0), 2),
+                    "half": int(r[2] or 0), "score": r[3],
+                    "mid": r[4], "at": str(r[5] or '')[:16],
+                    "lobby": r[6] or '', "region": r[7],
+                    "replay": bool(r[8]), "elo": round(after[i], 2)})
+    start = round(after[0] - float(rows[0][1] or 0), 2) if rows else round(cur, 2)
+    return jsonify({"name": prow[0], "elo": round(cur, 2),
+                    "start": start, "matches": out}), 200
 
 
 @app.route('/player/<name>')

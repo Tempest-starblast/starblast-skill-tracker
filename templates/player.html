@@ -76,6 +76,9 @@
 </div>
 {% endif %}
 
+{% set progress_name = player.name %}
+{% include 'progress_chart.html' %}
+
 <div class="card">
   <h2>Recent matches</h2>
   {% if history %}
