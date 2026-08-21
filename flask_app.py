@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.40.0"
+APP_VERSION = "6.41.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -84,13 +84,15 @@ STARTING_ELO = 1000
 ELO_K = 200    # max elo swing for a single match, approached as the result gets more lopsided
 ELO_SCALE = 2000  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
 
-# Minimum end-of-match score to be rated at all. Below this a player did
-# too little to have played the match - a barely-participating player on a
-# team should not collect a win or dodge a loss. Was an exact-0 check;
-# raised to a real floor. A player with NO recorded score is still rated
-# (missing evidence never drops anyone - the board simply dropped them from
-# its top rows).
-MIN_RATED_SCORE = 1000
+# Minimum score to COLLECT A WIN - idling on the winning team earns
+# nothing. Losers have NO floor at all (owner's rule): they usually finish
+# small precisely because they lost, holding them to a bar let whole
+# losing teams dodge their losses (feeds full of matches with zero
+# losers), and any floor is gameable - a loser can suicide their score
+# under it on purpose. The assembled losing team takes the loss, full
+# stop; spectator bodies are already stripped upstream. A player with NO
+# recorded score is still rated - missing evidence never drops anyone.
+MIN_RATED_SCORE = 1000        # to collect a win
 
 # Anchored to this file's own directory rather than a bare relative path,
 # since different hosts (PythonAnywhere vs the droplet) run this with
@@ -2274,7 +2276,7 @@ def game_end():
     # which an impersonator cannot do, so a check-in settles it in favour of
     # the real owner. (Confirmed live: L7 Tempest, match #5536 - checked in,
     # scored 15293, won, but a transient same-name read denied the win.)
-    def skip_reason(player_name):
+    def skip_reason(player_name, losing=False):
         """Why this player is not rated, or None if they are.
 
         Split out from skip() so a drop can be recorded with its cause.
@@ -2286,7 +2288,7 @@ def game_end():
         if is_default_name(player_name):
             return 'default-name'
         _sc = final_scores.get(player_name)
-        if _sc is not None and _sc < MIN_RATED_SCORE:
+        if not losing and _sc is not None and _sc < MIN_RATED_SCORE:
             return 'low-score'
         if (normalize_name(player_name) in ambiguous
                 and normalize_name(player_name) not in checked_in):
@@ -2297,7 +2299,7 @@ def game_end():
             return 'dominance-flip'
         return None
 
-    def skip(player_name):
+    def skip(player_name, losing=False):
         # A name that normalises to nothing - one written entirely in
         # characters this strips, so Chinese, Cyrillic, Arabic, Korean or
         # Greek - would otherwise be looked up as the empty string, and match
@@ -2308,12 +2310,12 @@ def game_end():
             return True
         if is_default_name(player_name):
             return True
-        # Under MIN_RATED_SCORE: present, but barely played. Rating them
-        # hands wins to spectators idling in small lobbies - and a near-idle
-        # "player" should not count towards the abandoned-match real-player
-        # threshold either, which this shares. A missing score is kept.
+        # Winners under MIN_RATED_SCORE: present, but barely played -
+        # rating them hands wins to idlers. Losers have no floor: the
+        # assembled losing team takes the loss whatever the panel says,
+        # or dying on purpose becomes a way out of it.
         _sc = final_scores.get(player_name)
-        if _sc is not None and _sc < MIN_RATED_SCORE:
+        if not losing and _sc is not None and _sc < MIN_RATED_SCORE:
             return True
         if normalize_name(player_name) in dominance_exempt:
             return True
@@ -2327,14 +2329,15 @@ def game_end():
     # real person whose real match is being set aside on purpose - that is
     # worth being able to look up later.
     _held = [(p, 1, 'protected') for p in _in_w if skip_reason(p) == 'protected']
-    _held += [(p, 0, 'protected') for p in _in_l if skip_reason(p) == 'protected']
+    _held += [(p, 0, 'protected') for p in _in_l
+              if skip_reason(p, losing=True) == 'protected']
     # Kept too: a result set aside because the match was flipped is a
     # real match somebody played, and why it went unrated should be
     # answerable later.
     _held += [(p, 0, 'dominance-flip') for p in _in_l
-              if skip_reason(p) == 'dominance-flip']
+              if skip_reason(p, losing=True) == 'dominance-flip']
     winning_team = [p for p in winning_team if not skip(p)]
-    losing_all = [p for p in losing_all if not skip(p)]
+    losing_all = [p for p in losing_all if not skip(p, losing=True)]
     # The same name on BOTH the winning and losing side is two different
     # people sharing a nickname - one account cannot have both won and lost
     # the same match, and there is no way to tell which player owns it. So
@@ -2656,6 +2659,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.41.0", "at": "2026-08-21T08:30:00Z", "changes": [
+        "Flood rules. A flood is now detected the moment it happens: ten or more zero-score ships arriving within one ten-second window, or ten or more ships flying one name - counted against the game's full ship list, not just the visible scoreboard, so a swarm hiding below the top 8 is seen too. Once a match is flooded, a team holding over double both rivals' scores combined is declared the winner on the spot: the swarm decides nothing.",
+        "Losing no longer has a score floor. The 1000-point minimum was letting whole losing teams dodge their losses - and any floor can be gamed by dying on purpose. The assembled losing team takes the loss whatever the scoreboard says; the 1000-point minimum still applies to collecting wins, so idlers earn nothing.",
+        "Winners who played most of a match but left before the very end are credited again - presence over the whole match is what counts, not being on the final screen. Joining late still halves the result, as before.",
+        "Fixed a watcher bug where a match resumed from a checkpoint could be released as 'never contested' and lost entirely, even though the checkpoint held the whole contested history.",
+    ]},
     {"version": "6.40.0", "at": "2026-08-21T05:40:00Z", "changes": [
         "Every profile now has an interactive skill-progress chart - your rating after every match you have ever played. Hover any point for that match's details (server, result, points gained or lost, score), click a point to open the match's replay, and filter to your last 20 or 50 games. Wins are green dots, losses red, half-counted matches show as rings, and your peak rating is marked. It is on your own account page too.",
         "Replay charts no longer show one-moment 100% spikes: a single garbled reading of the scoreboard could look like a team losing everything for ten seconds, and the win-probability line believed it. Glitched readings are now filtered out of replays, old and new.",
