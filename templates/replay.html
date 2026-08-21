@@ -91,9 +91,14 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
   const head=document.getElementById('rpHead');
   if(d.error){head.innerHTML='<span class="sub">'+esc(d.error)+'</span>';return;}
   SHORT_SPAN=d.points.length&&d.points[d.points.length-1].t<1200;
-  const dur=d.points.length?fmtT(d.points[d.points.length-1].t):'?';
+  const span=d.points.length?d.points[d.points.length-1].t:0;
+  const dur=d.points.length?fmtT(span):'?';
+  const partial=d.tracked_seconds&&span&&span<0.7*d.tracked_seconds;
+  const durLbl=partial
+    ?('covers the last '+dur+' of a ~'+Math.round(d.tracked_seconds/60)+'m match')
+    :(dur+' tracked');
   head.innerHTML='<h2 style="margin:0">'+esc(d.name||('#'+d.sys_id))+'</h2>'
-    +'<span class="sub">'+esc(d.region)+' &middot; '+esc(d.played_at)+' &middot; '+dur+' tracked</span>';
+    +'<span class="sub">'+esc(d.region)+' &middot; '+esc(d.played_at)+' &middot; '+durLbl+'</span>';
   const tops=[1,2,3].map(i=>(d.top||{})['team_'+i]||'');
   legend(document.getElementById('legend1'),tops);
   legend(document.getElementById('legend2'),tops);

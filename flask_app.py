@@ -1758,14 +1758,14 @@ def replay_data(mid):
         runs.append(_cur)
     if runs:
         traj = max(runs, key=len)
-    # A sliver, or the NEXT match's opening frozen by mistake before the
-    # snapshot guard existed: under five minutes of data, or final team
-    # scores nowhere near the match's reported ones, is not this game.
-    # Refusing honestly beats charting the wrong one.
+    # The NEXT match's opening frozen by mistake (before the snapshot guard
+    # existed) is not this game: its final team scores are nowhere near the
+    # match's reported ones. That is the only refusal - a short recording
+    # of the RIGHT game is served and labelled partial instead.
     _span = (traj[-1][0] - traj[0][0]) if len(traj) >= 2 else 0.0
     _pmax = max([int(p.get("score") or 0) for p in players] or [0])
     _tsc = max([int(v or 0) for v in (traj[-1][2] or {}).values()] or [0]) if traj else 0
-    if _span < 300 or (_pmax > 0 and _tsc < 0.5 * _pmax):
+    if _pmax > 0 and _tsc < 0.5 * _pmax:
         return jsonify({"error": "The recording for this match does not cover "
                                  "the game - no replay is available."}), 404
     # Draw from zero: the watch usually begins ~20 minutes into the match,
@@ -1804,6 +1804,9 @@ def replay_data(mid):
         "name": p.get("name") or row[1] or "", "region": row[2] or "",
         "played_at": str(row[3] or ""), "sys_id": row[4],
         "top": p.get("top") or {}, "skill": pskill,
+        # So the page can say "covers the last X of a ~Y-minute match"
+        # when the recording is partial.
+        "tracked_seconds": int(row[5] or 0) * 10,
         "players": players, "points": points,
     }), 200
 
@@ -2501,12 +2504,15 @@ def game_end():
                     _trajmax = max([int(v or 0) for v in (_traj[-1][2] or {}).values()]
                                    or [0])
                 _span = (_traj[-1][0] - _traj[0][0]) if len(_traj) >= 2 else 0.0
-                _covers = (_span >= 300
-                           and (_repmax <= 0 or _trajmax >= 0.5 * _repmax))
+                # Owner's rule: EVERY match gets a replay - a short one is
+                # stored and labelled partial rather than refused. The only
+                # thing still rejected is data from the WRONG game, and the
+                # score test alone catches that.
+                _covers = (_repmax <= 0 or _trajmax >= 0.5 * _repmax)
                 if len(_traj) >= 6 and not _covers:
-                    print("[game_end] replay skipped for match %s: %ds span, "
-                          "ends at %d points vs a reported best of %d - a "
-                          "sliver or the next game's opening, not this match."
+                    print("[game_end] replay skipped for match %s: %ds span "
+                          "ending at %d points vs a reported best of %d - "
+                          "the next game's opening, not this match."
                           % (_mr[0], int(_span), _trajmax, _repmax), flush=True)
                 if len(_traj) >= 6 and _covers:
                     _blob = zlib.compress(json.dumps({
