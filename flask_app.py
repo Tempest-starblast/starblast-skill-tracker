@@ -2461,6 +2461,19 @@ def game_end():
         match_id = str(data.get('match_id') or f"sys{sys_id}-{int(time.time())}")
         now_ts = time.strftime('%Y-%m-%d %H:%M:%S')
         flood_json, flood_max = summarize_flood(data.get('dup_names'))
+        # A lobby holding far more ships than the 24 the mode allows is a
+        # flood however the names read - the swarm rarely surfaces in the
+        # top-8 panel, but simstatus counts every ship (73 seen live in
+        # lobby #862 while the panel summed twelve).
+        try:
+            _simpeak = int(data.get('sim_players_peak') or 0)
+        except (TypeError, ValueError):
+            _simpeak = 0
+        if _simpeak >= 30:
+            _fd = json.loads(flood_json) if flood_json else {}
+            _fd["lobby"] = {"ships seen (mode allows 24)": _simpeak}
+            flood_json = json.dumps(_fd, ensure_ascii=False)
+            flood_max = max(flood_max, _simpeak - 24)
         _flood_json, _flood_max, _match_id = flood_json, flood_max, match_id
         c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, "
                   "region, lobby_name, tracked_reads, flood, flood_max) "
