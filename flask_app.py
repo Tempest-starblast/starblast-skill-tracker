@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.38.0"
+APP_VERSION = "6.39.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2543,6 +2543,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.39.0", "at": "2026-08-21T01:20:00Z", "changes": [
+        "Marathon games are no longer thrown away. Past the 90-minute watch limit, a team holding four times the points of both other teams combined - for a sustained stretch, so one misread can never decide it - is declared the winner and the match is scored normally. Before this, a two-hour game with a crushing lead could end as 'abandoned' and count for nothing.",
+    ]},
     {"version": "6.38.0", "at": "2026-08-20T22:40:00Z", "changes": [
         "Every finished match now gets a replay page: score and player-count graphs over the whole game, plus each team's win probability at every moment, computed with the same model the live view uses. The Discord results feed links each match's replay. Replays are built from the watcher's own journal - nothing is recorded on anyone's computer - and are kept for 90 days.",
     ]},
