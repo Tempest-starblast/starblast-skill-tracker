@@ -275,6 +275,13 @@ def live_db():
     conn.execute("CREATE TABLE IF NOT EXISTS live ("
                  "sys_id INTEGER PRIMARY KEY, updated REAL, elapsed REAL, "
                  "region TEXT, name TEXT, payload TEXT)")
+    # The PREVIOUS match's trajectory for each lobby, one deep. When a new
+    # match starts in the same sys the live row resets - but the ended
+    # match's result usually arrives AFTER that reset, and discarding the
+    # old trajectory cost the replay (Albiratos #8039: a single fresh-clock
+    # frame 71 seconds before scoring wiped a 30-minute recording).
+    conn.execute("CREATE TABLE IF NOT EXISTS live_prev ("
+                 "sys_id INTEGER PRIMARY KEY, saved REAL, payload TEXT)")
     conn.execute("CREATE TABLE IF NOT EXISTS model ("
                  "id INTEGER PRIMARY KEY, weights TEXT, meta TEXT, updated REAL)")
     return conn
@@ -1987,14 +1994,18 @@ def live_state_ingest():
             traj = (json.loads(row[0]) or {}).get("traj", [])
         except Exception:
             traj = []
-    # A reset (a new match starting in the same lobby) begins a fresh trajectory.
-    if elapsed < 12 and traj:
-        traj = []
-    # The feed's clock can also restart mid-stream (a feed restart, or a new
-    # match the <12s rule missed - seen live: 10..671s then 67s). A backwards
-    # jump is a new timebase, and two timebases on one axis is what drew one
-    # match's chart inside another's.
-    if traj and elapsed < traj[-1][0] - 30:
+    # A reset (a new match starting in the same lobby, or the feed's clock
+    # restarting) begins a fresh trajectory - but the OLD one is stashed,
+    # never discarded: the ended match's result usually arrives after the
+    # reset, and its replay is built from the stash.
+    _reset = bool(traj) and (elapsed < 12 or elapsed < traj[-1][0] - 30)
+    if _reset:
+        if len(traj) >= 6 and row:
+            c.execute("INSERT INTO live_prev (sys_id, saved, payload) "
+                      "VALUES (?,?,?) ON CONFLICT(sys_id) DO UPDATE SET "
+                      "saved=excluded.saved, payload=excluded.payload",
+                      (sys_id, now, row[0]))
+            c.execute("DELETE FROM live_prev WHERE saved < ?", (now - 6 * 3600,))
         traj = []
     traj.append([round(elapsed, 1), ct, sc])
     traj = traj[-LIVE_TRAJ_CAP:]
@@ -2585,67 +2596,86 @@ def game_end():
             c.execute("SELECT id FROM matches WHERE match_id = ?", (_match_id,))
             _mr = c.fetchone()
             _lconn = live_db()
+            # Two candidate trajectories, tried in order: the CURRENT live
+            # row, then the STASHED one the ingest set aside when a new
+            # clock started in this lobby. The stash is the usual winner
+            # for a late-arriving result: the next match resets the live
+            # row BEFORE the ended match is scored (Albiratos #8039 lost
+            # its 30-minute recording to a single fresh-clock frame that
+            # landed 71 seconds before scoring). Every rejection is
+            # logged; nothing is silent.
+            _cands = []
             _lrow = _lconn.execute("SELECT updated, region, name, payload FROM live "
                                    "WHERE sys_id = ?", (sys_id,)).fetchone()
-            _lconn.close()
-            if _mr and _lrow and time.time() - _lrow[0] < 45 * 60:
-                _lp = json.loads(_lrow[3]) or {}
+            if _lrow:
+                _cands.append(("live", _lrow[0], _lrow[1], _lrow[2],
+                               _lrow[3], 45 * 60))
+            _prow = _lconn.execute("SELECT saved, payload FROM live_prev "
+                                   "WHERE sys_id = ?", (sys_id,)).fetchone()
+            if _prow:
+                _cands.append(("stashed", _prow[0],
+                               str(data.get('region') or ''),
+                               str(data.get('lobby_name') or ''),
+                               _prow[1], 4 * 3600))
+            # The wrong-game discriminator: a finished game's totals dwarf
+            # a fresh one's, so the trajectory's PEAK team score must reach
+            # half the best reported player score. Peak, not final frame -
+            # most matches end drained.
+            _repmax = 0
+            if isinstance(data.get('scores'), dict):
+                for _v in data['scores'].values():
+                    try:
+                        _repmax = max(_repmax, int(_v))
+                    except (TypeError, ValueError):
+                        pass
+            _now_t = time.time()
+            _snap = None
+            _whynot = []
+            for _src, _ts, _rg, _nm, _ptxt, _maxage in _cands:
+                if _now_t - _ts >= _maxage:
+                    _whynot.append("%s: %d min stale" % (_src, int((_now_t - _ts) / 60)))
+                    continue
+                _lp = json.loads(_ptxt) or {}
                 _traj = _lp.get("traj") or []
-                # The same lobby hosts the NEXT match the moment this one
-                # ends, and the live row resets to it - so a late-arriving
-                # result must not freeze the new game's opening minutes as
-                # the old game's replay (seen live: a 3-minute, 502-point,
-                # one-team "replay" of a full match). Scores are the
-                # discriminator - a clock can restart mid-match, but a
-                # finished game's totals dwarf a fresh one's: the
-                # trajectory's final best team must be at least half the
-                # best reported player score.
-                _repmax = 0
-                if isinstance(data.get('scores'), dict):
-                    for _v in data['scores'].values():
-                        try:
-                            _repmax = max(_repmax, int(_v))
-                        except (TypeError, ValueError):
-                            pass
-                # PEAK team score across the whole trajectory, not the final
-                # frame: most matches end drained (everyone leaves before
-                # the lobby dies), so the last frame reads near-zero even in
-                # a complete recording. A wrong-game capture has a tiny peak
-                # too, so the test still discriminates.
+                if len(_traj) < 6:
+                    _whynot.append("%s: only %d reads" % (_src, len(_traj)))
+                    continue
                 _trajmax = 0
                 for _r in _traj:
                     _fm = max([int(v or 0) for v in (_r[2] or {}).values()] or [0])
                     if _fm > _trajmax:
                         _trajmax = _fm
-                _span = (_traj[-1][0] - _traj[0][0]) if len(_traj) >= 2 else 0.0
-                # Owner's rule: EVERY match gets a replay - a short one is
-                # stored and labelled partial rather than refused. The only
-                # thing still rejected is data from the WRONG game, and the
-                # score test alone catches that.
-                _covers = (_repmax <= 0 or _trajmax >= 0.5 * _repmax)
-                if len(_traj) >= 6 and not _covers:
-                    print("[game_end] replay skipped for match %s: %ds span "
-                          "ending at %d points vs a reported best of %d - "
-                          "the next game's opening, not this match."
-                          % (_mr[0], int(_span), _trajmax, _repmax), flush=True)
-                if len(_traj) >= 6 and _covers:
-                    _blob = zlib.compress(json.dumps({
-                        "traj": _traj,
-                        "skill": _lp.get("skill") or {},
-                        "top": _lp.get("top") or {},
-                        "region": _lrow[1], "name": _lrow[2],
-                    }, separators=(',', ':')).encode('utf-8'), 6)
-                    c.execute("CREATE TABLE IF NOT EXISTS match_replays ("
-                              "match_row INTEGER PRIMARY KEY, data BLOB, "
-                              "created_at TEXT)")
-                    c.execute("INSERT OR IGNORE INTO match_replays "
-                              "(match_row, data, created_at) VALUES (?,?,?)",
-                              (_mr[0], sqlite3.Binary(_blob),
-                               time.strftime('%Y-%m-%d %H:%M:%S')))
-                    c.execute("DELETE FROM match_replays WHERE "
-                              "created_at < datetime('now', '-90 days')")
-                    print("[game_end] replay snapshot: match %s, %d reads, %d bytes"
-                          % (_mr[0], len(_traj), len(_blob)), flush=True)
+                if _repmax > 0 and _trajmax < 0.5 * _repmax:
+                    _whynot.append("%s: peak %d vs reported best %d - wrong game"
+                                   % (_src, _trajmax, _repmax))
+                    continue
+                _snap = (_src, _lp, _traj, _rg, _nm)
+                break
+            _lconn.close()
+            if _mr and _snap:
+                _src, _lp, _traj, _rg, _nm = _snap
+                _blob = zlib.compress(json.dumps({
+                    "traj": _traj,
+                    "skill": _lp.get("skill") or {},
+                    "top": _lp.get("top") or {},
+                    "region": _rg, "name": _nm,
+                }, separators=(',', ':')).encode('utf-8'), 6)
+                c.execute("CREATE TABLE IF NOT EXISTS match_replays ("
+                          "match_row INTEGER PRIMARY KEY, data BLOB, "
+                          "created_at TEXT)")
+                c.execute("INSERT OR IGNORE INTO match_replays "
+                          "(match_row, data, created_at) VALUES (?,?,?)",
+                          (_mr[0], sqlite3.Binary(_blob),
+                           time.strftime('%Y-%m-%d %H:%M:%S')))
+                c.execute("DELETE FROM match_replays WHERE "
+                          "created_at < datetime('now', '-90 days')")
+                print("[game_end] replay snapshot: match %s, %d reads, %d bytes "
+                      "(%s trajectory)"
+                      % (_mr[0], len(_traj), len(_blob), _src), flush=True)
+            elif _mr:
+                print("[game_end] replay skipped for match %s: %s"
+                      % (_mr[0], "; ".join(_whynot) or "no live data for this lobby"),
+                      flush=True)
     except Exception as _re:
         # A replay must never cost the result itself.
         print("[game_end] replay snapshot failed: %s" % _re, flush=True)
