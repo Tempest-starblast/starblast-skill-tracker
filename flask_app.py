@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.52.0"
+APP_VERSION = "6.53.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2867,6 +2867,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.53.0", "at": "2026-08-22T05:40:00Z", "changes": [
+        "The flip rule now counts RETURNING players as reinforcement, not just new names. A team that led every rival 1.75x-plus for a minute straight is still protected from losing to a side that filled up after the lead was set - but until now only brand-new names counted as \"filling up\", so a wave of players leaving and rejoining the eventual winner counted for nothing. A return now counts too, when it happens after the dominance began, the player stays at least five minutes, and they are still there at the end. The match that exposed this (38 Tytaeraph) has been corrected the way the flip would have scored it: the dominated team's losses are excused and the winners keep half.",
+        "When the tracker declines to flip a match, it now writes down exactly why - every arrival and return it saw on the winning team, with times and weights - so the next disputed call is a lookup, not an investigation.",
+    ]},
     {"version": "6.52.0", "at": "2026-08-22T04:30:00Z", "changes": [
         "Fixed: checking in and joining a match already in progress charged the result at FULL value instead of half - the check-in's ship-binding placed the player correctly but skipped the late-joiner assessment. Joining mid-match now counts at half through every path, exactly as the rules say.",
     ]},
