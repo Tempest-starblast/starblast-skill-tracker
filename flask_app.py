@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.54.0"
+APP_VERSION = "6.55.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2875,6 +2875,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.55.0", "at": "2026-08-22T07:40:00Z", "changes": [
+        "Checking in still cancels your previous unplayed check-in (one live check-in per account), but the reply now NAMES the lobby it cancelled and warns you to check in again if you still mean to play there. The always-there fine print cost a real 30k-score win when a cancelled check-in went unnoticed and the protected name's result was held.",
+    ]},
     {"version": "6.54.0", "at": "2026-08-22T06:30:00Z", "changes": [
         "Clan leaders can run more than one tag - but every tag after the first is its own request. A new card on the Clans page lets an approved leader ask for another tag; the site owner decides each one on Discord, and an approved tag shows on the same card with a one-click claim. One yes grants exactly one tag, so short tags cannot be collected.",
     ]},
@@ -4564,6 +4567,14 @@ def perform_checkin(c, sub_id, sys_id):
     # One live check-in per account. Without this you could check into
     # every fresh lobby at once, watch which one is going well and join
     # only that one - keeping every option open would cost nothing.
+    # The reply NAMES what got cancelled (owner incident, 22 Aug 2026:
+    # a check-in silently cancelled this way cost a 30k-score win - the
+    # generic warning was true but nobody reads a sentence that is always
+    # there).
+    c.execute("SELECT DISTINCT sys_id FROM checkins WHERE sub = ? "
+              "AND COALESCE(bound, 0) = 0 AND created_at > datetime('now', ?)",
+              (sub_id, '-' + str(CHECKIN_VALID_SECONDS) + ' seconds'))
+    _cancelled = [str(r[0]) for r in c.fetchall() if r[0] != sys_id]
     c.execute("DELETE FROM checkins WHERE sub = ? AND COALESCE(bound, 0) = 0 "
               "AND created_at > datetime('now', ?)",
               (sub_id, '-' + str(CHECKIN_VALID_SECONDS) + ' seconds'))
@@ -4574,12 +4585,15 @@ def perform_checkin(c, sub_id, sys_id):
             "and joining now only links to you if you have not already been playing."
             if late else
             " Play under any name you like - the first ship to appear is taken as yours.")
+    cancel_note = ((" ⚠ This CANCELLED your check-in for lobby #%s - if you "
+                    "still mean to play there, check in for it again before "
+                    "joining." % ', #'.join(_cancelled))
+                   if _cancelled else "")
     return 200, {"ok": True,
                  "message": f"Checked in for this match as '{who}'.{note}"
-                            f"{default_note} An earlier check-in you had not "
-                            f"played yet is cancelled; one already tied to a "
-                            f"match stays with it.",
+                            f"{default_note}{cancel_note}",
                  "sys_id": sys_id, "late": late,
+                 "cancelled": _cancelled,
                  "account_name": who, "play_as": play_as}
 
 
