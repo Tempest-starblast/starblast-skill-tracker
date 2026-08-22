@@ -39,7 +39,7 @@ CARDS = [
   ' d&#39;exactement un point.</p>'
   '<p>La force d&#39;une équipe est la moyenne de tous ses joueurs : écraser des'
   ' équipes faibles ne vous fera pas monter &mdash; monter veut dire battre des gens'
-  ' eux-mêmes bien classés.</p>'),
+  ' eux-mêmes bien classés. Vos coéquipiers comptent aussi : votre variation mélange votre score et la moyenne de votre équipe &mdash; porter des alliés faibles vers la victoire rapporte plus que la même victoire dans une équipe surpuissante, et perdre avec des alliés faibles coûte moins.</p>'),
 
  ("Pleine et demie",
   '<p>Si vous étiez déjà dans la partie quand nous avons commencé à l&#39;observer, elle'

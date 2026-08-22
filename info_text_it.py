@@ -37,7 +37,7 @@ CARDS = [
   ' stesso modo, al contrario. Due squadre pari si spostano di esattamente un punto.</p>'
   '<p>La forza di una squadra è la media di tutti i suoi giocatori, quindi accanirsi'
   ' sulle squadre deboli non ti farà salire &mdash; salire vuol dire battere gente a sua'
-  ' volta ben valutata.</p>'),
+  ' volta ben valutata. Conta anche chi hai accanto: la tua variazione fonde il tuo punteggio con la media della squadra &mdash; trascinare alleati deboli alla vittoria rende più della stessa vittoria in una squadra fortissima, e perdere con alleati deboli costa meno.</p>'),
 
  ("Piena e metà",
   '<p>Se eri già nella partita quando abbiamo iniziato a osservarla, conta piena. Se entri'

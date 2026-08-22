@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.57.0"
+APP_VERSION = "6.58.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2645,13 +2645,20 @@ def game_end():
 
     losing_team_rating = team_rating(losing_all, elo_map)
     winning_team_rating = team_rating(winning_team, elo_map)
+    # A loser's own-team context is THEIR team, not both losing teams
+    # pooled - the pool is only ever the winners' opposition.
+    _lose1_rating = team_rating(losing_team_1, elo_map) if losing_team_1 else STARTING_ELO
+    _lose2_rating = team_rating(losing_team_2, elo_map) if losing_team_2 else STARTING_ELO
+    _lose1_keys = {normalize_name(p) for p in losing_team_1}
 
     # Expected-outcome elo: the swing depends on how surprising the result
-    # was for THIS player, using their own current elo vs the opposing
-    # side's strength - not a flat amount for the whole team. A big
-    # underdog win nets close to ELO_K; beating clearly weaker opponents
-    # nets close to 0. Losing as a big favorite costs close to ELO_K;
-    # losing as a big underdog (an "expected" loss) costs close to 0.
+    # was for THIS player. Their side of the comparison is their own elo
+    # BLENDED half-and-half with their team's average (owner's rule,
+    # 22 Aug 2026): who stood beside you is part of how surprising the
+    # result was. Winning inside a stacked team pays less than carrying
+    # weak allies to the same win, and losing with weak allies costs less
+    # than a stacked side losing. A big underdog win still nets close to
+    # ELO_K; an "expected" result still moves almost nothing.
     # (name, won, delta) for every player the result actually moved, so the
     # match is written down exactly as it was applied.
     applied = []
@@ -2659,7 +2666,8 @@ def game_end():
     updated_winners = []
     for player in winning_team:
         own_elo = elo_map.get(normalize_name(player), STARTING_ELO)
-        gain = scaled(ELO_K * (1 - expected_score(own_elo, losing_team_rating)),
+        own_eff = (own_elo + winning_team_rating) / 2
+        gain = scaled(ELO_K * (1 - expected_score(own_eff, losing_team_rating)),
                       normalize_name(player))
         c.execute(
             "UPDATE players SET elo = ROUND(elo + ?, 2), wins = wins + 1 WHERE norm_name = ?",
@@ -2672,7 +2680,9 @@ def game_end():
     updated_losers = []
     for player in losing_all:
         own_elo = elo_map.get(normalize_name(player), STARTING_ELO)
-        loss = scaled(ELO_K * expected_score(own_elo, winning_team_rating),
+        own_eff = (own_elo + (_lose1_rating if normalize_name(player) in _lose1_keys
+                              else _lose2_rating)) / 2
+        loss = scaled(ELO_K * expected_score(own_eff, winning_team_rating),
                       normalize_name(player))
         c.execute(
             "UPDATE players SET elo = ROUND(MAX(500, elo - ?), 2), losses = losses + 1 WHERE norm_name = ?",
@@ -2909,6 +2919,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.58.0", "at": "2026-08-22T21:10:00Z", "changes": [
+        "Who stands beside you now counts. Your rating swing blends your own elo half-and-half with your team's average, so carrying weak allies to a win pays more than the same win inside a stacked team - and losing beside weak allies costs less than a stacked side losing. A loser is measured against their OWN team's average, never both losing teams pooled.",
+    ]},
     {"version": "6.57.0", "at": "2026-08-22T20:40:00Z", "changes": [
         "A team's strength for rating purposes is now the average of EVERYONE on it, not just its two best players. A roster that is strong top to bottom used to read as the same opponent as two stars over six nobodies, so beating a genuinely deep team paid out as if the win were expected. Unregistered players still count at 1000, and farming weak lobbies still gains almost nothing. The win-probability model's star-player signal is unchanged - that is prediction, not rating.",
     ]},
