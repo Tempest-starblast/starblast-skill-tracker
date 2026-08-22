@@ -25,12 +25,24 @@
 .lv-meta{color:var(--dim,#8aa0b0);font-size:11.5px;font-variant-numeric:tabular-nums;text-align:right;flex:none}
 .lv-pct{font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;flex:none;width:46px;text-align:right}
 .lv-out{opacity:.4}
-.lv-pl{display:flex;flex-wrap:wrap;gap:3px 12px;margin:1px 0 9px 19px;
-  font-size:11px;color:var(--dim,#8aa0b0)}
-.lv-pi{white-space:nowrap}
-.lv-pi b{color:var(--text,#cfe6f2);font-weight:600}
-.lv-pi i{font-style:normal;font-variant-numeric:tabular-nums;font-weight:600}
-.lv-pi small{opacity:.65}
+.lv-det{margin-top:9px;border-top:1px solid rgba(153,221,255,.1);padding-top:7px}
+.lv-det summary{list-style:none;cursor:pointer;font-size:10.5px;letter-spacing:1.6px;
+  text-transform:uppercase;color:var(--dim,#8aa0b0);user-select:none}
+.lv-det summary::-webkit-details-marker{display:none}
+.lv-det summary::before{content:'\25B8';margin-right:7px;display:inline-block;
+  transition:transform .15s ease}
+.lv-det[open] summary::before{transform:rotate(90deg)}
+.lv-det summary:hover{color:var(--text,#cfe6f2)}
+.lv-plist{margin-top:7px}
+.lv-prow{display:grid;grid-template-columns:10px 1fr 48px 52px;gap:9px;
+  align-items:center;padding:2.5px 0;font-size:12px}
+.lv-prow .c{width:8px;height:8px;border-radius:2px}
+.lv-prow .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--text,#cfe6f2)}
+.lv-prow .n small{color:var(--dim,#8aa0b0)}
+.lv-prow .e{color:var(--dim,#8aa0b0);text-align:right;
+  font-variant-numeric:tabular-nums}
+.lv-prow .i{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .lv-spark{margin-top:10px;width:100%;height:44px;display:block}
 .lv-empty{max-width:1100px;margin:40px auto;text-align:center;color:var(--dim,#8aa0b0);font-size:14px}
 </style>
@@ -55,6 +67,13 @@
   var COLORS = {team_1:'#99DDFF', team_2:'#66E6B8', team_3:'#FFCC66'};
   function mmss(s){ s=Math.max(0,s|0); var m=(s/60)|0; return m+':'+('0'+(s%60)).slice(-2); }
   function esc(x){ var d=document.createElement('div'); d.textContent=(x==null?'':String(x)); return d.innerHTML; }
+  // The cards re-render every few seconds; remember which player lists
+  // were open so a refresh doesn't snap them shut.
+  var OPEN={};
+  document.addEventListener('toggle',function(e){
+    var d=e.target;
+    if(d&&d.classList&&d.classList.contains('lv-det')) OPEN[d.dataset.sid]=d.open;
+  },true);
 
   function spark(hist){
     if(!hist || hist.length<2) return '';
@@ -93,18 +112,26 @@
         '<span class="lv-meta">'+t.score.toLocaleString()+' pts &middot; '+t.count+'p'+sk+'</span>'+
         '<span class="lv-pct" style="color:'+COLORS[t.key]+'">'+(out?'out':Math.round(t.prob*100)+'%')+'</span>'+
       '</div>';
-      // Every player, with their leave-one-out impact: how much the team's
-      // chance would drop without them. Green helps, red hurts.
-      if(t.players && t.players.length){
-        rows+='<div class="lv-pl">'+t.players.map(function(p){
-          var v=p.imp*100, s=v>=0?'+':'';
-          var col=v>=0.05?'#66e6b8':(v<=-0.05?'#ff7a7a':'#8aa0b0');
-          return '<span class="lv-pi">'+esc(p.name)+
-            (p.known?' <b>'+Math.round(p.elo)+'</b>':' <small>unranked</small>')+
-            ' <i style="color:'+col+'">'+s+v.toFixed(1)+'%</i></span>';
-        }).join('')+'</div>';
-      }
     });
+    // Every player, one tidy list behind a toggle - the card itself stays
+    // as clean as it always was. Impact = how much the team's chance
+    // would drop without them (green carries, red drags).
+    var pl='';
+    m.teams.forEach(function(t){
+      (t.players||[]).forEach(function(p){
+        var v=p.imp*100, s=v>=0?'+':'';
+        var col=v>=0.05?'#66e6b8':(v<=-0.05?'#ff7a7a':'#8aa0b0');
+        pl+='<div class="lv-prow">'+
+          '<span class="c" style="background:'+COLORS[t.key]+'"></span>'+
+          '<span class="n">'+(p.known?esc(p.name):esc(p.name)+' <small>unranked</small>')+'</span>'+
+          '<span class="e">'+(p.known?Math.round(p.elo):'')+'</span>'+
+          '<span class="i" style="color:'+col+'">'+s+v.toFixed(1)+'%</span>'+
+        '</div>';
+      });
+    });
+    var det = pl ? '<details class="lv-det" data-sid="'+m.sys_id+'"'+
+                   (OPEN[m.sys_id]?' open':'')+'><summary>Players &amp; impact</summary>'+
+                   '<div class="lv-plist">'+pl+'</div></details>' : '';
     var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
     var fl='';
     if(m.flood_max >= 2){
@@ -120,7 +147,7 @@
     return '<div class="lv-card">'+
       '<div class="lv-ctop"><b>'+esc(m.name||('Lobby '+m.sys_id))+'</b>'+
         '<span>'+esc(reg)+' &middot; '+mmss(m.elapsed)+'</span></div>'+
-      bar+rows+fl+spark(m.history)+
+      bar+rows+fl+spark(m.history)+det+
     '</div>';
   }
 
