@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.48.0"
+APP_VERSION = "6.49.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1958,6 +1958,7 @@ def live_state_ingest():
     # A player the board does not know counts as a fresh 1000 - same rule the
     # trainer uses, so live and training see skill identically.
     skill = {}
+    rdet = {}
     rosters = d.get("rosters") or {}
     if isinstance(rosters, dict) and any(rosters.values()):
         try:
@@ -1969,6 +1970,7 @@ def live_state_ingest():
                     continue
                 elos, wrs, games, known = [], [], 0, 0
                 clans = {}
+                _det = []
                 for nm in names:
                     row = _scc.execute(
                         "SELECT elo, COALESCE(wins,0), COALESCE(losses,0), clan "
@@ -1982,9 +1984,15 @@ def live_state_ingest():
                         wrs.append((row[1] / g) if g else 0.5)
                         if row[3]:
                             clans[row[3]] = clans.get(row[3], 0) + 1
+                        _det.append({"n": nm[:24], "e": round(float(row[0]), 1),
+                                     "w": round((row[1] / g) if g else 0.5, 3),
+                                     "g": g, "c": row[3] or None, "k": 1})
                     else:
                         elos.append(1000.0)
                         wrs.append(0.5)
+                        _det.append({"n": nm[:24], "e": 1000.0, "w": 0.5,
+                                     "g": 0, "c": None, "k": 0})
+                rdet[k] = _det
                 # The model uses the two best players, not the team average:
                 # measured on 1,015 matches, one strong player carries real
                 # predictive weight that a mean of eight would bury. Winrate,
@@ -2031,7 +2039,8 @@ def live_state_ingest():
                           lobby_name=name, region=region)
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
-               "skill": skill, "flood": live_flood, "flood_max": flood_worst,
+               "skill": skill, "rdet": rdet,
+               "flood": live_flood, "flood_max": flood_worst,
                "traj": traj}
     c.execute("INSERT INTO live (sys_id, updated, elapsed, region, name, payload) "
               "VALUES (?,?,?,?,?,?) ON CONFLICT(sys_id) DO UPDATE SET "
@@ -2092,11 +2101,61 @@ def live_matches():
                                 round(hp["team_2"], 3), round(hp["team_3"], 3)])
             except Exception:
                 pass
+        # Per-player impact: recompute the team's probability with each
+        # player removed - the drop is what that player is worth to the
+        # model right now (through ratings, win rate, experience and clan
+        # stacking; the team's score is a team fact and stays put).
+        _rdet = p.get("rdet") or {}
+
+        def _agg(_plist):
+            if not _plist:
+                return None, None
+            _el = [q["e"] for q in _plist]
+            _t2 = sorted(_el, reverse=True)[:2]
+            _cl = {}
+            for q in _plist:
+                if q.get("c"):
+                    _cl[q["c"]] = _cl.get(q["c"], 0) + 1
+            return (sum(_t2) / len(_t2),
+                    (sum(q["w"] for q in _plist) / len(_plist),
+                     sum(q.get("g", 0) for q in _plist),
+                     max(_cl.values()) if _cl else 0))
+
+        players_by_team = {}
+        for k in LIVE_TEAMS:
+            _plist = _rdet.get(k) or []
+            if not _plist or probs.get(k) is None:
+                continue
+            _out = []
+            for _i, _pl in enumerate(_plist):
+                _rest = _plist[:_i] + _plist[_i + 1:]
+                _sk2 = dict(skills)
+                _dp2 = dict(dpt)
+                _a = _agg(_rest)
+                if _a is None or _a[0] is None:
+                    _sk2[k] = None
+                    _dp2.pop(k, None)
+                else:
+                    _sk2[k] = _a[0]
+                    _dp2[k] = _a[1]
+                try:
+                    _hp = win_probability(counts, scores, elapsed, weights=w,
+                                          skills=_sk2, depth=_dp2, window=wnd)
+                    _imp = probs.get(k, 0.0) - _hp.get(k, 0.0)
+                except Exception:
+                    _imp = 0.0
+                _out.append({"name": _pl["n"], "elo": _pl["e"],
+                             "known": _pl.get("k", 0),
+                             "imp": round(_imp, 4)})
+            _out.sort(key=lambda q: -q["imp"])
+            players_by_team[k] = _out
+
         teams = [{"key": k, "label": "Team %s" % k[-1],
                   "score": int(scores.get(k, 0) or 0),
                   "count": int(counts.get(k, 0) or 0),
                   "top": top.get(k, ""),
                   "skill": pskill.get(k) or None,
+                  "players": players_by_team.get(k) or [],
                   "prob": round(probs.get(k, 0.0), 4)} for k in LIVE_TEAMS]
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
@@ -2768,6 +2827,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.49.0", "at": "2026-08-21T23:20:00Z", "changes": [
+        "The live win-probability view now lists every player on each team with their individual impact on the team's chances - computed by asking the model what the probability would be without them. Green means they are carrying, red means they are dragging, and unranked players are marked as such.",
+    ]},
     {"version": "6.48.0", "at": "2026-08-21T22:40:00Z", "changes": [
         "Winning is decided by the finish. The winners are the closing roster's top 8 - being around for ten minutes earlier no longer collects a win by itself, though the ten-minute presence requirement still filters out brief visitors.",
         "Claiming a name now comes with a one-time choice. A name's record may have been built by strangers before its real owner claimed it - so the moment a claim completes, the new owner sees the wins and losses it carries and can either wipe them (starting clean at 1000) or keep them. Offered once, right after the claim; match records themselves are untouched.",
