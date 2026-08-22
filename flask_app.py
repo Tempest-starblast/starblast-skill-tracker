@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.51.0"
+APP_VERSION = "6.52.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2409,6 +2409,8 @@ def game_end():
             if _role not in ('win', 'lose1', 'lose2'):
                 continue
             _key = normalize_name(_acct)
+            _was_listed = any(normalize_name(p) == _key for p in
+                              winning_team + losing_team_1 + losing_team_2)
             # One placement, decided by the ship - drop every name-based
             # occurrence (which may include an impersonator's) first.
             winning_team = [p for p in winning_team if normalize_name(p) != _key]
@@ -2426,8 +2428,16 @@ def game_end():
                     data['scores'] = {}
                 data['scores'][_acct] = _sc
             _bound_keys.add(_key)
-            print("[game_end] sys=%s ship-bound credit: %r -> %s (score %s)"
-                  % (sys_id, _acct, _role, _sc), flush=True)
+            # A ship-bound account the tracker never rostered joined
+            # mid-match via check-in - their result counts at HALF like
+            # any other late joiner. (Gamma Aldelaris: a flip attempt was
+            # charged a full loss because this path bypassed the
+            # tracker's half list.)
+            if not _was_listed:
+                half_elo.add(_key)
+            print("[game_end] sys=%s ship-bound credit: %r -> %s (score %s%s)"
+                  % (sys_id, _acct, _role, _sc,
+                     ", half" if _key in half_elo else ""), flush=True)
         if _bound_keys:
             losing_all = losing_team_1 + losing_team_2
             # A binding is proof of ownership (it comes from a check-in),
@@ -2857,6 +2867,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.52.0", "at": "2026-08-22T04:30:00Z", "changes": [
+        "Fixed: checking in and joining a match already in progress charged the result at FULL value instead of half - the check-in's ship-binding placed the player correctly but skipped the late-joiner assessment. Joining mid-match now counts at half through every path, exactly as the rules say.",
+    ]},
     {"version": "6.51.0", "at": "2026-08-22T00:40:00Z", "changes": [
         "The live win-probability player lists now show each player's current score alongside their rating and impact. Replay result lists show every player's rating after that match next to their gain or loss, and clicking any name opens their profile.",
     ]},
