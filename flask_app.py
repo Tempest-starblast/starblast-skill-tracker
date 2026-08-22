@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.55.0"
+APP_VERSION = "6.56.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2424,13 +2424,46 @@ def game_end():
             winning_team = [p for p in winning_team if normalize_name(p) != _key]
             losing_team_1 = [p for p in losing_team_1 if normalize_name(p) != _key]
             losing_team_2 = [p for p in losing_team_2 if normalize_name(p) != _key]
-            (winning_team if _role == 'win'
-             else losing_team_1 if _role == 'lose1'
-             else losing_team_2).append(_acct)
             try:
                 _sc = int(_ent.get('score'))
             except (TypeError, ValueError):
                 _sc = None
+            # Rated only if there was time to matter. A mid-match joiner
+            # whose check-in landed within JOIN_MIN_PLAY_SECONDS of the
+            # end played a cameo, not a match - excused entirely, win or
+            # lose, and held so the record stays answerable. Players the
+            # tracker rostered itself are untouched: they were there.
+            if not _was_listed:
+                _ci_at = c.execute("SELECT MAX(created_at) FROM checkins "
+                                   "WHERE sys_id = ? AND sub = ?",
+                                   (sys_id, _sub)).fetchone()[0]
+                _endt = _ended if re.fullmatch(
+                    r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', _ended or '') \
+                    else time.strftime('%Y-%m-%d %H:%M:%S')
+                try:
+                    _played_secs = (
+                        time.mktime(time.strptime(_endt, '%Y-%m-%d %H:%M:%S'))
+                        - time.mktime(time.strptime(_ci_at, '%Y-%m-%d %H:%M:%S')))
+                except (TypeError, ValueError):
+                    _played_secs = None
+                if _played_secs is not None and _played_secs < JOIN_MIN_PLAY_SECONDS:
+                    c.execute("INSERT INTO held_results (match_id, sys_id, region, "
+                              "name, norm_name, played_as, won, score, reason, "
+                              "played_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                              (str(data.get('match_id') or ''), sys_id,
+                               str(data.get('region') or 'america'), _acct, _key,
+                               _ent.get('name') or _acct,
+                               1 if _role == 'win' else 0, _sc,
+                               'joined-too-late',
+                               time.strftime('%Y-%m-%d %H:%M:%S')))
+                    print("[game_end] sys=%s ship-bound cameo excused: %r had "
+                          "%.0fs after check-in (< %ds) - held, not rated"
+                          % (sys_id, _acct, _played_secs, JOIN_MIN_PLAY_SECONDS),
+                          flush=True)
+                    continue
+            (winning_team if _role == 'win'
+             else losing_team_1 if _role == 'lose1'
+             else losing_team_2).append(_acct)
             if _sc is not None:
                 if not isinstance(data.get('scores'), dict):
                     data['scores'] = {}
@@ -2875,6 +2908,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.56.0", "at": "2026-08-22T08:10:00Z", "changes": [
+        "A checked-in player who joined a match less than 10 minutes before it ended is no longer rated at all - win or loss. A check-in commits you to be counted, but five minutes at the tail of a 37-minute game is a cameo, not a match. The check-in's timestamp proves how long you could have played (checking in must come before joining), and cameo results are held for the record instead of scored. Players the tracker rostered normally are unaffected.",
+    ]},
     {"version": "6.55.0", "at": "2026-08-22T07:40:00Z", "changes": [
         "Checking in still cancels your previous unplayed check-in (one live check-in per account), but the reply now NAMES the lobby it cancelled and warns you to check in again if you still mean to play there. The always-there fine print cost a real 30k-score win when a cancelled check-in went unnoticed and the protected name's result was held.",
     ]},
@@ -4140,6 +4176,14 @@ def rename_player():
 # 45 minute cap a worker will watch a single match for, without letting a
 # stale check-in vouch for a match hours later.
 CHECKIN_VALID_SECONDS = 2 * 60 * 60
+
+# A checked-in mid-match joiner must have had at least this long in the
+# match to be rated at all (owner's rule, 22 Aug 2026: five minutes and
+# 102 points at the tail of a 37-minute game took a half loss). The
+# pre-join gate means the check-in stamp precedes the ship's first
+# appearance, so end-time minus stamp bounds their entire time in the
+# match. Ten minutes matches the winner presence bar.
+JOIN_MIN_PLAY_SECONDS = 10 * 60
 
 # How long after pressing Play a name may appear and still be taken as
 # yours. Long enough to load the game and pick a side, short enough that
