@@ -34,8 +34,10 @@
 .lv-det[open] summary::before{transform:rotate(90deg)}
 .lv-det summary:hover{color:var(--text,#cfe6f2)}
 .lv-plist{margin-top:7px}
-.lv-prow{display:grid;grid-template-columns:10px 1fr 48px 52px;gap:9px;
+.lv-prow{display:grid;grid-template-columns:10px 1fr 52px 48px 52px;gap:9px;
   align-items:center;padding:2.5px 0;font-size:12px}
+.lv-prow .s{color:var(--dim,#8aa0b0);text-align:right;
+  font-variant-numeric:tabular-nums}
 .lv-prow .c{width:8px;height:8px;border-radius:2px}
 .lv-prow .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   color:var(--text,#cfe6f2)}
@@ -121,9 +123,11 @@
       (t.players||[]).forEach(function(p){
         var v=p.imp*100, s=v>=0?'+':'';
         var col=v>=0.05?'#66e6b8':(v<=-0.05?'#ff7a7a':'#8aa0b0');
+        var sc=p.score||0;
         pl+='<div class="lv-prow">'+
           '<span class="c" style="background:'+COLORS[t.key]+'"></span>'+
           '<span class="n">'+(p.known?esc(p.name):esc(p.name)+' <small>unranked</small>')+'</span>'+
+          '<span class="s">'+(sc>=1000?(sc/1000).toFixed(1)+'k':sc)+'</span>'+
           '<span class="e">'+(p.known?Math.round(p.elo):'')+'</span>'+
           '<span class="i" style="color:'+col+'">'+s+v.toFixed(1)+'%</span>'+
         '</div>';

@@ -141,9 +141,17 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
     html+='<div class="rteam">'+groups[team]+(team==='lose2'?' (2)':team==='lose1'&&(d.players||[]).some(p=>p.team==='lose2')?' (1)':'')+'</div>';
     rows.forEach(p=>{
       const cls=p.won?'up':'down', sign=p.delta>=0?'+':'';
-      html+='<div class="rrow"><span>'+esc(p.name)+(p.half?' <span class="sub">(half)</span>':'')+'</span>'
-        +'<span class="d '+cls+'">'+sign+(p.delta==null?'':p.delta.toFixed(1))
-        +(p.score!=null?' <span style="color:var(--muted,#8aa0b0)">&middot; '+p.score+'</span>':'')+'</span></div>';
+      html+='<div class="rrow"><span>'
+        +'<a href="/player/'+encodeURIComponent(p.name)+'" '
+        +'style="color:inherit;text-decoration:none" '
+        +'onmouseover="this.style.textDecoration=\'underline\'" '
+        +'onmouseout="this.style.textDecoration=\'none\'">'+esc(p.name)+'</a>'
+        +(p.half?' <span class="sub">(half)</span>':'')+'</span>'
+        +'<span class="d">'
+        +(p.elo!=null?'<b style="color:#9adcff">'+p.elo.toFixed(1)+'</b> ':'')
+        +'<span class="'+cls+'">'+sign+(p.delta==null?'':p.delta.toFixed(1))+'</span>'
+        +(p.score!=null?' <span style="color:var(--muted,#8aa0b0)">&middot; '+p.score+'</span>':'')
+        +'</span></div>';
     });
   });
   document.getElementById('result').innerHTML=html||'<p class="rnote">No rated players in this match.</p>';

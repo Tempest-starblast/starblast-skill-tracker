@@ -17,13 +17,15 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.50.0"
+APP_VERSION = "6.51.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
 # The site owner (the bot application owner id). Gates the owner-only
 # sandbox switch. A set so a second identity can be added if needed.
-OWNER_SUBS = {"discord:1078474542026076160"}
+OWNER_SUBS = {"discord:1078474542026076160",          # the owner
+              "111195004071643236751",                # PALADIN (admin)
+              "discord:973307675758690364"}           # PALADIN via Discord
 # The throwaway account the owner impersonates for testing. Never a
 # real person; its rows are wiped on entry so each test starts blank.
 SANDBOX_SUB = "test:sandbox"
@@ -1750,10 +1752,23 @@ def replay_data(mid):
     if not row:
         conn.close()
         return jsonify({"error": "No replay recorded for that match."}), 404
-    c.execute("SELECT name, team, won, delta, COALESCE(half,0), score "
-              "FROM match_players WHERE match_row = ? ORDER BY score DESC", (mid,))
+    c.execute("SELECT played_at FROM matches WHERE id = ?", (mid,))
+    _pat = (c.fetchone() or [''])[0] or ''
+    # Each player's elo AFTER this match, walked backwards from their
+    # current rating minus every delta that came later - same
+    # reconstruction the progress chart uses.
+    c.execute("SELECT mp.name, mp.team, mp.won, mp.delta, COALESCE(mp.half,0), mp.score, "
+              "COALESCE((SELECT p.elo FROM players p WHERE p.norm_name = mp.norm_name), 0) "
+              "- COALESCE((SELECT SUM(mp2.delta) FROM match_players mp2 "
+              "JOIN matches m2 ON m2.id = mp2.match_row "
+              "WHERE mp2.norm_name = mp.norm_name AND (m2.played_at > ? "
+              "OR (m2.played_at = ? AND m2.id > ?))), 0), "
+              "(SELECT 1 FROM players p2 WHERE p2.norm_name = mp.norm_name) "
+              "FROM match_players mp WHERE mp.match_row = ? ORDER BY mp.score DESC",
+              (_pat, _pat, mid, mid))
     players = [{"name": r[0], "team": r[1], "won": bool(r[2]),
-                "delta": r[3], "half": r[4], "score": r[5]} for r in c.fetchall()]
+                "delta": r[3], "half": r[4], "score": r[5],
+                "elo": (round(r[6], 1) if r[7] else None)} for r in c.fetchall()]
     conn.close()
     try:
         p = json.loads(zlib.decompress(row[0]).decode('utf-8'))
@@ -1959,6 +1974,7 @@ def live_state_ingest():
     # trainer uses, so live and training see skill identically.
     skill = {}
     rdet = {}
+    _psc = d.get("pscores") if isinstance(d.get("pscores"), dict) else {}
     rosters = d.get("rosters") or {}
     if isinstance(rosters, dict) and any(rosters.values()):
         try:
@@ -1986,12 +2002,14 @@ def live_state_ingest():
                             clans[row[3]] = clans.get(row[3], 0) + 1
                         _det.append({"n": nm[:24], "e": round(float(row[0]), 1),
                                      "w": round((row[1] / g) if g else 0.5, 3),
-                                     "g": g, "c": row[3] or None, "k": 1})
+                                     "g": g, "c": row[3] or None, "k": 1,
+                                     "s": int(_psc.get(nm, 0) or 0)})
                     else:
                         elos.append(1000.0)
                         wrs.append(0.5)
                         _det.append({"n": nm[:24], "e": 1000.0, "w": 0.5,
-                                     "g": 0, "c": None, "k": 0})
+                                     "g": 0, "c": None, "k": 0,
+                                     "s": int(_psc.get(nm, 0) or 0)})
                 rdet[k] = _det
                 # The model uses the two best players, not the team average:
                 # measured on 1,015 matches, one strong player carries real
@@ -2146,6 +2164,7 @@ def live_matches():
                     _imp = 0.0
                 _out.append({"name": _pl["n"], "elo": _pl["e"],
                              "known": _pl.get("k", 0),
+                             "score": int(_pl.get("s", 0) or 0),
                              "imp": round(_imp, 4)})
             _out.sort(key=lambda q: -q["imp"])
             players_by_team[k] = _out
@@ -2838,6 +2857,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.51.0", "at": "2026-08-22T00:40:00Z", "changes": [
+        "The live win-probability player lists now show each player's current score alongside their rating and impact. Replay result lists show every player's rating after that match next to their gain or loss, and clicking any name opens their profile.",
+    ]},
     {"version": "6.50.0", "at": "2026-08-21T23:59:00Z", "changes": [
         "Checking in now has to happen BEFORE you join the match. If a ship with your name is already flying in the lobby, the check-in is refused - a check-in is a commitment made before the outcome is knowable, not something to add once you are clearly winning. Pressing Play again after you already checked in is still fine.",
     ]},
