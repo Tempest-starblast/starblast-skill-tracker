@@ -2076,7 +2076,7 @@ def live_state_ingest():
     # Station health per team: [level, gems, mods_alive, mods_total,
     # damaged, destroyed], decoded by the tracker from the game's own
     # station-state packet. Display-only here.
-    sth = data.get('sthealth') if isinstance(data.get('sthealth'), dict) else None
+    sth = d.get('sthealth') if isinstance(d.get('sthealth'), dict) else None
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
                "skill": skill, "rdet": rdet, "sth": sth,
