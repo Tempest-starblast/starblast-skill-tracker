@@ -7755,6 +7755,31 @@ def bot_clan_mine_route():
     return jsonify({"clans": out}), 200
 
 
+@app.route('/api/export/fitdata')
+def export_fitdata():
+    """Everything a rating-calibration fit needs, in one authenticated
+    pull - so analysis runs server-to-server on the droplet instead of
+    hauling databases around by hand. Read-only.
+    """
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT m.id, m.match_id, mp.team, mp.norm_name, mp.delta "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "ORDER BY m.id")
+    rows = [[r[0], r[1], r[2], r[3], round(float(r[4] or 0), 2)] for r in c.fetchall()]
+    c.execute("SELECT norm_name, ROUND(elo, 2) FROM players WHERE norm_name IS NOT NULL")
+    elos = {r[0]: r[1] for r in c.fetchall()}
+    c.execute("SELECT DISTINCT match_id FROM held_results WHERE reason = 'dominance-flip'")
+    flips = [r[0] for r in c.fetchall()]
+    c.execute("SELECT match_id FROM matches WHERE COALESCE(flood_max, 0) >= 2")
+    floods = [r[0] for r in c.fetchall()]
+    conn.close()
+    return jsonify({"rows": rows, "elos": elos, "flips": flips,
+                    "floods": floods}), 200
+
+
 @app.route('/api/bot/gamename', methods=['POST'])
 def bot_gamename_route():
     """Set the name this account plays under, from Discord."""
