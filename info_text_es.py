@@ -38,7 +38,7 @@ CARDS = [
   ' revés. Dos equipos parejos se mueven exactamente un punto.</p>'
   '<p>La fuerza de un equipo es la media de todos sus jugadores, así que machacar a'
   ' equipos débiles no te subirá &mdash; subir significa ganar a gente que también está'
-  ' bien valorada. Quiénes te acompañan también cuentan: tu cambio mezcla tu puntuación con la media de tu equipo &mdash; ganar llevando aliados débiles da más que la misma victoria en un equipo repleto de cracks, y perder con aliados débiles cuesta menos. Un equipo incompleto también cuenta como más débil que uno completo.</p>'),
+  ' bien valorada. Quiénes te acompañan también cuentan: tu cambio mezcla tu puntuación con la media de tu equipo &mdash; ganar llevando aliados débiles da más que la misma victoria en un equipo repleto de cracks, y perder con aliados débiles cuesta menos.</p>'),
 
  ("Completa y media",
   '<p>Si ya estabas en la partida cuando empezamos a observarla, cuenta completa. Si te'

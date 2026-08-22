@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.59.0"
+APP_VERSION = "6.60.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1613,28 +1613,26 @@ def unregister():
     return jsonify({"message": f"'{stored_name}' has been removed."}), 200
 
 
-# How many rating points one empty seat is worth. A short-handed team is
-# weaker than its average suggests - four players at 1200 are not the
-# fight eight players at 1200 are - so each player short of a full 8
-# docks the roster this much (owner's rule, 22 Aug 2026).
-TEAM_SIZE_W = 40
-TEAM_FULL_SIZE = 8
-
-
 def team_rating(names, elo_map):
-    """A roster's strength: average elo of EVERYONE on it, minus a
-    short-handed penalty (owner's rules, 22 Aug 2026 - it was the top 2
-    average, size-blind, before). Two stars over six nobodies and a
-    roster strong top to bottom used to read as the same opponent, and a
-    4-man crew read as strong as a full 8. Missing/unregistered players
-    are assumed to be at STARTING_ELO; the pooled two-losing-team list
-    caps at full size so it never reads as MORE than full; an empty
-    roster reads as STARTING_ELO."""
+    """A roster's strength: average elo of EVERYONE on it (owner's rule,
+    22 Aug 2026 - it was the top 2 average before). Two stars over six
+    nobodies and a roster strong top to bottom used to read as the same
+    opponent. Missing/unregistered players are assumed to be at
+    STARTING_ELO, and an empty roster reads as STARTING_ELO.
+
+    Deliberately NO roster-size term. A 40-points-per-empty-seat penalty
+    shipped briefly on 22 Aug 2026 and was reverted the same day after a
+    maximum-likelihood fit over 1,448 recorded matches measured one seat
+    at -16.8 elo, CI [-34.5, +3.0] - indistinguishable from zero, and
+    the size term made outcome prediction WORSE (0.751 -> 0.600 top-pick
+    accuracy). Roster counts at scoring time are accounting artifacts;
+    live in-match headcount is real signal, and the win-probability
+    model already carries it. Do not reintroduce a size term without a
+    fit on live headcounts showing it helps."""
     values = [elo_map.get(normalize_name(n), STARTING_ELO) for n in names]
     if not values:
         return STARTING_ELO
-    short = TEAM_FULL_SIZE - min(len(values), TEAM_FULL_SIZE)
-    return sum(values) / len(values) - TEAM_SIZE_W * short
+    return sum(values) / len(values)
 
 
 def expected_score(own_elo, opponent_rating):
@@ -2930,6 +2928,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.60.0", "at": "2026-08-22T23:30:00Z", "changes": [
+        "The team-size penalty from 6.59.0 is gone - because we measured it. A maximum-likelihood fit over 1,448 recorded matches (true roster sizes from the tracker's own logs, every player's pre-match rating replayed) put one roster seat at -16.8 rating points with a confidence interval spanning zero, and the size term made outcome prediction WORSE. Roster counts at scoring time turn out to be accounting artifacts, not strength. Live in-match headcount is real signal - and the win-probability model already uses it. Team strength stays the whole-roster average.",
+    ]},
     {"version": "6.59.0", "at": "2026-08-22T22:40:00Z", "changes": [
         "Team size now counts in the rating. A short-handed roster reads weaker than its average suggests - each player short of a full 8 docks the team 40 rating points - so beating a 4-man crew pays less than beating a full team of the same average, and losing to one costs more. The two losing teams pooled together cap at full size, so they never read as more than one full opponent. (The win-probability model already used player counts; now the rating does too.)",
     ]},

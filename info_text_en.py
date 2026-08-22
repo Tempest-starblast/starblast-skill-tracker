@@ -37,7 +37,7 @@ CARDS = [
   ' reverse. Two even teams move by exactly one point.</p>'
   '<p>A team&#39;s strength is the average of everyone on it, so farming weak teams'
   ' will not lift you &mdash; climbing means beating people who are rated highly'
-  ' themselves. Who stands beside you counts too: your swing blends your own rating with your team&#39;s average, so carrying weak allies to a win pays more than the same win inside a stacked team &mdash; and losing beside weak allies costs less. A short-handed team also reads weaker than a full one.</p>'),
+  ' themselves. Who stands beside you counts too: your swing blends your own rating with your team&#39;s average, so carrying weak allies to a win pays more than the same win inside a stacked team &mdash; and losing beside weak allies costs less.</p>'),
 
  ("Full and half",
   '<p>If you were already in the match when we started watching, it counts in full. Join a'

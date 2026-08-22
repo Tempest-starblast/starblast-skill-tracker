@@ -40,7 +40,7 @@ CARDS = [
   ' um genau einen Punkt.</p>'
   '<p>Die Stärke eines Teams ist der Durchschnitt aller seiner Spieler. Schwache'
   ' Teams abzufarmen bringt dich also nicht nach oben &mdash; aufsteigen heißt Leute zu'
-  ' schlagen, die selbst hoch bewertet sind. Wer neben dir spielt, zählt mit: dein Ausschlag mischt deine Wertung mit dem Teamdurchschnitt &mdash; schwache Verbündete zum Sieg zu tragen bringt mehr als derselbe Sieg im Star-Team, und eine Niederlage mit schwachen Verbündeten kostet weniger. Ein unterbesetztes Team gilt zudem als schwächer als ein volles.</p>'),
+  ' schlagen, die selbst hoch bewertet sind. Wer neben dir spielt, zählt mit: dein Ausschlag mischt deine Wertung mit dem Teamdurchschnitt &mdash; schwache Verbündete zum Sieg zu tragen bringt mehr als derselbe Sieg im Star-Team, und eine Niederlage mit schwachen Verbündeten kostet weniger.</p>'),
 
  ("Ganz und halb",
   '<p>Warst du schon im Spiel, als wir angefangen haben zu beobachten, zählt es ganz.'
