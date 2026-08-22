@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.49.0"
+APP_VERSION = "6.50.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2838,6 +2838,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.50.0", "at": "2026-08-21T23:59:00Z", "changes": [
+        "Checking in now has to happen BEFORE you join the match. If a ship with your name is already flying in the lobby, the check-in is refused - a check-in is a commitment made before the outcome is knowable, not something to add once you are clearly winning. Pressing Play again after you already checked in is still fine.",
+    ]},
     {"version": "6.49.0", "at": "2026-08-21T23:20:00Z", "changes": [
         "The live win-probability view now lists every player on each team with their individual impact on the team's chances - computed by asking the model what the probability would be without them. Green means they are carrying, red means they are dragging, and unranked players are marked as such.",
     ]},
@@ -4483,6 +4486,30 @@ def perform_checkin(c, sub_id, sys_id):
         default_note = (" '%s' is one of the game's default names, so Protection "
                         "is on automatically - only matches you check into count."
                         % play_as)
+
+    # Committing BEFORE you play is the whole point of a check-in
+    # (owner's rule, 22 Aug 2026). If a ship with this account's name has
+    # already appeared in this match, part of the outcome is already
+    # known - accepting a check-in now would let a player wait until they
+    # are clearly winning and only then commit. Re-pressing Play after a
+    # legitimate check-in stays a harmless no-op.
+    c.execute("SELECT 1 FROM checkins WHERE sub = ? AND sys_id = ? "
+              "AND created_at > datetime('now', ?)",
+              (sub_id, sys_id, '-' + str(CHECKIN_VALID_SECONDS) + ' seconds'))
+    if c.fetchone():
+        return 200, {"ok": True, "sys_id": sys_id, "late": lobby_age >= min_age,
+                     "account_name": who, "play_as": play_as,
+                     "message": f"Already checked in for this match as '{who}'."}
+    _keys = {normalize_name(play_as), normalize_name(who)} - {''}
+    if _keys:
+        c.execute("SELECT name FROM appearances WHERE sys_id = ?", (sys_id,))
+        for (_an,) in c.fetchall():
+            if normalize_name(_an) in _keys:
+                return 400, {"ok": False, "already_playing": True,
+                             "message": f"A ship called '{play_as}' is already in that "
+                                        f"match, so this check-in can't be accepted - "
+                                        f"checking in must come BEFORE you join. "
+                                        f"Next match, press Play first."}
 
     # One live check-in per account. Without this you could check into
     # every fresh lobby at once, watch which one is going well and join
