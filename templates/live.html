@@ -25,6 +25,22 @@
 .lv-meta{color:var(--dim,#8aa0b0);font-size:11.5px;font-variant-numeric:tabular-nums;text-align:right;flex:none}
 .lv-pct{font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;flex:none;width:46px;text-align:right}
 .lv-out{opacity:.4}
+.lv-sta{display:flex;align-items:center;gap:7px;margin:-4px 0 7px 19px;height:12px;
+  cursor:default}
+.lv-lvl{font-size:9.5px;font-weight:700;letter-spacing:.5px;color:var(--dim,#8aa0b0);
+  border:1px solid rgba(153,221,255,.25);border-radius:3px;padding:0 4px;line-height:11px;
+  flex:none}
+.lv-gembar{flex:0 0 72px;height:5px;border-radius:3px;background:rgba(255,255,255,.07);
+  overflow:hidden}
+.lv-gembar i{display:block;height:100%;border-radius:3px;background:#b48cff;
+  transition:width .6s ease}
+.lv-gemtxt{font-size:9.5px;color:var(--dim,#8aa0b0);font-variant-numeric:tabular-nums;
+  min-width:56px;flex:none}
+.lv-pips{display:flex;gap:2px}
+.lv-pips b{width:5px;height:5px;border-radius:1.5px;background:#66e6b8;opacity:.75}
+.lv-pips b.w{background:#f0c04a}
+.lv-pips b.d{background:#ff7a7a;opacity:.45}
+.lv-sta.dead .lv-lvl{color:#ff9a9a;border-color:rgba(255,140,140,.5)}
 .lv-det{margin-top:9px;border-top:1px solid rgba(153,221,255,.1);padding-top:7px}
 .lv-det summary{list-style:none;cursor:pointer;font-size:10.5px;letter-spacing:1.6px;
   text-transform:uppercase;color:var(--dim,#8aa0b0);user-select:none}
@@ -96,6 +112,33 @@
     return out;
   }
 
+  // The team's station, read from the game's own station packet:
+  // level, banked gems against that level's capacity, and one pip per
+  // module - green intact, amber damaged, dark red destroyed.
+  var GEM_CAPS=[800,1600,3200,6400];
+  function station(t){
+    var s=t.station;
+    if(!s || s.length<6) return '';
+    var lvl=s[0], gems=s[1]||0, total=s[3]||12, weak=s[4]||0, dead=s[5]||0;
+    var cap=(lvl!=null && GEM_CAPS[lvl])?GEM_CAPS[lvl]:GEM_CAPS[3];
+    var pct=Math.max(0,Math.min(100,100*gems/cap));
+    var pips='';
+    for(var i=0;i<total;i++){
+      pips+='<b class="'+(i<dead?'d':(i<dead+weak?'w':''))+'"></b>';
+    }
+    var gone = dead>=total;
+    var tip='Station level '+(lvl==null?'?':(lvl+1))+' — '
+      +gems.toLocaleString()+' / '+cap.toLocaleString()+' gems banked — '
+      +(gone?'STATION DESTROYED':((total-dead-weak)+' modules intact'
+        +(weak?', '+weak+' damaged':'')+(dead?', '+dead+' destroyed':'')));
+    return '<div class="lv-sta'+(gone?' dead':'')+'" title="'+tip+'">'+
+      '<span class="lv-lvl">'+(gone?'DEAD':'Lv'+(lvl==null?'?':(lvl+1)))+'</span>'+
+      '<span class="lv-gembar"><i style="width:'+pct.toFixed(0)+'%"></i></span>'+
+      '<span class="lv-gemtxt">'+(gems>=1000?(gems/1000).toFixed(1)+'k':gems)+' gems</span>'+
+      '<span class="lv-pips">'+pips+'</span>'+
+    '</div>';
+  }
+
   function card(m){
     var teams=m.teams.slice().sort(function(a,b){return b.prob-a.prob;});
     var bar='<div class="lv-bar">';
@@ -113,7 +156,7 @@
           ' <small>'+t.label+'</small></span>'+
         '<span class="lv-meta">'+t.score.toLocaleString()+' pts &middot; '+t.count+'p'+sk+'</span>'+
         '<span class="lv-pct" style="color:'+COLORS[t.key]+'">'+(out?'out':Math.round(t.prob*100)+'%')+'</span>'+
-      '</div>';
+      '</div>'+station(t);
     });
     // Every player, one tidy list behind a toggle - the card itself stays
     // as clean as it always was. Impact = how much the team's chance

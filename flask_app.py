@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.61.0"
+APP_VERSION = "6.62.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2073,9 +2073,13 @@ def live_state_ingest():
     if flood_worst >= FLOOD_SIGNIFICANT:
         queue_flood_alert('live', sys_id, live_flood, flood_worst,
                           lobby_name=name, region=region)
+    # Station health per team: [level, gems, mods_alive, mods_total,
+    # damaged, destroyed], decoded by the tracker from the game's own
+    # station-state packet. Display-only here.
+    sth = data.get('sthealth') if isinstance(data.get('sthealth'), dict) else None
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
-               "skill": skill, "rdet": rdet,
+               "skill": skill, "rdet": rdet, "sth": sth,
                "flood": live_flood, "flood_max": flood_worst,
                "traj": traj}
     c.execute("INSERT INTO live (sys_id, updated, elapsed, region, name, payload) "
@@ -2187,12 +2191,14 @@ def live_matches():
             _out.sort(key=lambda q: -q["imp"])
             players_by_team[k] = _out
 
+        _sth = p.get("sth") or {}
         teams = [{"key": k, "label": "Team %s" % k[-1],
                   "score": int(scores.get(k, 0) or 0),
                   "count": int(counts.get(k, 0) or 0),
                   "top": top.get(k, ""),
                   "skill": pskill.get(k) or None,
                   "players": players_by_team.get(k) or [],
+                  "station": _sth.get(k) or None,
                   "prob": round(probs.get(k, 0.0), 4)} for k in LIVE_TEAMS]
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
@@ -2928,6 +2934,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.62.0", "at": "2026-08-23T00:50:00Z", "changes": [
+        "The live win-probability view now shows each team's STATION under its row: station level, a gem bar against that level's capacity, and one pip per module - green intact, amber damaged, red destroyed, with the full story on hover. A destroyed station reads DEAD. Straight from the game's own station packet, updating live.",
+    ]},
     {"version": "6.61.0", "at": "2026-08-23T00:10:00Z", "changes": [
         "The tracker now records each team's STATION health every read: banked gems, station level, and how many of its 12 modules are damaged or destroyed - decoded from the game's own station-state packet, found by capturing and reverse-engineering the client's network traffic. Low gems, a low-level station and missing modules are team-health signals the scoreboard can't see, and once enough matches carry this data the win-probability model can learn from it. Recording only for now - no rule or rating uses it yet.",
     ]},
