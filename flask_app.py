@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.58.0"
+APP_VERSION = "6.59.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1613,17 +1613,28 @@ def unregister():
     return jsonify({"message": f"'{stored_name}' has been removed."}), 200
 
 
+# How many rating points one empty seat is worth. A short-handed team is
+# weaker than its average suggests - four players at 1200 are not the
+# fight eight players at 1200 are - so each player short of a full 8
+# docks the roster this much (owner's rule, 22 Aug 2026).
+TEAM_SIZE_W = 40
+TEAM_FULL_SIZE = 8
+
+
 def team_rating(names, elo_map):
-    """A roster's strength: average elo of EVERYONE on it (owner's rule,
-    22 Aug 2026 - it was the top 2 before). Two stars over six nobodies
-    and a roster that is strong top to bottom used to read as the same
-    opponent, so beating a genuinely deep team paid as if it were
-    "expected". Missing/unregistered players are assumed to be at
-    STARTING_ELO, and an empty roster reads as STARTING_ELO."""
+    """A roster's strength: average elo of EVERYONE on it, minus a
+    short-handed penalty (owner's rules, 22 Aug 2026 - it was the top 2
+    average, size-blind, before). Two stars over six nobodies and a
+    roster strong top to bottom used to read as the same opponent, and a
+    4-man crew read as strong as a full 8. Missing/unregistered players
+    are assumed to be at STARTING_ELO; the pooled two-losing-team list
+    caps at full size so it never reads as MORE than full; an empty
+    roster reads as STARTING_ELO."""
     values = [elo_map.get(normalize_name(n), STARTING_ELO) for n in names]
     if not values:
         return STARTING_ELO
-    return sum(values) / len(values)
+    short = TEAM_FULL_SIZE - min(len(values), TEAM_FULL_SIZE)
+    return sum(values) / len(values) - TEAM_SIZE_W * short
 
 
 def expected_score(own_elo, opponent_rating):
@@ -2919,6 +2930,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.59.0", "at": "2026-08-22T22:40:00Z", "changes": [
+        "Team size now counts in the rating. A short-handed roster reads weaker than its average suggests - each player short of a full 8 docks the team 40 rating points - so beating a 4-man crew pays less than beating a full team of the same average, and losing to one costs more. The two losing teams pooled together cap at full size, so they never read as more than one full opponent. (The win-probability model already used player counts; now the rating does too.)",
+    ]},
     {"version": "6.58.0", "at": "2026-08-22T21:10:00Z", "changes": [
         "Who stands beside you now counts. Your rating swing blends your own elo half-and-half with your team's average, so carrying weak allies to a win pays more than the same win inside a stacked team - and losing beside weak allies costs less than a stacked side losing. A loser is measured against their OWN team's average, never both losing teams pooled.",
     ]},

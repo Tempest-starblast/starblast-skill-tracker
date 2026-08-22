@@ -34,7 +34,7 @@ CARDS = [
   ' vẹn; thắng đội yếu hơn nhiều thì gần như không được gì. Thua cũng vậy nhưng ngược lại.'
   ' Hai đội ngang nhau thì thay đổi đúng một điểm.</p>'
   '<p>Sức mạnh của một đội là trung bình của tất cả thành viên, nên cày đội yếu sẽ không'
-  ' kéo bạn lên &mdash; muốn lên thì phải thắng những người có điểm cao. Đồng đội của bạn cũng được tính: mức thay đổi trộn điểm của bạn với trung bình của đội, nên gánh đồng đội yếu đến chiến thắng được nhiều hơn cùng chiến thắng đó trong đội toàn cao thủ &mdash; và thua cùng đồng đội yếu mất ít hơn.</p>'),
+  ' kéo bạn lên &mdash; muốn lên thì phải thắng những người có điểm cao. Đồng đội của bạn cũng được tính: mức thay đổi trộn điểm của bạn với trung bình của đội, nên gánh đồng đội yếu đến chiến thắng được nhiều hơn cùng chiến thắng đó trong đội toàn cao thủ &mdash; và thua cùng đồng đội yếu mất ít hơn. Đội thiếu người cũng bị tính là yếu hơn đội đủ người.</p>'),
 
  ("Trọn vẹn và một nửa",
   '<p>Nếu bạn đã ở trong trận từ trước khi chúng tôi bắt đầu theo dõi, trận đó tính trọn'
