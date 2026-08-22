@@ -38,7 +38,7 @@ CARDS = [
   ' schlagen bringt fast das Maximum; eine viel schwächere zu schlagen bringt fast nichts.'
   ' Verlieren funktioniert genauso, nur andersherum. Zwei gleich starke Teams bewegen sich'
   ' um genau einen Punkt.</p>'
-  '<p>Die Stärke eines Teams ist der Durchschnitt seiner zwei besten Spieler. Schwache'
+  '<p>Die Stärke eines Teams ist der Durchschnitt aller seiner Spieler. Schwache'
   ' Teams abzufarmen bringt dich also nicht nach oben &mdash; aufsteigen heißt Leute zu'
   ' schlagen, die selbst hoch bewertet sind.</p>'),
 

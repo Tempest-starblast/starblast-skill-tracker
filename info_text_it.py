@@ -35,7 +35,7 @@ CARDS = [
   '<p>Di quanto ti sposti dipende da chi batti. Battere una squadra più forte rende quasi'
   ' il massimo; batterne una molto più debole non rende quasi nulla. Perdere funziona allo'
   ' stesso modo, al contrario. Due squadre pari si spostano di esattamente un punto.</p>'
-  '<p>La forza di una squadra è la media dei suoi due giocatori migliori, quindi accanirsi'
+  '<p>La forza di una squadra è la media di tutti i suoi giocatori, quindi accanirsi'
   ' sulle squadre deboli non ti farà salire &mdash; salire vuol dire battere gente a sua'
   ' volta ben valutata.</p>'),
 

@@ -35,7 +35,7 @@ CARDS = [
   '<p>How much you move depends on who you beat. Beating a stronger side gains close to the'
   ' full amount; beating a much weaker one gains almost nothing. Losing works the same in'
   ' reverse. Two even teams move by exactly one point.</p>'
-  '<p>A team&#39;s strength is the average of its two best players, so farming weak teams'
+  '<p>A team&#39;s strength is the average of everyone on it, so farming weak teams'
   ' will not lift you &mdash; climbing means beating people who are rated highly'
   ' themselves.</p>'),
 

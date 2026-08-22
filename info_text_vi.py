@@ -33,7 +33,7 @@ CARDS = [
   '<p>Thay đổi bao nhiêu là tuỳ bạn thắng ai. Thắng đội mạnh hơn thì gần như được trọn'
   ' vẹn; thắng đội yếu hơn nhiều thì gần như không được gì. Thua cũng vậy nhưng ngược lại.'
   ' Hai đội ngang nhau thì thay đổi đúng một điểm.</p>'
-  '<p>Sức mạnh của một đội là trung bình của hai người giỏi nhất, nên cày đội yếu sẽ không'
+  '<p>Sức mạnh của một đội là trung bình của tất cả thành viên, nên cày đội yếu sẽ không'
   ' kéo bạn lên &mdash; muốn lên thì phải thắng những người có điểm cao.</p>'),
 
  ("Trọn vẹn và một nửa",

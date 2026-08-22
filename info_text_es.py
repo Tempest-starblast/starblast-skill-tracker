@@ -36,7 +36,7 @@ CARDS = [
   '<p>Cuánto te mueves depende de a quién ganes. Ganar a un equipo más fuerte da casi todo'
   ' el máximo; ganar a uno mucho más débil no da casi nada. Perder funciona igual pero al'
   ' revés. Dos equipos parejos se mueven exactamente un punto.</p>'
-  '<p>La fuerza de un equipo es la media de sus dos mejores jugadores, así que machacar a'
+  '<p>La fuerza de un equipo es la media de todos sus jugadores, así que machacar a'
   ' equipos débiles no te subirá &mdash; subir significa ganar a gente que también está'
   ' bien valorada.</p>'),
 

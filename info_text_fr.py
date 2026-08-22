@@ -37,7 +37,7 @@ CARDS = [
   ' rapporte presque le maximum ; en battre une bien plus faible ne rapporte presque rien.'
   ' La défaite fonctionne pareil, à l&#39;envers. Deux équipes de même force bougent'
   ' d&#39;exactement un point.</p>'
-  '<p>La force d&#39;une équipe est la moyenne de ses deux meilleurs joueurs : écraser des'
+  '<p>La force d&#39;une équipe est la moyenne de tous ses joueurs : écraser des'
   ' équipes faibles ne vous fera pas monter &mdash; monter veut dire battre des gens'
   ' eux-mêmes bien classés.</p>'),
 

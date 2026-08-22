@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.56.0"
+APP_VERSION = "6.57.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1614,15 +1614,16 @@ def unregister():
 
 
 def team_rating(names, elo_map):
-    """A roster's strength: average elo of its top 2 rated players. Missing/
-    unregistered players are assumed to be at STARTING_ELO, and if fewer
-    than 2 names are given the rest are padded with STARTING_ELO too - so
-    an unknown/average opposing side reads as a rating of STARTING_ELO."""
+    """A roster's strength: average elo of EVERYONE on it (owner's rule,
+    22 Aug 2026 - it was the top 2 before). Two stars over six nobodies
+    and a roster that is strong top to bottom used to read as the same
+    opponent, so beating a genuinely deep team paid as if it were
+    "expected". Missing/unregistered players are assumed to be at
+    STARTING_ELO, and an empty roster reads as STARTING_ELO."""
     values = [elo_map.get(normalize_name(n), STARTING_ELO) for n in names]
-    while len(values) < 2:
-        values.append(STARTING_ELO)
-    values.sort(reverse=True)
-    return (values[0] + values[1]) / 2
+    if not values:
+        return STARTING_ELO
+    return sum(values) / len(values)
 
 
 def expected_score(own_elo, opponent_rating):
@@ -2908,6 +2909,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.57.0", "at": "2026-08-22T20:40:00Z", "changes": [
+        "A team's strength for rating purposes is now the average of EVERYONE on it, not just its two best players. A roster that is strong top to bottom used to read as the same opponent as two stars over six nobodies, so beating a genuinely deep team paid out as if the win were expected. Unregistered players still count at 1000, and farming weak lobbies still gains almost nothing. The win-probability model's star-player signal is unchanged - that is prediction, not rating.",
+    ]},
     {"version": "6.56.0", "at": "2026-08-22T08:10:00Z", "changes": [
         "A checked-in player who joined a match less than 10 minutes before it ended is no longer rated at all - win or loss. A check-in commits you to be counted, but five minutes at the tail of a 37-minute game is a cameo, not a match. The check-in's timestamp proves how long you could have played (checking in must come before joining), and cameo results are held for the record instead of scored. Players the tracker rostered normally are unaffected.",
     ]},
