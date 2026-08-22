@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.53.0"
+APP_VERSION = "6.54.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -419,8 +419,9 @@ def is_default_name(name):
 BUILTIN_CLAN_TAGS = []
 
 # One account cannot mint tags indefinitely, or the short ones would all be
-# squatted within a day.
-MAX_CLANS_PER_ACCOUNT = 2
+# squatted within a day: the first tag comes with leader approval, and every
+# tag after that is requested and granted one at a time by the owner (see
+# perform_clan_create).
 
 
 def all_clan_tags(c=None):
@@ -1324,6 +1325,13 @@ def init_db():
     # them the same way it collects applications.
     try:
         c.execute("ALTER TABLE clan_leader_requests ADD COLUMN notified INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    # 'leader' rows ask to run a clan at all; 'tag' rows are an approved
+    # leader asking for one MORE tag. Kept in one table so the owner's
+    # Discord approval card and the decide endpoint serve both unchanged.
+    try:
+        c.execute("ALTER TABLE clan_leader_requests ADD COLUMN kind TEXT DEFAULT 'leader'")
     except sqlite3.OperationalError:
         pass
     c.execute("PRAGMA table_info(claim_requests)")
@@ -2867,6 +2875,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.54.0", "at": "2026-08-22T06:30:00Z", "changes": [
+        "Clan leaders can run more than one tag - but every tag after the first is its own request. A new card on the Clans page lets an approved leader ask for another tag; the site owner decides each one on Discord, and an approved tag shows on the same card with a one-click claim. One yes grants exactly one tag, so short tags cannot be collected.",
+    ]},
     {"version": "6.53.0", "at": "2026-08-22T05:40:00Z", "changes": [
         "The flip rule now counts RETURNING players as reinforcement, not just new names. A team that led every rival 1.75x-plus for a minute straight is still protected from losing to a side that filled up after the lead was set - but until now only brand-new names counted as \"filling up\", so a wave of players leaving and rejoining the eventual winner counted for nothing. A return now counts too, when it happens after the dominance began, the player stays at least five minutes, and they are still there at the end. The match that exposed this (38 Tytaeraph) has been corrected the way the flip would have scored it: the dominated team's losses are excused and the winners keep half.",
         "When the tracker declines to flip a match, it now writes down exactly why - every arrival and return it saw on the winning team, with times and weights - so the next disputed call is a lookup, not an investigation.",
@@ -5709,14 +5720,22 @@ def notice_updates(c, sub_id):
                     ("%s accepted '%s' - you are in." % (r[1], r[2]))
                     if r[3] == 'approved' else
                     ("%s declined '%s'." % (r[1], r[2]))})
-    c.execute("SELECT id, tag, status FROM clan_leader_requests "
+    c.execute("SELECT id, tag, status, COALESCE(kind, 'leader') "
+              "FROM clan_leader_requests "
               "WHERE google_sub = ? AND status IN ('approved', 'denied') "
               "AND COALESCE(seen, 0) = 0 ORDER BY id", (sub_id,))
     for r in c.fetchall():
-        out.append({"kind": "leader", "id": r[0], "text":
-                    "Your request to run a clan was approved - create it on the Clans page."
-                    if r[2] == 'approved' else
-                    "Your request to run a clan was denied."})
+        if r[3] == 'tag':
+            out.append({"kind": "leader", "id": r[0], "text":
+                        ("Your request for the tag '%s' was approved - claim it "
+                         "on the Clans page." % (r[1] or ''))
+                        if r[2] == 'approved' else
+                        ("Your request for the tag '%s' was denied." % (r[1] or ''))})
+        else:
+            out.append({"kind": "leader", "id": r[0], "text":
+                        "Your request to run a clan was approved - create it on the Clans page."
+                        if r[2] == 'approved' else
+                        "Your request to run a clan was denied."})
     return out
 
 
@@ -8027,8 +8046,17 @@ def clan_leader_state_route():
     conn = db()
     c = conn.cursor()
     state = clan_leader_state(c, sub_id)
+    # Extra-tag requests, so the page can list each one where it stands:
+    # waiting, or approved and one click from claimed.
+    c.execute("SELECT tag, status FROM clan_leader_requests WHERE google_sub = ? "
+              "AND COALESCE(kind, 'leader') = 'tag' "
+              "AND status IN ('pending', 'approved') "
+              "ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END, id DESC "
+              "LIMIT 12", (sub_id,))
+    tag_requests = [{"tag": r[0], "status": r[1]} for r in c.fetchall()]
     conn.close()
     return jsonify({"state": state, "logged_in": True,
+                    "tag_requests": tag_requests,
                     "contact": CONTACT_HANDLE}), 200
 
 
@@ -8158,8 +8186,46 @@ def perform_leader_request(c, sub_id, handle, tag, note):
         return 401, {"ok": False, "state": "none", "message": "Sign in first."}
     state = clan_leader_state(c, sub_id)
     if state == 'approved':
-        return 200, {"ok": False, "state": state,
-                     "message": "You are already approved to run a clan."}
+        # An approved leader asking again is asking for one MORE tag
+        # (owner's rule, 22 Aug 2026). Each extra tag is its own request,
+        # decided by the owner exactly like the first one - approval to
+        # run a clan is not approval to collect tags.
+        folded = clean_clan_tag(tag)
+        if not CLAN_TAG_MIN_LEN <= len(folded) <= CLAN_TAG_MAX_LEN:
+            return 400, {"ok": False, "state": state,
+                         "message": f"A clan tag is {CLAN_TAG_MIN_LEN} to "
+                                    f"{CLAN_TAG_MAX_LEN} letters or numbers."}
+        if not any(ch.isalpha() for ch in folded):
+            return 400, {"ok": False, "state": state,
+                         "message": "A clan tag needs at least one letter."}
+        if is_blocked_word(folded):
+            return 400, {"ok": False, "state": state,
+                         "message": "That tag isn't allowed. Please choose another."}
+        c.execute("SELECT tag FROM clans WHERE tag = ?", (folded,))
+        if c.fetchone():
+            return 400, {"ok": False, "state": state,
+                         "message": f"{folded} has already been claimed."}
+        c.execute("SELECT tag FROM clan_leader_requests WHERE google_sub = ? "
+                  "AND COALESCE(kind, 'leader') = 'tag' "
+                  "AND status IN ('pending', 'approved')", (sub_id,))
+        if any(clean_clan_tag(r[0]) == folded for r in c.fetchall()):
+            return 400, {"ok": False, "state": state,
+                         "message": f"You already asked for {folded} - it is "
+                                    f"waiting or approved above."}
+        shown = ' '.join(str(tag or '').split())[:24]
+        # The note carries what the request is on the owner's Discord
+        # card, so the bot needs no changes to present it faithfully.
+        mine = ', '.join(clan_admin_tags(c, sub_id)) or 'none yet'
+        c.execute("INSERT INTO clan_leader_requests (google_sub, handle, tag, note, "
+                  "created_at, status, kind) VALUES (?, ?, ?, ?, ?, 'pending', 'tag')",
+                  (sub_id, str(handle or '')[:80], shown,
+                   ("[another tag - already runs: %s] " % mine
+                    + str(note or ''))[:300],
+                   time.strftime('%Y-%m-%d %H:%M:%S')))
+        return 200, {"ok": True, "id": c.lastrowid, "state": state,
+                     "message": f"Request for {shown} sent. The site owner decides, "
+                                f"and you will hear either way - on Discord if your "
+                                f"account is linked."}
     if state == 'pending':
         return 200, {"ok": False, "state": state,
                      "message": "You already have a request waiting."}
@@ -8188,6 +8254,7 @@ def clan_leader_state(c, sub_id):
     if not sub_id:
         return 'none'
     c.execute("SELECT status FROM clan_leader_requests WHERE google_sub = ? "
+              "AND COALESCE(kind, 'leader') = 'leader' "
               "ORDER BY CASE status WHEN 'approved' THEN 0 WHEN 'pending' THEN 1 "
               "ELSE 2 END, id DESC LIMIT 1", (sub_id,))
     row = c.fetchone()
@@ -8318,11 +8385,28 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
                                 "who runs it by that name. Save it on Your account, "
                                 "then claim your tag."}
 
-    c.execute("SELECT COUNT(*) FROM clans WHERE created_by = ?", (sub_id,))
-    if c.fetchone()[0] >= MAX_CLANS_PER_ACCOUNT:
-        return 400, {"ok": False,
-                     "message": f"You have already claimed {MAX_CLANS_PER_ACCOUNT} clans. "
-                                f"Ask {CONTACT_HANDLE} on Discord if you need another."}
+    # The first tag comes with being approved to run a clan. Every tag
+    # after that is its own request (owner's rule, 22 Aug 2026): the
+    # leader asks from the Clans page, the owner decides, and claiming
+    # consumes the approval so one yes grants exactly one tag.
+    if not trusted:
+        c.execute("SELECT COUNT(*) FROM clans WHERE created_by = ?", (sub_id,))
+        if c.fetchone()[0] >= 1:
+            c.execute("SELECT id, tag FROM clan_leader_requests "
+                      "WHERE google_sub = ? AND status = 'approved' "
+                      "AND COALESCE(kind, 'leader') = 'tag'", (sub_id,))
+            rows = c.fetchall()
+            rid = next((r[0] for r in rows if clean_clan_tag(r[1]) == tag), None)
+            if rid is None:
+                spare = ', '.join(clean_clan_tag(r[1]) for r in rows)
+                return 400, {"ok": False,
+                             "message": (f"Each additional tag needs its own request - "
+                                         f"send one from the Clans page and the site "
+                                         f"owner decides."
+                                         + (f" You do have approval waiting for: {spare}."
+                                            if spare else ""))}
+            c.execute("UPDATE clan_leader_requests SET status = 'used' WHERE id = ?",
+                      (rid,))
 
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     shown = ' '.join(str(raw_tag or '').split())[:32]

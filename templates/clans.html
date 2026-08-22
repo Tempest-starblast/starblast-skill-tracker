@@ -68,6 +68,23 @@
   <p class="desc">Sign in at the top of the page to request a clan of your own.</p>
 </div>
 
+<div class="card" id="moreCard" style="display:none">
+  <h2>{{ t('Request another tag') }}</h2>
+  <p class="desc">Each extra tag is its own request &mdash; {{ contact }} decides on
+     Discord, and an approved tag shows here with a claim button.</p>
+  <div id="tagReqList"></div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="moreTag" placeholder="Tag you want, e.g. [COV2]"
+           maxlength="32" autocomplete="off">
+  </div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="moreNote" placeholder="Anything worth saying (optional)"
+           maxlength="200" autocomplete="off">
+    <button class="primary" onclick="requestMoreTag()">{{ t('Send request') }}</button>
+  </div>
+  <p class="msg" id="moreMsg"></p>
+</div>
+
 <div class="card" id="codeCard" style="display:none">
   <h2>Given a code?</h2>
   <p class="desc">If your name does not carry the tag, ask {{ contact }} on Discord for a
@@ -144,10 +161,48 @@ async function requestClan(){
     if (d.ok) setTimeout(function(){ location.reload(); }, 1500);
   }catch(e){ say('reqMsg', false, 'Server connection error.'); }
 }
+let tagRequests = [];
+function escHtml(s){
+  const el = document.createElement('span');
+  el.textContent = String(s == null ? '' : s);
+  return el.innerHTML;
+}
+function renderTagReqs(){
+  const el = document.getElementById('tagReqList');
+  if (!el) return;
+  el.innerHTML = tagRequests.map(function(r, i){
+    return '<div class="memrow"><span class="ctag">' + escHtml(r.tag) + '</span>'
+      + (r.status === 'approved'
+         ? '<button class="primary" onclick="claimApproved(' + i + ')">{{ t('Claim it') }}</button>'
+         : '<span class="cmeta">waiting on the owner</span>')
+      + '</div>';
+  }).join('');
+}
+async function requestMoreTag(){
+  const tag = document.getElementById('moreTag').value.trim();
+  if (!tag) return say('moreMsg', false, 'Type the tag you want first.');
+  try{
+    const [r, d] = await post('/clan/leader/request',
+                              {tag: tag, note: document.getElementById('moreNote').value.trim()});
+    say('moreMsg', d.ok, d.message);
+    if (d.ok) setTimeout(function(){ location.reload(); }, 1500);
+  }catch(e){ say('moreMsg', false, 'Server connection error.'); }
+}
+async function claimApproved(i){
+  const r0 = tagRequests[i];
+  if (!r0) return;
+  try{
+    const [r, d] = await post('/clan/create', {tag: r0.tag});
+    say('moreMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.reload(); }, 1200);
+  }catch(e){ say('moreMsg', false, 'Server connection error.'); }
+}
 async function showLeaderState(){
   let d = {state: 'none', logged_in: false};
   try{ d = await (await fetch('/clan/leader/state')).json(); }catch(e){}
   leaderState = d.state;
+  tagRequests = d.tag_requests || [];
+  renderTagReqs();
   if (d.logged_in) signedIn = true;
   applyClanCards();
   if (d.state === 'denied'){
@@ -190,6 +245,9 @@ function applyClanCards(){
   show('claimCard', wants);
   show('claimSignedIn', wants);
   show('codeCard', wants);
+  // Already running a clan and approved to lead: extra tags are asked
+  // for one at a time, right here.
+  show('moreCard', signedIn && !!myClan && approved);
 }
 window.onSignedInReady = function(){
   signedIn = true;
