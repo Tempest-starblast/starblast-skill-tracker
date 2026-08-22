@@ -2351,10 +2351,21 @@ def game_end():
     # Everyone who checked into THIS lobby, computed always (not only when a
     # protected player is present) because a check-in also proves you are the
     # real owner of a name against an impersonator flying the same one.
+    # A check-in stamped AFTER the match was last observably alive does not
+    # count: you cannot see a result and then check into it. Normal scoring
+    # lands seconds after the end so nothing changes; this closes the window
+    # on matches scored late (rescues, stuck-lobby timers).
     checked_in = set()
     if sys_id is not None:
-        c.execute("SELECT player FROM checkins WHERE sys_id = ? AND created_at > datetime('now', ?)",
-                  (sys_id, f'-{CHECKIN_VALID_SECONDS} seconds'))
+        _ended = str(data.get('ended_at') or '')[:19]
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', _ended):
+            c.execute("SELECT player FROM checkins WHERE sys_id = ? "
+                      "AND created_at > datetime('now', ?) AND created_at <= ?",
+                      (sys_id, f'-{CHECKIN_VALID_SECONDS} seconds', _ended))
+        else:
+            c.execute("SELECT player FROM checkins WHERE sys_id = ? "
+                      "AND created_at > datetime('now', ?)",
+                      (sys_id, f'-{CHECKIN_VALID_SECONDS} seconds'))
         checked_in = {normalize_name(row[0]) for row in c.fetchall()}
 
     # ---- Ship-bound crediting ------------------------------------------
