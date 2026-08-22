@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.60.0"
+APP_VERSION = "6.61.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2928,6 +2928,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.61.0", "at": "2026-08-23T00:10:00Z", "changes": [
+        "The tracker now records each team's STATION health every read: banked gems, station level, and how many of its 12 modules are damaged or destroyed - decoded from the game's own station-state packet, found by capturing and reverse-engineering the client's network traffic. Low gems, a low-level station and missing modules are team-health signals the scoreboard can't see, and once enough matches carry this data the win-probability model can learn from it. Recording only for now - no rule or rating uses it yet.",
+    ]},
     {"version": "6.60.0", "at": "2026-08-22T23:30:00Z", "changes": [
         "The team-size penalty from 6.59.0 is gone - because we measured it. A maximum-likelihood fit over 1,448 recorded matches (true roster sizes from the tracker's own logs, every player's pre-match rating replayed) put one roster seat at -16.8 rating points with a confidence interval spanning zero, and the size term made outcome prediction WORSE. Roster counts at scoring time turn out to be accounting artifacts, not strength. Live in-match headcount is real signal - and the win-probability model already uses it. Team strength stays the whole-roster average.",
     ]},
