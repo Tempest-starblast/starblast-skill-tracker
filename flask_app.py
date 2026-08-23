@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.63.0"
+APP_VERSION = "6.64.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2958,6 +2958,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.64.0", "at": "2026-08-23T02:30:00Z", "changes": [
+        "The stations moved front and center. Each live match card now leads with three large station panels drawn the way the game's own map draws them - glowing wireframe structures with lattice arms, depots as the big blocks, spawn pads as ringed circles - each module colored by its own health, and a destroyed station rendered as a dashed skeleton. The radar grew into a proper full-width scope with range rings and glowing contacts, and its scale holds steady instead of jumping between refreshes.",
+    ]},
     {"version": "6.63.0", "at": "2026-08-23T01:50:00Z", "changes": [
         "The RADAR is in. Two more of the game's network packets were reverse-engineered tonight: every ship's live position, and each player's current ship. The live view now shows a minimap of the whole lobby (every ship as a dot in its team's color), each player's ship code next to their name, and the station strip draws an exact REPLICA of each team's station from its blueprint - every module in its real position, spawn pads as circles, depots as diamonds, each colored by its own health. Replays gain a RADAR REPLAY: scrub or play back a time-lapse of every ship's movement through the whole match.",
     ]},

@@ -41,14 +41,22 @@
 .lv-pips b.w{background:#f0c04a}
 .lv-pips b.d{background:#ff7a7a;opacity:.45}
 .lv-sta.dead .lv-lvl{color:#ff9a9a;border-color:rgba(255,140,140,.5)}
-.lv-stmap{height:34px;width:34px;flex:none}
 .lv-shp{color:var(--dim,#8aa0b0);font-size:9.5px;font-weight:600;
   border:1px solid rgba(153,221,255,.2);border-radius:3px;padding:0 3px;
   margin-left:5px;font-variant-numeric:tabular-nums}
-.lv-viz{display:flex;gap:10px;align-items:stretch;margin-top:10px}
-.lv-viz .lv-spark{margin-top:0;flex:1;height:64px}
-.lv-radar{flex:none;width:64px;height:64px;border-radius:7px;
-  background:rgba(0,0,0,.28);border:1px solid rgba(153,221,255,.14)}
+.lv-stations{display:flex;gap:9px;margin:2px 0 13px}
+.lv-stpanel{flex:1;min-width:0;background:radial-gradient(ellipse at 50% 40%,
+  rgba(10,26,48,.85), rgba(3,10,22,.9));border:1px solid rgba(153,221,255,.16);
+  border-radius:9px;padding:7px 7px 6px;cursor:default}
+.lv-stpanel svg{display:block;width:100%;height:96px;margin:2px 0 5px}
+.lv-stpanel.gone{border-color:rgba(255,120,120,.45)}
+.lv-stpanel.gone .lvl{color:#ff9a9a}
+.lv-sthead{display:flex;align-items:center;gap:5px;font-size:10px;
+  color:var(--dim,#8aa0b0)}
+.lv-sthead .lvl{font-weight:700;letter-spacing:.4px}
+.lv-sthead .g{margin-left:auto;font-variant-numeric:tabular-nums}
+.lv-stpanel .lv-gembar{width:100%;flex:none}
+.lv-radarbig{display:block;width:100%;height:190px;margin-top:11px}
 .lv-det{margin-top:9px;border-top:1px solid rgba(153,221,255,.1);padding-top:7px}
 .lv-det summary{list-style:none;cursor:pointer;font-size:10.5px;letter-spacing:1.6px;
   text-transform:uppercase;color:var(--dim,#8aa0b0);user-select:none}
@@ -120,80 +128,121 @@
     return out;
   }
 
-  // The team's station, read from the game's own station packet:
-  // level, banked gems against that level's capacity, and an exact
-  // replica of the station drawn from its blueprint - every module in
-  // its real position, colored by its own health byte. Spawn pads are
-  // circles, depots diamonds, structures squares.
+  // The stations, front and center - drawn the way the game's own map
+  // draws them: glowing wireframe structures on dark space, modules
+  // linked by lattice arms. Depots are the big blocks, spawn pads the
+  // ringed circles, structures the small blocks. Each module wears its
+  // own health color from the station packet.
   var GEM_CAPS=[800,1600,3200,6400];
-  function modColor(hp){
-    if(hp===0) return '#5a2330';
-    if(hp>=252) return '#66e6b8';
-    if(hp>=170) return '#a8d47a';
-    if(hp>=90) return '#f0c04a';
+  function modColor(hp,base){
+    if(hp===0) return '#63263a';
+    if(hp>=252) return base;
+    if(hp>=140) return '#f0c04a';
     return '#ff7a7a';
   }
-  function stationMap(t){
-    var lay=t.layout, s=t.station;
+  function stationSvg(t){
+    var lay=t.layout;
     if(!lay || !lay.length) return '';
-    var mods=(s && s.length>6 && s[6]) ? s[6] : null;
-    var out='<svg class="lv-stmap" viewBox="-3.1 -3.1 6.2 6.2">';
+    var s=t.station||[];
+    var mods=(s.length>6 && s[6]) ? s[6] : null;
+    var base=COLORS[t.key];
+    var ext=1.2;
     lay.forEach(function(m){
-      // m = [id, type, x, y, dir]
+      if(m[2]!=null) ext=Math.max(ext,Math.abs(m[2]),Math.abs(m[3]));
+    });
+    ext+=1.0;
+    // Lattice arms between grid-adjacent modules, like the game's map.
+    var lines='';
+    lay.forEach(function(a,i){
+      if(a[2]==null) return;
+      lay.forEach(function(b,j){
+        if(j<=i || b[2]==null) return;
+        var dx=a[2]-b[2], dy=a[3]-b[3];
+        if(Math.sqrt(dx*dx+dy*dy)<=1.3){
+          lines+='<line x1="'+a[2]+'" y1="'+(-a[3])+'" x2="'+b[2]+'" y2="'+(-b[3])
+            +'" stroke="'+base+'" stroke-width="0.07" opacity="0.4"/>';
+        }
+      });
+    });
+    var shapes='';
+    lay.forEach(function(m){
       if(m[2]==null) return;
       var hp = mods && m[0]<mods.length ? mods[m[0]] : 255;
-      var col=modColor(hp), ty=String(m[1]||'');
-      var x=+m[2], y=-m[3]; // game y grows up; svg y grows down
-      var tip=ty+' — '+(hp===0?'destroyed':Math.round(100*hp/255)+'% HP');
-      if(ty.slice(0,2)==='sp'){
-        out+='<circle cx="'+x+'" cy="'+y+'" r="0.42" fill="'+col+'"><title>'+tip+'</title></circle>';
-      } else if(ty[0]==='d'){
-        out+='<rect x="'+(x-0.36)+'" y="'+(y-0.36)+'" width="0.72" height="0.72" rx="0.1" '
-          +'transform="rotate(45 '+x+' '+y+')" fill="'+col+'"><title>'+tip+'</title></rect>';
+      var col=modColor(hp,base), ty=String(m[1]||'');
+      var x=+m[2], y=-m[3];
+      var dash = hp===0 ? ' stroke-dasharray="0.13 0.1"' : '';
+      var tip=ty+' — '+(hp===0?'DESTROYED':Math.round(100*hp/255)+'% HP');
+      var g='<g><title>'+tip+'</title>';
+      if(ty[0]==='d'){
+        // Depots: the big blocks.
+        g+='<rect x="'+(x-0.46)+'" y="'+(y-0.46)+'" width="0.92" height="0.92" rx="0.1" '
+          +'fill="'+col+'" opacity="0.13"/>'
+          +'<rect x="'+(x-0.46)+'" y="'+(y-0.46)+'" width="0.92" height="0.92" rx="0.1" '
+          +'fill="none" stroke="'+col+'" stroke-width="0.1"'+dash+'/>'
+          +'<rect x="'+(x-0.2)+'" y="'+(y-0.2)+'" width="0.4" height="0.4" fill="'+col+'"/>';
+      } else if(ty.slice(0,2)==='sp'){
+        // Spawn pads: ringed landing circles.
+        g+='<circle cx="'+x+'" cy="'+y+'" r="0.36" fill="'+col+'" opacity="0.13"/>'
+          +'<circle cx="'+x+'" cy="'+y+'" r="0.36" fill="none" stroke="'+col+'" stroke-width="0.09"'+dash+'/>'
+          +'<circle cx="'+x+'" cy="'+y+'" r="0.13" fill="'+col+'"/>';
       } else {
-        out+='<rect x="'+(x-0.4)+'" y="'+(y-0.4)+'" width="0.8" height="0.8" rx="0.12" '
-          +'fill="'+col+'"><title>'+tip+'</title></rect>';
+        // Structures: the small blocks.
+        g+='<rect x="'+(x-0.3)+'" y="'+(y-0.3)+'" width="0.6" height="0.6" rx="0.07" '
+          +'fill="'+col+'" opacity="0.13"/>'
+          +'<rect x="'+(x-0.3)+'" y="'+(y-0.3)+'" width="0.6" height="0.6" rx="0.07" '
+          +'fill="none" stroke="'+col+'" stroke-width="0.08"'+dash+'/>'
+          +'<rect x="'+(x-0.11)+'" y="'+(y-0.11)+'" width="0.22" height="0.22" fill="'+col+'"/>';
       }
+      shapes+=g+'</g>';
     });
-    return out+'</svg>';
+    return '<svg viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'">'+lines+shapes+'</svg>';
   }
-  function station(t){
-    var s=t.station;
-    if(!s || s.length<6) return '';
-    var lvl=s[0], gems=s[1]||0, total=s[3]||12, weak=s[4]||0, dead=s[5]||0;
-    var cap=(lvl!=null && GEM_CAPS[lvl])?GEM_CAPS[lvl]:GEM_CAPS[3];
-    var pct=Math.max(0,Math.min(100,100*gems/cap));
-    var gone = dead>=total;
-    var tip='Station level '+(lvl==null?'?':(lvl+1))+' — '
-      +gems.toLocaleString()+' / '+cap.toLocaleString()+' gems banked — '
-      +(gone?'STATION DESTROYED':((total-dead-weak)+' modules intact'
-        +(weak?', '+weak+' damaged':'')+(dead?', '+dead+' destroyed':'')));
-    var map=stationMap(t);
-    var pips='';
-    if(!map){
-      for(var i=0;i<total;i++){
-        pips+='<b class="'+(i<dead?'d':(i<dead+weak?'w':''))+'"></b>';
-      }
-      pips='<span class="lv-pips">'+pips+'</span>';
-    }
-    return '<div class="lv-sta'+(gone?' dead':'')+'" title="'+tip+'">'+
-      '<span class="lv-lvl">'+(gone?'DEAD':'Lv'+(lvl==null?'?':(lvl+1)))+'</span>'+
-      '<span class="lv-gembar"><i style="width:'+pct.toFixed(0)+'%"></i></span>'+
-      '<span class="lv-gemtxt">'+(gems>=1000?(gems/1000).toFixed(1)+'k':gems)+' gems</span>'+
-      map+pips+
-    '</div>';
+  function stationsPanel(m){
+    var p='', any=false;
+    m.teams.forEach(function(t){
+      var svg=stationSvg(t);
+      if(!svg) return;
+      any=true;
+      var s=t.station||[];
+      var lvl=s[0], gems=s[1]||0, total=s[3]||12, weak=s[4]||0, dead=s[5]||0;
+      var gone = total>0 && dead>=total;
+      var cap=(lvl!=null && GEM_CAPS[lvl])?GEM_CAPS[lvl]:GEM_CAPS[3];
+      var pct=Math.max(0,Math.min(100,100*gems/cap));
+      var tip='Station level '+(lvl==null?'?':(lvl+1))+' — '
+        +gems.toLocaleString()+' / '+cap.toLocaleString()+' gems — '
+        +(gone?'STATION DESTROYED':((total-dead-weak)+' modules intact'
+          +(weak?', '+weak+' damaged':'')+(dead?', '+dead+' destroyed':'')));
+      p+='<div class="lv-stpanel'+(gone?' gone':'')+'" title="'+tip+'">'
+        +'<div class="lv-sthead"><span class="lv-chip" style="background:'+COLORS[t.key]+'"></span>'
+        +'<span class="lvl">'+(gone?'DESTROYED':'Lv '+(lvl==null?'?':(lvl+1)))+'</span>'
+        +'<span class="g">'+(gems>=1000?(gems/1000).toFixed(1)+'k':gems)+' 💎</span></div>'
+        +svg
+        +'<div class="lv-gembar"><i style="width:'+pct.toFixed(0)+'%"></i></div>'
+        +'</div>';
+    });
+    return any ? '<div class="lv-stations">'+p+'</div>' : '';
   }
-  // The whole lobby at a glance: every ship as a dot in its team's
-  // color, from the game's radar packet.
-  function minimap(m){
+  // A real radar scope: full width, range rings, glowing team-colored
+  // contacts. The scale only ever grows for a lobby, so the view never
+  // jumps between refreshes.
+  var RSCALE={};
+  function radarPanel(m){
     if(!m.radar || !m.radar.length) return '';
-    var mx=20;
-    m.radar.forEach(function(e){ mx=Math.max(mx,Math.abs(e[1]),Math.abs(e[2])); });
-    mx*=1.15;
+    var mx=RSCALE[m.sys_id]||24;
+    m.radar.forEach(function(e){ mx=Math.max(mx,Math.abs(e[1])*1.15,Math.abs(e[2])*1.15); });
+    RSCALE[m.sys_id]=mx;
     var col=[COLORS.team_1,COLORS.team_2,COLORS.team_3];
-    var out='<svg class="lv-radar" viewBox="'+(-mx)+' '+(-mx)+' '+(2*mx)+' '+(2*mx)+'">';
+    var out='<svg class="lv-radarbig" viewBox="'+(-mx)+' '+(-mx)+' '+(2*mx)+' '+(2*mx)+'" preserveAspectRatio="xMidYMid meet">';
+    out+='<circle cx="0" cy="0" r="'+(mx*0.97)+'" fill="rgba(3,12,26,.65)" stroke="rgba(153,221,255,.2)" stroke-width="'+(mx/130)+'"/>';
+    [0.33,0.66].forEach(function(f){
+      out+='<circle cx="0" cy="0" r="'+(mx*f)+'" fill="none" stroke="rgba(153,221,255,.09)" stroke-width="'+(mx/220)+'"/>';
+    });
+    out+='<line x1="'+(-mx*0.97)+'" y1="0" x2="'+(mx*0.97)+'" y2="0" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
+    out+='<line x1="0" y1="'+(-mx*0.97)+'" x2="0" y2="'+(mx*0.97)+'" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
     m.radar.forEach(function(e){
-      out+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/24)+'" fill="'+(col[e[0]]||'#888')+'" opacity="0.9"/>';
+      var c=col[e[0]]||'#888';
+      out+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/15)+'" fill="'+c+'" opacity="0.16"/>'
+          +'<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/32)+'" fill="'+c+'"/>';
     });
     return out+'</svg>';
   }
@@ -215,7 +264,7 @@
           ' <small>'+t.label+'</small></span>'+
         '<span class="lv-meta">'+t.score.toLocaleString()+' pts &middot; '+t.count+'p'+sk+'</span>'+
         '<span class="lv-pct" style="color:'+COLORS[t.key]+'">'+(out?'out':Math.round(t.prob*100)+'%')+'</span>'+
-      '</div>'+station(t);
+      '</div>';
     });
     // Every player, one tidy list behind a toggle - the card itself stays
     // as clean as it always was. Impact = how much the team's chance
@@ -251,12 +300,10 @@
         +'background:rgba(255,120,120,'+(sev?'.14':'.06')+');border:1px solid rgba(255,140,140,'+(sev?'.55':'.25')+');color:#ffdede">'
         +(sev?'⚠ <b>Flood</b> &mdash; ':'duplicate ships &mdash; ')+bits.join(' &middot; ')+'</div>';
     }
-    var mp=minimap(m), sp=spark(m.history);
-    var viz = mp ? '<div class="lv-viz">'+mp+sp+'</div>' : sp;
     return '<div class="lv-card">'+
       '<div class="lv-ctop"><b>'+esc(m.name||('Lobby '+m.sys_id))+'</b>'+
         '<span>'+esc(reg)+' &middot; '+mmss(m.elapsed)+'</span></div>'+
-      bar+rows+fl+viz+det+
+      bar+stationsPanel(m)+rows+fl+radarPanel(m)+spark(m.history)+det+
     '</div>';
   }
 

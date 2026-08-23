@@ -187,7 +187,10 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
     const tl=document.getElementById('radarT');
     function draw(i){
       const f=frames[i];
-      let g='';
+      let g='<circle cx="0" cy="0" r="'+(mx*0.97)+'" fill="rgba(3,12,26,.5)" stroke="rgba(153,221,255,.2)" stroke-width="'+(mx/130)+'"/>';
+      [0.33,0.66].forEach(fr=>{g+='<circle cx="0" cy="0" r="'+(mx*fr)+'" fill="none" stroke="rgba(153,221,255,.09)" stroke-width="'+(mx/220)+'"/>';});
+      g+='<line x1="'+(-mx*0.97)+'" y1="0" x2="'+(mx*0.97)+'" y2="0" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
+      g+='<line x1="0" y1="'+(-mx*0.97)+'" x2="0" y2="'+(mx*0.97)+'" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
       // Faint trails: the previous few frames ghosted behind the ships.
       for(let b=3;b>=1;b--){
         const pf=frames[i-b];
