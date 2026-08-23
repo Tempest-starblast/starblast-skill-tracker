@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.8"
+APP_VERSION = "7.0.9"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3170,6 +3170,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.9", "at": "2026-08-23T06:50:00Z", "changes": [
+        "The pinned row at the foot of the leaderboard now only appears when you are not already on the page you are looking at. If your name is in the list in front of you it is simply highlighted there, once."
+    ]},
     {"version": "7.0.8", "at": "2026-08-23T06:35:00Z", "changes": [
         "The leaderboard opens at rank 1 again, and the paging arrows work. Opening the board on your own page turned out to break the pager - a “first page” link carries no page number, so the jump caught it and sent you straight back to where you started. You could never reach the top.",
         "Your own standing is pinned to the foot of the board instead. It stays with you as you scroll, on every page, showing your real rank rather than where you happen to sit in the list - so you can read the top ten and still see exactly where you stand. Your name is still picked out in green wherever it appears."
@@ -10154,6 +10157,12 @@ def leaderboard():
     pnum = min(max(pnum, 1), pages)
     start = (pnum - 1) * PER_PAGE
     leaderboard_data = leaderboard_data[start:start + PER_PAGE]
+    # Only pin your row at the foot when it is NOT already on the page
+    # in front of you - seeing yourself twice is just noise.
+    if me_rows:
+        _shown = {normalize_name(_p['name']) for _p in leaderboard_data}
+        me_rows = [_p for _p in me_rows
+                   if normalize_name(_p['name']) not in _shown]
     return render_template('index.html', leaderboard=leaderboard_data,
                            periods=PERIODS, regions=REGION_CHOICES,
                            period=period, region=region, gain=gain,
