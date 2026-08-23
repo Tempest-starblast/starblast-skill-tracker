@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.3"
+APP_VERSION = "7.0.4"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -101,6 +101,11 @@ ESTABLISHED_K_MULT = 0.8
 # made a team's strength depend on how many strangers happened to be
 # aboard rather than on how good the known players were.
 TEAM_PRIOR_WEIGHT = 3.0
+
+# The least a late arrival's result can be worth. Turning up for the last
+# minute should count for very little - but never for nothing, or a real
+# player who genuinely fought at the end walks away with no record of it.
+LATE_JOIN_FLOOR = 0.15
 
 # Minimum score to COLLECT A WIN - idling on the winning team earns
 # nothing. Losers have NO floor at all (owner's rule): they usually finish
@@ -2435,6 +2440,12 @@ def game_end():
         _sc = data.get('scores')
         if isinstance(_sc, dict):
             data['scores'] = {_to_account(str(k)): v for k, v in _sc.items()}
+        # So is the presence share, which is looked up by the same key
+        # half_elo is - rewrite it or a renamed player silently falls
+        # back to flat half.
+        _pr = data.get('presence')
+        if isinstance(_pr, dict):
+            data['presence'] = {_to_account(str(k)): v for k, v in _pr.items()}
         data['played_as_map'] = _played_as
         _conn.close()
     except sqlite3.Error:
@@ -2501,15 +2512,40 @@ def game_end():
         return jsonify({"status": "held", "reason": str(hold_reason)[:40],
                         "players": len(heveryone)}), 200
 
-    def scaled(raw, key):
-        """Half the swing for a late arrival, full for everyone else.
+    # How much of the watched match each late arrival was actually in.
+    # Keyed the same way half_elo is; anyone absent from it played the
+    # whole thing (7.0.4).
+    presence = {}
+    for _n, _v in (data.get('presence') or {}).items():
+        try:
+            presence[normalize_name(_n)] = max(0.0, min(1.0, float(_v)))
+        except (TypeError, ValueError):
+            pass
 
-        No rounding. Ratings are stored with decimals precisely so that half
-        a swing is a real half - while these were whole numbers, an even
-        match was worth one point and half of it rounded straight back to
-        one, which made the rule do nothing at all."""
+    def scaled(raw, key):
+        """A late arrival's swing, scaled by how much of the match they
+        were there for; full for everyone else.
+
+        Until 7.0.4 this was a flat half whether somebody arrived a
+        minute in or twenty - the same result for two very different
+        contributions. Now it follows the share of the watch they were
+        actually present for, floored at LATE_JOIN_FLOOR so that turning
+        up late is never worth nothing at all, and capped at half a
+        swing so a latecomer can still never be paid like someone who
+        played the whole match. Without a presence figure - an older
+        tracker, or a match with no usable read count - it falls back to
+        the flat half it always was.
+
+        No rounding. Ratings are stored with decimals precisely so that
+        half a swing is a real half - while these were whole numbers, an
+        even match was worth one point and half of it rounded straight
+        back to one, which made the rule do nothing at all."""
         if key in half_elo:
-            raw *= 0.5
+            share = presence.get(key)
+            if share is None:
+                raw *= 0.5
+            else:
+                raw *= max(LATE_JOIN_FLOOR, min(0.5, share))
         return raw
 
     conn = db()
@@ -3117,6 +3153,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.4", "at": "2026-08-23T04:40:00Z", "changes": [
+        "Joining late is now scored by HOW late. Until now every late arrival got exactly half a result, whether they turned up a minute into the match or with a minute left - the same reward for two completely different contributions. A late result is now worth the share of the match you were actually there for: still capped at half, so a latecomer can never be paid like someone who played the whole thing, and floored at 15% so turning up at the death counts for a little rather than nothing. Anyone present from the start is unaffected."
+    ]},
     {"version": "7.0.3", "at": "2026-08-23T04:10:00Z", "changes": [
         "Comparing players is no longer a typing test. Both boxes now search as you type and offer real players to pick from, matching either reading of a name - so “l7 tempest” finds the one written in symbols, which nobody could have typed by hand. Pick both sides and the comparison runs itself; there is a swap button, and if you are signed in your own name is already in the first slot."
     ]},
