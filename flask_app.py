@@ -3117,6 +3117,17 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.0", "at": "2026-08-23T02:05:00Z", "changes": [
+        "RATINGS ARE FIXED AT THE ROOT. Team mode is a three-team game, but ratings were computed with the two-player Elo formula, which says an even side expects to win half its matches when the truth is nearer a third. Winners were underpaid, losers overcharged, and with roughly 1.6 rated losers for every winner the pool bled points every single game - 474,337 of them, measured. The average rating had drifted to 933.7 against a 1000 start and 107 players were pinned at the floor. Every rating now uses the true three-way expectation, and a match is made to conserve rating exactly: what one side gains, the other loses. Two-team matches are unaffected.",
+        "Ratings now know how well they know you. A player with under 5 games moves further per match so they find their level quickly; a player past 20 games moves less, so a settled rating is not whipped around by newcomers. Three quarters of the leaderboard was provisional while everyone moved at the same rate.",
+        "An unranked player is no longer counted as exactly 1000. Only 58% of players in a live match are on the leaderboard, and treating every stranger as precisely average meant a team of four strong players read weaker simply for having four strangers beside them. Team strength now comes from the players we actually know, held toward average by how few of them there are.",
+        "Every historical rating has been rebuilt from match history under the corrected engine, so the leaderboard shows what it always should have.",
+        "Fixed a scoring bug that was days from biting: player scores are read as 16-bit numbers and roll over at 65,535, and the highest score on record was 64,743. A wrapped score would have silently corrupted team totals, the dominance ratio behind the flip rule, and the over-cap verdict. Scores are now unwrapped as they are read.",
+        "LIVE MATCHES ARE PUBLIC. The win-probability view - every tracked match, live odds, station panels, the map, and per-player impact - is now open to everyone instead of the owner alone.",
+        "Your account page now tells you why a match did not count. Held, withheld and excused results appear with the reason in plain words, instead of the match silently never showing up.",
+        "Check-ins are visible and stay visible: the Play page now names the lobby you are checked into and keeps saying so while you sit there, since a check-in you cannot see is one you can lose by clicking again.",
+        "Profiles show the ships you actually fly - your favourite, the tier you usually reach, and your win rate on each - read from the game’s own scoreboard at the end of every match. Deaths are recorded too.",
+    ]},
     {"version": "6.66.0", "at": "2026-08-23T01:37:00Z", "changes": [
         "Name claims are no longer the owner's job alone. Every claim now also lands in a staff channel on Discord where any moderator can approve or deny it, so a claim gets answered even when the owner is asleep. The first press settles it and the card turns into the decision, so the same claim is never decided twice.",
         "A granted claim is now announced in the server's claims channel: the name, who it went to, which moderator approved it and at what time. Decisions are on the record instead of happening quietly in a DM.",
