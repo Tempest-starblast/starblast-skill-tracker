@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.2"
+APP_VERSION = "7.0.3"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3117,6 +3117,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.3", "at": "2026-08-23T04:10:00Z", "changes": [
+        "Comparing players is no longer a typing test. Both boxes now search as you type and offer real players to pick from, matching either reading of a name - so “l7 tempest” finds the one written in symbols, which nobody could have typed by hand. Pick both sides and the comparison runs itself; there is a swap button, and if you are signed in your own name is already in the first slot."
+    ]},
     {"version": "7.0.2", "at": "2026-08-23T03:30:00Z", "changes": [
         "Compare any two players, on the site at last. Ratings, records and win rates side by side, what a win between them would actually be worth - and the part the Discord command cannot do: their shared history. How many matches they have won together, how many they have decided against each other, and who came out ahead. Every profile has a compare box that fills your opponent in for you.",
         "A rating built on fewer than five matches now says so, with a small NEW beside it on the leaderboard. Those ratings deliberately move faster until they settle, and a one-match number should not read like a hard-won one.",
@@ -4279,6 +4282,71 @@ def player_progress():
     start = round(after[0] - float(rows[0][1] or 0), 2) if rows else round(cur, 2)
     return jsonify({"name": prow[0], "elo": round(cur, 2),
                     "start": start, "matches": out}), 200
+
+
+# A small cached index of every rated player, so a name can be searched
+# by either reading of it - as written, and folded to plain letters, so
+# typing "l7 tempest" finds "(Ł7) Ŧɇmᵽɇsŧ". Names in this game are full
+# of symbol alphabets; asking anyone to type one exactly is asking them
+# not to use the feature (7.0.3).
+_SEARCH_INDEX = {"at": 0.0, "rows": []}
+_SEARCH_TTL = 60.0
+
+
+def player_search_index():
+    now = time.time()
+    if _SEARCH_INDEX["rows"] and now - _SEARCH_INDEX["at"] < _SEARCH_TTL:
+        return _SEARCH_INDEX["rows"]
+    rows = []
+    try:
+        conn = db(timeout=3)
+        cur = conn.cursor()
+        disp = clan_display_map(cur)
+        for name, elo, wins, losses, clan in cur.execute(
+                "SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
+                "FROM players WHERE name IS NOT NULL"):
+            shown = disp.get(clan) if clan else None
+            rows.append({
+                "name": name,
+                "display": display_name(name, clan, shown),
+                "clan": shown or clan,
+                "elo": round(float(elo), 1),
+                "played": wins + losses,
+                "key": search_key(name, clan, shown),
+            })
+        conn.close()
+    except sqlite3.Error:
+        return _SEARCH_INDEX["rows"]
+    rows.sort(key=lambda r: -r["elo"])
+    _SEARCH_INDEX["rows"] = rows
+    _SEARCH_INDEX["at"] = now
+    return rows
+
+
+@app.route('/api/players/search')
+def api_player_search():
+    """Players matching what has been typed so far, best rated first.
+
+    Matches either reading of a name, and puts names that START with the
+    query above names that merely contain it - typing "gg" should offer
+    GG before EGGMAN."""
+    q = str(request.args.get('q', ''))[:32]
+    qk, qf = normalize_name(q), clean_clan_tag(q)
+    if not qk and not qf:
+        return jsonify({"players": []}), 200
+    starts, contains = [], []
+    for r in player_search_index():
+        k = r["key"]
+        if (qk and k.startswith(qk)) or (qf and k.startswith(qf)):
+            starts.append(r)
+        elif (qk and qk in k) or (qf and qf in k):
+            contains.append(r)
+        if len(starts) >= 8:
+            break
+    return jsonify({"players": [
+        {"name": r["name"], "display": r["display"], "clan": r["clan"],
+         "elo": r["elo"], "played": r["played"]}
+        for r in (starts + contains)[:8]]}), 200
 
 
 @app.route('/api/compare')
