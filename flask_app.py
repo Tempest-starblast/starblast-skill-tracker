@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.1.0"
+APP_VERSION = "7.1.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3106,6 +3106,10 @@ def game_end():
                     "traj": _traj,
                     "skill": _lp.get("skill") or {},
                     "top": _lp.get("top") or {},
+                    # The station blueprints. Without these the replay has
+                    # module health with no station to draw it on, so the
+                    # whole panel stays hidden.
+                    "stlay": _lp.get("stlay") or [],
                     "region": _rg, "name": _nm,
                 }, separators=(',', ':')).encode('utf-8'), 6)
                 c.execute("CREATE TABLE IF NOT EXISTS match_replays ("
@@ -3202,6 +3206,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.1.1", "at": "2026-08-23T09:30:00Z", "changes": [
+        "The station panel promised in 7.1.0 never actually appeared: the replay was saving the module damage but not the station plans it had to be drawn on, so the panel stayed hidden every time. Fixed. Stations show for matches recorded from now on — replays saved before this cannot be repaired, because the plans were never written down.",
+        "Replay playback now has a speed control. It ran at one fixed speed, which was too fast to follow; pick anything from a quarter speed to four times, and both the station and radar timelapses follow it, changing speed mid-play without restarting.",
+        "The result list at the end of a replay called both beaten teams “Losers”, which read as one large team. They are now separated as second and third place, each with its own colour and its player and point totals."
+    ]},
     {"version": "7.1.0", "at": "2026-08-23T08:00:00Z", "changes": [
         "Fixed a serious bug in how matches were decided: a team written off as collapsed STAYED written off for the rest of the match, even after it refilled and fought back. In one match a side that dipped to two players climbed back to twelve, killed both other teams and was still recorded as eliminated - so the win went to a team that had already been destroyed. A collapse is now cleared once a side is back to full strength for three straight readings, and a team holding a full roster at the final reading is never treated as out.",
         "THE RESURGENCE RULE. A team left for dead that comes back and wins has beaten sides which had already spent themselves fighting each other. The winners are now paid in full, and the teams they finished off are excused the loss - a resurrection is not something the other teams could have answered. It is the mirror of the flip rule, and like the flip it only applies when the comeback actually wins.",
