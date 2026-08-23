@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.64.0"
+APP_VERSION = "6.65.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2958,6 +2958,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.65.0", "at": "2026-08-23T03:10:00Z", "changes": [
+        "Real ship silhouettes. The live view's player lists now show each player's actual ship - the true silhouette from the game's ship tree, all 34 of them, next to the ship code. A glance down a team tells you who is flying what.",
+    ]},
     {"version": "6.64.0", "at": "2026-08-23T02:30:00Z", "changes": [
         "The stations moved front and center. Each live match card now leads with three large station panels drawn the way the game's own map draws them - glowing wireframe structures with lattice arms, depots as the big blocks, spawn pads as ringed circles - each module colored by its own health, and a destroyed station rendered as a dashed skeleton.",
         "The radar is now the game's map: a square view with every player as an X in their team's color and each team's station icon sitting at its base (base positions measured from thousands of recorded ship positions - the spawn clusters sit exactly 120 degrees apart). Ship positions come from the scoreboard packet's coordinate bytes, decoded tonight; dead ships no longer litter the map. Replay radar matches. Player lists also gained little ship silhouettes that grow with tier next to each ship code.",
