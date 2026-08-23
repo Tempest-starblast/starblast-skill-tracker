@@ -43,7 +43,8 @@
 .lv-sta.dead .lv-lvl{color:#ff9a9a;border-color:rgba(255,140,140,.5)}
 .lv-shp{color:var(--dim,#8aa0b0);font-size:9.5px;font-weight:600;
   border:1px solid rgba(153,221,255,.2);border-radius:3px;padding:0 3px;
-  margin-left:5px;font-variant-numeric:tabular-nums}
+  margin-left:3px;font-variant-numeric:tabular-nums}
+.lv-shipico{width:12px;height:12px;vertical-align:-2px;margin-left:5px}
 .lv-stations{display:flex;gap:9px;margin:2px 0 13px}
 .lv-stpanel{flex:1;min-width:0;background:radial-gradient(ellipse at 50% 40%,
   rgba(10,26,48,.85), rgba(3,10,22,.9));border:1px solid rgba(153,221,255,.16);
@@ -222,27 +223,57 @@
     });
     return any ? '<div class="lv-stations">'+p+'</div>' : '';
   }
-  // A real radar scope: full width, range rings, glowing team-colored
-  // contacts. The scale only ever grows for a lobby, so the view never
-  // jumps between refreshes.
-  var RSCALE={};
+  // The map, the way the game draws it: a square, ships as X marks in
+  // team colors, and each team's station as its icon at the base.
+  // Coordinates are the board packet's map bytes (the whole map spans
+  // +/-128); base positions sit 120 degrees apart - measured from
+  // thousands of recorded positions, spawn clusters land at 28, 148 and
+  // 268 degrees.
+  var BASE_ANG=[28,148,268], BASE_R=90, MAPE=132;
+  function stationIcon(cx,cy,c,gone,s,sw){
+    var g='<g opacity="'+(gone?0.4:1)+'">'
+      +'<rect x="'+(cx-s)+'" y="'+(cy-s)+'" width="'+(2*s)+'" height="'+(2*s)+'" rx="'+(s*0.3)+'" '
+      +'fill="'+(gone?'#3a1a26':c)+'"'+(gone?' stroke="#ff7a7a" stroke-width="'+sw+'" stroke-dasharray="'+(s*0.4)+' '+(s*0.3)+'"':'')+'/>';
+    var ink='rgba(4,12,24,.85)';
+    g+='<line x1="'+(cx-s*0.34)+'" y1="'+cy+'" x2="'+(cx+s*0.36)+'" y2="'+(cy-s*0.36)+'" stroke="'+ink+'" stroke-width="'+(s*0.16)+'"/>'
+      +'<line x1="'+(cx-s*0.34)+'" y1="'+cy+'" x2="'+(cx+s*0.36)+'" y2="'+(cy+s*0.36)+'" stroke="'+ink+'" stroke-width="'+(s*0.16)+'"/>'
+      +'<circle cx="'+(cx-s*0.34)+'" cy="'+cy+'" r="'+(s*0.2)+'" fill="'+ink+'"/>'
+      +'<circle cx="'+(cx+s*0.36)+'" cy="'+(cy-s*0.36)+'" r="'+(s*0.2)+'" fill="'+ink+'"/>'
+      +'<circle cx="'+(cx+s*0.36)+'" cy="'+(cy+s*0.36)+'" r="'+(s*0.2)+'" fill="'+ink+'"/>';
+    return g+'</g>';
+  }
+  function shipX(x,y,c,r){
+    return '<g stroke="'+c+'" stroke-width="'+(r*0.55)+'" stroke-linecap="round">'
+      +'<line x1="'+(x-r)+'" y1="'+(y-r)+'" x2="'+(x+r)+'" y2="'+(y+r)+'"/>'
+      +'<line x1="'+(x-r)+'" y1="'+(y+r)+'" x2="'+(x+r)+'" y2="'+(y-r)+'"/></g>';
+  }
+  // A little ship silhouette per tier - the wings widen and the hull
+  // lengthens as the tier climbs, so a glance tells apart a starter Fly
+  // from a tier-6 dreadnought.
+  function shipGlyph(code){
+    var tier=Math.max(1,Math.min(7,Math.floor(code/100)));
+    var w=2.2+tier*0.75, l=4.5+tier*0.55;
+    return '<svg class="lv-shipico" viewBox="-8 -8 16 16">'
+      +'<path d="M0 '+(-l).toFixed(1)+' L'+w.toFixed(1)+' '+(l*0.7).toFixed(1)
+      +' L0 '+(l*0.3).toFixed(1)+' L'+(-w).toFixed(1)+' '+(l*0.7).toFixed(1)+' Z" '
+      +'fill="#9db7cc" opacity="0.85"/></svg>';
+  }
   function radarPanel(m){
     if(!m.radar || !m.radar.length) return '';
-    var mx=RSCALE[m.sys_id]||24;
-    m.radar.forEach(function(e){ mx=Math.max(mx,Math.abs(e[1])*1.15,Math.abs(e[2])*1.15); });
-    RSCALE[m.sys_id]=mx;
     var col=[COLORS.team_1,COLORS.team_2,COLORS.team_3];
-    var out='<svg class="lv-radarbig" viewBox="'+(-mx)+' '+(-mx)+' '+(2*mx)+' '+(2*mx)+'" preserveAspectRatio="xMidYMid meet">';
-    out+='<circle cx="0" cy="0" r="'+(mx*0.97)+'" fill="rgba(3,12,26,.65)" stroke="rgba(153,221,255,.2)" stroke-width="'+(mx/130)+'"/>';
-    [0.33,0.66].forEach(function(f){
-      out+='<circle cx="0" cy="0" r="'+(mx*f)+'" fill="none" stroke="rgba(153,221,255,.09)" stroke-width="'+(mx/220)+'"/>';
-    });
-    out+='<line x1="'+(-mx*0.97)+'" y1="0" x2="'+(mx*0.97)+'" y2="0" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
-    out+='<line x1="0" y1="'+(-mx*0.97)+'" x2="0" y2="'+(mx*0.97)+'" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
+    var E=MAPE;
+    var out='<svg class="lv-radarbig" viewBox="'+(-E)+' '+(-E)+' '+(2*E)+' '+(2*E)+'" preserveAspectRatio="xMidYMid meet">';
+    out+='<rect x="'+(-E)+'" y="'+(-E)+'" width="'+(2*E)+'" height="'+(2*E)+'" rx="'+(E/16)+'" fill="rgba(3,12,26,.65)" stroke="rgba(153,221,255,.16)" stroke-width="'+(E/170)+'"/>';
+    out+='<line x1="'+(-E)+'" y1="0" x2="'+E+'" y2="0" stroke="rgba(153,221,255,.05)" stroke-width="'+(E/240)+'"/>';
+    out+='<line x1="0" y1="'+(-E)+'" x2="0" y2="'+E+'" stroke="rgba(153,221,255,.05)" stroke-width="'+(E/240)+'"/>';
+    for(var i=0;i<3;i++){
+      var st=((m.teams[i]||{}).station)||[];
+      var gone=(st[3]>0)&&((st[5]||0)>=st[3]);
+      var a=BASE_ANG[i]*Math.PI/180;
+      out+=stationIcon(Math.cos(a)*BASE_R, -Math.sin(a)*BASE_R, col[i], gone, E/11, E/200);
+    }
     m.radar.forEach(function(e){
-      var c=col[e[0]]||'#888';
-      out+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/15)+'" fill="'+c+'" opacity="0.16"/>'
-          +'<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/32)+'" fill="'+c+'"/>';
+      out+=shipX(e[1], -e[2], col[e[0]]||'#888', E/34);
     });
     return out+'</svg>';
   }
@@ -275,7 +306,7 @@
         var v=p.imp*100, s=v>=0?'+':'';
         var col=v>=0.05?'#66e6b8':(v<=-0.05?'#ff7a7a':'#8aa0b0');
         var sc=p.score||0;
-        var shp=p.ship?' <span class="lv-shp" title="current ship">'+p.ship+'</span>':'';
+        var shp=p.ship?' '+shipGlyph(p.ship)+'<span class="lv-shp" title="current ship">'+p.ship+'</span>':'';
         pl+='<div class="lv-prow">'+
           '<span class="c" style="background:'+COLORS[t.key]+'"></span>'+
           '<span class="n">'+(p.known?esc(p.name):esc(p.name)+' <small>unranked</small>')+shp+'</span>'+

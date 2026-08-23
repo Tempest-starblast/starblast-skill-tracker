@@ -177,30 +177,45 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
   const frames=d.points.filter(p=>p.rd&&p.rd.length);
   if(frames.length>=3){
     document.getElementById('radarCard').style.display='';
-    let mx=20;
-    frames.forEach(f=>f.rd.forEach(e=>{mx=Math.max(mx,Math.abs(e[1]),Math.abs(e[2]));}));
-    mx*=1.15;
+    const mx=132, BASE_ANG=[28,148,268], BASE_R=90;
     const map=document.getElementById('radarMap');
     map.setAttribute('viewBox',(-mx)+' '+(-mx)+' '+(2*mx)+' '+(2*mx));
+    function stationIcons(){
+      let g='';
+      for(let i=0;i<3;i++){
+        const a=BASE_ANG[i]*Math.PI/180, cx=Math.cos(a)*BASE_R, cy=-Math.sin(a)*BASE_R, s=mx/12;
+        const ink='rgba(4,12,24,.85)';
+        g+='<rect x="'+(cx-s)+'" y="'+(cy-s)+'" width="'+(2*s)+'" height="'+(2*s)+'" rx="'+(s*0.3)+'" fill="'+COLS[i]+'" opacity="0.85"/>'
+          +'<line x1="'+(cx-s*0.34)+'" y1="'+cy+'" x2="'+(cx+s*0.36)+'" y2="'+(cy-s*0.36)+'" stroke="'+ink+'" stroke-width="'+(s*0.16)+'"/>'
+          +'<line x1="'+(cx-s*0.34)+'" y1="'+cy+'" x2="'+(cx+s*0.36)+'" y2="'+(cy+s*0.36)+'" stroke="'+ink+'" stroke-width="'+(s*0.16)+'"/>'
+          +'<circle cx="'+(cx-s*0.34)+'" cy="'+cy+'" r="'+(s*0.2)+'" fill="'+ink+'"/>'
+          +'<circle cx="'+(cx+s*0.36)+'" cy="'+(cy-s*0.36)+'" r="'+(s*0.2)+'" fill="'+ink+'"/>'
+          +'<circle cx="'+(cx+s*0.36)+'" cy="'+(cy+s*0.36)+'" r="'+(s*0.2)+'" fill="'+ink+'"/>';
+      }
+      return g;
+    }
     const seek=document.getElementById('radarSeek');
     seek.max=frames.length-1;
     const tl=document.getElementById('radarT');
     function draw(i){
       const f=frames[i];
-      let g='<circle cx="0" cy="0" r="'+(mx*0.97)+'" fill="rgba(3,12,26,.5)" stroke="rgba(153,221,255,.2)" stroke-width="'+(mx/130)+'"/>';
-      [0.33,0.66].forEach(fr=>{g+='<circle cx="0" cy="0" r="'+(mx*fr)+'" fill="none" stroke="rgba(153,221,255,.09)" stroke-width="'+(mx/220)+'"/>';});
-      g+='<line x1="'+(-mx*0.97)+'" y1="0" x2="'+(mx*0.97)+'" y2="0" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
-      g+='<line x1="0" y1="'+(-mx*0.97)+'" x2="0" y2="'+(mx*0.97)+'" stroke="rgba(153,221,255,.07)" stroke-width="'+(mx/220)+'"/>';
+      let g='<rect x="'+(-mx)+'" y="'+(-mx)+'" width="'+(2*mx)+'" height="'+(2*mx)+'" rx="'+(mx/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)" stroke-width="'+(mx/170)+'"/>';
+      g+='<line x1="'+(-mx)+'" y1="0" x2="'+mx+'" y2="0" stroke="rgba(153,221,255,.05)" stroke-width="'+(mx/240)+'"/>';
+      g+='<line x1="0" y1="'+(-mx)+'" x2="0" y2="'+mx+'" stroke="rgba(153,221,255,.05)" stroke-width="'+(mx/240)+'"/>';
+      g+=stationIcons();
       // Faint trails: the previous few frames ghosted behind the ships.
       for(let b=3;b>=1;b--){
         const pf=frames[i-b];
         if(!pf)continue;
         pf.rd.forEach(e=>{
-          g+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/40)+'" fill="'+COLS[e[0]]+'" opacity="'+(0.08*(4-b))+'"/>';
+          g+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/48)+'" fill="'+COLS[e[0]]+'" opacity="'+(0.09*(4-b))+'"/>';
         });
       }
       f.rd.forEach(e=>{
-        g+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/28)+'" fill="'+COLS[e[0]]+'" opacity="0.95"/>';
+        const x=e[1], y=-e[2], r=mx/38, c=COLS[e[0]]||'#888';
+        g+='<g stroke="'+c+'" stroke-width="'+(r*0.55)+'" stroke-linecap="round">'
+          +'<line x1="'+(x-r)+'" y1="'+(y-r)+'" x2="'+(x+r)+'" y2="'+(y+r)+'"/>'
+          +'<line x1="'+(x-r)+'" y1="'+(y+r)+'" x2="'+(x+r)+'" y2="'+(y-r)+'"/></g>';
       });
       map.innerHTML=g;
       tl.textContent=fmtT(f.t)+' · '+f.rd.length+' ships';
