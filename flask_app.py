@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.65.2"
+APP_VERSION = "6.66.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2958,6 +2958,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.66.0", "at": "2026-08-23T01:37:00Z", "changes": [
+        "Name claims are no longer the owner's job alone. Every claim now also lands in a staff channel on Discord where any moderator can approve or deny it, so a claim gets answered even when the owner is asleep. The first press settles it and the card turns into the decision, so the same claim is never decided twice.",
+        "A granted claim is now announced in the server's claims channel: the name, who it went to, which moderator approved it and at what time. Decisions are on the record instead of happening quietly in a DM.",
+    ]},
     {"version": "6.65.2", "at": "2026-08-23T04:15:00Z", "changes": [
         "The ship silhouettes came back out of the player lists - at that size they read as clutter, and long names squeezed the ship codes out of view. The ship code now has its own column, always visible, never truncated.",
     ]},
