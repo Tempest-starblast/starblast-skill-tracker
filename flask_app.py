@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.4"
+APP_VERSION = "7.0.5"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1282,6 +1282,23 @@ def init_db():
                     played_at TEXT
                 )""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_held_norm ON held_results(norm_name, id)")
+    # When a held result stopped needing a decision, and what the answer
+    # was. Empty means still open.
+    for _hcol in ("ALTER TABLE held_results ADD COLUMN resolved TEXT",
+                  "ALTER TABLE held_results ADD COLUMN resolution TEXT"):
+        try:
+            c.execute(_hcol)
+        except sqlite3.OperationalError:
+            pass
+    # One nudge per account per lobby: a reminder that arrives twice is
+    # noise, and noise gets muted.
+    c.execute("""CREATE TABLE IF NOT EXISTS checkin_nudges (
+                    sub TEXT NOT NULL,
+                    sys_id INTEGER NOT NULL,
+                    at TEXT
+                )""")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_nudge "
+              "ON checkin_nudges(sub, sys_id)")
     c.execute('''CREATE TABLE IF NOT EXISTS name_reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -3153,6 +3170,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.5", "at": "2026-08-23T05:20:00Z", "changes": [
+        "Forget to check in and the bot now tells you WHILE you are still playing. If a protected name turns up in a live lobby with no check-in, its owner gets a direct message naming the lobby and a link to fix it - because a protected name only counts in matches it checked into, and finding out afterwards is finding out too late. One message per lobby, never more.",
+        "Held results now settle themselves. Results set aside by a rule that had already decided the matter - a flipped match’s losers, a cameo - are closed automatically instead of sitting in a queue forever. Ones held because nobody could tell who won are re-examined against the record and closed when the answer is clear, and anything still undecidable after two weeks is retired honestly rather than pretending a decision is coming. Only genuinely open cases remain on the list.",
+        "Profiles say much more about how someone plays: average and best score, how often they die, how many matches they joined late, which regions they turn up in and their win rate in each - and their single best match, with a link to watch it."
+    ]},
     {"version": "7.0.4", "at": "2026-08-23T04:40:00Z", "changes": [
         "Joining late is now scored by HOW late. Until now every late arrival got exactly half a result, whether they turned up a minute into the match or with a minute left - the same reward for two completely different contributions. A late result is now worth the share of the match you were actually there for: still capped at half, so a latecomer can never be paid like someone who played the whole thing, and floored at 15% so turning up at the death counts for a little rather than nothing. Anyone present from the start is unaffected."
     ]},
@@ -4362,6 +4384,168 @@ def player_search_index():
     return rows
 
 
+# Reasons a held result is FINAL: the rule that set it aside already
+# decided the matter, so there is nothing for a human to review. They are
+# closed automatically rather than piling up in a queue nobody empties.
+HELD_FINAL_REASONS = ('dominance-flip', 'joined-too-late')
+# A held result nobody could decide is closed after this long. Keeping it
+# open forever pretends a decision is coming that never is.
+HELD_STALE_DAYS = 14
+
+
+def resolve_held_results(c):
+    """Close every held result that can be closed, automatically.
+
+    Three kinds exist. Ones whose rule already made the decision (a
+    flipped match's losers, a cameo) were final the moment they were
+    written, so they are marked closed. Ones held because nobody could
+    tell who won are retried against the record and closed as decided if
+    the answer is now obvious. Whatever remains is genuinely undecidable
+    and is closed as such once stale, so the list only ever holds things
+    that are actually live.
+
+    Never re-rates anybody: resolving marks the row, because re-rating a
+    weeks-old match would move ratings everyone has long since moved
+    on from."""
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    ph = ",".join("?" for _ in HELD_FINAL_REASONS)
+    c.execute("UPDATE held_results SET resolved = ?, resolution = 'final' "
+              "WHERE COALESCE(resolved,'') = '' AND reason IN (%s)" % ph,
+              (now,) + HELD_FINAL_REASONS)
+    closed = c.rowcount or 0
+
+    # Thin-margin orphans: the match ended unwatched and the winner would
+    # have been a guess. If the record shows one side clear of every
+    # rival, it is not a guess any more.
+    c.execute("SELECT id, match_id, score FROM held_results "
+              "WHERE COALESCE(resolved,'') = '' AND reason = 'thin_margin_orphan'")
+    by_match = {}
+    for hid, mid, score in c.fetchall():
+        by_match.setdefault(mid, []).append((hid, score or 0))
+    released = 0
+    for _mid, rows in by_match.items():
+        scores = sorted((r[1] for r in rows), reverse=True)
+        if len(scores) >= 2 and scores[0] and scores[1] \
+                and scores[0] >= scores[1] * 1.75:
+            c.executemany("UPDATE held_results SET resolved = ?, "
+                          "resolution = 'decided-on-score' WHERE id = ?",
+                          [(now, r[0]) for r in rows])
+            released += len(rows)
+
+    c.execute("UPDATE held_results SET resolved = ?, resolution = 'undecidable' "
+              "WHERE COALESCE(resolved,'') = '' AND played_at < datetime('now', ?)",
+              (now, '-%d days' % HELD_STALE_DAYS))
+    return {"closed": closed, "released": released, "stale": c.rowcount or 0}
+
+
+@app.route('/api/held/resolve', methods=['POST'])
+def held_resolve_route():
+    """Run the automatic resolver - on a schedule from the droplet, or
+    on demand by the owner."""
+    if not (api_key_ok(request.headers.get('X-API-Key')) or is_site_owner()):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    summary = resolve_held_results(c)
+    conn.commit()
+    c.execute("SELECT COUNT(*) FROM held_results WHERE COALESCE(resolved,'') = ''")
+    summary["still_open"] = c.fetchone()[0]
+    conn.close()
+    return jsonify(summary), 200
+
+
+@app.route('/api/bot/checkin/nudge')
+def bot_checkin_nudge():
+    """Protected players who are flying RIGHT NOW without a check-in.
+
+    A protected name only scores in matches it checked into, so a player
+    who forgets is playing for nothing and does not find out until the
+    result never appears. The bot polls this and sends them a message
+    while they can still act on it (7.0.5).
+
+    Only names whose owner turned protection on are ever reported, only
+    while the match is still live, and only once per lobby - the bot
+    marks them delivered."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    now = time.time()
+    out = []
+    try:
+        c.execute("SELECT sys_id, name, players, age, updated_at FROM live_lobbies")
+        live = c.fetchall()
+    except sqlite3.Error:
+        live = []
+    live_ids = set()
+    for sys_id, lname, _pl, age, updated in live:
+        try:
+            if updated and (now - time.mktime(time.strptime(
+                    str(updated)[:19], '%Y-%m-%d %H:%M:%S'))) > 180:
+                continue
+        except (TypeError, ValueError):
+            pass
+        live_ids.add(sys_id)
+    if not live_ids:
+        conn.close()
+        return jsonify({"nudges": []}), 200
+    ph = ",".join("?" for _ in live_ids)
+    # appearances stores names as the game spells them, so the match to
+    # an account is done in Python - the live set is only ever a handful
+    # of lobbies.
+    c.execute("SELECT norm_name, google_sub, name FROM players "
+              "WHERE strict_mode = 1 AND google_sub IS NOT NULL "
+              "AND google_sub != ''")
+    protected_owners = {r[0]: (r[1], r[2]) for r in c.fetchall() if r[0]}
+    if not protected_owners:
+        conn.close()
+        return jsonify({"nudges": []}), 200
+    c.execute("SELECT sys_id, name FROM appearances WHERE sys_id IN (%s)" % ph,
+              list(live_ids))
+    seen = c.fetchall()
+    lobby_name = {r[0]: r[1] for r in live}
+    for sys_id, seen_name in seen:
+        key = normalize_name(seen_name)
+        owner = protected_owners.get(key)
+        if not owner:
+            continue
+        sub, acct = owner
+        c.execute("SELECT 1 FROM checkins WHERE sub = ? AND sys_id = ? "
+                  "AND created_at > datetime('now', ?)",
+                  (sub, sys_id, '-%d seconds' % CHECKIN_VALID_SECONDS))
+        if c.fetchone():
+            continue
+        c.execute("SELECT 1 FROM checkin_nudges WHERE sub = ? AND sys_id = ?",
+                  (sub, sys_id))
+        if c.fetchone():
+            continue
+        out.append({"sys_id": sys_id, "account": acct,
+                    "lobby": lobby_name.get(sys_id) or ("Lobby %s" % sys_id),
+                    "discord_id": sub.split(':', 1)[1] if sub.startswith('discord:') else None,
+                    "sub": sub})
+    conn.close()
+    return jsonify({"nudges": out[:10]}), 200
+
+
+@app.route('/api/bot/checkin/nudged', methods=['POST'])
+def bot_checkin_nudged():
+    """Mark a nudge sent, so nobody is told twice about one lobby."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    sub, sys_id = str(d.get('sub') or ''), d.get('sys_id')
+    if not sub or sys_id is None:
+        return jsonify({"ok": False}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO checkin_nudges (sub, sys_id, at) VALUES (?,?,?)",
+              (sub, sys_id, time.strftime('%Y-%m-%d %H:%M:%S')))
+    c.execute("DELETE FROM checkin_nudges WHERE at < datetime('now', '-2 days')")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
 @app.route('/api/players/search')
 def api_player_search():
     """Players matching what has been typed so far, best rated first.
@@ -4492,18 +4676,41 @@ def player_ships(name):
               "WHERE norm_name = mp.norm_name), '') "
               "GROUP BY mp.ship ORDER BY 2 DESC", (key,))
     ships = [{"ship": r[0], "n": r[1], "wins": r[2] or 0} for r in c.fetchall()]
-    c.execute("SELECT SUM(COALESCE(mp.deaths,0)), COUNT(*) FROM match_players mp "
-              "JOIN matches m ON m.id = mp.match_row WHERE mp.norm_name = ? "
-              "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
-              "WHERE norm_name = mp.norm_name), '')", (key,))
-    row = c.fetchone() or (0, 0)
+    _since = ("AND m.played_at > COALESCE((SELECT wiped_before FROM players "
+              "WHERE norm_name = mp.norm_name), '')")
+    c.execute("SELECT SUM(COALESCE(mp.deaths,0)), COUNT(*), AVG(mp.score), "
+              "MAX(mp.score), SUM(CASE WHEN COALESCE(mp.half,0)=1 THEN 1 ELSE 0 END) "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? " + _since, (key,))
+    row = c.fetchone() or (0, 0, None, None, 0)
+    # Where they actually play, most-played region first.
+    c.execute("SELECT m.region, COUNT(*), SUM(CASE WHEN mp.won=1 THEN 1 ELSE 0 END) "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? AND m.region IS NOT NULL " + _since +
+              " GROUP BY m.region ORDER BY 2 DESC", (key,))
+    regions = [{"region": r[0], "label": REGION_LABELS.get(r[0], r[0]),
+                "n": r[1], "wins": r[2] or 0} for r in c.fetchall()]
+    # Their best single match, with a way to go and watch it.
+    c.execute("SELECT mp.score, mp.won, m.id, m.played_at, m.lobby_name "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? AND mp.score IS NOT NULL " + _since +
+              " ORDER BY mp.score DESC LIMIT 1", (key,))
+    b = c.fetchone()
     conn.close()
-    total = sum(s["n"] for s in ships)
+    matches = int(row[1] or 0)
+    deaths = int(row[0] or 0)
     return jsonify({
-        "ships": ships[:8], "total": total,
+        "ships": ships[:8], "total": sum(s["n"] for s in ships),
         "favourite": ships[0]["ship"] if ships else None,
         "top_tier": max((s["ship"] // 100 for s in ships), default=None),
-        "deaths": int(row[0] or 0), "matches": int(row[1] or 0),
+        "deaths": deaths, "matches": matches,
+        "deaths_per_match": round(deaths / matches, 1) if matches else None,
+        "avg_score": int(row[2]) if row[2] is not None else None,
+        "best_score": int(row[3]) if row[3] is not None else None,
+        "late_joins": int(row[4] or 0),
+        "regions": regions,
+        "best": ({"score": b[0], "won": bool(b[1]), "mid": b[2],
+                  "at": str(b[3] or "")[:16], "lobby": b[4] or ""} if b else None),
     }), 200
 
 
