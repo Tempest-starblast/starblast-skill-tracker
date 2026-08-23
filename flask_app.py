@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.1.1"
+APP_VERSION = "7.1.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3206,6 +3206,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.1.2", "at": "2026-08-23T10:20:00Z", "changes": [
+        "The stations and the radar in a replay are now one player instead of two. They sat in separate cards with a play button each, so watching a station lose modules while the fight moved across the map meant starting both and hoping they stayed together. One play button now runs both, side by side, on one scrub bar and one speed setting — and they are matched on match time rather than frame number, so the slower feed holds its last known state instead of drifting ahead."
+    ]},
     {"version": "7.1.1", "at": "2026-08-23T09:30:00Z", "changes": [
         "The station panel promised in 7.1.0 never actually appeared: the replay was saving the module damage but not the station plans it had to be drawn on, so the panel stayed hidden every time. Fixed. Stations show for matches recorded from now on — replays saved before this cannot be repaired, because the plans were never written down.",
         "Replay playback now has a speed control. It ran at one fixed speed, which was too fast to follow; pick anything from a quarter speed to four times, and both the station and radar timelapses follow it, changing speed mid-play without restarting.",
