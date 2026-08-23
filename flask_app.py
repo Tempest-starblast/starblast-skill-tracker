@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.1.3"
+APP_VERSION = "7.1.4"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2436,6 +2436,38 @@ def live_skill_export():
                     "starting_elo": STARTING_ELO}), 200
 
 
+def repair_surrogates(obj):
+    """Make every string in a payload UTF-8 encodable instead of fatal.
+
+    Player names come from the game client, where an emoji is a surrogate
+    PAIR. When such a pair survives the JSON round-trip as two lone
+    surrogates, Python cannot encode it to UTF-8 and sqlite3 raises rather
+    than storing it - which 500s the whole request and loses the ENTIRE
+    match. Seen live 23 Aug 2026: one /api/game_end died inside
+    account_for_ingame_name on a half-emoji in a player name, and nobody
+    in that game was rated.
+
+    Round-tripping through UTF-16 recombines a real pair back into the
+    character it always was, so the name is repaired rather than mangled;
+    a genuinely unpaired half becomes U+FFFD so it can at least be stored.
+    Recurses through dicts and lists because names arrive as values, as
+    list entries AND as dict KEYS - scores are keyed by player name.
+    """
+    if isinstance(obj, str):
+        try:
+            obj.encode('utf-8')
+            return obj
+        except UnicodeEncodeError:
+            return obj.encode('utf-16', 'surrogatepass').decode('utf-16',
+                                                                'replace')
+    if isinstance(obj, dict):
+        return {repair_surrogates(k): repair_surrogates(v)
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [repair_surrogates(v) for v in obj]
+    return obj
+
+
 @app.route('/api/game_end', methods=['POST'])
 def game_end():
     if not api_key_ok(request.headers.get('X-API-Key')):
@@ -2444,6 +2476,10 @@ def game_end():
     data = request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
+
+    # Before ANY of it reaches sqlite - see repair_surrogates. One broken
+    # emoji in one player's name used to cost the whole match.
+    data = repair_surrogates(data)
 
     # Send every name through the bindings BEFORE anything else looks at
     # it, so a result played under any name lands on the right account.
@@ -3206,6 +3242,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.1.4", "at": "2026-08-24T00:20:00Z", "changes": [
+        "Fixed a bug that silently threw away an entire match. If a player's name contained an emoji that arrived broken in half, the server could not store the name at all and the whole result was rejected \u2014 every player in that game went unrated, with nothing on the site to show it had happened. Names are now repaired on arrival: a split emoji is put back together, and a half that cannot be repaired is replaced rather than taking the match down with it. One match was lost to this on 23 August; it was the only one in eighteen days of records."
+    ]},
     {"version": "7.1.3", "at": "2026-08-23T10:55:00Z", "changes": [
         "The station replay now has a colour key, and says so when it has nothing to show. Grey modules meant “no reading” but looked like “fine” — they appear when the tracker briefly loses the lobby feed, so the stations are unknown at that moment rather than undamaged. The panel now spells that out instead of leaving a wall of grey to be read as good news."
     ]},
