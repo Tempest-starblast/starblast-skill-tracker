@@ -2879,6 +2879,13 @@ def game_end():
     _lose2_rating = team_rating(losing_team_2, elo_map) if losing_team_2 else None
     _lose1_keys = {normalize_name(p) for p in losing_team_1}
     _rivals_of_winner = [r for r in (_lose1_rating, _lose2_rating) if r is not None]
+    # Every opposing side excused - both losing teams flipped or beaten by
+    # a resurgence - leaves the winner with nobody to be measured against,
+    # and a win against nobody reads as certain, worth nothing. Fall back
+    # to an average opponent: unknown strength is not the same as no
+    # opposition, and they did win a real match.
+    if not _rivals_of_winner:
+        _rivals_of_winner = [float(STARTING_ELO)]
 
     # Expected-outcome elo: the swing depends on how surprising the result
     # was for THIS player. Their side of the comparison is their own elo

@@ -108,6 +108,10 @@ for mrow, played_at in matches:
     r_1 = team_rating([e[0] for e in l1], elos) if l1 else None
     r_2 = team_rating([e[0] for e in l2], elos) if l2 else None
     rivals_w = [r for r in (r_1, r_2) if r is not None]
+    # A win with every opponent excused still has to be worth something;
+    # measure it against an average side rather than against nobody.
+    if not rivals_w:
+        rivals_w = [float(STARTING_ELO)]
 
     pend = []
     for norm, name, won, half, team in winners:
