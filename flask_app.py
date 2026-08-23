@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.65.0"
+APP_VERSION = "6.65.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2958,6 +2958,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.65.1", "at": "2026-08-23T03:50:00Z", "changes": [
+        "Fixed: ships showed one tier low (a tier-4 lobby read as tier-3 ships). The packet's tier bits count from zero. Dead players are now told apart by the model byte instead, so a zero-score player who is genuinely flying still shows on the map.",
+        "The tracker also now KEEPS everything it learned about each match in its permanent record: which ship every player finished on, each team's final station health, and the station blueprints - plus per-read ship progression, station health and radar history in the training log. Nothing new is scored from it; it accumulates in case it is wanted later.",
+    ]},
     {"version": "6.65.0", "at": "2026-08-23T03:10:00Z", "changes": [
         "Real ship silhouettes. The live view's player lists now show each player's actual ship - the true silhouette from the game's ship tree, all 34 of them, next to the ship code. A glance down a team tells you who is flying what.",
     ]},
