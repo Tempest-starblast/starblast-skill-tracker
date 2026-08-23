@@ -49,6 +49,15 @@ tbody tr{scroll-margin-top:84px}
 .prov{display:inline-block;font-size:9.5px;letter-spacing:.6px;border-radius:4px;
   padding:0 5px;margin-left:6px;vertical-align:1px;background:rgba(240,192,74,.12);
   color:#f0c04a;border:1px solid rgba(240,192,74,.35)}
+tfoot tr.youfoot td{position:sticky;bottom:0;z-index:6;
+  background:#12241d;border-top:1px solid rgba(102,230,184,.55);
+  border-bottom:none;color:#bff3e0;box-shadow:0 -6px 14px rgba(0,0,0,.45)}
+tfoot tr.youfoot td .pname{color:var(--green,#66e6b8);font-weight:700}
+tfoot tr.youfoot td.rank{box-shadow:inset 3px 0 0 var(--green,#66e6b8)}
+tfoot tr.youfoot td.skill{color:#8ef0c8}
+.youtag{display:inline-block;font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;
+  border-radius:4px;padding:0 5px;margin-left:7px;vertical-align:1px;
+  background:rgba(102,230,184,.16);color:#66e6b8;border:1px solid rgba(102,230,184,.45)}
 tbody tr.mine td{background:rgba(102,230,184,.10);color:#bff3e0}
 tbody tr.mine td .pname{color:var(--green,#66e6b8);font-weight:700}
 tbody tr.mine td:first-child{box-shadow:inset 3px 0 0 var(--green,#66e6b8)}
@@ -272,6 +281,20 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% endfor %}
 <tr id="none" style="display:none"><td colspan="{{ 6 if region == 'all' else 5 }}" class="empty">No player matches that.</td></tr>
 </tbody>
+{% if me_rows %}
+<tfoot>
+{% for p in me_rows %}
+<tr class="youfoot">
+  <td class="rank">{{ p.rank }}</td>
+  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a><span class="youtag">you</span>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}</td>
+  {% if region == 'all' %}<td class="mid">{% if p.region_label %}{{ p.region_label }}{% else %}-{% endif %}</td>{% endif %}
+  <td class="mid">{{ p.wins }}-{{ p.losses }}</td>
+  <td class="mid">{{ p.winrate }}</td>
+  <td class="skill">{{ p.skill }}</td>
+</tr>
+{% endfor %}
+</tfoot>
+{% endif %}
 </table>
 </div>
 
@@ -327,21 +350,6 @@ function filter(){
     q ? (shown + ' of ' + rows.length + ' on this page') : '';
 }
 
-// Centre the board on your own row. The #p-name anchor already brings
-// the right page up, but it parks the row just under the header; being
-// in the MIDDLE is what makes your position readable at a glance,
-// because you can see who is above and below you at the same time.
-(function(){
-  var me = document.querySelector('tbody tr.mine');
-  if (!me) return;
-  var jump = function(){
-    try { me.scrollIntoView({block: 'center', behavior: 'auto'}); }
-    catch (e) { me.scrollIntoView(); }
-  };
-  // After layout settles - a fixed header and web fonts both move rows
-  // a few pixels once they land.
-  if (document.readyState === 'complete') { setTimeout(jump, 60); }
-  else { window.addEventListener('load', function(){ setTimeout(jump, 60); }); }
-})();
+
 </script>
 {% endblock %}

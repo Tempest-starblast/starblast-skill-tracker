@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.7"
+APP_VERSION = "7.0.8"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3170,6 +3170,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.8", "at": "2026-08-23T06:35:00Z", "changes": [
+        "The leaderboard opens at rank 1 again, and the paging arrows work. Opening the board on your own page turned out to break the pager - a “first page” link carries no page number, so the jump caught it and sent you straight back to where you started. You could never reach the top.",
+        "Your own standing is pinned to the foot of the board instead. It stays with you as you scroll, on every page, showing your real rank rather than where you happen to sit in the list - so you can read the top ten and still see exactly where you stand. Your name is still picked out in green wherever it appears."
+    ]},
     {"version": "7.0.7", "at": "2026-08-23T06:05:00Z", "changes": [
         "Average score on a profile now counts winning matches only. A losing side is usually cut short or already collapsing, so those scores said more about how the match went than about the player."
     ]},
@@ -10118,18 +10122,19 @@ def leaderboard():
             if normalize_name(p['name']) in _mine:
                 p['mine'] = True
 
-    # Opening the board with nothing asked for lands on your own page,
-    # scrolled to your row. Only on a bare visit: any explicit page,
-    # search or find means the visitor said where they wanted to be, and
-    # the redirect carries a page number so it can never loop.
-    if (_mine and not find and not q and 'page' not in request.args
-            and not request.args.get('nojump')):
-        _best = next((p for p in leaderboard_data
-                      if normalize_name(p['name']) in _mine), None)
-        if _best and (_best['rank'] - 1) // PER_PAGE + 1 > 1:
-            return redirect('/?period=%s&region=%s&page=%d#p-%s' % (
-                period, region, (_best['rank'] - 1) // PER_PAGE + 1,
-                quote(_best['name'], safe='')))
+    # Your own standing, pinned to the foot of the board (7.0.8). It used
+    # to open the board on your own page instead, which put everybody who
+    # is not near the top somewhere in the middle of the table and - worse -
+    # broke the pager: "first page" links carry no page number, so the jump
+    # caught them and bounced you straight back. Showing the row here
+    # instead means the board always opens at rank 1, every arrow works,
+    # and you can still see exactly where you stand without hunting.
+    me_rows = []
+    if _mine:
+        for _p in leaderboard_data:
+            if normalize_name(_p['name']) in _mine:
+                me_rows.append(_p)
+        me_rows = me_rows[:3]
 
     # `total` stays the size of the whole board: it is the count the page
     # reports, and a search must not appear to shrink the leaderboard.
@@ -10156,6 +10161,7 @@ def leaderboard():
                            period_label=dict(PERIODS)[period],
                            version=APP_VERSION, page='leaderboard',
                            pnum=pnum, pages=pages, q=q, found=found,
+                           me_rows=me_rows, per_page=PER_PAGE,
                            total=total_ranked)
 
 
