@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.6"
+APP_VERSION = "7.0.7"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3170,6 +3170,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.7", "at": "2026-08-23T06:05:00Z", "changes": [
+        "Average score on a profile now counts winning matches only. A losing side is usually cut short or already collapsing, so those scores said more about how the match went than about the player."
+    ]},
     {"version": "7.0.6", "at": "2026-08-23T05:45:00Z", "changes": [
         "Fixed: the new profile statistics were hidden on almost every profile. They were tied to ship data, which has only been recorded since today, so scores, deaths, regions and best match - all of which go back through the whole history - showed on nobody. They appear now whether or not a player has flown a recorded ship yet."
     ]},
@@ -4681,7 +4684,11 @@ def player_ships(name):
     ships = [{"ship": r[0], "n": r[1], "wins": r[2] or 0} for r in c.fetchall()]
     _since = ("AND m.played_at > COALESCE((SELECT wiped_before FROM players "
               "WHERE norm_name = mp.norm_name), '')")
-    c.execute("SELECT SUM(COALESCE(mp.deaths,0)), COUNT(*), AVG(mp.score), "
+    # Average score counts WINS only (owner's rule, 23 Aug 2026): a
+    # losing side is often cut short or already collapsing, so its
+    # scores say more about how the match went than about the player.
+    c.execute("SELECT SUM(COALESCE(mp.deaths,0)), COUNT(*), "
+              "AVG(CASE WHEN mp.won = 1 THEN mp.score END), "
               "MAX(mp.score), SUM(CASE WHEN COALESCE(mp.half,0)=1 THEN 1 ELSE 0 END) "
               "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
               "WHERE mp.norm_name = ? " + _since, (key,))

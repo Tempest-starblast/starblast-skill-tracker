@@ -82,7 +82,7 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
      // The numbers behind the ships: how they score, how often they die,
      // where they play, and their single best game.
      var facts = [];
-     if(d.avg_score != null) facts.push(['Average score', d.avg_score.toLocaleString()]);
+     if(d.avg_score != null) facts.push(['Average score in wins', d.avg_score.toLocaleString()]);
      if(d.best_score != null) facts.push(['Best score', d.best_score.toLocaleString()]);
      if(d.deaths_per_match != null) facts.push(['Deaths per match', d.deaths_per_match]);
      if(d.late_joins) facts.push(['Joined late', d.late_joins + ' of ' + d.matches]);
