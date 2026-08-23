@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.5"
+APP_VERSION = "7.0.6"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3170,6 +3170,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.6", "at": "2026-08-23T05:45:00Z", "changes": [
+        "Fixed: the new profile statistics were hidden on almost every profile. They were tied to ship data, which has only been recorded since today, so scores, deaths, regions and best match - all of which go back through the whole history - showed on nobody. They appear now whether or not a player has flown a recorded ship yet."
+    ]},
     {"version": "7.0.5", "at": "2026-08-23T05:20:00Z", "changes": [
         "Forget to check in and the bot now tells you WHILE you are still playing. If a protected name turns up in a live lobby with no check-in, its owner gets a direct message naming the lobby and a link to fix it - because a protected name only counts in matches it checked into, and finding out afterwards is finding out too late. One message per lobby, never more.",
         "Held results now settle themselves. Results set aside by a rule that had already decided the matter - a flipped match’s losers, a cameo - are closed automatically instead of sitting in a queue forever. Ones held because nobody could tell who won are re-examined against the record and closed when the answer is clear, and anything still undecidable after two weeks is retired honestly rather than pretending a decision is coming. Only genuinely open cases remain on the list.",

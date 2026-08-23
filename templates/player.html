@@ -50,7 +50,7 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
 </script>
 
 <div class="card" id="shipCard" style="display:none">
-  <h2>Ships flown</h2>
+  <h2 id="shipTitle">Ships flown</h2>
   <p class="desc" id="shipSummary"></p>
   <div id="shipList"></div>
   <div id="shipFacts" style="margin-top:12px"></div>
@@ -63,13 +63,22 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
   fetch('/api/player/ships/' + encodeURIComponent(NAME))
    .then(function(r){ return r.json(); })
    .then(function(d){
-     if(!d || !d.ships || !d.ships.length) return;
+     // Ships have only been recorded since 23 Aug, so most profiles have
+     // none yet - but the scores, deaths, regions and best match below
+     // go all the way back. Show whatever there is rather than nothing.
+     if(!d) return;
+     var ships = d.ships || [];
+     if(!ships.length && !d.matches) return;
      document.getElementById('shipCard').style.display = 'block';
      var tierName = ['', 'tier 1', 'tier 2', 'tier 3', 'tier 4', 'tier 5', 'tier 6', 'tier 7'];
-     document.getElementById('shipSummary').innerHTML =
-       'Favourite ship <b>' + d.favourite + '</b>'
-       + (d.top_tier ? ' &middot; usually reaches ' + tierName[d.top_tier] : '')
-       + '. Read off the game&#39;s own scoreboard at the end of each match.';
+     document.getElementById('shipTitle').textContent =
+       ships.length ? 'Ships flown' : 'How they play';
+     document.getElementById('shipSummary').innerHTML = ships.length
+       ? ('Favourite ship <b>' + d.favourite + '</b>'
+          + (d.top_tier ? ' &middot; usually reaches ' + tierName[d.top_tier] : '')
+          + '. Read off the game&#39;s own scoreboard at the end of each match.')
+       : 'Across ' + d.matches + (d.matches === 1 ? ' tracked match' : ' tracked matches')
+         + '. Which ship they fly is recorded from now on, and will appear here.';
      // The numbers behind the ships: how they score, how often they die,
      // where they play, and their single best game.
      var facts = [];
@@ -95,8 +104,8 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
          + '<a href="/replay/' + d.best.mid + '">watch it</a></p>';
      }
      document.getElementById('shipFacts').innerHTML = fx;
-     var max = d.ships[0].n;
-     document.getElementById('shipList').innerHTML = d.ships.map(function(s){
+     var max = ships.length ? ships[0].n : 1;
+     document.getElementById('shipList').innerHTML = ships.map(function(s){
        var pct = Math.max(4, Math.round(100 * s.n / max));
        var wr = s.n ? Math.round(100 * s.wins / s.n) : 0;
        return '<div style="display:flex;align-items:center;gap:10px;padding:4px 0">'
