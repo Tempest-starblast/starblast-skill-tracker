@@ -32,6 +32,24 @@
   <div class="chartwrap"><svg id="chartS" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
 </div>
 
+<div class="card" id="radarCard" style="display:none">
+  <h2>Radar replay</h2>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+    <svg id="radarMap" viewBox="-40 -40 80 80" style="width:260px;height:260px;flex:none;
+      background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px"></svg>
+    <div style="flex:1;min-width:220px">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+        <button id="radarPlay" class="primary" style="padding:6px 16px">&#9654; Play</button>
+        <span id="radarT" class="rnote" style="margin:0;font-variant-numeric:tabular-nums"></span>
+      </div>
+      <input type="range" id="radarSeek" min="0" max="0" value="0" style="width:100%">
+      <p class="rnote">Every ship&#39;s position through the match, straight from the game&#39;s
+        radar &mdash; each dot a ship in its team&#39;s color. Drag to scrub, or press play
+        for a time-lapse of the whole battle.</p>
+    </div>
+  </div>
+</div>
+
 <div class="card">
   <h2>Players</h2>
   <div class="legend" id="legend3"></div>
@@ -155,6 +173,53 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
     });
   });
   document.getElementById('result').innerHTML=html||'<p class="rnote">No rated players in this match.</p>';
+  // ---- Radar replay: play back the recorded ship positions. ----
+  const frames=d.points.filter(p=>p.rd&&p.rd.length);
+  if(frames.length>=3){
+    document.getElementById('radarCard').style.display='';
+    let mx=20;
+    frames.forEach(f=>f.rd.forEach(e=>{mx=Math.max(mx,Math.abs(e[1]),Math.abs(e[2]));}));
+    mx*=1.15;
+    const map=document.getElementById('radarMap');
+    map.setAttribute('viewBox',(-mx)+' '+(-mx)+' '+(2*mx)+' '+(2*mx));
+    const seek=document.getElementById('radarSeek');
+    seek.max=frames.length-1;
+    const tl=document.getElementById('radarT');
+    function draw(i){
+      const f=frames[i];
+      let g='';
+      // Faint trails: the previous few frames ghosted behind the ships.
+      for(let b=3;b>=1;b--){
+        const pf=frames[i-b];
+        if(!pf)continue;
+        pf.rd.forEach(e=>{
+          g+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/40)+'" fill="'+COLS[e[0]]+'" opacity="'+(0.08*(4-b))+'"/>';
+        });
+      }
+      f.rd.forEach(e=>{
+        g+='<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(mx/28)+'" fill="'+COLS[e[0]]+'" opacity="0.95"/>';
+      });
+      map.innerHTML=g;
+      tl.textContent=fmtT(f.t)+' · '+f.rd.length+' ships';
+      seek.value=i;
+    }
+    let timer=null;
+    const btn=document.getElementById('radarPlay');
+    function stop(){ if(timer){clearInterval(timer);timer=null;btn.innerHTML='&#9654; Play';} }
+    btn.onclick=function(){
+      if(timer)return stop();
+      btn.innerHTML='&#10074;&#10074; Pause';
+      let i=+seek.value;
+      if(i>=frames.length-1)i=0;
+      timer=setInterval(function(){
+        i++;
+        if(i>=frames.length)return stop();
+        draw(i);
+      },140);
+    };
+    seek.oninput=function(){stop();draw(+seek.value);};
+    draw(frames.length-1);
+  }
 }).catch(()=>{document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
 </script>
 {% endblock %}

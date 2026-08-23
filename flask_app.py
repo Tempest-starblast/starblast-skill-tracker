@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.62.0"
+APP_VERSION = "6.63.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1875,9 +1875,14 @@ def replay_data(mid):
                                  depth=dpt, window=wnd)
         except Exception:
             hp = {}
+        # Radar frame [[team, x, y], ...] recorded with this read, if the
+        # match is recent enough to carry one - the radar replay plays
+        # these back.
+        _rd = traj[i][4] if len(traj[i]) > 4 and isinstance(traj[i][4], list) else None
         points.append({"t": round(max(0.0, t - _t0), 0),
                        "fc": ([int((fcrow or {}).get(k, 0) or 0) for k in LIVE_TEAMS]
                               if fcrow else None),
+                       "rd": _rd,
                        "sc": [int((sc or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "ct": [int((ct or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "p": [round(hp.get(k, 0.0), 3) for k in LIVE_TEAMS]})
@@ -1993,6 +1998,7 @@ def live_state_ingest():
     skill = {}
     rdet = {}
     _psc = d.get("pscores") if isinstance(d.get("pscores"), dict) else {}
+    _psh = d.get("pships") if isinstance(d.get("pships"), dict) else {}
     rosters = d.get("rosters") or {}
     if isinstance(rosters, dict) and any(rosters.values()):
         try:
@@ -2021,13 +2027,15 @@ def live_state_ingest():
                         _det.append({"n": nm[:24], "e": round(float(row[0]), 1),
                                      "w": round((row[1] / g) if g else 0.5, 3),
                                      "g": g, "c": row[3] or None, "k": 1,
-                                     "s": int(_psc.get(nm, 0) or 0)})
+                                     "s": int(_psc.get(nm, 0) or 0),
+                                     "sp": _psh.get(nm) or None})
                     else:
                         elos.append(1000.0)
                         wrs.append(0.5)
                         _det.append({"n": nm[:24], "e": 1000.0, "w": 0.5,
                                      "g": 0, "c": None, "k": 0,
-                                     "s": int(_psc.get(nm, 0) or 0)})
+                                     "s": int(_psc.get(nm, 0) or 0),
+                                     "sp": _psh.get(nm) or None})
                 rdet[k] = _det
                 # The model uses the two best players, not the team average:
                 # measured on 1,015 matches, one strong player carries real
@@ -2074,12 +2082,23 @@ def live_state_ingest():
         queue_flood_alert('live', sys_id, live_flood, flood_worst,
                           lobby_name=name, region=region)
     # Station health per team: [level, gems, mods_alive, mods_total,
-    # damaged, destroyed], decoded by the tracker from the game's own
-    # station-state packet. Display-only here.
+    # damaged, destroyed, [12 module HP bytes]], decoded by the tracker
+    # from the game's own station-state packet. Display-only here.
     sth = d.get('sthealth') if isinstance(d.get('sthealth'), dict) else None
+    # Radar: [[team index, x, y], ...] latest frame; layout: the static
+    # per-team module blueprints [[id, type, x, y, dir], ...].
+    radar = d.get('radar') if isinstance(d.get('radar'), list) else None
+    if radar:
+        radar = [[int(e[0]), int(e[1]), int(e[2])] for e in radar[:64]
+                 if isinstance(e, list) and len(e) == 3]
+    stlay = d.get('stlayout') if isinstance(d.get('stlayout'), list) else None
+    if radar:
+        # Radar history rides the trajectory so replays can play it back.
+        traj[-1] = traj[-1][:3] + [traj[-1][3] if len(traj[-1]) > 3 else {}, radar]
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
                "skill": skill, "rdet": rdet, "sth": sth,
+               "radar": radar, "stlay": stlay,
                "flood": live_flood, "flood_max": flood_worst,
                "traj": traj}
     c.execute("INSERT INTO live (sys_id, updated, elapsed, region, name, payload) "
@@ -2187,11 +2206,13 @@ def live_matches():
                 _out.append({"name": _pl["n"], "elo": _pl["e"],
                              "known": _pl.get("k", 0),
                              "score": int(_pl.get("s", 0) or 0),
+                             "ship": _pl.get("sp") or None,
                              "imp": round(_imp, 4)})
             _out.sort(key=lambda q: -q["imp"])
             players_by_team[k] = _out
 
         _sth = p.get("sth") or {}
+        _lay = p.get("stlay") or []
         teams = [{"key": k, "label": "Team %s" % k[-1],
                   "score": int(scores.get(k, 0) or 0),
                   "count": int(counts.get(k, 0) or 0),
@@ -2199,10 +2220,13 @@ def live_matches():
                   "skill": pskill.get(k) or None,
                   "players": players_by_team.get(k) or [],
                   "station": _sth.get(k) or None,
-                  "prob": round(probs.get(k, 0.0), 4)} for k in LIVE_TEAMS]
+                  "layout": (_lay[_i] if _i < len(_lay) else None),
+                  "prob": round(probs.get(k, 0.0), 4)}
+                 for _i, k in enumerate(LIVE_TEAMS)]
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
                     "teams": teams, "history": history,
+                    "radar": p.get("radar") or None,
                     "flood": p.get("flood") or {},
                     "flood_max": p.get("flood_max") or 0})
     flooded = [m for m in out if m["flood_max"] >= FLOOD_SIGNIFICANT]
@@ -2934,6 +2958,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "6.63.0", "at": "2026-08-23T01:50:00Z", "changes": [
+        "The RADAR is in. Two more of the game's network packets were reverse-engineered tonight: every ship's live position, and each player's current ship. The live view now shows a minimap of the whole lobby (every ship as a dot in its team's color), each player's ship code next to their name, and the station strip draws an exact REPLICA of each team's station from its blueprint - every module in its real position, spawn pads as circles, depots as diamonds, each colored by its own health. Replays gain a RADAR REPLAY: scrub or play back a time-lapse of every ship's movement through the whole match.",
+    ]},
     {"version": "6.62.0", "at": "2026-08-23T00:50:00Z", "changes": [
         "The live win-probability view now shows each team's STATION under its row: station level, a gem bar against that level's capacity, and one pip per module - green intact, amber damaged, red destroyed, with the full story on hover. A destroyed station reads DEAD. Straight from the game's own station packet, updating live.",
     ]},
