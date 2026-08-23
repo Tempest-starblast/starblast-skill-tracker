@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.9"
+APP_VERSION = "7.1.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -1960,10 +1960,12 @@ def replay_data(mid):
         # match is recent enough to carry one - the radar replay plays
         # these back.
         _rd = traj[i][4] if len(traj[i]) > 4 and isinstance(traj[i][4], list) else None
+        _st = traj[i][5] if len(traj[i]) > 5 and isinstance(traj[i][5], dict) else None
         points.append({"t": round(max(0.0, t - _t0), 0),
                        "fc": ([int((fcrow or {}).get(k, 0) or 0) for k in LIVE_TEAMS]
                               if fcrow else None),
                        "rd": _rd,
+                       "st": ([(_st or {}).get(k) for k in LIVE_TEAMS] if _st else None),
                        "sc": [int((sc or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "ct": [int((ct or {}).get(k, 0) or 0) for k in LIVE_TEAMS],
                        "p": [round(hp.get(k, 0.0), 3) for k in LIVE_TEAMS]})
@@ -1983,6 +1985,7 @@ def replay_data(mid):
         # when the recording is partial.
         "tracked_seconds": int(row[5] or 0) * 10,
         "gaps": [[round(a), round(b)] for a, b in _gaps],
+        "stlay": p.get("stlay") or None,
         "players": players, "points": points,
     }), 200
 
@@ -2176,6 +2179,20 @@ def live_state_ingest():
     if radar:
         # Radar history rides the trajectory so replays can play it back.
         traj[-1] = traj[-1][:3] + [traj[-1][3] if len(traj[-1]) > 3 else {}, radar]
+    if sth:
+        # [level, gems, alive, total, weak, dead, [12 module HP bytes]] per
+        # team. Only the parts a replay draws are kept: the whole match's
+        # worth of these has to fit in one stored blob.
+        _slim = {}
+        for _k, _v in sth.items():
+            if isinstance(_v, list) and len(_v) >= 7 and isinstance(_v[6], list):
+                _slim[_k] = [_v[0], _v[1], _v[6]]
+            elif isinstance(_v, list) and len(_v) >= 2:
+                _slim[_k] = [_v[0], _v[1], None]
+        if _slim:
+            while len(traj[-1]) < 5:
+                traj[-1].append(None)
+            traj[-1] = traj[-1][:5] + [_slim]
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
                "skill": skill, "rdet": rdet, "sth": sth,
@@ -2353,6 +2370,9 @@ def my_held_results():
         'protected': ("Protection is on for this name and no check-in was found for "
                       "this match, so the result was withheld - it could have been "
                       "somebody else playing under your name."),
+        'resurgence': ("The team that won this match had collapsed to almost nobody "
+                       "and then filled back up and came back. You were fighting the "
+                       "other side by then, so this one is not counted against you."),
         'joined-too-late': ("You checked in less than ten minutes before this match "
                             "ended. A few minutes at the end is not a match, so it "
                             "counts neither way."),
@@ -2490,6 +2510,11 @@ def game_end():
     # lead that was already there.
     dominance_exempt = {normalize_name(n)
                         for n in (data.get('dominance_exempt') or [])}
+    # Why they were excused. A flip means the losing side had already
+    # earned the match; a resurgence means the winner came back from a
+    # collapse the losers could not have answered. Both set results
+    # aside, and a player deserves to be told which happened.
+    _exempt_reason = str(data.get('exempt_reason') or 'dominance-flip')[:24]
     if data.get('winners_half'):
         half_elo |= {normalize_name(n) for n in winning_team}
 
@@ -2721,7 +2746,7 @@ def game_end():
         if protected_without_checkin(player_name):
             return 'protected'
         if normalize_name(player_name) in dominance_exempt:
-            return 'dominance-flip'
+            return _exempt_reason
         return None
 
     def skip(player_name, losing=False):
@@ -2759,8 +2784,8 @@ def game_end():
     # Kept too: a result set aside because the match was flipped is a
     # real match somebody played, and why it went unrated should be
     # answerable later.
-    _held += [(p, 0, 'dominance-flip') for p in _in_l
-              if skip_reason(p, losing=True) == 'dominance-flip']
+    _held += [(p, 0, _exempt_reason) for p in _in_l
+              if skip_reason(p, losing=True) == _exempt_reason]
     winning_team = [p for p in winning_team if not skip(p)]
     losing_all = [p for p in losing_all if not skip(p, losing=True)]
     # The same name on BOTH the winning and losing side is two different
@@ -3170,6 +3195,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.1.0", "at": "2026-08-23T08:00:00Z", "changes": [
+        "Fixed a serious bug in how matches were decided: a team written off as collapsed STAYED written off for the rest of the match, even after it refilled and fought back. In one match a side that dipped to two players climbed back to twelve, killed both other teams and was still recorded as eliminated - so the win went to a team that had already been destroyed. A collapse is now cleared once a side is back to full strength for three straight readings, and a team holding a full roster at the final reading is never treated as out.",
+        "THE RESURGENCE RULE. A team left for dead that comes back and wins has beaten sides which had already spent themselves fighting each other. The winners are now paid in full, and the teams they finished off are excused the loss - a resurrection is not something the other teams could have answered. It is the mirror of the flip rule, and like the flip it only applies when the comeback actually wins.",
+        "Replays now show the stations. Each team’s station is drawn as the game built it, and you can scrub or play through the match watching modules take damage and go dark. Hover any module to see its health across the whole match, the lowest it ever got, and the moment it was destroyed.",
+        "Each team’s in-game colour is now recorded with every match. Team colours are assigned per lobby, not fixed per side, so until now an argument about what “green” did could not be checked against the record afterwards."
+    ]},
     {"version": "7.0.9", "at": "2026-08-23T06:50:00Z", "changes": [
         "The pinned row at the foot of the leaderboard now only appears when you are not already on the page you are looking at. If your name is in the list in front of you it is simply highlighted there, once."
     ]},
@@ -4400,7 +4431,7 @@ def player_search_index():
 # Reasons a held result is FINAL: the rule that set it aside already
 # decided the matter, so there is nothing for a human to review. They are
 # closed automatically rather than piling up in a queue nobody empties.
-HELD_FINAL_REASONS = ('dominance-flip', 'joined-too-late')
+HELD_FINAL_REASONS = ('dominance-flip', 'joined-too-late', 'resurgence')
 # A held result nobody could decide is closed after this long. Keeping it
 # open forever pretends a decision is coming that never is.
 HELD_STALE_DAYS = 14

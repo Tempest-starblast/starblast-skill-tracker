@@ -32,6 +32,19 @@
   <div class="chartwrap"><svg id="chartS" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
 </div>
 
+<div class="card" id="stCard" style="display:none">
+  <h2>Stations</h2>
+  <p class="rnote" style="margin-top:0">Each team&#39;s station as the game built it, at the
+     moment shown below. Hover any module for its health through the whole match.</p>
+  <div id="stWrap" style="display:flex;gap:14px;flex-wrap:wrap"></div>
+  <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+    <button id="stPlay" class="primary" style="padding:6px 16px">&#9654; Play</button>
+    <span id="stT" class="rnote" style="margin:0;font-variant-numeric:tabular-nums"></span>
+  </div>
+  <input type="range" id="stSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
+  <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
+</div>
+
 <div class="card" id="radarCard" style="display:none">
   <h2>Radar replay</h2>
   <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
@@ -173,6 +186,97 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
     });
   });
   document.getElementById('result').innerHTML=html||'<p class="rnote">No rated players in this match.</p>';
+  // ---- Stations: the real blueprint, coloured by each module's health
+  //      at the scrubbed moment, with that module's whole history on hover.
+  const stFrames = d.points.filter(p => p.st);
+  if(stFrames.length >= 2 && d.stlay && d.stlay.length){
+    document.getElementById('stCard').style.display = '';
+    const seek = document.getElementById('stSeek');
+    seek.max = stFrames.length - 1;
+    const tEl = document.getElementById('stT');
+    const tip = document.getElementById('stTip');
+    const modColor = hp => hp === null || hp === undefined ? '#3a4655'
+      : hp === 0 ? '#63263a' : hp >= 252 ? '#66e6b8'
+      : hp >= 140 ? '#f0c04a' : '#ff7a7a';
+    function hist(team, modId){
+      // Every recorded reading for one module, oldest first.
+      return stFrames.map(f => {
+        const s = f.st[team];
+        return {t: f.t, hp: (s && s[2] && s[2].length > modId) ? s[2][modId] : null};
+      });
+    }
+    function drawStations(i){
+      const f = stFrames[i];
+      let html = '';
+      for(let team = 0; team < 3; team++){
+        const lay = d.stlay[team];
+        const s = f.st[team];
+        if(!lay || !lay.length) continue;
+        let ext = 1.2;
+        lay.forEach(m => { if(m[2] != null) ext = Math.max(ext, Math.abs(m[2]), Math.abs(m[3])); });
+        ext += 0.9;
+        let g = '';
+        lay.forEach(a => lay.forEach(b => {
+          if(a[0] >= b[0] || a[2] == null || b[2] == null) return;
+          const dx = a[2] - b[2], dy = a[3] - b[3];
+          if(Math.hypot(dx, dy) <= 1.3)
+            g += '<line x1="'+a[2]+'" y1="'+(-a[3])+'" x2="'+b[2]+'" y2="'+(-b[3])
+              +'" stroke="'+COLS[team]+'" stroke-width="0.06" opacity="0.35"/>';
+        }));
+        lay.forEach(m => {
+          if(m[2] == null) return;
+          const hp = (s && s[2] && s[2].length > m[0]) ? s[2][m[0]] : null;
+          const c = modColor(hp), ty = String(m[1] || ''), x = +m[2], y = -m[3];
+          const r = ty[0] === 'd' ? 0.44 : ty.slice(0,2) === 'sp' ? 0.36 : 0.3;
+          const shape = ty.slice(0,2) === 'sp'
+            ? '<circle cx="'+x+'" cy="'+y+'" r="'+r+'"'
+            : '<rect x="'+(x-r)+'" y="'+(y-r)+'" width="'+(2*r)+'" height="'+(2*r)+'" rx="0.08"';
+          g += shape + ' fill="'+c+'" fill-opacity="0.2" stroke="'+c+'" stroke-width="0.09"'
+            + ' class="stmod" data-team="'+team+'" data-mod="'+m[0]+'" data-ty="'+ty+'"'
+            + ' style="cursor:pointer"/>';
+        });
+        const lvl = s ? s[0] : null, gems = s ? s[1] : null;
+        html += '<div style="flex:1 1 190px;min-width:170px">'
+          + '<div class="sub" style="display:flex;gap:8px;align-items:center">'
+          + '<span style="width:10px;height:10px;border-radius:3px;background:'+COLS[team]+'"></span>'
+          + LBL[team] + (lvl != null ? ' &middot; Lv ' + (lvl + 1) : '')
+          + (gems != null ? ' &middot; ' + gems.toLocaleString() + ' &#128142;' : '') + '</div>'
+          + '<svg viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'" '
+          + 'style="width:100%;height:150px;display:block">' + g + '</svg></div>';
+      }
+      document.getElementById('stWrap').innerHTML = html;
+      tEl.textContent = fmtT(f.t);
+      seek.value = i;
+      document.querySelectorAll('.stmod').forEach(el => {
+        el.addEventListener('mouseenter', () => {
+          const team = +el.dataset.team, mod = +el.dataset.mod;
+          const h = hist(team, mod).filter(x => x.hp !== null);
+          if(!h.length){ tip.textContent = el.dataset.ty + ' - nothing recorded'; return; }
+          const now = h.filter(x => x.t <= f.t).slice(-1)[0];
+          const died = h.find(x => x.hp === 0);
+          const lowest = h.reduce((a, b) => b.hp < a.hp ? b : a);
+          tip.innerHTML = '<b>' + esc(el.dataset.ty) + '</b> on ' + LBL[team]
+            + ' &mdash; now <b>' + (now ? Math.round(100 * now.hp / 255) + '%' : '?') + '</b>'
+            + ' &middot; lowest ' + Math.round(100 * lowest.hp / 255) + '% at ' + fmtT(lowest.t)
+            + (died ? ' &middot; <span style="color:#ff7a7a">destroyed at ' + fmtT(died.t) + '</span>'
+                    : ' &middot; survived');
+        });
+      });
+    }
+    let stTimer = null;
+    const stBtn = document.getElementById('stPlay');
+    const stStop = () => { if(stTimer){ clearInterval(stTimer); stTimer = null; stBtn.innerHTML = '&#9654; Play'; } };
+    stBtn.onclick = () => {
+      if(stTimer) return stStop();
+      stBtn.innerHTML = '&#10074;&#10074; Pause';
+      let i = +seek.value;
+      if(i >= stFrames.length - 1) i = 0;
+      stTimer = setInterval(() => { i++; if(i >= stFrames.length) return stStop(); drawStations(i); }, 140);
+    };
+    seek.oninput = () => { stStop(); drawStations(+seek.value); };
+    drawStations(stFrames.length - 1);
+  }
+
   // ---- Radar replay: play back the recorded ship positions. ----
   const frames=d.points.filter(p=>p.rd&&p.rd.length);
   if(frames.length>=3){
