@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.0"
+APP_VERSION = "7.0.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3117,6 +3117,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.1", "at": "2026-08-23T03:00:00Z", "changes": [
+        "The leaderboard opens on you. Sign in and the board lands on the page your name is on, scrolled so your row sits in the middle - you can see who is above and below you at a glance - and your name is picked out in green wherever it appears. Searching, or asking for a particular page, still takes you exactly where you asked."
+    ]},
     {"version": "7.0.0", "at": "2026-08-23T02:05:00Z", "changes": [
         "RATINGS ARE FIXED AT THE ROOT. Team mode is a three-team game, but ratings were computed with the two-player Elo formula, which says an even side expects to win half its matches when the truth is nearer a third. Winners were underpaid, losers overcharged, and with roughly 1.6 rated losers for every winner the pool bled points every single game - 474,337 of them, measured. The average rating had drifted to 933.7 against a 1000 start and 107 players were pinned at the floor. Every rating now uses the true three-way expectation, and a match is made to conserve rating exactly: what one side gains, the other loses. Two-team matches are unaffected.",
         "Ratings now know how well they know you. A player with under 5 games moves further per match so they find their level quickly; a player past 20 games moves less, so a settled rating is not whipped around by newcomers. Three quarters of the leaderboard was provisional while everyone moved at the same rate.",
@@ -9674,6 +9677,38 @@ def leaderboard():
                     quote(p['name'], safe='')))
         # Not ranked on this board at all - show page one rather than
         # a dead end.
+
+    # Your own rows, so the board can point them out in green - and so a
+    # bare visit can open on the page you are actually on rather than at
+    # a stranger's rank 1 (7.0.1).
+    _mine = set()
+    _sub = current_user()
+    if _sub:
+        try:
+            _mc = db(timeout=3)
+            _mine = {r[0] for r in _mc.execute(
+                "SELECT norm_name FROM players WHERE google_sub = ? "
+                "AND norm_name IS NOT NULL", (_sub,)).fetchall()}
+            _mc.close()
+        except sqlite3.Error:
+            _mine = set()
+    if _mine:
+        for p in leaderboard_data:
+            if normalize_name(p['name']) in _mine:
+                p['mine'] = True
+
+    # Opening the board with nothing asked for lands on your own page,
+    # scrolled to your row. Only on a bare visit: any explicit page,
+    # search or find means the visitor said where they wanted to be, and
+    # the redirect carries a page number so it can never loop.
+    if (_mine and not find and not q and 'page' not in request.args
+            and not request.args.get('nojump')):
+        _best = next((p for p in leaderboard_data
+                      if normalize_name(p['name']) in _mine), None)
+        if _best and (_best['rank'] - 1) // PER_PAGE + 1 > 1:
+            return redirect('/?period=%s&region=%s&page=%d#p-%s' % (
+                period, region, (_best['rank'] - 1) // PER_PAGE + 1,
+                quote(_best['name'], safe='')))
 
     # `total` stays the size of the whole board: it is the count the page
     # reports, and a search must not appear to shrink the leaderboard.

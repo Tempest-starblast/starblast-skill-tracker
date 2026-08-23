@@ -43,6 +43,13 @@
 /* Arriving from another board's region link. The row has to be findable
    at a glance, and clear of the header it was scrolled underneath. */
 tbody tr{scroll-margin-top:84px}
+/* Your own row: green, so you find yourself at a glance. Kept distinct
+   from :target (which is the "jumped to this player" highlight) so both
+   can be true at once without fighting. */
+tbody tr.mine td{background:rgba(102,230,184,.10);color:#bff3e0}
+tbody tr.mine td .pname{color:var(--green,#66e6b8);font-weight:700}
+tbody tr.mine td:first-child{box-shadow:inset 3px 0 0 var(--green,#66e6b8)}
+tbody tr.mine td.skill{color:#8ef0c8}
 tbody tr:target{background:#1d2a1c}
 tbody tr:target td{border-bottom-color:#33512f}
 tbody tr:target td:first-child{box-shadow:inset 3px 0 0 var(--green)}
@@ -243,7 +250,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 </tr></thead>
 <tbody>
 {% for p in leaderboard %}
-<tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}">
+<tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}"{% if p.mine %} class="mine"{% endif %}>
   <td class="rank">{{ p.rank }}</td>
   <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
@@ -316,5 +323,22 @@ function filter(){
   document.getElementById('count').textContent =
     q ? (shown + ' of ' + rows.length + ' on this page') : '';
 }
+
+// Centre the board on your own row. The #p-name anchor already brings
+// the right page up, but it parks the row just under the header; being
+// in the MIDDLE is what makes your position readable at a glance,
+// because you can see who is above and below you at the same time.
+(function(){
+  var me = document.querySelector('tbody tr.mine');
+  if (!me) return;
+  var jump = function(){
+    try { me.scrollIntoView({block: 'center', behavior: 'auto'}); }
+    catch (e) { me.scrollIntoView(); }
+  };
+  // After layout settles - a fixed header and web fonts both move rows
+  // a few pixels once they land.
+  if (document.readyState === 'complete') { setTimeout(jump, 60); }
+  else { window.addEventListener('load', function(){ setTimeout(jump, 60); }); }
+})();
 </script>
 {% endblock %}
