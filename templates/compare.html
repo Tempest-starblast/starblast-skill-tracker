@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Compare players - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.cmpform{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cmpform input{flex:1 1 180px;min-width:0}
+.vs{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:stretch;
+  margin-top:4px}
+.side{background:rgba(153,221,255,.04);border:1px solid var(--line);
+  border-radius:10px;padding:14px 16px;min-width:0}
+.side.win{border-color:rgba(102,230,184,.5);background:rgba(102,230,184,.06)}
+.side h3{margin:0 0 2px;font-size:17px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.side h3 a{color:inherit;text-decoration:none}
+.side h3 a:hover{text-decoration:underline}
+.side .elo{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;
+  line-height:1.15}
+.side .sub{color:var(--muted);font-size:12.5px}
+.prov{display:inline-block;font-size:10px;letter-spacing:.6px;border-radius:4px;
+  padding:1px 6px;margin-left:6px;vertical-align:2px;
+  background:rgba(240,192,74,.12);color:#f0c04a;border:1px solid rgba(240,192,74,.4)}
+.mid{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:var(--muted);font-size:12px;padding:0 4px}
+.mid b{font-size:15px;color:var(--text)}
+.statrow{display:flex;justify-content:space-between;gap:10px;padding:5px 0;
+  border-bottom:1px solid var(--line);font-size:13.5px}
+.statrow:last-child{border-bottom:none}
+.statrow .n{font-variant-numeric:tabular-nums}
+.h2h{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+.h2h .box{flex:1 1 190px;background:rgba(153,221,255,.04);border:1px solid var(--line);
+  border-radius:9px;padding:11px 14px}
+.h2h .big{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.mrow{display:flex;justify-content:space-between;gap:10px;padding:6px 0;
+  border-bottom:1px solid var(--line);font-size:13px}
+.mrow:last-child{border-bottom:none}
+.tag{font-size:10.5px;letter-spacing:.5px;border-radius:4px;padding:1px 6px;
+  border:1px solid var(--line);color:var(--muted)}
+.tag.same{color:#8ad7ff;border-color:rgba(153,221,255,.4)}
+.tag.vs{color:#ffb38a;border-color:rgba(255,160,120,.4)}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Compare players</h1>
+<p class="psub">Two ratings side by side &mdash; and everything the two of them have
+   actually shared: matches won together, matches decided against each other.</p>
+
+<div class="card">
+  <div class="cmpform">
+    <input type="text" id="ca" placeholder="First player" maxlength="32"
+           autocomplete="off" value="{{ a }}">
+    <input type="text" id="cb" placeholder="Second player" maxlength="32"
+           autocomplete="off" value="{{ b }}">
+    <button class="primary" onclick="go()">Compare</button>
+  </div>
+  <p class="msg" id="cmsg"></p>
+</div>
+
+<div id="out"></div>
+
+<script>
+function esc(s){var d=document.createElement('span');d.textContent=String(s==null?'':s);return d.innerHTML;}
+function say(ok,t){var m=document.getElementById('cmsg');m.className='msg '+(ok?'ok':'err');m.textContent=t||'';}
+
+function go(){
+  var a=document.getElementById('ca').value.trim();
+  var b=document.getElementById('cb').value.trim();
+  if(!a||!b){ say(false,'Enter two names.'); return; }
+  history.replaceState(null,'','/compare?a='+encodeURIComponent(a)+'&b='+encodeURIComponent(b));
+  load(a,b);
+}
+
+function side(p, other, cls){
+  var wr = p.winrate==null ? '&mdash;' : p.winrate+'%';
+  return '<div class="side '+cls+'">'
+    + '<h3><a href="/player/'+encodeURIComponent(p.name)+'">'+esc(p.display)+'</a>'
+    + (p.provisional?'<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>':'')
+    + '</h3>'
+    + '<div class="sub">rank #'+p.rank+'</div>'
+    + '<div class="elo">'+p.elo.toFixed(1)+'</div>'
+    + '<div class="statrow"><span>Record</span><span class="n">'+p.wins+'-'+p.losses+'</span></div>'
+    + '<div class="statrow"><span>Win rate</span><span class="n">'+wr+'</span></div>'
+    + '<div class="statrow"><span>Matches</span><span class="n">'+p.played+'</span></div>'
+    + '<div class="statrow"><span>Rating gap</span><span class="n">'
+    + ((p.elo-other.elo)>=0?'+':'')+(p.elo-other.elo).toFixed(1)+'</span></div>'
+    + '</div>';
+}
+
+function load(a,b){
+  say(true,'Looking them up…');
+  fetch('/api/compare?a='+encodeURIComponent(a)+'&b='+encodeURIComponent(b))
+   .then(function(r){return r.json();})
+   .then(function(d){
+     if(!d.found){
+       document.getElementById('out').innerHTML='';
+       say(false, d.error || ('Not on the leaderboard: '+(d.missing||[]).join(', ')));
+       return;
+     }
+     say(true,'');
+     var pr=d.projection;
+     var html='<div class="card"><div class="vs">'
+       + side(d.a, d.b, d.a.elo>=d.b.elo?'win':'')
+       + '<div class="mid"><b>vs</b><span>'+pr.a_win_chance+'% / '
+       + (100-pr.a_win_chance)+'%</span></div>'
+       + side(d.b, d.a, d.b.elo>d.a.elo?'win':'')
+       + '</div>'
+       + '<p class="desc" style="margin-top:12px">If they met one on one, '
+       + esc(d.a.display)+' would take about <b>'+pr.a_win_chance+'%</b> of the time. '
+       + 'A win there is worth <b>+'+pr.a_gain+'</b> to them and <b>-'+pr.b_loss+'</b> to '
+       + esc(d.b.display)+'; the other way round it is <b>+'+pr.b_gain+'</b> and <b>-'
+       + pr.a_loss+'</b>.</p></div>';
+
+     var t=d.together, g=d.against;
+     if(t.n||g.n){
+       html+='<div class="card"><h2>Head to head</h2><div class="h2h">'
+         + '<div class="box"><div class="sub">Played together</div><div class="big">'
+         + t.n+'</div><div class="sub">'+t.won+' won · '+(t.n-t.won)+' lost</div></div>'
+         + '<div class="box"><div class="sub">Faced each other</div><div class="big">'
+         + g.n+'</div><div class="sub">'+esc(d.a.display)+' '+g.a+' — '+g.b+' '
+         + esc(d.b.display)+'</div></div>'
+         + '</div>';
+       if(d.recent.length){
+         html+='<h3 class="sub" style="margin:14px 0 4px">Recent shared matches</h3>';
+         html+=d.recent.map(function(m){
+           return '<div class="mrow"><span><span class="tag '+(m.same?'same':'vs')+'">'
+             +(m.same?'same team':'opponents')+'</span> <a href="/replay/'+m.mid
+             +'" style="color:inherit">'+esc(m.at)+'</a></span>'
+             +'<span class="sub">'+esc(m.outcome)+'</span></div>';
+         }).join('');
+       }
+       html+='</div>';
+     } else {
+       html+='<div class="card"><h2>Head to head</h2>'
+         + '<p class="desc">These two have never been in a tracked match together.</p></div>';
+     }
+     document.getElementById('out').innerHTML=html;
+   })
+   .catch(function(){ say(false,'Server connection error.'); });
+}
+
+document.getElementById('ca').addEventListener('keydown',function(e){if(e.key==='Enter')go();});
+document.getElementById('cb').addEventListener('keydown',function(e){if(e.key==='Enter')go();});
+(function(){
+  var a='{{ a|e }}', b='{{ b|e }}';
+  if(a&&b) load(a,b);
+})();
+</script>
+{% endblock %}

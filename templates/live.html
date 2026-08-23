@@ -51,6 +51,8 @@
   border-radius:9px;padding:7px 7px 6px;cursor:default}
 .lv-stpanel svg{display:block;width:100%;height:96px;margin:2px 0 5px}
 .lv-stpanel.gone{border-color:rgba(255,120,120,.45)}
+.lv-stpanel.waiting{opacity:.55}
+.lv-stpanel.waiting .lvl{letter-spacing:0;font-weight:600}
 .lv-stpanel.gone .lvl{color:#ff9a9a}
 .lv-sthead{display:flex;align-items:center;gap:5px;font-size:10px;
   color:var(--dim,#8aa0b0)}
@@ -211,14 +213,19 @@
       var gone = total>0 && dead>=total;
       var cap=(lvl!=null && GEM_CAPS[lvl])?GEM_CAPS[lvl]:GEM_CAPS[3];
       var pct=Math.max(0,Math.min(100,100*gems/cap));
-      var tip='Station level '+(lvl==null?'?':(lvl+1))+' — '
-        +gems.toLocaleString()+' / '+cap.toLocaleString()+' gems — '
-        +(gone?'STATION DESTROYED':((total-dead-weak)+' modules intact'
-          +(weak?', '+weak+' damaged':'')+(dead?', '+dead+' destroyed':'')));
-      p+='<div class="lv-stpanel'+(gone?' gone':'')+'" title="'+tip+'">'
+      // No packet yet: this worker has only just attached. Say so,
+      // rather than showing a level of "?" beside zero gems, which
+      // reads as a bankrupt station instead of as still loading.
+      var waiting = (lvl==null);
+      var tip = waiting ? 'Reading this station…'
+        : ('Station level '+(lvl+1)+' — '
+           +gems.toLocaleString()+' / '+cap.toLocaleString()+' gems — '
+           +(gone?'STATION DESTROYED':((total-dead-weak)+' modules intact'
+             +(weak?', '+weak+' damaged':'')+(dead?', '+dead+' destroyed':''))));
+      p+='<div class="lv-stpanel'+(gone?' gone':'')+(waiting?' waiting':'')+'" title="'+tip+'">'
         +'<div class="lv-sthead"><span class="lv-chip" style="background:'+COLORS[t.key]+'"></span>'
-        +'<span class="lvl">'+(gone?'DESTROYED':'Lv '+(lvl==null?'?':(lvl+1)))+'</span>'
-        +'<span class="g">'+(gems>=1000?(gems/1000).toFixed(1)+'k':gems)+' 💎</span></div>'
+        +'<span class="lvl">'+(gone?'DESTROYED':(waiting?'reading…':'Lv '+(lvl+1)))+'</span>'
+        +'<span class="g">'+(waiting?'':((gems>=1000?(gems/1000).toFixed(1)+'k':gems)+' 💎'))+'</span></div>'
         +svg
         +'<div class="lv-gembar"><i style="width:'+pct.toFixed(0)+'%"></i></div>'
         +'</div>';

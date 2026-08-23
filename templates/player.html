@@ -29,6 +29,26 @@
    <b>{{ primary.label }}</b> ({{ primary.share }}% of matches){% endif %}{% endif %}
    &middot; <a href="/">Leaderboard</a></p>
 
+<div class="card">
+  <h2>Compare with someone</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input type="text" id="cmpWho" placeholder="Another player's name" maxlength="32"
+           autocomplete="off" style="flex:1 1 200px;min-width:0">
+    <button class="primary" onclick="goCompare()">Compare</button>
+  </div>
+</div>
+<script>
+function goCompare(){
+  var other=document.getElementById('cmpWho').value.trim();
+  if(!other) return;
+  location.href='/compare?a='+encodeURIComponent({{ player.name|tojson }})
+    +'&b='+encodeURIComponent(other);
+}
+document.getElementById('cmpWho').addEventListener('keydown',function(e){
+  if(e.key==='Enter') goCompare();
+});
+</script>
+
 <div class="card" id="shipCard" style="display:none">
   <h2>Ships flown</h2>
   <p class="desc" id="shipSummary"></p>

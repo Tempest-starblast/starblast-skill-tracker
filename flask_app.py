@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0.1"
+APP_VERSION = "7.0.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3117,6 +3117,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.0.2", "at": "2026-08-23T03:30:00Z", "changes": [
+        "Compare any two players, on the site at last. Ratings, records and win rates side by side, what a win between them would actually be worth - and the part the Discord command cannot do: their shared history. How many matches they have won together, how many they have decided against each other, and who came out ahead. Every profile has a compare box that fills your opponent in for you.",
+        "A rating built on fewer than five matches now says so, with a small NEW beside it on the leaderboard. Those ratings deliberately move faster until they settle, and a one-match number should not read like a hard-won one.",
+        "A station panel still waiting for its first reading now says it is reading, instead of showing a level of “?” beside zero gems - which looked like a bankrupt station rather than a loading one."
+    ]},
     {"version": "7.0.1", "at": "2026-08-23T03:00:00Z", "changes": [
         "The leaderboard opens on you. Sign in and the board lands on the page your name is on, scrolled so your row sits in the middle - you can see who is above and below you at a glance - and your name is picked out in green wherever it appears. Searching, or asking for a particular page, still takes you exactly where you asked."
     ]},
@@ -4274,6 +4279,94 @@ def player_progress():
     start = round(after[0] - float(rows[0][1] or 0), 2) if rows else round(cur, 2)
     return jsonify({"name": prow[0], "elo": round(cur, 2),
                     "start": start, "matches": out}), 200
+
+
+@app.route('/api/compare')
+def api_compare():
+    """Two players side by side, with their shared history (7.0.2).
+
+    The head-to-head part is what the Discord command cannot do: every
+    match both players appear in, split into games they played WITH each
+    other and games they played AGAINST each other, and who came out on
+    top. Read-only - nothing here can affect a rating."""
+    ka = normalize_name(request.args.get('a', ''))
+    kb = normalize_name(request.args.get('b', ''))
+    if not ka or not kb:
+        return jsonify({"found": False, "error": "Name both players."}), 200
+    conn = db()
+    c = conn.cursor()
+
+    def one(key):
+        r = c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
+                      "FROM players WHERE norm_name = ?", (key,)).fetchone()
+        if not r:
+            return None
+        played = r[2] + r[3]
+        rank = c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?",
+                         (r[1],)).fetchone()[0]
+        return {"name": r[0], "display": display_name(r[0], r[4]),
+                "elo": round(float(r[1]), 1), "wins": r[2], "losses": r[3],
+                "played": played, "clan": r[4], "rank": rank,
+                "winrate": round(100.0 * r[2] / played, 1) if played else None,
+                "provisional": played < PROVISIONAL_GAMES}
+
+    a, b = one(ka), one(kb)
+    if not a or not b:
+        missing = [n for n, p in ((request.args.get('a'), a),
+                                  (request.args.get('b'), b)) if not p]
+        conn.close()
+        return jsonify({"found": False, "missing": missing}), 200
+
+    rows = c.execute(
+        "SELECT x.team, x.won, y.team, y.won, m.played_at, m.id "
+        "FROM match_players x JOIN match_players y ON y.match_row = x.match_row "
+        "JOIN matches m ON m.id = x.match_row "
+        "WHERE x.norm_name = ? AND y.norm_name = ? ORDER BY m.id DESC",
+        (ka, kb)).fetchall()
+    together = {"n": 0, "won": 0}
+    against = {"n": 0, "a": 0, "b": 0}
+    recent = []
+    for ta, wa, tb, wb, at, mid in rows:
+        same = (ta == tb) if (ta and tb) else (wa == wb)
+        if same:
+            together["n"] += 1
+            together["won"] += 1 if wa else 0
+            outcome = "won together" if wa else "lost together"
+        else:
+            against["n"] += 1
+            if wa:
+                against["a"] += 1
+                outcome = "%s won" % a["display"]
+            elif wb:
+                against["b"] += 1
+                outcome = "%s won" % b["display"]
+            else:
+                outcome = "both lost"
+        if len(recent) < 8:
+            recent.append({"at": str(at or "")[:16], "mid": mid,
+                           "same": bool(same), "outcome": outcome})
+    conn.close()
+    # What a win would be worth, from the real rating code rather than a
+    # second copy of the formula.
+    exp_a = win_expectation(a["elo"], [b["elo"]])
+    return jsonify({
+        "found": True, "a": a, "b": b,
+        "together": together, "against": against, "recent": recent,
+        "projection": {
+            "a_win_chance": round(100 * exp_a),
+            "a_gain": round(k_factor(a["played"]) * (1 - exp_a), 1),
+            "a_loss": round(k_factor(a["played"]) * exp_a, 1),
+            "b_gain": round(k_factor(b["played"]) * exp_a, 1),
+            "b_loss": round(k_factor(b["played"]) * (1 - exp_a), 1),
+        }}), 200
+
+
+@app.route('/compare')
+def compare_page():
+    """Two players, side by side, with everything they have shared."""
+    return render_template('compare.html', page='compare', version=APP_VERSION,
+                           a=request.args.get('a', ''),
+                           b=request.args.get('b', ''))
 
 
 @app.route('/api/player/ships/<name>')
@@ -9643,6 +9736,10 @@ def leaderboard():
             "search": search_key(name, clan),
             "wins": wins, "losses": losses, "winrate": winrate,
             "clan": clan, "protected": protected,
+            # Under five matches the rating is still finding its level -
+            # and moves faster to get there. Saying so is honest, and
+            # stops a one-game number reading like a settled one.
+            "provisional": played < PROVISIONAL_GAMES,
             "region": home, "region_label": REGION_LABELS.get(home),
         })
     conn = db()
