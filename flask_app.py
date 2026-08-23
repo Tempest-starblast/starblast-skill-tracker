@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.1.2"
+APP_VERSION = "7.1.3"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -3206,6 +3206,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.1.3", "at": "2026-08-23T10:55:00Z", "changes": [
+        "The station replay now has a colour key, and says so when it has nothing to show. Grey modules meant “no reading” but looked like “fine” — they appear when the tracker briefly loses the lobby feed, so the stations are unknown at that moment rather than undamaged. The panel now spells that out instead of leaving a wall of grey to be read as good news."
+    ]},
     {"version": "7.1.2", "at": "2026-08-23T10:20:00Z", "changes": [
         "The stations and the radar in a replay are now one player instead of two. They sat in separate cards with a play button each, so watching a station lose modules while the fight moved across the map meant starting both and hoping they stayed together. One play button now runs both, side by side, on one scrub bar and one speed setting — and they are matched on match time rather than frame number, so the slower feed holds its last known state instead of drifting ahead."
     ]},

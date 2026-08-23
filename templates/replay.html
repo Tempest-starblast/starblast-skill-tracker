@@ -32,6 +32,10 @@
   <div class="chartwrap"><svg id="chartS" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
 </div>
 
+<style>
+  .stkey{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;
+         vertical-align:middle}
+</style>
 <div class="card" id="rpCard" style="display:none">
   <h2>Match replay</h2>
   <p class="rnote" style="margin-top:0">The stations and the battlefield at the same moment.
@@ -40,7 +44,15 @@
   <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
     <div id="stBlock" style="flex:1 1 430px;min-width:290px;display:none">
       <div class="sub" style="margin-bottom:8px">Stations</div>
+      <div class="rnote" id="stKey" style="margin:0 0 8px;display:flex;gap:12px;flex-wrap:wrap">
+        <span><i class="stkey" style="background:#66e6b8"></i>Intact</span>
+        <span><i class="stkey" style="background:#f0c04a"></i>Damaged</span>
+        <span><i class="stkey" style="background:#ff7a7a"></i>Heavy</span>
+        <span><i class="stkey" style="background:#63263a"></i>Destroyed</span>
+        <span><i class="stkey" style="background:#3a4655"></i>No reading</span>
+      </div>
       <div id="stWrap" style="display:flex;gap:14px;flex-wrap:wrap"></div>
+      <div id="stGap" class="rnote" style="margin:8px 0 0;min-height:1.2em"></div>
     </div>
     <div id="rdBlock" style="flex:0 0 auto;display:none">
       <div class="sub" style="margin-bottom:8px">Radar</div>
@@ -268,6 +280,13 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
           + 'style="width:100%;height:150px;display:block">' + g + '</svg></div>';
       }
       document.getElementById('stWrap').innerHTML = html;
+      // Every module grey at once means the feed stalled here, not that
+      // nothing was happening. Say which, or the panel reads as "all fine".
+      const blind = [0, 1, 2].every(t => !(f.st[t] && f.st[t][2]));
+      document.getElementById('stGap').innerHTML = blind
+        ? '<span style="color:#f0c04a">No station reading at this moment &mdash; the tracker '
+          + 'briefly lost the lobby feed. The stations are unknown here, not undamaged.</span>'
+        : '';
       document.querySelectorAll('.stmod').forEach(el => {
         el.addEventListener('mouseenter', () => {
           const team = +el.dataset.team, mod = +el.dataset.mod;
