@@ -46,7 +46,7 @@
     </div>
     <p class="desc" style="margin:10px 0 0">Results always go to
        <b id="acctName">your account</b>.</p>
-    <p class="desc" style="margin:10px 0 0" id="ckState"></p>
+    <div id="ckState" style="display:none;margin:12px 0 0;padding:10px 14px;border-radius:8px;border:1px solid rgba(102,230,184,.45);background:rgba(102,230,184,.08);color:#bff3e0;font-size:13.5px;line-height:1.5"></div>
   </div>
   <div id="claimRow" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
     <div class="row">
@@ -154,18 +154,32 @@ function markCheckedIn(ck){
     }
   });
   const line=document.getElementById('ckState');
-  if(!ck){ line.textContent=''; return; }
+  if(!ck){ line.style.display='none'; line.innerHTML=''; return; }
+  // Name the lobby, and keep saying so until the match is over. A
+  // check-in you cannot see is one you can lose by clicking again.
+  line.style.display='block';
   const btn=document.querySelector('button[data-lobby="'+ck.sys_id+'"]');
+  const where='<b>lobby #'+ck.sys_id+'</b>';
   if(btn){
     btn.textContent='Checked in';
     btn.disabled=true;
     btn.classList.remove('primary');
     btn.dataset.wasChecked='1';
-    line.textContent='You are in the match marked below. Pressing Play on a different one replaces it.';
+    line.innerHTML='&#10003; You are checked into '+where+' &mdash; play there and it counts. '
+      +'Checking into a different lobby cancels this one.';
   } else {
-    line.textContent='You are in a match that is no longer listed - that is fine, it still counts when it ends.';
+    line.innerHTML='&#10003; You are checked into '+where+', which is no longer in the list '
+      +'below &mdash; that is fine, it still counts when the match ends.';
   }
 }
+
+// The state has to survive sitting on this page: a check-in made twenty
+// minutes ago is exactly the one people forget they made.
+setInterval(function(){
+  fetch('/me').then(function(r){ return r.json(); }).then(function(d){
+    if(d && d.logged_in) markCheckedIn(d.checkin);
+  }).catch(function(){});
+}, 30000);
 
 async function doClaim(){
   const n=document.getElementById('claimName').value.trim();

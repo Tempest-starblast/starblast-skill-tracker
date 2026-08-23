@@ -127,6 +127,35 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   <p class="msg" id="inboxMsg"></p>
 </div>
 
+<div class="card" id="heldCard" style="display:none">
+  <h2>Matches that did not count</h2>
+  <p class="desc">Every result the tracker sets aside is written down with its reason.
+     These are yours, newest first &mdash; nothing here counted for or against you.</p>
+  <div id="heldList"></div>
+</div>
+
+<script>
+(function(){
+  fetch('/api/my/held').then(function(r){ return r.json(); }).then(function(d){
+    var rows = (d && d.held) || [];
+    if(!rows.length) return;
+    var esc = function(s){ var e=document.createElement('span');
+      e.textContent = String(s==null?'':s); return e.innerHTML; };
+    document.getElementById('heldCard').style.display = 'block';
+    document.getElementById('heldList').innerHTML = rows.map(function(h){
+      return '<div style="padding:9px 0;border-bottom:1px solid var(--line)">'
+        + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline">'
+        + '<b>' + esc(h.name) + '</b>'
+        + '<span class="sub">lobby #' + esc(h.sys_id) + ' &middot; ' + esc(h.at || '') + '</span>'
+        + '<span class="sub" style="margin-left:auto">'
+        + (h.won ? 'would have been a win' : 'would have been a loss')
+        + (h.score != null ? ' &middot; ' + h.score + ' pts' : '') + '</span></div>'
+        + '<div class="sub" style="margin-top:3px">' + esc(h.why) + '</div></div>';
+    }).join('');
+  }).catch(function(){});
+})();
+</script>
+
 <div class="card">
   <h2>Account</h2>
   <div id="signedIn">

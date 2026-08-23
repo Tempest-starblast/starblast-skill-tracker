@@ -29,6 +29,41 @@
    <b>{{ primary.label }}</b> ({{ primary.share }}% of matches){% endif %}{% endif %}
    &middot; <a href="/">Leaderboard</a></p>
 
+<div class="card" id="shipCard" style="display:none">
+  <h2>Ships flown</h2>
+  <p class="desc" id="shipSummary"></p>
+  <div id="shipList"></div>
+</div>
+
+<script>
+(function(){
+  var NAME = {{ player.name|tojson }};
+  fetch('/api/player/ships/' + encodeURIComponent(NAME))
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     if(!d || !d.ships || !d.ships.length) return;
+     document.getElementById('shipCard').style.display = 'block';
+     var tierName = ['', 'tier 1', 'tier 2', 'tier 3', 'tier 4', 'tier 5', 'tier 6', 'tier 7'];
+     document.getElementById('shipSummary').innerHTML =
+       'Favourite ship <b>' + d.favourite + '</b>'
+       + (d.top_tier ? ' &middot; usually reaches ' + tierName[d.top_tier] : '')
+       + (d.deaths ? ' &middot; ' + d.deaths + ' deaths across ' + d.matches + ' matches' : '')
+       + '. Read off the game&#39;s own scoreboard at the end of each match.';
+     var max = d.ships[0].n;
+     document.getElementById('shipList').innerHTML = d.ships.map(function(s){
+       var pct = Math.max(4, Math.round(100 * s.n / max));
+       var wr = s.n ? Math.round(100 * s.wins / s.n) : 0;
+       return '<div style="display:flex;align-items:center;gap:10px;padding:4px 0">'
+         + '<b style="width:44px;font-variant-numeric:tabular-nums">' + s.ship + '</b>'
+         + '<span style="flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden">'
+         + '<i style="display:block;height:100%;width:' + pct + '%;background:#99DDFF"></i></span>'
+         + '<span class="sub" style="width:150px;text-align:right">' + s.n
+         + (s.n === 1 ? ' match' : ' matches') + ' &middot; ' + wr + '% won</span></div>';
+     }).join('');
+   }).catch(function(){});
+})();
+</script>
+
 <div class="card"><div class="grid">
   <div class="stat"><div class="label">Skill</div><div class="value" style="color:var(--blue)">{{ player.elo }}</div></div>
   <div class="stat"><div class="label">Win rate</div><div class="value">{{ player.winrate }}</div></div>

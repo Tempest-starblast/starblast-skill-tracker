@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "6.66.0"
+APP_VERSION = "7.0.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -85,6 +85,22 @@ ABANDON_MAX_REAL_PLAYERS = 10
 STARTING_ELO = 1000
 ELO_K = 200    # max elo swing for a single match, approached as the result gets more lopsided
 ELO_SCALE = 2000  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
+
+# A rating means less when it is built on two games than on two hundred,
+# so new players move faster to find their level and settled players are
+# not whipped around by them (7.0.0). Measured 23 Aug 2026: 77% of the
+# board had fewer than 5 games while every player moved at the same K.
+PROVISIONAL_GAMES = 5
+ESTABLISHED_GAMES = 20
+PROVISIONAL_K_MULT = 1.4
+ESTABLISHED_K_MULT = 0.8
+
+# How strongly a roster's rating is pulled toward the starting rating
+# when few of its players are known. Only 58% of the players in a live
+# match are on the leaderboard; counting every stranger as exactly 1000
+# made a team's strength depend on how many strangers happened to be
+# aboard rather than on how good the known players were.
+TEAM_PRIOR_WEIGHT = 3.0
 
 # Minimum score to COLLECT A WIN - idling on the winning team earns
 # nothing. Losers have NO floor at all (owner's rule): they usually finish
@@ -1131,6 +1147,16 @@ def init_db():
         c.execute("ALTER TABLE match_players ADD COLUMN team TEXT")
     except sqlite3.OperationalError:
         pass
+    # The ship a player finished the match flying (tier*100+model), and
+    # how many times they died in it. Display and analysis only.
+    try:
+        c.execute("ALTER TABLE match_players ADD COLUMN ship INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE match_players ADD COLUMN deaths INTEGER")
+    except sqlite3.OperationalError:
+        pass
     for _mcol in ('lobby_name TEXT', 'tracked_reads INTEGER'):
         try:
             c.execute('ALTER TABLE matches ADD COLUMN ' + _mcol)
@@ -1614,11 +1640,11 @@ def unregister():
 
 
 def team_rating(names, elo_map):
-    """A roster's strength: average elo of EVERYONE on it (owner's rule,
-    22 Aug 2026 - it was the top 2 average before). Two stars over six
-    nobodies and a roster strong top to bottom used to read as the same
-    opponent. Missing/unregistered players are assumed to be at
-    STARTING_ELO, and an empty roster reads as STARTING_ELO.
+    """A roster's strength: the average of the players the leaderboard
+    KNOWS, shrunk toward STARTING_ELO by TEAM_PRIOR_WEIGHT (7.0.0 - an
+    unknown player used to be counted as exactly 1000, so a team of four
+    strong players read weaker simply for having four strangers beside
+    them). An all-unknown roster still reads as STARTING_ELO.
 
     Deliberately NO roster-size term. A 40-points-per-empty-seat penalty
     shipped briefly on 22 Aug 2026 and was reverted the same day after a
@@ -1629,10 +1655,11 @@ def team_rating(names, elo_map):
     live in-match headcount is real signal, and the win-probability
     model already carries it. Do not reintroduce a size term without a
     fit on live headcounts showing it helps."""
-    values = [elo_map.get(normalize_name(n), STARTING_ELO) for n in names]
-    if not values:
+    known = [elo_map[k] for k in (normalize_name(n) for n in names) if k in elo_map]
+    if not known:
         return STARTING_ELO
-    return sum(values) / len(values)
+    return ((sum(known) + TEAM_PRIOR_WEIGHT * STARTING_ELO)
+            / (len(known) + TEAM_PRIOR_WEIGHT))
 
 
 def expected_score(own_elo, opponent_rating):
@@ -1641,12 +1668,44 @@ def expected_score(own_elo, opponent_rating):
     return 1 / (1 + 10 ** ((opponent_rating - own_elo) / ELO_SCALE))
 
 
+def win_expectation(own_rating, rival_ratings):
+    """This side's chance of winning a match against ALL the rivals at
+    once - the three-team generalisation of expected_score (7.0.0).
+
+    Team mode is a THREE-team game, but ratings were computed with the
+    two-player formula, which says an even side expects 0.5 when the
+    truth is nearer 0.33. Winners were underpaid, losers overcharged,
+    and because a match has roughly 1.6 rated losers per rated winner
+    the pool bled: 474,337 rating points measured destroyed by 23 Aug
+    2026, average rating 933.7 against a 1000 start, 107 players pinned
+    at the floor.
+
+    With one rival this reduces to expected_score exactly, so two-team
+    matches are unaffected."""
+    total = 1.0
+    for r in rival_ratings:
+        total += 10 ** ((r - own_rating) / ELO_SCALE)
+    return 1.0 / total
+
+
+def k_factor(games):
+    """How far one match may move a player, by how well known they are."""
+    if games < PROVISIONAL_GAMES:
+        return ELO_K * PROVISIONAL_K_MULT
+    if games < ESTABLISHED_GAMES:
+        return ELO_K
+    return ELO_K * ESTABLISHED_K_MULT
+
+
 @app.route('/live')
 def live_view():
-    """Owner-only page: watch live win probabilities for every tracked match."""
-    if not is_site_owner():
-        return redirect('/')
-    return render_template('live.html', page='live', version=APP_VERSION)
+    """Every match being tracked right now, with live win probabilities.
+
+    Public since 7.0.0 - it is the most interesting thing the site has
+    and there was no reason only one person could see it. The owner's
+    own tools (flood alerts, model internals) stay owner-only inside."""
+    return render_template('live.html', page='live', version=APP_VERSION,
+                           is_owner=1 if is_site_owner() else 0)
 
 
 @app.route('/flood')
@@ -2113,9 +2172,11 @@ def live_state_ingest():
 
 @app.route('/api/live/matches')
 def live_matches():
-    """Owner-only: every actively-watched lobby with live win probabilities."""
-    if not is_site_owner():
-        return jsonify({"error": "Not allowed."}), 403
+    """Every actively-watched lobby with live win probabilities.
+
+    Public since 7.0.0; the flood alert board is an owner tool and is
+    only attached for the owner."""
+    _owner = is_site_owner()
     now = time.time()
     out = []
     w, model_meta = load_live_model()
@@ -2230,11 +2291,58 @@ def live_matches():
                     "flood": p.get("flood") or {},
                     "flood_max": p.get("flood_max") or 0})
     flooded = [m for m in out if m["flood_max"] >= FLOOD_SIGNIFICANT]
-    return jsonify({"matches": out, "count": len(out),
-                    "model": model_meta or {"builtin": True},
-                    "flood_alert": {"count": len(flooded),
-                                    "significant_at": FLOOD_SIGNIFICANT,
-                                    "lobbies": [m["sys_id"] for m in flooded]}}), 200
+    body = {"matches": out, "count": len(out),
+            "model": model_meta or {"builtin": True}}
+    if _owner:
+        body["flood_alert"] = {"count": len(flooded),
+                               "significant_at": FLOOD_SIGNIFICANT,
+                               "lobbies": [m["sys_id"] for m in flooded]}
+    return jsonify(body), 200
+
+
+@app.route('/api/my/held')
+def my_held_results():
+    """Why a match you played did not appear on your record.
+
+    Every decision the tracker or the rating engine declines to make is
+    already written down with a reason - this hands the player their own
+    ones in plain words instead of leaving the match silently missing
+    (7.0.0)."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"held": []}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT norm_name FROM players WHERE google_sub = ?", (sub_id,))
+    keys = [r[0] for r in c.fetchall() if r[0]]
+    if not keys:
+        conn.close()
+        return jsonify({"held": []}), 200
+    ph = ",".join("?" for _ in keys)
+    c.execute("SELECT name, region, won, score, reason, played_at, sys_id "
+              "FROM held_results WHERE norm_name IN (%s) "
+              "ORDER BY id DESC LIMIT 25" % ph, keys)
+    rows = c.fetchall()
+    conn.close()
+    WHY = {
+        'dominance-flip': ("Your team led every rival by a distance and then lost to a "
+                           "side that filled up mid-match. That result is set aside "
+                           "rather than counted against you."),
+        'protected': ("Protection is on for this name and no check-in was found for "
+                      "this match, so the result was withheld - it could have been "
+                      "somebody else playing under your name."),
+        'joined-too-late': ("You checked in less than ten minutes before this match "
+                            "ended. A few minutes at the end is not a match, so it "
+                            "counts neither way."),
+        'thin_margin_orphan': ("The match ended while nobody was watching it closely "
+                               "enough, and the winner would have been a guess. It is "
+                               "kept on record but not rated."),
+    }
+    return jsonify({"held": [{
+        "name": r[0], "region": r[1], "won": bool(r[2]), "score": r[3],
+        "reason": r[4], "at": r[5], "sys_id": r[6],
+        "why": WHY.get(r[4], "This result was set aside for review."),
+    } for r in rows]}), 200
 
 
 @app.route('/api/live/model', methods=['POST'])
@@ -2674,21 +2782,25 @@ def game_end():
     # Snapshot pre-match elo for everyone involved, so both sides' elo
     # changes are based on ratings as they stood before this match.
     all_names = list(set(winning_team + losing_all))
-    elo_map = {}
+    elo_map, games_map = {}, {}
     if all_names:
         placeholders = ",".join("?" for _ in all_names)
         keys = [normalize_name(n) for n in all_names]
         placeholders = ",".join("?" for _ in keys)
-        c.execute(f"SELECT norm_name, elo FROM players WHERE norm_name IN ({placeholders})", keys)
-        elo_map = dict(c.fetchall())
+        c.execute(f"SELECT norm_name, elo, COALESCE(wins,0)+COALESCE(losses,0) "
+                  f"FROM players WHERE norm_name IN ({placeholders})", keys)
+        for _n, _e, _g in c.fetchall():
+            elo_map[_n] = _e
+            games_map[_n] = _g
 
-    losing_team_rating = team_rating(losing_all, elo_map)
     winning_team_rating = team_rating(winning_team, elo_map)
-    # A loser's own-team context is THEIR team, not both losing teams
-    # pooled - the pool is only ever the winners' opposition.
-    _lose1_rating = team_rating(losing_team_1, elo_map) if losing_team_1 else STARTING_ELO
-    _lose2_rating = team_rating(losing_team_2, elo_map) if losing_team_2 else STARTING_ELO
+    # Each losing team stands on its own: a loser's context is THEIR
+    # team, and in the three-way expectation each side faces the other
+    # two separately rather than as one pooled opponent.
+    _lose1_rating = team_rating(losing_team_1, elo_map) if losing_team_1 else None
+    _lose2_rating = team_rating(losing_team_2, elo_map) if losing_team_2 else None
     _lose1_keys = {normalize_name(p) for p in losing_team_1}
+    _rivals_of_winner = [r for r in (_lose1_rating, _lose2_rating) if r is not None]
 
     # Expected-outcome elo: the swing depends on how surprising the result
     # was for THIS player. Their side of the comparison is their own elo
@@ -2696,40 +2808,83 @@ def game_end():
     # 22 Aug 2026): who stood beside you is part of how surprising the
     # result was. Winning inside a stacked team pays less than carrying
     # weak allies to the same win, and losing with weak allies costs less
-    # than a stacked side losing. A big underdog win still nets close to
-    # ELO_K; an "expected" result still moves almost nothing.
+    # than a stacked side losing. The expectation itself is now the
+    # three-way one (7.0.0) - see win_expectation.
     # (name, won, delta) for every player the result actually moved, so the
     # match is written down exactly as it was applied.
     applied = []
 
-    updated_winners = []
+    # Pass one: what every result is worth at the STANDARD K, before
+    # each player's own experience multiplier. Balancing on these keeps
+    # the two things separate - the structural imbalance gets corrected,
+    # a deliberate provisional boost does not get cancelled out.
+    _pending = []
     for player in winning_team:
-        own_elo = elo_map.get(normalize_name(player), STARTING_ELO)
-        own_eff = (own_elo + winning_team_rating) / 2
-        gain = scaled(ELO_K * (1 - expected_score(own_eff, losing_team_rating)),
-                      normalize_name(player))
-        c.execute(
-            "UPDATE players SET elo = ROUND(elo + ?, 2), wins = wins + 1 WHERE norm_name = ?",
-            (gain, normalize_name(player))
-        )
-        if c.rowcount > 0:
-            updated_winners.append(player)
-            applied.append((player, 1, round(gain, 2)))
-
-    updated_losers = []
+        _k = normalize_name(player)
+        _eff = (elo_map.get(_k, STARTING_ELO) + winning_team_rating) / 2
+        _pending.append((player, _k, 1,
+                         scaled(ELO_K * (1 - win_expectation(_eff, _rivals_of_winner)), _k),
+                         k_factor(games_map.get(_k, 0)) / ELO_K))
     for player in losing_all:
-        own_elo = elo_map.get(normalize_name(player), STARTING_ELO)
-        own_eff = (own_elo + (_lose1_rating if normalize_name(player) in _lose1_keys
-                              else _lose2_rating)) / 2
-        loss = scaled(ELO_K * expected_score(own_eff, winning_team_rating),
-                      normalize_name(player))
-        c.execute(
-            "UPDATE players SET elo = ROUND(MAX(500, elo - ?), 2), losses = losses + 1 WHERE norm_name = ?",
-            (loss, normalize_name(player))
-        )
-        if c.rowcount > 0:
-            updated_losers.append(player)
-            applied.append((player, 0, -round(loss, 2)))
+        _k = normalize_name(player)
+        if _k in _lose1_keys:
+            _mine, _other = _lose1_rating, _lose2_rating
+        else:
+            _mine, _other = _lose2_rating, _lose1_rating
+        _eff = (elo_map.get(_k, STARTING_ELO)
+                + (_mine if _mine is not None else STARTING_ELO)) / 2
+        _rivals = [winning_team_rating] + ([_other] if _other is not None else [])
+        _pending.append((player, _k, 0,
+                         scaled(ELO_K * win_expectation(_eff, _rivals), _k),
+                         k_factor(games_map.get(_k, 0)) / ELO_K))
+
+    # A match must not create or destroy rating (7.0.0). The two sides
+    # rarely hold the same number of RATED players, so the side with the
+    # larger total is damped down to meet the smaller - never the other
+    # way round, so no individual swing is ever inflated to balance the
+    # books. Without this the pool drifts every game, which is what
+    # drained 474,337 points out of it.
+    _tg = sum(r for _, _, w, r, _m in _pending if w)
+    _tl = sum(r for _, _, w, r, _m in _pending if not w)
+    _fg = _fl = 1.0
+    if _tg > 0 and _tl > 0:
+        if _tg > _tl:
+            _fg = _tl / _tg
+        else:
+            _fl = _tg / _tl
+
+    updated_winners, updated_losers = [], []
+    for player, _k, _won, _raw, _mult in _pending:
+        if _won:
+            gain = _raw * _fg * _mult
+            c.execute("UPDATE players SET elo = ROUND(elo + ?, 2), "
+                      "wins = wins + 1 WHERE norm_name = ?", (gain, _k))
+            if c.rowcount > 0:
+                updated_winners.append(player)
+                applied.append((player, 1, round(gain, 2)))
+        else:
+            loss = _raw * _fl * _mult
+            c.execute("UPDATE players SET elo = ROUND(MAX(500, elo - ?), 2), "
+                      "losses = losses + 1 WHERE norm_name = ?", (loss, _k))
+            if c.rowcount > 0:
+                updated_losers.append(player)
+                applied.append((player, 0, -round(loss, 2)))
+
+    # What each player finished flying, and how often they died. Recorded
+    # against the result so a profile can show a favourite ship; no rule
+    # or rating reads them (7.0.0).
+    _ships_by_name = {}
+    for _n, _v in (data.get('ships') or {}).items():
+        try:
+            _ships_by_name[str(_n)] = int(_v)
+        except (TypeError, ValueError):
+            pass
+    _deaths_by_name = {}
+    for _n, _v in (data.get('deaths') or {}).items():
+        try:
+            _deaths_by_name[str(_n)] = int(_v)
+        except (TypeError, ValueError):
+            pass
 
     # Write the match itself down. INSERT OR IGNORE plus the empty check
     # means a match reported twice is stored once, matching the elo guard.
@@ -2781,13 +2936,17 @@ def game_end():
                     # answer when no rewrite happened - an unclaimed player
                     # played as exactly who they appear to be.
                     played_as = (data.get('played_as_map') or {}).get(pname) or pname
-                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as, team) "
-                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as, team, ship, deaths) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                               (mrow[0], pname, normalize_name(pname), won, delta,
                                1 if normalize_name(pname) in half_elo else 0,
                                raw_score, played_as,
                                team_of.get(normalize_name(pname),
-                                           'win' if won else 'lose1')))
+                                           'win' if won else 'lose1'),
+                               _ships_by_name.get(played_as)
+                               or _ships_by_name.get(pname),
+                               _deaths_by_name.get(played_as)
+                               or _deaths_by_name.get(pname)))
 
     # ---- Replay snapshot ------------------------------------------------
     # The live feed has been accumulating this match's trajectory (score/
@@ -4101,6 +4260,37 @@ def player_progress():
     start = round(after[0] - float(rows[0][1] or 0), 2) if rows else round(cur, 2)
     return jsonify({"name": prow[0], "elo": round(cur, 2),
                     "start": start, "matches": out}), 200
+
+
+@app.route('/api/player/ships/<name>')
+def player_ships(name):
+    """Which ships a player actually flies, newest matches first (7.0.0).
+
+    Read off the game's own scoreboard packet at the end of each match,
+    so it is what they finished flying rather than anything declared."""
+    key = normalize_name(name)
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT mp.ship, COUNT(*), SUM(CASE WHEN mp.won=1 THEN 1 ELSE 0 END) "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.norm_name = ? AND mp.ship IS NOT NULL "
+              "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
+              "WHERE norm_name = mp.norm_name), '') "
+              "GROUP BY mp.ship ORDER BY 2 DESC", (key,))
+    ships = [{"ship": r[0], "n": r[1], "wins": r[2] or 0} for r in c.fetchall()]
+    c.execute("SELECT SUM(COALESCE(mp.deaths,0)), COUNT(*) FROM match_players mp "
+              "JOIN matches m ON m.id = mp.match_row WHERE mp.norm_name = ? "
+              "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
+              "WHERE norm_name = mp.norm_name), '')", (key,))
+    row = c.fetchone() or (0, 0)
+    conn.close()
+    total = sum(s["n"] for s in ships)
+    return jsonify({
+        "ships": ships[:8], "total": total,
+        "favourite": ships[0]["ship"] if ships else None,
+        "top_tier": max((s["ship"] // 100 for s in ships), default=None),
+        "deaths": int(row[0] or 0), "matches": int(row[1] or 0),
+    }), 200
 
 
 @app.route('/player/<name>')
