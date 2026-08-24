@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.1.5"
+APP_VERSION = "7.2.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -196,8 +196,29 @@ _WP_W = [1.1295076628447995, 0.46926494423388093, 1.5665834227690387,
 _WP_TSCALE = 1400.0
 
 
+def _station_state(v):
+    """(level, gems, modules_dead, mean_module_hp) from either station form.
+
+    Full tracker form: [level, gems, alive, total, weak, dead, [hp x12]];
+    slim replay form:  [level, gems, [hp x12]]. Any element may be None
+    during a telemetry blank - a None stays None and the feature built
+    from it stays neutral."""
+    if not isinstance(v, (list, tuple)) or len(v) < 3:
+        return (None, None, None, None)
+    lvl = v[0] if isinstance(v[0], (int, float)) else None
+    gems = v[1] if isinstance(v[1], (int, float)) else None
+    hp12 = v[-1] if isinstance(v[-1], (list, tuple)) else None
+    dead = None
+    if len(v) >= 6 and isinstance(v[5], (int, float)):
+        dead = v[5]
+    elif hp12:
+        dead = sum(1 for h in hp12 if h == 0)
+    mhp = (float(sum(hp12)) / len(hp12)) if hp12 else None
+    return (lvl, gems, dead, mhp)
+
+
 def win_probability(counts, scores, elapsed_seconds=None, weights=None,
-                    skills=None, depth=None, window=None):
+                    skills=None, depth=None, window=None, stations=None):
     """Each team's probability of winning, from current counts + scores (and
     how long the match has run). A team with 0 players is out (probability 0).
     Returns {team_key: prob} summing to 1 over the teams that can still win.
@@ -210,10 +231,13 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
       19  + time-shape over `window` (recent [(t, scores)] reads: lead share,
           drawdown from peak, 60s trend) and roster `depth` per team
           ((winrate, games, clan-stack)). Every extra feature is neutral when
-          its data is missing, so the model degrades gracefully."""
+          its data is missing, so the model degrades gracefully.
+      23  + station margins from `stations` (team -> station tuple, full or
+          slim form): level, gem bank, modules destroyed, mean module HP -
+          the on-map evidence a scoreboard cannot see."""
     import math
     W = _WP_W
-    if weights and len(weights) in (10, 13, 19):
+    if weights and len(weights) in (10, 13, 19, 23):
         W = weights
     keys = list(LIVE_TEAMS)
     score = {k: max(0.0, float(scores.get(k, 0) or 0)) for k in keys}
@@ -251,7 +275,7 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
             sk_margin = (sk[k] - rival) / 1000.0
             x += [sk_margin, sk_margin * (1.0 - prog),
                   sk[k] / sk_sum - 1.0 / len(alive)]
-        if len(W) == 19:
+        if len(W) >= 19:
             led = 0.0
             peak = s
             s_old = None
@@ -282,6 +306,24 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
             x += [led, dd, tr, wr_k - r_wr,
                   (math.log1p(g_k) - math.log1p(r_g)) / 8.0,
                   (st_k - r_st) / 4.0]
+        if len(W) == 23:
+            stn = stations or {}
+            own = _station_state(stn.get(k))
+            riv = [_station_state(stn.get(j)) for j in alive if j != k]
+            lvm = gm = dm = hpm = 0.0
+            _rl = [r[0] for r in riv if r[0] is not None]
+            if own[0] is not None and _rl:
+                lvm = (own[0] - max(_rl)) / 4.0
+            _rg2 = [r[1] for r in riv if r[1] is not None]
+            if own[1] is not None and _rg2:
+                gm = (own[1] - max(_rg2)) / 6400.0
+            _rd = [r[2] for r in riv if r[2] is not None]
+            if own[2] is not None and _rd:
+                dm = (min(_rd) - own[2]) / 12.0
+            _rh = [r[3] for r in riv if r[3] is not None]
+            if own[3] is not None and _rh:
+                hpm = (own[3] - max(_rh)) / 255.0
+            x += [lvm, gm, dm, hpm]
         util[k] = sum(W[i] * x[i] for i in range(len(W)))
     m = max(util.values())
     ex = {k: math.exp(util[k] - m) for k in alive}
@@ -1951,9 +1993,11 @@ def replay_data(mid):
         t, ct, sc = traj[i][0], traj[i][1], traj[i][2]
         fcrow = traj[i][3] if len(traj[i]) > 3 else None
         wnd = [(r[0], r[2]) for r in traj[max(0, i - 59):i + 1]]
+        _strow = traj[i][5] if (len(traj[i]) > 5
+                                and isinstance(traj[i][5], dict)) else None
         try:
             hp = win_probability(ct, sc, t, weights=w, skills=skills,
-                                 depth=dpt, window=wnd)
+                                 depth=dpt, window=wnd, stations=_strow)
         except Exception:
             hp = {}
         # Radar frame [[team, x, y], ...] recorded with this read, if the
@@ -2245,8 +2289,10 @@ def live_matches():
                if pskill.get(k)}
         traj = p.get("traj", [])
         wnd = [(r_[0], r_[2]) for r_ in traj[-60:] if len(r_) >= 3]
+        _stnow = p.get("sth") if isinstance(p.get("sth"), dict) else None
         probs = win_probability(counts, scores, elapsed, weights=w,
-                                skills=skills, depth=dpt, window=wnd)
+                                skills=skills, depth=dpt, window=wnd,
+                                stations=_stnow)
         history = []
         for i, row in enumerate(traj[-40:]):
             try:
@@ -2254,8 +2300,10 @@ def live_matches():
                 base_i = len(traj) - min(len(traj), 40) + i
                 w_i = [(r_[0], r_[2]) for r_ in traj[max(0, base_i - 59):base_i + 1]
                        if len(r_) >= 3]
+                _sti = row[5] if (len(row) > 5
+                                  and isinstance(row[5], dict)) else None
                 hp = win_probability(ct, sc, t, weights=w, skills=skills,
-                                     depth=dpt, window=w_i)
+                                     depth=dpt, window=w_i, stations=_sti)
                 history.append([round(t, 0), round(hp["team_1"], 3),
                                 round(hp["team_2"], 3), round(hp["team_3"], 3)])
             except Exception:
@@ -2299,7 +2347,8 @@ def live_matches():
                     _dp2[k] = _a[1]
                 try:
                     _hp = win_probability(counts, scores, elapsed, weights=w,
-                                          skills=_sk2, depth=_dp2, window=wnd)
+                                          skills=_sk2, depth=_dp2, window=wnd,
+                                          stations=_stnow)
                     _imp = probs.get(k, 0.0) - _hp.get(k, 0.0)
                 except Exception:
                     _imp = 0.0
@@ -2397,9 +2446,9 @@ def live_model_update():
     d = request.json or {}
     w = d.get("weights")
     meta = d.get("meta") or {}
-    if not (isinstance(w, list) and len(w) in (10, 13, 19)
+    if not (isinstance(w, list) and len(w) in (10, 13, 19, 23)
             and all(isinstance(x, (int, float)) for x in w)):
-        return jsonify({"error": "weights must be 10, 13 or 19 numbers"}), 400
+        return jsonify({"error": "weights must be 10, 13, 19 or 23 numbers"}), 400
     conn = live_db()
     conn.execute("INSERT INTO model (id, weights, meta, updated) VALUES (1,?,?,?) "
                  "ON CONFLICT(id) DO UPDATE SET weights=excluded.weights, "
@@ -3221,6 +3270,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.2.0", "at": "2026-08-24T08:20:00Z", "changes": [
+        "The win-probability model can now see the stations. Until today it judged a match from player counts, scores and team skill — so a lone strong player on a dying team could read as a 33% chance while both rival teams sat a full station level ahead, because the evidence that decides matches (station level, banked gems, modules destroyed) was recorded but never consumed. Four station readings now feed the model, in the live view, the per-player impact numbers and match replays alike; they fall silent gracefully when the telemetry has a gap. The retrained model ships only if it beats the current one on held-out matches, same as every night."
+    ]},
     {"version": "7.1.5", "at": "2026-08-24T07:10:00Z", "changes": [
         "Checking in no longer makes a result count by itself \u2014 it is confirmation of who you are, nothing more. Until now a checked-in player was placed into the result by their ship even when the roster rules would never have included them, so someone who joined the tail of a match could be charged a loss the rules say belongs to the team that was actually assembled. From now on the same roster rules decide who is rated for everyone \u2014 winners from the closing top eight, losers from the team as it stood at full strength \u2014 and a check-in guarantees only that when those rules include you, the result lands on your account and cannot be taken by an impersonator or lost to the duplicate-name filter. One match from last night was corrected under this rule."
     ]},
