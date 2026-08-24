@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.5.0"
+APP_VERSION = "7.5.1"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -1856,24 +1856,30 @@ def rawlive_matches():
             d = json.loads(payload)
         except Exception:
             continue
+        facs = d.get("factions") or []
+        _sh = d.get("sh") or []
+        _lay = d.get("stlay") or []
         teams = []
         for k in ("team_1", "team_2", "team_3"):
             roster = d.get("teams", {}).get(k) or []
-            sh = None
-            _sh = d.get("sh")
             idx = int(k[-1]) - 1
+            # Station in the same 7-array shape /live draws from:
+            # [lvl, gems, alive, total, weak, dead, [mods hp]].
+            station = None
             if isinstance(_sh, list) and idx < len(_sh) and isinstance(_sh[idx], dict):
-                sh = _sh[idx]
-            facs = d.get("factions") or []
+                h = _sh[idx]
+                n = h.get("n") or 0
+                dead = h.get("dead") or 0
+                station = [h.get("lvl"), h.get("gems") or 0, n - dead, n,
+                           h.get("weak") or 0, dead, h.get("mods")]
+            layout = _lay[idx] if idx < len(_lay) else []
             teams.append({
                 "key": k,
                 "label": (facs[idx] if idx < len(facs) and facs[idx] else "Team %d" % (idx+1)),
                 "count": d.get("counts", {}).get(k, 0),
                 "score": d.get("scores", {}).get(k, 0),
-                "station": ({"lvl": (sh.get("lvl") or 0) + 1,
-                             "gems": sh.get("gems"),
-                             "dead": sh.get("dead"), "weak": sh.get("weak")}
-                            if sh else None),
+                "station": station,
+                "layout": layout,
                 "players": sorted(
                     [{"name": r[0], "score": r[1], "tier": r[2],
                       "dead": (r[3] == 0)} for r in roster],
@@ -1884,6 +1890,9 @@ def rawlive_matches():
             "region": d.get("region") or "america",
             "match_seq": d.get("match_seq"), "full_watch": bool(d.get("full_watch")),
             "cap": d.get("cap"), "age": round(now - updated, 1),
+            # [team_idx, ship_id, x, y] per ship - id lets the viewer glide
+            # each dot to its new spot instead of redrawing from scratch.
+            "radar": d.get("radar") or [],
             "teams": teams,
         })
     return jsonify({"matches": out, "count": len(out)}), 200
@@ -3426,6 +3435,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.5.1", "at": "2026-08-24T24:20:00Z", "changes": [
+        "The /rawlive test view got the full treatment: station replicas and a live radar for every match, the same as the main live view, plus the from-the-opening rosters it already had. It updates in place now instead of rebuilding — cards stay put instead of jumping around, and the ships glide across the radar instead of teleporting. The watcher also feeds it a few times a second faster so the motion is smooth."
+    ]},
     {"version": "7.5.0", "at": "2026-08-24T23:30:00Z", "changes": [
         "New test view: /rawlive shows every match the new browserless watcher is following from minute zero. Unlike the main live view (which joins lobbies already ~20 minutes deep and tops out around five), this one sits in every vanilla NA team lobby from the opening — up to ten at once — with the full roster of names straight from the game. It carries no prediction; it is a window on the early-entry recorder that is quietly gathering the data the rating rework will be built on. The main leaderboard and scoring are unchanged."
     ]},

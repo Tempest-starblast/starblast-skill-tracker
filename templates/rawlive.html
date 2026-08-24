@@ -3,34 +3,51 @@
 <style>
 .rl-head{max-width:1180px;margin:0 auto 14px}
 .rl-head h1{font-size:20px;letter-spacing:.4px;margin:0 0 4px}
-.rl-sub{color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5}
 .rl-badge{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.5px;
   text-transform:uppercase;color:#0b1016;background:#66E6B8;border-radius:4px;
   padding:2px 7px;margin-left:8px;vertical-align:middle}
+.rl-sub{color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5}
 .rl-status{font-size:12px;color:var(--dim,#8aa0b0);margin-top:6px}
 .rl-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#66E6B8;
   margin-right:6px;vertical-align:middle;animation:rlp 2s infinite}
 @keyframes rlp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 7px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
 .rl-wrap{max-width:1180px;margin:0 auto;display:grid;gap:14px;
-  grid-template-columns:repeat(auto-fill,minmax(360px,1fr))}
+  grid-template-columns:repeat(auto-fill,minmax(370px,1fr))}
 .rl-card{background:rgba(153,221,255,.04);border:1px solid rgba(153,221,255,.14);
   border-radius:10px;padding:13px 15px}
 .rl-ctop{display:flex;justify-content:space-between;align-items:baseline;
-  font-size:12px;color:var(--dim,#8aa0b0);margin-bottom:10px}
+  font-size:12px;color:var(--dim,#8aa0b0);margin-bottom:11px}
 .rl-ctop b{color:var(--text);font-size:13px;letter-spacing:.3px}
 .rl-fw{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;
-  border-radius:4px;padding:1px 6px}
+  border-radius:4px;padding:1px 6px;margin-left:6px}
 .rl-fw.yes{color:#0b1016;background:#66E6B8}
 .rl-fw.no{color:#8aa0b0;border:1px solid rgba(153,221,255,.25)}
-.rl-team{margin:9px 0}
-.rl-thead{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:5px}
-.rl-chip{width:10px;height:10px;border-radius:3px;flex:none}
+/* stations - same look as /live */
+.rl-stations{display:flex;gap:9px;margin:2px 0 12px}
+.rl-stpanel{flex:1;min-width:0;background:radial-gradient(ellipse at 50% 40%,
+  rgba(10,26,48,.85),rgba(3,10,22,.9));border:1px solid rgba(153,221,255,.16);
+  border-radius:9px;padding:7px 7px 6px}
+.rl-stpanel svg{display:block;width:100%;height:92px;margin:2px 0 5px}
+.rl-stpanel.gone{border-color:rgba(255,120,120,.45)}
+.rl-stpanel.waiting{opacity:.55}
+.rl-sthead{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--dim,#8aa0b0)}
+.rl-sthead .lvl{font-weight:700;letter-spacing:.4px}
+.rl-sthead .g{margin-left:auto;font-variant-numeric:tabular-nums}
+.rl-chip{width:9px;height:9px;border-radius:2px;flex:none}
+.rl-gembar{width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.07);
+  overflow:hidden}
+.rl-gembar i{display:block;height:100%;border-radius:3px;background:#b48cff;
+  transition:width .8s ease}
+/* radar */
+.rl-radar{display:block;width:100%;height:200px;margin:2px 0 11px}
+.rl-radar .ship{transition:transform 3.8s linear}
+/* rosters */
+.rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
 .rl-tname{font-weight:600;color:var(--text)}
-.rl-tmeta{margin-left:auto;color:var(--dim,#8aa0b0);font-size:11.5px;
-  font-variant-numeric:tabular-nums;text-align:right}
-.rl-st{font-size:11px;color:var(--dim,#8aa0b0);margin-top:1px}
-.rl-plist{font-size:11.5px;line-height:1.5}
-.rl-prow{display:flex;gap:7px;align-items:center;padding:1px 0}
+.rl-tmeta{margin-left:auto;color:var(--dim,#8aa0b0);font-size:11px;
+  font-variant-numeric:tabular-nums}
+.rl-plist{font-size:11.5px;line-height:1.5;margin-bottom:2px}
+.rl-prow{display:flex;gap:7px;align-items:center}
 .rl-prow .rn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rl-prow .rt{color:var(--dim,#8aa0b0);flex:none;font-variant-numeric:tabular-nums}
 .rl-prow .rs{flex:none;font-variant-numeric:tabular-nums;color:var(--text)}
@@ -40,10 +57,10 @@
 
 <div class="rl-head">
   <h1>Live matches &mdash; from minute zero<span class="rl-badge">test</span></h1>
-  <div class="rl-sub">Every vanilla NA team lobby the new browserless watcher is following, joined at
-    the opening and stayed resident. Full rosters straight from the game &mdash; no probability,
-    just what is happening right now. This is the parallel early-entry feed; the elo still comes from
-    the main tracker.</div>
+  <div class="rl-sub">Every vanilla team lobby the new browserless watcher is following, joined at
+    the opening and stayed resident &mdash; all regions. Full rosters, station replicas and a live
+    radar, straight from the game. No probability; this is the parallel early-entry feed, and the
+    elo still comes from the main tracker.</div>
   <div class="rl-status"><span class="rl-dot"></span><span id="rlStatus">Connecting&hellip;</span></div>
 </div>
 
@@ -53,39 +70,151 @@
 <script>
 (function(){
   var COLORS={team_1:'#99DDFF',team_2:'#66E6B8',team_3:'#FFCC66'};
+  var COL=[COLORS.team_1,COLORS.team_2,COLORS.team_3];
+  var GEM_CAPS=[800,1600,3200,6400];
+  var BASE_ANG=[28,148,268],BASE_R=90,MAPE=132;
   var wrap=document.getElementById('rlWrap');
   var empty=document.getElementById('rlEmpty');
   var status=document.getElementById('rlStatus');
   function esc(x){var d=document.createElement('div');d.textContent=(x==null?'':String(x));return d.innerHTML;}
   function fmt(n){n=n||0;return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
 
-  function team(t){
-    var s=t.station;
-    var st = s ? ('Lv '+s.lvl+(s.gems!=null?' &middot; '+fmt(s.gems)+' \u{1F48E}':'')
-                  +(s.dead?' &middot; '+s.dead+' dead':'')+(s.weak?' &middot; '+s.weak+' hit':'')) : '';
-    var rows=(t.players||[]).map(function(p){
-      return '<div class="rl-prow'+(p.dead?' dead':'')+'">'
-        +'<span class="rn">'+esc(p.name)+'</span>'
-        +'<span class="rt">T'+p.tier+'</span>'
-        +'<span class="rs">'+fmt(p.score)+'</span></div>';
-    }).join('');
-    return '<div class="rl-team">'
-      +'<div class="rl-thead"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
-      +'<span class="rl-tname">'+esc(t.label)+'</span>'
-      +'<span class="rl-tmeta">'+fmt(t.score)+' pts &middot; '+t.count+'p'
-      +(st?'<br>'+st:'')+'</span></div>'
-      +'<div class="rl-plist">'+rows+'</div></div>';
+  function modColor(hp,base){
+    if(hp===0)return '#63263a';
+    if(hp>=252)return base;
+    if(hp>=140)return '#f0c04a';
+    return '#ff7a7a';
+  }
+  function stationSvg(t){
+    var lay=t.layout; if(!lay||!lay.length)return '';
+    var s=t.station||[]; var mods=(s.length>6&&s[6])?s[6]:null; var base=COLORS[t.key];
+    var ext=1.2;
+    lay.forEach(function(m){if(m[2]!=null)ext=Math.max(ext,Math.abs(m[2]),Math.abs(m[3]));});
+    ext+=1.0;
+    var lines='';
+    lay.forEach(function(a,i){ if(a[2]==null)return;
+      lay.forEach(function(b,j){ if(j<=i||b[2]==null)return;
+        var dx=a[2]-b[2],dy=a[3]-b[3];
+        if(Math.sqrt(dx*dx+dy*dy)<=1.3)
+          lines+='<line x1="'+a[2]+'" y1="'+(-a[3])+'" x2="'+b[2]+'" y2="'+(-b[3])
+            +'" stroke="'+base+'" stroke-width="0.07" opacity="0.4"/>';
+      });
+    });
+    var shapes='';
+    lay.forEach(function(m){ if(m[2]==null)return;
+      var hp=mods&&m[0]<mods.length?mods[m[0]]:255;
+      var col=modColor(hp,base),ty=String(m[1]||''),x=+m[2],y=-m[3];
+      var dash=hp===0?' stroke-dasharray="0.13 0.1"':'';
+      var g='<g>';
+      if(ty[0]==='d'){
+        g+='<rect x="'+(x-0.46)+'" y="'+(y-0.46)+'" width="0.92" height="0.92" rx="0.1" fill="'+col+'" opacity="0.13"/>'
+          +'<rect x="'+(x-0.46)+'" y="'+(y-0.46)+'" width="0.92" height="0.92" rx="0.1" fill="none" stroke="'+col+'" stroke-width="0.1"'+dash+'/>'
+          +'<rect x="'+(x-0.2)+'" y="'+(y-0.2)+'" width="0.4" height="0.4" fill="'+col+'"/>';
+      }else if(ty.slice(0,2)==='sp'){
+        g+='<circle cx="'+x+'" cy="'+y+'" r="0.36" fill="'+col+'" opacity="0.13"/>'
+          +'<circle cx="'+x+'" cy="'+y+'" r="0.36" fill="none" stroke="'+col+'" stroke-width="0.09"'+dash+'/>'
+          +'<circle cx="'+x+'" cy="'+y+'" r="0.13" fill="'+col+'"/>';
+      }else{
+        g+='<rect x="'+(x-0.3)+'" y="'+(y-0.3)+'" width="0.6" height="0.6" rx="0.07" fill="'+col+'" opacity="0.13"/>'
+          +'<rect x="'+(x-0.3)+'" y="'+(y-0.3)+'" width="0.6" height="0.6" rx="0.07" fill="none" stroke="'+col+'" stroke-width="0.08"'+dash+'/>'
+          +'<rect x="'+(x-0.11)+'" y="'+(y-0.11)+'" width="0.22" height="0.22" fill="'+col+'"/>';
+      }
+      shapes+=g+'</g>';
+    });
+    return '<svg viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'">'+lines+shapes+'</svg>';
+  }
+  function stationsPanel(m){
+    var p='',any=false;
+    m.teams.forEach(function(t){
+      var svg=stationSvg(t); if(!svg)return; any=true;
+      var s=t.station||[]; var lvl=s[0],gems=s[1]||0,total=s[3]||12,weak=s[4]||0,dead=s[5]||0;
+      var gone=total>0&&dead>=total;
+      var cap=(lvl!=null&&GEM_CAPS[lvl])?GEM_CAPS[lvl]:GEM_CAPS[3];
+      var pct=Math.max(0,Math.min(100,100*gems/cap));
+      var waiting=(lvl==null);
+      p+='<div class="rl-stpanel'+(gone?' gone':'')+(waiting?' waiting':'')+'">'
+        +'<div class="rl-sthead"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
+        +'<span class="lvl">'+(gone?'DESTROYED':(waiting?'reading…':'Lv '+(lvl+1)))+'</span>'
+        +'<span class="g">'+(waiting?'':((gems>=1000?(gems/1000).toFixed(1)+'k':gems)+' 💎'))+'</span></div>'
+        +svg+'<div class="rl-gembar"><i style="width:'+pct.toFixed(0)+'%"></i></div></div>';
+    });
+    return any?'<div class="rl-stations">'+p+'</div>':'';
+  }
+  function stationIcon(cx,cy,c,gone,s,sw){
+    var g='<g opacity="'+(gone?0.4:1)+'">'
+      +'<rect x="'+(cx-s)+'" y="'+(cy-s)+'" width="'+(2*s)+'" height="'+(2*s)+'" rx="'+(s*0.3)+'" fill="'+(gone?'#3a1a26':c)+'"'+(gone?' stroke="#ff7a7a" stroke-width="'+sw+'"':'')+'/>';
+    var ink='rgba(4,12,24,.85)';
+    g+='<line x1="'+(cx-s*0.34)+'" y1="'+cy+'" x2="'+(cx+s*0.36)+'" y2="'+(cy-s*0.36)+'" stroke="'+ink+'" stroke-width="'+(s*0.16)+'"/>'
+      +'<line x1="'+(cx-s*0.34)+'" y1="'+cy+'" x2="'+(cx+s*0.36)+'" y2="'+(cy+s*0.36)+'" stroke="'+ink+'" stroke-width="'+(s*0.16)+'"/>';
+    return g+'</g>';
+  }
+  function radarBase(m){
+    var E=MAPE;
+    var out='<rect x="'+(-E)+'" y="'+(-E)+'" width="'+(2*E)+'" height="'+(2*E)+'" rx="'+(E/16)+'" fill="rgba(3,12,26,.65)" stroke="rgba(153,221,255,.16)" stroke-width="'+(E/170)+'"/>'
+      +'<line x1="'+(-E)+'" y1="0" x2="'+E+'" y2="0" stroke="rgba(153,221,255,.05)" stroke-width="'+(E/240)+'"/>'
+      +'<line x1="0" y1="'+(-E)+'" x2="0" y2="'+E+'" stroke="rgba(153,221,255,.05)" stroke-width="'+(E/240)+'"/>';
+    for(var i=0;i<3;i++){
+      var st=((m.teams[i]||{}).station)||[];
+      var gone=(st[3]>0)&&((st[5]||0)>=st[3]);
+      var a=BASE_ANG[i]*Math.PI/180;
+      out+=stationIcon(Math.cos(a)*BASE_R,-Math.sin(a)*BASE_R,COL[i],gone,E/11,E/200);
+    }
+    return out;
   }
 
-  function card(m){
+  // one persistent card per lobby, kept in stable order; only inner values
+  // refresh, and the radar ships GLIDE via requestAnimationFrame.
+  var cards={};   // sid -> {el, stEl, rosEl, radarSvg, shipLayer, ships:{id:{ti,x,y,tx,ty,el}}}
+  var order=[];   // sid order, stable
+
+  function buildCard(sid){
+    var el=document.createElement('div'); el.className='rl-card';
+    el.innerHTML='<div class="rl-ctop"></div><div class="rl-stwrap"></div>'
+      +'<svg class="rl-radar" viewBox="'+(-MAPE)+' '+(-MAPE)+' '+(2*MAPE)+' '+(2*MAPE)+'" preserveAspectRatio="xMidYMid meet">'
+      +'<g class="rl-rbase"></g><g class="rl-rships"></g></svg><div class="rl-ros"></div>';
+    var c={el:el, top:el.querySelector('.rl-ctop'), stEl:el.querySelector('.rl-stwrap'),
+           rosEl:el.querySelector('.rl-ros'), rbase:el.querySelector('.rl-rbase'),
+           shipLayer:el.querySelector('.rl-rships'), ships:{}};
+    cards[sid]=c; return c;
+  }
+
+  function updateCard(m){
+    var c=cards[m.sys_id]||buildCard(m.sys_id);
     var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
+    c.top.innerHTML='<b>'+esc(m.name)+'</b><span>'+reg+(m.cap?' &middot; cap '+m.cap:'')
+      +'<span class="rl-fw '+(m.full_watch?'yes':'no')+'">'+(m.full_watch?'from start':'joined mid')+'</span></span>';
+    c.stEl.innerHTML=stationsPanel(m);
+    c.rbase.innerHTML=radarBase(m);
+    // rosters (sorted by score, stable card so no jump)
     var teams=m.teams.slice().sort(function(a,b){return (b.score||0)-(a.score||0);});
-    return '<div class="rl-card">'
-      +'<div class="rl-ctop"><b>'+esc(m.name)+'</b>'
-      +'<span>'+reg+(m.cap?' &middot; cap '+m.cap:'')+' &middot; '
-      +'<span class="rl-fw '+(m.full_watch?'yes':'no')+'">'
-      +(m.full_watch?'from start':'joined mid')+'</span></span></div>'
-      +teams.map(team).join('')+'</div>';
+    c.rosEl.innerHTML=teams.map(function(t){
+      var rows=(t.players||[]).map(function(p){
+        return '<div class="rl-prow'+(p.dead?' dead':'')+'"><span class="rn">'+esc(p.name)
+          +'</span><span class="rt">T'+p.tier+'</span><span class="rs">'+fmt(p.score)+'</span></div>';
+      }).join('');
+      return '<div class="rl-teamrow"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
+        +'<span class="rl-tname">'+esc(t.label)+'</span>'
+        +'<span class="rl-tmeta">'+fmt(t.score)+' &middot; '+t.count+'p</span></div>'
+        +'<div class="rl-plist">'+rows+'</div>';
+    }).join('');
+    // radar ship targets (glide via CSS transition on <g> transform)
+    var seen={};
+    (m.radar||[]).forEach(function(e){
+      var ti=e[0],id=e[1],x=e[2],y=-e[3]; seen[id]=1;
+      var sh=c.ships[id];
+      if(!sh){
+        var g=document.createElementNS('http://www.w3.org/2000/svg','g');
+        g.setAttribute('class','ship');
+        g.innerHTML='<line x1="-3.6" y1="-3.6" x2="3.6" y2="3.6" stroke="'+(COL[ti]||'#888')
+          +'" stroke-width="2" stroke-linecap="round"/><line x1="-3.6" y1="3.6" x2="3.6" y2="-3.6" stroke="'
+          +(COL[ti]||'#888')+'" stroke-width="2" stroke-linecap="round"/>';
+        g.style.transform='translate('+x+'px,'+y+'px)';
+        c.shipLayer.appendChild(g);
+        sh=c.ships[id]={el:g,ti:ti};
+      }
+      sh.el.style.transform='translate('+x+'px,'+y+'px)';
+    });
+    for(var id in c.ships){ if(!seen[id]){ c.ships[id].el.remove(); delete c.ships[id]; } }
   }
 
   async function tick(){
@@ -93,8 +222,19 @@
       var r=await fetch('/api/rawlive/matches',{cache:'no-store'});
       var d=await r.json();
       var ms=d.matches||[];
-      if(!ms.length){wrap.innerHTML='';empty.style.display='';}
-      else{empty.style.display='none';wrap.innerHTML=ms.map(card).join('');}
+      if(!ms.length){empty.style.display='';}
+      else{empty.style.display='none';}
+      var live={};
+      ms.forEach(function(m){ live[m.sys_id]=1; updateCard(m); });
+      // keep DOM order stable: append any new cards in first-seen order
+      ms.forEach(function(m){
+        if(order.indexOf(m.sys_id)<0){ order.push(m.sys_id); wrap.appendChild(cards[m.sys_id].el); }
+      });
+      // drop cards for lobbies no longer watched
+      order=order.filter(function(sid){
+        if(!live[sid]&&cards[sid]){ cards[sid].el.remove(); delete cards[sid]; return false; }
+        return true;
+      });
       var now=new Date();
       var fw=ms.filter(function(m){return m.full_watch;}).length;
       status.innerHTML=ms.length+' lobb'+(ms.length===1?'y':'ies')+' watched'

@@ -129,7 +129,13 @@ def decode_text(msg):
             "crystal_capacity": md.get("crystal_capacity"),
             "teams": [{"faction": t.get("faction"),
                        "base_name": t.get("base_name"),
-                       "hue": t.get("hue")}
+                       "hue": t.get("hue"),
+                       # The station blueprint - [id, type, x, y, dir] per
+                       # module, so a viewer can draw the station replica.
+                       "layout": [[m.get("id"), str(m.get("type") or ""),
+                                   m.get("x"), m.get("y"), m.get("dir")]
+                                  for m in ((t.get("station") or {}).get(
+                                      "modules") or [])]}
                       for t in (md.get("teams") or [])]})
     if name == "player_name" and data:
         return ("join", {"id": data.get("id"), "hue": data.get("hue"),
