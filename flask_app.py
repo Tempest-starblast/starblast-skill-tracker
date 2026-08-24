@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.4.0"
+APP_VERSION = "7.5.0"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -368,6 +368,11 @@ def live_db():
                  "sys_id INTEGER PRIMARY KEY, saved REAL, payload TEXT)")
     conn.execute("CREATE TABLE IF NOT EXISTS model ("
                  "id INTEGER PRIMARY KEY, weights TEXT, meta TEXT, updated REAL)")
+    # The from-the-opening raw_observer feed - one row per lobby, latest
+    # snapshot only. Separate from `live` (the browser tracker) so the two
+    # never collide; this is the parallel early-entry viewer (7.5.0).
+    conn.execute("CREATE TABLE IF NOT EXISTS rawlive ("
+                 "sys_id INTEGER PRIMARY KEY, updated REAL, payload TEXT)")
     return conn
 
 
@@ -1801,6 +1806,87 @@ def live_view():
     own tools (flood alerts, model internals) stay owner-only inside."""
     return render_template('live.html', page='live', version=APP_VERSION,
                            is_owner=1 if is_site_owner() else 0)
+
+
+@app.route('/rawlive')
+def rawlive_view():
+    """Every match the browserless raw_observer is watching from minute zero.
+    A test view alongside /live: same idea, but sourced from the resident
+    raw-socket recorder (up to 10 lobbies, full rosters from the opening),
+    and with no probability - it is pure observed state (7.5.0)."""
+    return render_template('rawlive.html', page='rawlive', version=APP_VERSION)
+
+
+@app.route('/api/rawlive/state', methods=['POST'])
+def rawlive_ingest():
+    """One snapshot from raw_observer for one lobby. Latest wins."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json
+    if not isinstance(d, dict) or d.get('sid') is None:
+        return jsonify({"error": "bad payload"}), 400
+    d = repair_surrogates(d)
+    try:
+        conn = live_db(); c = conn.cursor()
+        c.execute("INSERT INTO rawlive (sys_id, updated, payload) VALUES (?,?,?) "
+                  "ON CONFLICT(sys_id) DO UPDATE SET updated=excluded.updated, "
+                  "payload=excluded.payload",
+                  (int(d['sid']), time.time(), json.dumps(d, ensure_ascii=False)))
+        conn.commit(); conn.close()
+    except Exception as e:
+        return jsonify({"error": str(e)[:120]}), 500
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/api/rawlive/matches')
+def rawlive_matches():
+    """Current raw_observer lobbies, freshest first."""
+    now = time.time()
+    out = []
+    try:
+        conn = live_db()
+        rows = conn.execute("SELECT sys_id, updated, payload FROM rawlive "
+                            "WHERE updated > ? ORDER BY updated DESC",
+                            (now - 40,)).fetchall()
+        conn.close()
+    except Exception:
+        rows = []
+    for sys_id, updated, payload in rows:
+        try:
+            d = json.loads(payload)
+        except Exception:
+            continue
+        teams = []
+        for k in ("team_1", "team_2", "team_3"):
+            roster = d.get("teams", {}).get(k) or []
+            sh = None
+            _sh = d.get("sh")
+            idx = int(k[-1]) - 1
+            if isinstance(_sh, list) and idx < len(_sh) and isinstance(_sh[idx], dict):
+                sh = _sh[idx]
+            facs = d.get("factions") or []
+            teams.append({
+                "key": k,
+                "label": (facs[idx] if idx < len(facs) and facs[idx] else "Team %d" % (idx+1)),
+                "count": d.get("counts", {}).get(k, 0),
+                "score": d.get("scores", {}).get(k, 0),
+                "station": ({"lvl": (sh.get("lvl") or 0) + 1,
+                             "gems": sh.get("gems"),
+                             "dead": sh.get("dead"), "weak": sh.get("weak")}
+                            if sh else None),
+                "players": sorted(
+                    [{"name": r[0], "score": r[1], "tier": r[2],
+                      "dead": (r[3] == 0)} for r in roster],
+                    key=lambda q: -q["score"])[:12],
+            })
+        out.append({
+            "sys_id": sys_id, "name": d.get("name") or ("Lobby %d" % sys_id),
+            "region": d.get("region") or "america",
+            "match_seq": d.get("match_seq"), "full_watch": bool(d.get("full_watch")),
+            "cap": d.get("cap"), "age": round(now - updated, 1),
+            "teams": teams,
+        })
+    return jsonify({"matches": out, "count": len(out)}), 200
 
 
 @app.route('/flood')
@@ -3340,6 +3426,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.5.0", "at": "2026-08-24T23:30:00Z", "changes": [
+        "New test view: /rawlive shows every match the new browserless watcher is following from minute zero. Unlike the main live view (which joins lobbies already ~20 minutes deep and tops out around five), this one sits in every vanilla NA team lobby from the opening — up to ten at once — with the full roster of names straight from the game. It carries no prediction; it is a window on the early-entry recorder that is quietly gathering the data the rating rework will be built on. The main leaderboard and scoring are unchanged."
+    ]},
     {"version": "7.4.0", "at": "2026-08-24T12:30:00Z", "changes": [
         "Win probability is paused. It was trained on the back half of matches - the tracker only ever joined lobbies already 20 minutes deep - and the whole approach is being rebuilt on full matches, watched from the opening, once the new lightweight watcher is live. Rather than keep showing predictions built on partial games, the percentages and the per-player impact numbers are hidden for now. The live view still shows every watched match in real time (scores, players, station health) and replays still show everything they did minus the probability chart. It comes back, better, when it has the data to be trusted."
     ]},

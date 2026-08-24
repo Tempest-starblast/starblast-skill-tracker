@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block body %}
+<style>
+.rl-head{max-width:1180px;margin:0 auto 14px}
+.rl-head h1{font-size:20px;letter-spacing:.4px;margin:0 0 4px}
+.rl-sub{color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5}
+.rl-badge{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.5px;
+  text-transform:uppercase;color:#0b1016;background:#66E6B8;border-radius:4px;
+  padding:2px 7px;margin-left:8px;vertical-align:middle}
+.rl-status{font-size:12px;color:var(--dim,#8aa0b0);margin-top:6px}
+.rl-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#66E6B8;
+  margin-right:6px;vertical-align:middle;animation:rlp 2s infinite}
+@keyframes rlp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 7px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
+.rl-wrap{max-width:1180px;margin:0 auto;display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fill,minmax(360px,1fr))}
+.rl-card{background:rgba(153,221,255,.04);border:1px solid rgba(153,221,255,.14);
+  border-radius:10px;padding:13px 15px}
+.rl-ctop{display:flex;justify-content:space-between;align-items:baseline;
+  font-size:12px;color:var(--dim,#8aa0b0);margin-bottom:10px}
+.rl-ctop b{color:var(--text);font-size:13px;letter-spacing:.3px}
+.rl-fw{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;
+  border-radius:4px;padding:1px 6px}
+.rl-fw.yes{color:#0b1016;background:#66E6B8}
+.rl-fw.no{color:#8aa0b0;border:1px solid rgba(153,221,255,.25)}
+.rl-team{margin:9px 0}
+.rl-thead{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:5px}
+.rl-chip{width:10px;height:10px;border-radius:3px;flex:none}
+.rl-tname{font-weight:600;color:var(--text)}
+.rl-tmeta{margin-left:auto;color:var(--dim,#8aa0b0);font-size:11.5px;
+  font-variant-numeric:tabular-nums;text-align:right}
+.rl-st{font-size:11px;color:var(--dim,#8aa0b0);margin-top:1px}
+.rl-plist{font-size:11.5px;line-height:1.5}
+.rl-prow{display:flex;gap:7px;align-items:center;padding:1px 0}
+.rl-prow .rn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rl-prow .rt{color:var(--dim,#8aa0b0);flex:none;font-variant-numeric:tabular-nums}
+.rl-prow .rs{flex:none;font-variant-numeric:tabular-nums;color:var(--text)}
+.rl-prow.dead .rn{color:#6a7681;text-decoration:line-through}
+.rl-empty{max-width:1180px;margin:40px auto;text-align:center;color:var(--dim,#8aa0b0)}
+</style>
+
+<div class="rl-head">
+  <h1>Live matches &mdash; from minute zero<span class="rl-badge">test</span></h1>
+  <div class="rl-sub">Every vanilla NA team lobby the new browserless watcher is following, joined at
+    the opening and stayed resident. Full rosters straight from the game &mdash; no probability,
+    just what is happening right now. This is the parallel early-entry feed; the elo still comes from
+    the main tracker.</div>
+  <div class="rl-status"><span class="rl-dot"></span><span id="rlStatus">Connecting&hellip;</span></div>
+</div>
+
+<div class="rl-wrap" id="rlWrap"></div>
+<div class="rl-empty" id="rlEmpty" style="display:none">No lobbies being watched right now.</div>
+
+<script>
+(function(){
+  var COLORS={team_1:'#99DDFF',team_2:'#66E6B8',team_3:'#FFCC66'};
+  var wrap=document.getElementById('rlWrap');
+  var empty=document.getElementById('rlEmpty');
+  var status=document.getElementById('rlStatus');
+  function esc(x){var d=document.createElement('div');d.textContent=(x==null?'':String(x));return d.innerHTML;}
+  function fmt(n){n=n||0;return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
+
+  function team(t){
+    var s=t.station;
+    var st = s ? ('Lv '+s.lvl+(s.gems!=null?' &middot; '+fmt(s.gems)+' \u{1F48E}':'')
+                  +(s.dead?' &middot; '+s.dead+' dead':'')+(s.weak?' &middot; '+s.weak+' hit':'')) : '';
+    var rows=(t.players||[]).map(function(p){
+      return '<div class="rl-prow'+(p.dead?' dead':'')+'">'
+        +'<span class="rn">'+esc(p.name)+'</span>'
+        +'<span class="rt">T'+p.tier+'</span>'
+        +'<span class="rs">'+fmt(p.score)+'</span></div>';
+    }).join('');
+    return '<div class="rl-team">'
+      +'<div class="rl-thead"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
+      +'<span class="rl-tname">'+esc(t.label)+'</span>'
+      +'<span class="rl-tmeta">'+fmt(t.score)+' pts &middot; '+t.count+'p'
+      +(st?'<br>'+st:'')+'</span></div>'
+      +'<div class="rl-plist">'+rows+'</div></div>';
+  }
+
+  function card(m){
+    var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
+    var teams=m.teams.slice().sort(function(a,b){return (b.score||0)-(a.score||0);});
+    return '<div class="rl-card">'
+      +'<div class="rl-ctop"><b>'+esc(m.name)+'</b>'
+      +'<span>'+reg+(m.cap?' &middot; cap '+m.cap:'')+' &middot; '
+      +'<span class="rl-fw '+(m.full_watch?'yes':'no')+'">'
+      +(m.full_watch?'from start':'joined mid')+'</span></span></div>'
+      +teams.map(team).join('')+'</div>';
+  }
+
+  async function tick(){
+    try{
+      var r=await fetch('/api/rawlive/matches',{cache:'no-store'});
+      var d=await r.json();
+      var ms=d.matches||[];
+      if(!ms.length){wrap.innerHTML='';empty.style.display='';}
+      else{empty.style.display='none';wrap.innerHTML=ms.map(card).join('');}
+      var now=new Date();
+      var fw=ms.filter(function(m){return m.full_watch;}).length;
+      status.innerHTML=ms.length+' lobb'+(ms.length===1?'y':'ies')+' watched'
+        +(ms.length?' ('+fw+' from the opening)':'')+' &middot; updated '
+        +('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+    }catch(e){status.textContent='Reconnecting…';}
+  }
+  tick();
+  setInterval(tick,4000);
+})();
+</script>
+{% endblock %}
