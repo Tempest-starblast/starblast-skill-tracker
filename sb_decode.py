@@ -138,13 +138,27 @@ def decode_text(msg):
     return None
 
 
-def make_join_frame(sid, player_name="SPOCK", hue=324):
+BOT_NAME = "elo bot"
+
+# Team hues seen across lobbies: {0,120,240}, {60,180,300}, {210,330,90}.
+# The observer's hue is what team it associates with on the choose-sides
+# screen. Owner's rule (24 Aug 2026): the elo bot sits on a DIFFERENT team
+# than the "homi is watching" observers. A fixed hue can't guarantee that -
+# homi's team varies per lobby - so raw_observer.py (P2) reads homi's hue
+# from the player_name burst and picks a hue whose team is not homi's before
+# committing. This default is only the pre-burst fallback.
+BOT_DEFAULT_HUE = 180
+
+
+def make_join_frame(sid, player_name=BOT_NAME, hue=BOT_DEFAULT_HUE):
     """The one text frame a raw client sends to spectate a lobby.
 
     Mirrors the real client's join exactly (field set and order captured
     24 Aug 2026). `create:false` + a spectate-shaped join is what the
     tracker's browser sends; nothing else is transmitted for the life of
-    the connection.
+    the connection - the client never selects a team, so it never spawns a
+    ship and never plays. `player_name` is what other players see the
+    observer listed as: "elo bot".
     """
     return json.dumps({"name": "ojct:4", "data": {
         "mode": "join", "player_name": player_name, "hue": hue,
