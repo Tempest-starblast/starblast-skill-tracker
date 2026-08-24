@@ -39,7 +39,7 @@ def qualifies(raw):
 
 conn = sqlite3.connect(DB)
 c = conn.cursor()
-rows = c.execute("SELECT id, name FROM players WHERE clan = ?", (TAG,)).fetchall()
+rows = c.execute("SELECT rowid, name FROM players WHERE clan = ?", (TAG,)).fetchall()
 keep, demote = [], []
 for pid, name in rows:
     (keep if qualifies(name) else demote).append((pid, name))
@@ -53,7 +53,7 @@ if not APPLY:
     print("\nDRY RUN - re-run with --apply to write.")
     raise SystemExit(0)
 
-c.executemany("UPDATE players SET clan = '' WHERE id = ?",
+c.executemany("UPDATE players SET clan = '' WHERE rowid = ?",
               [(pid,) for pid, _ in demote])
 conn.commit()
 print("\ndemoted %d player(s); %d genuine members remain." %
