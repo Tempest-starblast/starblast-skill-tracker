@@ -150,6 +150,16 @@ BOT_NAME = "elo bot"
 BOT_DEFAULT_HUE = 180
 
 
+def make_get_name_frame(ship_id):
+    """Ask the server for one ship's name. The name burst is PULLED, not
+    pushed: after the board (op-200) reveals the ship ids present, the
+    client sends one get_name per id and the server answers each with a
+    player_name frame. A client that only joins and listens never learns
+    names (found 24 Aug 2026 - the browser sends these, our first raw
+    client did not)."""
+    return json.dumps({"name": "get_name", "data": {"id": int(ship_id)}})
+
+
 def make_join_frame(sid, player_name=BOT_NAME, hue=BOT_DEFAULT_HUE):
     """The one text frame a raw client sends to spectate a lobby.
 
