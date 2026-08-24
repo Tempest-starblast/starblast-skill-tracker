@@ -19,7 +19,7 @@
 <h1 class="ptitle">Match replay</h1>
 <div class="rphead" id="rpHead"><span class="sub">Loading&hellip;</span></div>
 
-<div class="card">
+<div class="card" id="wpCard">
   <h2>Win probability</h2>
   <div class="legend" id="legend1"></div>
   <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
@@ -191,11 +191,15 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
   head.innerHTML='<h2 style="margin:0">'+esc(d.name||('#'+d.sys_id))+'</h2>'
     +'<span class="sub">'+esc(d.region)+' &middot; '+esc(d.played_at)+' &middot; '+durLbl+'</span>';
   const tops=[1,2,3].map(i=>(d.top||{})['team_'+i]||'');
-  legend(document.getElementById('legend1'),tops);
+  if(d.prob_enabled===false){
+    var _wp=document.getElementById('wpCard'); if(_wp) _wp.style.display='none';
+  } else {
+    legend(document.getElementById('legend1'),tops);
+  }
   legend(document.getElementById('legend2'),tops);
   legend(document.getElementById('legend3'),tops);
   const smax=Math.max(1,...d.points.map(p=>Math.max(...p.sc)));
-  lines(document.getElementById('chartP'), d.points, (p,k)=>p.p[k], 1, v=>Math.round(v*100)+'%', d.gaps);
+  if(d.prob_enabled!==false) lines(document.getElementById('chartP'), d.points, (p,k)=>p.p[k], 1, v=>Math.round(v*100)+'%', d.gaps);
   lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v), d.gaps);
   // ALL ships, from the game's full ship cache when recorded (older
   // replays fall back to the visible-panel counts, capped at 8). The

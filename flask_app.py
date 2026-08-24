@@ -17,7 +17,16 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.3.0"
+APP_VERSION = "7.4.0"
+
+# Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
+# late-join partial trajectories, and the whole approach is being rebuilt on
+# full-match data once the raw client starts watching lobbies from the start.
+# Until then the predictions are hidden - the live viewer and replays still
+# show real observed data (scores, counts, stations, rosters), just no % and
+# no impact. Flip back to True to restore, then retrain. See the early-entry
+# rework plan.
+WIN_PROB_ENABLED = False
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2053,6 +2062,7 @@ def replay_data(mid):
         "gaps": [[round(a), round(b)] for a, b in _gaps],
         "stlay": p.get("stlay") or None,
         "welcome": p.get("welcome") or None,
+        "prob_enabled": WIN_PROB_ENABLED,
         "players": players, "points": points,
     }), 200
 
@@ -2369,6 +2379,17 @@ def live_matches():
             _plist = _rdet.get(k) or []
             if not _plist or probs.get(k) is None:
                 continue
+            if not WIN_PROB_ENABLED:
+                # No prediction => no impact. Still surface the roster the
+                # live viewer shows, ordered by score.
+                players_by_team[k] = sorted(
+                    [{"name": _pl["n"], "elo": _pl["e"],
+                      "known": _pl.get("k", 0),
+                      "score": int(_pl.get("s", 0) or 0),
+                      "ship": _pl.get("sp") or None, "imp": None}
+                     for _pl in _plist],
+                    key=lambda q: -q["score"])
+                continue
             _out = []
             for _i, _pl in enumerate(_plist):
                 _rest = _plist[:_i] + _plist[_i + 1:]
@@ -2415,7 +2436,8 @@ def live_matches():
                   "players": players_by_team.get(k) or [],
                   "station": _sth.get(k) or None,
                   "layout": (_lay[_i] if _i < len(_lay) else None),
-                  "prob": round(probs.get(k, 0.0), 4)}
+                  "prob": (round(probs.get(k, 0.0), 4)
+                           if WIN_PROB_ENABLED else None)}
                  for _i, k in enumerate(LIVE_TEAMS)]
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
@@ -2426,6 +2448,7 @@ def live_matches():
                     "flood_max": p.get("flood_max") or 0})
     flooded = [m for m in out if m["flood_max"] >= FLOOD_SIGNIFICANT]
     body = {"matches": out, "count": len(out),
+            "prob_enabled": WIN_PROB_ENABLED,
             "model": model_meta or {"builtin": True}}
     if _owner:
         body["flood_alert"] = {"count": len(flooded),
@@ -3317,6 +3340,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.4.0", "at": "2026-08-24T12:30:00Z", "changes": [
+        "Win probability is paused. It was trained on the back half of matches - the tracker only ever joined lobbies already 20 minutes deep - and the whole approach is being rebuilt on full matches, watched from the opening, once the new lightweight watcher is live. Rather than keep showing predictions built on partial games, the percentages and the per-player impact numbers are hidden for now. The live view still shows every watched match in real time (scores, players, station health) and replays still show everything they did minus the probability chart. It comes back, better, when it has the data to be trusted."
+    ]},
     {"version": "7.3.0", "at": "2026-08-24T11:30:00Z", "changes": [
         "The tracker now reads the part of the game's feed it had always thrown away, and every match gets richer for it. Each lobby announces its own rulebook on connect — player cap, crystal value, lives, tier cap, speed, the faction and station names, the team colours, and the server's own match clock — and every player join is announced by the server with an exact timestamp. All of it is recorded from now on: live matches and replays name the actual factions (Rebel Alliance instead of Team 3), the lobby's real player cap replaces the guessed one, and join times and per-lobby rules accumulate as training data for the win-probability model."
     ]},

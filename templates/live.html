@@ -87,9 +87,8 @@
 </style>
 
 <div class="lv-head">
-  <h1>Live win probability</h1>
-  <div class="lv-sub">Every match the tracker is watching right now, with each team's chance of winning.
-    Trained on hundreds of thousands of ten-second snapshots from past matches.</div>
+  <h1 id="lvTitle">Live matches</h1>
+  <div class="lv-sub" id="lvSub">Every match the tracker is watching right now &mdash; scores, players, and station health, live.</div>
   <div class="lv-status"><span class="lv-dot"></span><span id="lvStatus">Connecting…</span></div>
   <div class="lv-status" id="lvModel" style="margin-top:3px;opacity:.85"></div>
 </div>
@@ -277,12 +276,16 @@
   }
 
   function card(m){
-    var teams=m.teams.slice().sort(function(a,b){return b.prob-a.prob;});
-    var bar='<div class="lv-bar">';
-    m.teams.forEach(function(t){
-      bar+='<span style="width:'+(t.prob*100).toFixed(1)+'%;background:'+COLORS[t.key]+'"></span>';
-    });
-    bar+='</div>';
+    var teams=m.teams.slice().sort(function(a,b){
+      return PROB_ON ? (b.prob-a.prob) : ((b.score||0)-(a.score||0)); });
+    var bar='';
+    if(PROB_ON){
+      bar='<div class="lv-bar">';
+      m.teams.forEach(function(t){
+        bar+='<span style="width:'+(t.prob*100).toFixed(1)+'%;background:'+COLORS[t.key]+'"></span>';
+      });
+      bar+='</div>';
+    }
     var rows='';
     teams.forEach(function(t){
       var out = t.count<=0;
@@ -292,7 +295,8 @@
         '<span class="lv-name">'+(t.top?esc(t.top):('<small>'+t.label+'</small>'))+
           ' <small>'+t.label+'</small></span>'+
         '<span class="lv-meta">'+t.score.toLocaleString()+' pts &middot; '+t.count+'p'+sk+'</span>'+
-        '<span class="lv-pct" style="color:'+COLORS[t.key]+'">'+(out?'out':Math.round(t.prob*100)+'%')+'</span>'+
+        (PROB_ON ? ('<span class="lv-pct" style="color:'+COLORS[t.key]+'">'+(out?'out':Math.round(t.prob*100)+'%')+'</span>')
+                  : (out ? '<span class="lv-pct lv-out">out</span>' : ''))+
       '</div>';
     });
     // Every player, one tidy list behind a toggle - the card itself stays
@@ -301,7 +305,7 @@
     var pl='';
     m.teams.forEach(function(t){
       (t.players||[]).forEach(function(p){
-        var v=p.imp*100, s=v>=0?'+':'';
+        var v=(p.imp==null?0:p.imp*100), s=v>=0?'+':'';
         var col=v>=0.05?'#66e6b8':(v<=-0.05?'#ff7a7a':'#8aa0b0');
         var sc=p.score||0;
         pl+='<div class="lv-prow">'+
@@ -310,12 +314,12 @@
           '<span class="sh" title="current ship">'+(p.ship||'')+'</span>'+
           '<span class="s">'+(sc>=1000?(sc/1000).toFixed(1)+'k':sc)+'</span>'+
           '<span class="e">'+(p.known?Math.round(p.elo):'')+'</span>'+
-          '<span class="i" style="color:'+col+'">'+s+v.toFixed(1)+'%</span>'+
+          (PROB_ON ? ('<span class="i" style="color:'+col+'">'+s+v.toFixed(1)+'%</span>') : '')+
         '</div>';
       });
     });
     var det = pl ? '<details class="lv-det" data-sid="'+m.sys_id+'"'+
-                   (OPEN[m.sys_id]?' open':'')+'><summary>Players &amp; impact</summary>'+
+                   (OPEN[m.sys_id]?' open':'')+'><summary>'+(PROB_ON?'Players &amp; impact':'Players')+'</summary>'+
                    '<div class="lv-plist">'+pl+'</div></details>' : '';
     var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
     var fl='';
@@ -340,14 +344,22 @@
   var empty=document.getElementById('lvEmpty');
   var status=document.getElementById('lvStatus');
 
+  var PROB_ON=false;
   async function tick(){
     try{
       var r=await fetch('/api/live/matches',{cache:'no-store'});
       if(r.status===403){ status.textContent='Not authorized.'; return; }
       var d=await r.json();
+      PROB_ON = !!d.prob_enabled;
       var mo=d.model||{};
       var mel=document.getElementById('lvModel');
-      if(mo.builtin){ mel.textContent='Model: built-in baseline · daily auto-retrain will replace it after the next run.'; }
+      document.getElementById('lvTitle').textContent = PROB_ON ? 'Live win probability' : 'Live matches';
+      if(!PROB_ON){
+        document.getElementById('lvSub').innerHTML =
+          "Every match the tracker is watching right now &mdash; scores, players, and station health, live. "
+          + "<b>Win probability is paused</b> while it's rebuilt on full-match data.";
+        mel.textContent='';
+      } else if(mo.builtin){ mel.textContent='Model: built-in baseline · daily auto-retrain will replace it after the next run.'; }
       else{ mel.textContent='Model: retrained '+(mo.trained_at||'?')+' on '+(mo.n_matches||'?').toLocaleString()+
         ' matches · '+Math.round((mo.accuracy||0)*100)+'% top-pick accuracy'+
         (mo.skill?' · skill-aware (rosters + leaderboard ratings)':'')+' · retrains daily'; }
