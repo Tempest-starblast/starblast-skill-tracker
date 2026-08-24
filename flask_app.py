@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.1.4"
+APP_VERSION = "7.1.5"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2690,39 +2690,26 @@ def game_end():
                 _sc = int(_ent.get('score'))
             except (TypeError, ValueError):
                 _sc = None
-            # Rated only if there was time to matter. A mid-match joiner
-            # whose check-in landed within JOIN_MIN_PLAY_SECONDS of the
-            # end played a cameo, not a match - excused entirely, win or
-            # lose, and held so the record stays answerable. Players the
-            # tracker rostered itself are untouched: they were there.
+            # A check-in proves the ship is yours - it is NOT a route into
+            # being rated (owner's ruling, 24 Aug 2026: "check-in should
+            # just be used as confirmation that it's you"). An account the
+            # roster rules never included is not rated for this match, win
+            # or lose. The identity work still counts: they are added to
+            # the checked-in set below, so protection knows they are real.
+            # The original binding bug (a rostered winner dropped as a
+            # dup) cannot regress here: the dup filter SKIPS at rating
+            # time rather than removing names, so that player is listed
+            # and never reaches this branch. This replaces the old
+            # unlisted-cameo hold and unlisted-half-elo paths, both of
+            # which only existed because unlisted players used to be
+            # placed at all.
             if not _was_listed:
-                _ci_at = c.execute("SELECT MAX(created_at) FROM checkins "
-                                   "WHERE sys_id = ? AND sub = ?",
-                                   (sys_id, _sub)).fetchone()[0]
-                _endt = _ended if re.fullmatch(
-                    r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', _ended or '') \
-                    else time.strftime('%Y-%m-%d %H:%M:%S')
-                try:
-                    _played_secs = (
-                        time.mktime(time.strptime(_endt, '%Y-%m-%d %H:%M:%S'))
-                        - time.mktime(time.strptime(_ci_at, '%Y-%m-%d %H:%M:%S')))
-                except (TypeError, ValueError):
-                    _played_secs = None
-                if _played_secs is not None and _played_secs < JOIN_MIN_PLAY_SECONDS:
-                    c.execute("INSERT INTO held_results (match_id, sys_id, region, "
-                              "name, norm_name, played_as, won, score, reason, "
-                              "played_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                              (str(data.get('match_id') or ''), sys_id,
-                               str(data.get('region') or 'america'), _acct, _key,
-                               _ent.get('name') or _acct,
-                               1 if _role == 'win' else 0, _sc,
-                               'joined-too-late',
-                               time.strftime('%Y-%m-%d %H:%M:%S')))
-                    print("[game_end] sys=%s ship-bound cameo excused: %r had "
-                          "%.0fs after check-in (< %ds) - held, not rated"
-                          % (sys_id, _acct, _played_secs, JOIN_MIN_PLAY_SECONDS),
-                          flush=True)
-                    continue
+                _bound_keys.add(_key)
+                print("[game_end] sys=%s ship-bound identity only: %r "
+                      "checked in but the roster rules never included "
+                      "them - not rated (would have been %s, score %s)"
+                      % (sys_id, _acct, _role, _sc), flush=True)
+                continue
             (winning_team if _role == 'win'
              else losing_team_1 if _role == 'lose1'
              else losing_team_2).append(_acct)
@@ -2731,16 +2718,8 @@ def game_end():
                     data['scores'] = {}
                 data['scores'][_acct] = _sc
             _bound_keys.add(_key)
-            # A ship-bound account the tracker never rostered joined
-            # mid-match via check-in - their result counts at HALF like
-            # any other late joiner. (Gamma Aldelaris: a flip attempt was
-            # charged a full loss because this path bypassed the
-            # tracker's half list.)
-            if not _was_listed:
-                half_elo.add(_key)
-            print("[game_end] sys=%s ship-bound credit: %r -> %s (score %s%s)"
-                  % (sys_id, _acct, _role, _sc,
-                     ", half" if _key in half_elo else ""), flush=True)
+            print("[game_end] sys=%s ship-bound credit: %r -> %s (score %s)"
+                  % (sys_id, _acct, _role, _sc), flush=True)
         if _bound_keys:
             losing_all = losing_team_1 + losing_team_2
             # A binding is proof of ownership (it comes from a check-in),
@@ -3242,6 +3221,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.1.5", "at": "2026-08-24T07:10:00Z", "changes": [
+        "Checking in no longer makes a result count by itself \u2014 it is confirmation of who you are, nothing more. Until now a checked-in player was placed into the result by their ship even when the roster rules would never have included them, so someone who joined the tail of a match could be charged a loss the rules say belongs to the team that was actually assembled. From now on the same roster rules decide who is rated for everyone \u2014 winners from the closing top eight, losers from the team as it stood at full strength \u2014 and a check-in guarantees only that when those rules include you, the result lands on your account and cannot be taken by an impersonator or lost to the duplicate-name filter. One match from last night was corrected under this rule."
+    ]},
     {"version": "7.1.4", "at": "2026-08-24T00:20:00Z", "changes": [
         "Fixed a bug that silently threw away an entire match. If a player's name contained an emoji that arrived broken in half, the server could not store the name at all and the whole result was rejected \u2014 every player in that game went unrated, with nothing on the site to show it had happened. Names are now repaired on arrival: a split emoji is put back together, and a half that cannot be repaired is replaced rather than taking the match down with it. One match was lost to this on 23 August; it was the only one in eighteen days of records."
     ]},
