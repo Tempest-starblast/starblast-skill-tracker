@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.2.2"
+APP_VERSION = "7.3.0"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -2052,6 +2052,7 @@ def replay_data(mid):
         "tracked_seconds": int(row[5] or 0) * 10,
         "gaps": [[round(a), round(b)] for a, b in _gaps],
         "stlay": p.get("stlay") or None,
+        "welcome": p.get("welcome") or None,
         "players": players, "points": points,
     }), 200
 
@@ -2262,6 +2263,8 @@ def live_state_ingest():
     payload = {"counts": ct, "scores": sc,
                "top": {k: str(top.get(k, "") or "")[:24] for k in LIVE_TEAMS},
                "skill": skill, "rdet": rdet, "sth": sth,
+               "welcome": d.get('welcome') if isinstance(d.get('welcome'),
+                                                         dict) else None,
                "radar": radar, "stlay": stlay,
                "flood": live_flood, "flood_max": flood_worst,
                "traj": traj}
@@ -2395,7 +2398,16 @@ def live_matches():
 
         _sth = p.get("sth") or {}
         _lay = p.get("stlay") or []
-        teams = [{"key": k, "label": "Team %s" % k[-1],
+        _wl = p.get("welcome") or {}
+        _wlteams = _wl.get("teams") if isinstance(_wl.get("teams"), list) else []
+        def _lbl(k):
+            i = int(k[-1]) - 1
+            if i < len(_wlteams) and isinstance(_wlteams[i], dict):
+                f = str(_wlteams[i].get("faction") or "").strip()
+                if f:
+                    return f[:28]
+            return "Team %s" % k[-1]
+        teams = [{"key": k, "label": _lbl(k),
                   "score": int(scores.get(k, 0) or 0),
                   "count": int(counts.get(k, 0) or 0),
                   "top": top.get(k, ""),
@@ -2407,6 +2419,7 @@ def live_matches():
                  for _i, k in enumerate(LIVE_TEAMS)]
         out.append({"sys_id": sys_id, "region": region, "name": name,
                     "elapsed": int(elapsed), "age": round(now - updated, 1),
+                    "welcome": p.get("welcome") or None,
                     "teams": teams, "history": history,
                     "radar": p.get("radar") or None,
                     "flood": p.get("flood") or {},
@@ -3207,6 +3220,7 @@ def game_end():
                     # module health with no station to draw it on, so the
                     # whole panel stays hidden.
                     "stlay": _lp.get("stlay") or [],
+                    "welcome": _lp.get("welcome") or None,
                     "region": _rg, "name": _nm,
                 }, separators=(',', ':')).encode('utf-8'), 6)
                 c.execute("CREATE TABLE IF NOT EXISTS match_replays ("
@@ -3303,6 +3317,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.3.0", "at": "2026-08-24T11:30:00Z", "changes": [
+        "The tracker now reads the part of the game's feed it had always thrown away, and every match gets richer for it. Each lobby announces its own rulebook on connect — player cap, crystal value, lives, tier cap, speed, the faction and station names, the team colours, and the server's own match clock — and every player join is announced by the server with an exact timestamp. All of it is recorded from now on: live matches and replays name the actual factions (Rebel Alliance instead of Team 3), the lobby's real player cap replaces the guessed one, and join times and per-lobby rules accumulate as training data for the win-probability model."
+    ]},
     {"version": "7.2.2", "at": "2026-08-24T10:00:00Z", "changes": [
         "When the station feed blanks out for a minute (the game drops spectator connections on a timer), the win-probability model now holds the last real station reading, up to five minutes back, instead of treating the gap as no evidence. Stations do not un-build themselves during a feed gap; the model should not forget them either."
     ]},

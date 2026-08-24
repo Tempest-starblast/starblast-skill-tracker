@@ -93,7 +93,18 @@
 <script>
 const MID = {{ mid|tojson }};
 const COLS = ['#6ec1ff', '#ff8a7a', '#8dff9e'];
-const LBL = ['Team 1', 'Team 2', 'Team 3'];
+let LBL = ['Team 1', 'Team 2', 'Team 3'];
+  // The lobby's own faction names, when the match recorded its welcome
+  // frame (7.3.0) - 'Rebel Alliance' reads better than 'Team 3'.
+  function applyWelcome(d){
+    const w = d.welcome;
+    if(w && Array.isArray(w.teams)){
+      LBL = LBL.map((v, i) => {
+        const f = w.teams[i] && String(w.teams[i].faction || '').trim();
+        return f ? f.slice(0, 28) : v;
+      });
+    }
+  }
 
 function esc(s){const d=document.createElement('span');d.textContent=String(s==null?'':s);return d.innerHTML;}
 const BASE_MS = 140;
@@ -167,6 +178,7 @@ function legend(el, tops){
 }
 
 fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
+  applyWelcome(d);
   const head=document.getElementById('rpHead');
   if(d.error){head.innerHTML='<span class="sub">'+esc(d.error)+'</span>';return;}
   SHORT_SPAN=d.points.length&&d.points[d.points.length-1].t<1200;
