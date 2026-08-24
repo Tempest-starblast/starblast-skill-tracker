@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.2.1"
+APP_VERSION = "7.2.2"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -215,6 +215,16 @@ def _station_state(v):
         dead = sum(1 for h in hp12 if h == 0)
     mhp = (float(sum(hp12)) / len(hp12)) if hp12 else None
     return (lvl, gems, dead, mhp)
+
+
+def _station_usable(d):
+    """True if this stations dict carries at least one real reading -
+    during a feed blank the tuples are present but all None, which must
+    not count as evidence."""
+    if not isinstance(d, dict):
+        return False
+    return any(x is not None for v in d.values()
+               for x in _station_state(v))
 
 
 def win_probability(counts, scores, elapsed_seconds=None, weights=None,
@@ -2302,6 +2312,17 @@ def live_matches():
         traj = p.get("traj", [])
         wnd = [(r_[0], r_[2]) for r_ in traj[-60:] if len(r_) >= 3]
         _stnow = p.get("sth") if isinstance(p.get("sth"), dict) else None
+        if not _station_usable(_stnow):
+            # The station feed goes blank for ~a minute when the game
+            # drops the spectator connection. Stations do not un-level or
+            # un-damage in that window, so the last real reading (up to
+            # ~5 min back) is better evidence than silence - this is the
+            # gap that let a 1v15 read 33% (Boretiralaris, 24 Aug).
+            for _r in reversed(traj[-30:]):
+                if (len(_r) > 5 and isinstance(_r[5], dict)
+                        and _station_usable(_r[5])):
+                    _stnow = _r[5]
+                    break
         probs = win_probability(counts, scores, elapsed, weights=w,
                                 skills=skills, depth=dpt, window=wnd,
                                 stations=_stnow)
@@ -3282,6 +3303,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.2.2", "at": "2026-08-24T10:00:00Z", "changes": [
+        "When the station feed blanks out for a minute (the game drops spectator connections on a timer), the win-probability model now holds the last real station reading, up to five minutes back, instead of treating the gap as no evidence. Stations do not un-build themselves during a feed gap; the model should not forget them either."
+    ]},
     {"version": "7.2.1", "at": "2026-08-24T09:00:00Z", "changes": [
         "Clan IS had 37 members because the tag matcher counted the English word “is” anywhere in a name — TWILIGHT IS HERE, THIS IS SPARTA!! and friends were all drafted into the clan. A tag now only counts when it is dressed like one: touching a bracket, emoji or other separator, or leading the name. The roster was re-checked under the fixed rule and the accidental members released; everyone actually wearing the tag keeps it."
     ]},
