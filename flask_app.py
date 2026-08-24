@@ -362,7 +362,7 @@ def load_live_model():
         if r and r[0]:
             w = json.loads(r[0])
             meta = json.loads(r[1]) if r[1] else {}
-            if isinstance(w, list) and len(w) in (10, 13, 19):
+            if isinstance(w, list) and len(w) in (10, 13, 19, 23):
                 return w, meta
     except Exception:
         pass
