@@ -40,7 +40,7 @@
   transition:width .8s ease}
 /* radar */
 .rl-radar{display:block;width:100%;height:200px;margin:2px 0 11px}
-.rl-radar .ship{transition:transform 3.8s linear}
+.rl-radar .ship{transition-property:transform;transition-timing-function:linear;transition-duration:4s;will-change:transform}
 /* rosters */
 .rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
 .rl-tname{font-weight:600;color:var(--text)}
@@ -180,25 +180,34 @@
 
   function updateCard(m){
     var c=cards[m.sys_id]||buildCard(m.sys_id);
-    var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
-    c.top.innerHTML='<b>'+esc(m.name)+'</b><span>'+reg+(m.cap?' &middot; cap '+m.cap:'')
-      +'<span class="rl-fw '+(m.full_watch?'yes':'no')+'">'+(m.full_watch?'from start':'joined mid')+'</span></span>';
-    c.stEl.innerHTML=stationsPanel(m);
-    c.rbase.innerHTML=radarBase(m);
-    // rosters (sorted by score, stable card so no jump)
+    // We poll faster than the watcher posts, so most polls are byte-for-byte
+    // the same. Only touch the panels when the slow data actually changes -
+    // rebuilding every poll is what made it flicker.
     var teams=m.teams.slice().sort(function(a,b){return (b.score||0)-(a.score||0);});
-    c.rosEl.innerHTML=teams.map(function(t){
-      var rows=(t.players||[]).map(function(p){
-        return '<div class="rl-prow'+(p.dead?' dead':'')+'"><span class="rn">'+esc(p.name)
-          +'</span><span class="rt">T'+p.tier+'</span><span class="rs">'+fmt(p.score)+'</span></div>';
+    var psig=JSON.stringify([m.full_watch,m.name,teams.map(function(t){
+      return [t.key,t.score,t.count,(t.station||[]).slice(0,6),
+              (t.players||[]).map(function(p){return p.name+'|'+p.score+'|'+p.tier+'|'+(p.dead?1:0);})];})]);
+    if(c.psig!==psig){
+      c.psig=psig;
+      var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
+      c.top.innerHTML='<b>'+esc(m.name)+'</b><span>'+reg+(m.cap?' &middot; cap '+m.cap:'')
+        +'<span class="rl-fw '+(m.full_watch?'yes':'no')+'">'+(m.full_watch?'from start':'joined mid')+'</span></span>';
+      c.stEl.innerHTML=stationsPanel(m);
+      c.rbase.innerHTML=radarBase(m);
+      c.rosEl.innerHTML=teams.map(function(t){
+        var rows=(t.players||[]).map(function(p){
+          return '<div class="rl-prow'+(p.dead?' dead':'')+'"><span class="rn">'+esc(p.name)
+            +'</span><span class="rt">T'+p.tier+'</span><span class="rs">'+fmt(p.score)+'</span></div>';
+        }).join('');
+        return '<div class="rl-teamrow"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
+          +'<span class="rl-tname">'+esc(t.label)+'</span>'
+          +'<span class="rl-tmeta">'+fmt(t.score)+' &middot; '+t.count+'p</span></div>'
+          +'<div class="rl-plist">'+rows+'</div>';
       }).join('');
-      return '<div class="rl-teamrow"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
-        +'<span class="rl-tname">'+esc(t.label)+'</span>'
-        +'<span class="rl-tmeta">'+fmt(t.score)+' &middot; '+t.count+'p</span></div>'
-        +'<div class="rl-plist">'+rows+'</div>';
-    }).join('');
-    // radar ship targets (glide via CSS transition on <g> transform)
-    var seen={};
+    }
+    // radar ships: glide each dot over the REAL time since it last moved, so
+    // there is no stop-then-jump. Only positions that changed are touched.
+    var now=performance.now(), seen={};
     (m.radar||[]).forEach(function(e){
       var ti=e[0],id=e[1],x=e[2],y=-e[3]; seen[id]=1;
       var sh=c.ships[id];
@@ -208,11 +217,20 @@
         g.innerHTML='<line x1="-3.6" y1="-3.6" x2="3.6" y2="3.6" stroke="'+(COL[ti]||'#888')
           +'" stroke-width="2" stroke-linecap="round"/><line x1="-3.6" y1="3.6" x2="3.6" y2="-3.6" stroke="'
           +(COL[ti]||'#888')+'" stroke-width="2" stroke-linecap="round"/>';
+        g.style.transitionDuration='0ms';
         g.style.transform='translate('+x+'px,'+y+'px)';
         c.shipLayer.appendChild(g);
-        sh=c.ships[id]={el:g,ti:ti};
+        c.ships[id]={el:g,ti:ti,x:x,y:y,last:now};
+        return;
       }
-      sh.el.style.transform='translate('+x+'px,'+y+'px)';
+      if(sh.x!==x||sh.y!==y){
+        // 1.25x the elapsed gap so the dot is still moving when the next
+        // update lands - continuous motion instead of arrive-and-wait.
+        var dt=Math.min(9000,Math.max(1200,(now-sh.last)*1.25));
+        sh.el.style.transitionDuration=dt+'ms';
+        sh.el.style.transform='translate('+x+'px,'+y+'px)';
+        sh.x=x; sh.y=y; sh.last=now;
+      }
     });
     for(var id in c.ships){ if(!seen[id]){ c.ships[id].el.remove(); delete c.ships[id]; } }
   }
@@ -243,7 +261,7 @@
     }catch(e){status.textContent='Reconnecting…';}
   }
   tick();
-  setInterval(tick,4000);
+  setInterval(tick,1500);
 })();
 </script>
 {% endblock %}

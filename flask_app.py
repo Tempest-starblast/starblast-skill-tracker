@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.5.1"
+APP_VERSION = "7.5.2"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -3435,6 +3435,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.5.2", "at": "2026-08-25T00:55:00Z", "changes": [
+        "Smoothed out the /rawlive radar. Ships were stopping and then jumping every few seconds; now each one glides continuously to its new spot over the real time since it last moved, and the page only redraws a card when its data actually changes instead of on every refresh. Also fixed ships flying off the edge of the map (positions were not recentred)."
+    ]},
     {"version": "7.5.1", "at": "2026-08-24T24:20:00Z", "changes": [
         "The /rawlive test view got the full treatment: station replicas and a live radar for every match, the same as the main live view, plus the from-the-opening rosters it already had. It updates in place now instead of rebuilding — cards stay put instead of jumping around, and the ships glide across the radar instead of teleporting. The watcher also feeds it a few times a second faster so the motion is smooth."
     ]},
