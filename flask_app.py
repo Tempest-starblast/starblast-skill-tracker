@@ -17,7 +17,7 @@ import info_i18n
 
 app = Flask(__name__)
 
-APP_VERSION = "7.2.0"
+APP_VERSION = "7.2.1"
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
@@ -655,8 +655,20 @@ def detect_clan(raw_name, tags=None):
         tags = all_clan_tags()
     upper = str(raw_name).upper()
     for tag in tags:
-        if re.search(r'(?<![A-Z0-9])' + re.escape(tag) + r'(?![A-Z0-9])', upper):
-            return tag
+        for m in re.finditer(r'(?<![A-Z0-9])' + re.escape(tag)
+                             + r'(?![A-Z0-9])', upper):
+            # A token only counts as a TAG when it is dressed like one:
+            # touching a bracket, emoji or other separator symbol, or
+            # leading the name. Flanked by nothing but spaces it is just
+            # a word - the clan 'IS' had 37 members because TWILIGHT IS
+            # HERE, THIS IS SPARTA!! and the entire HOMI IS... family
+            # matched the English verb (24 Aug 2026).
+            before = upper[m.start() - 1] if m.start() > 0 else None
+            after = upper[m.end()] if m.end() < len(upper) else None
+            if (m.start() == 0
+                    or (before is not None and not before.isspace())
+                    or (after is not None and not after.isspace())):
+                return tag
     key = normalize_name(raw_name)
     if key.upper() in COMMON_PERSONAL_NAMES:
         return None
@@ -3270,6 +3282,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.2.1", "at": "2026-08-24T09:00:00Z", "changes": [
+        "Clan IS had 37 members because the tag matcher counted the English word “is” anywhere in a name — TWILIGHT IS HERE, THIS IS SPARTA!! and friends were all drafted into the clan. A tag now only counts when it is dressed like one: touching a bracket, emoji or other separator, or leading the name. The roster was re-checked under the fixed rule and the accidental members released; everyone actually wearing the tag keeps it."
+    ]},
     {"version": "7.2.0", "at": "2026-08-24T08:20:00Z", "changes": [
         "The win-probability model can now see the stations. Until today it judged a match from player counts, scores and team skill — so a lone strong player on a dying team could read as a 33% chance while both rival teams sat a full station level ahead, because the evidence that decides matches (station level, banked gems, modules destroyed) was recorded but never consumed. Four station readings now feed the model, in the live view, the per-player impact numbers and match replays alike; they fall silent gracefully when the telemetry has a gap. The retrained model ships only if it beats the current one on held-out matches, same as every night."
     ]},
