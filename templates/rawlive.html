@@ -224,9 +224,13 @@
         return;
       }
       if(sh.x!==x||sh.y!==y){
-        // 1.25x the elapsed gap so the dot is still moving when the next
-        // update lands - continuous motion instead of arrive-and-wait.
-        var dt=Math.min(9000,Math.max(1200,(now-sh.last)*1.25));
+        // The map wraps (a torus): crossing an edge flips a coordinate from
+        // +127 to -127. That is not a move across the map - SNAP it to the
+        // other side instead of gliding the long way through the middle.
+        var wrap=Math.abs(x-sh.x)>128||Math.abs(y-sh.y)>128;
+        // Otherwise 1.25x the elapsed gap so the dot is still moving when
+        // the next update lands - continuous motion, not arrive-and-wait.
+        var dt=wrap?0:Math.min(9000,Math.max(1200,(now-sh.last)*1.25));
         sh.el.style.transitionDuration=dt+'ms';
         sh.el.style.transform='translate('+x+'px,'+y+'px)';
         sh.x=x; sh.y=y; sh.last=now;
