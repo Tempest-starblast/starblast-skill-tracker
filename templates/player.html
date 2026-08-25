@@ -107,13 +107,14 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
      var ships = d.ships || [];
      if(!ships.length && !d.matches) return;
      document.getElementById('shipCard').style.display = 'block';
-     var tierName = ['', 'tier 1', 'tier 2', 'tier 3', 'tier 4', 'tier 5', 'tier 6', 'tier 7'];
      document.getElementById('shipTitle').textContent =
        ships.length ? 'Ships flown' : 'How they play';
+     var total = ships.reduce(function(a,s){return a+s.n;},0);
      document.getElementById('shipSummary').innerHTML = ships.length
-       ? ('Favourite ship <b>' + esc2(ships[0].name) + '</b>'
-          + (d.top_tier ? ' &middot; usually reaches ' + tierName[d.top_tier] : '')
-          + '. Read off the game&#39;s own scoreboard at the end of each match.')
+       ? (ships.length > 1
+            ? 'Flies the <b>' + esc2(ships[0].name) + '</b> most, across '
+              + total + (total === 1 ? ' match.' : ' matches.')
+            : 'Only flies the <b>' + esc2(ships[0].name) + '</b>.')
        : 'Across ' + d.matches + (d.matches === 1 ? ' tracked match' : ' tracked matches')
          + '. Which ship they fly is recorded from now on, and will appear here.';
      // The numbers behind the ships: how they score, how often they die,
