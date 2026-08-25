@@ -49,6 +49,8 @@ tbody tr{scroll-margin-top:84px}
 .prov{display:inline-block;font-size:9.5px;letter-spacing:.6px;border-radius:4px;
   padding:0 5px;margin-left:6px;vertical-align:1px;background:rgba(240,192,74,.12);
   color:#f0c04a;border:1px solid rgba(240,192,74,.35)}
+.remb{display:inline-block;margin-right:6px;line-height:0;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+.remb svg{vertical-align:middle}
 tfoot tr.youfoot td{position:sticky;bottom:0;z-index:6;
   background:#12241d;border-top:1px solid rgba(102,230,184,.55);
   border-bottom:none;color:#bff3e0;box-shadow:0 -6px 14px rgba(0,0,0,.45)}
@@ -264,7 +266,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% for p in leaderboard %}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}"{% if p.mine %} class="mine"{% endif %}>
   <td class="rank">{{ p.rank }}</td>
-  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
+  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}{% if p.division %}<span class="remb" title="{{ p.division.name }} {{ t('rank') }}">{{ rank_emblem(p.division.ship, 16, p.division.color, p.division.name)|safe }}</span>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
     href="/?period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}

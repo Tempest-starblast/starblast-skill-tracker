@@ -14,10 +14,12 @@ import zlib
 from datetime import timedelta
 import i18n
 import info_i18n
+import ranks
+import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.6.1"
+APP_VERSION = "7.7.0"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -1659,7 +1661,9 @@ def inject_auth():
     the client id and whether somebody is signed in."""
     return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user()),
             "is_owner": current_user() in OWNER_SUBS,
-            "dev_testing": bool(session.get("dev_real_owner"))}
+            "dev_testing": bool(session.get("dev_real_owner")),
+            "rank_emblem": ranks.emblem_svg,
+            "ship_name": ship_shapes.ship_name}
 
 
 @app.route('/register', methods=['POST'])
@@ -3508,6 +3512,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.0", "at": "2026-08-25T05:30:00Z", "changes": [
+        "Added skill ranks. Every ranked player now carries one of seven divisions — Fly, Delta-Fighter, Pulse-Fighter, Mercury, U-Sniper, Advanced-Fighter and Odyssey — by where they sit on the all-time board (Odyssey is the top 3%). Your division shows as that ship’s emblem next to your name on the leaderboard, and your profile gets a rank-themed banner with the ship and your percentile. The emblems are the real ships: their silhouettes are generated from the game’s own ship-model geometry, so each one is the actual hull, not a stand-in. Players still in their first five placement matches don’t have a rank yet."
+    ]},
     {"version": "7.6.1", "at": "2026-08-25T04:00:00Z", "changes": [
         "Player rosters on the live views are now private. The Live matches and Live-from-minute-zero pages still show every match in progress — scores, player counts, station health and the radar — but which named players are in which game is no longer shown to visitors. The full rosters remain visible when signed in as the site owner."
     ]},
@@ -5224,6 +5231,9 @@ def player_profile(name):
 
     played = (wins or 0) + (losses or 0)
     winrate = f"{round(100 * (wins or 0) / played)}%" if played else "-"
+    # Canonical skill division (top-X% ship rank), only once out of placements.
+    division = (division_map().get(normalize_name(stored_name))
+                if played >= PROVISIONAL_GAMES else None)
     player = {"name": stored_name,
               "display": display_name(stored_name, clan, clan_shown),
               "clan_display": clan_shown,
@@ -5231,7 +5241,9 @@ def player_profile(name):
               "losses": losses or 0, "rank": rank, "rank_of": rank_of,
               "winrate": winrate,
               "clan": clan, "pending_claim": pending_claim,
-              "admin_of": admin_of,
+              "admin_of": admin_of, "division": division,
+              "placements_left": (max(0, PROVISIONAL_GAMES - played)
+                                  if played < PROVISIONAL_GAMES else 0),
               "owned": bool(owner_sub), "protected": bool(protected)}
     return render_template('player.html', player=player,
                            region_ranks=region_ranks, version=APP_VERSION,
@@ -5370,6 +5382,41 @@ def board_rows(c, period="all", region="all"):
         + clause + " GROUP BY p.norm_name", args)
     return [(name, round(gained or 0, 2), wins or 0, losses or 0, clan, bool(prot))
             for name, gained, wins, losses, clan, prot in c.fetchall()]
+
+
+# Skill-rank divisions are computed once from the canonical all-time board
+# (one rating per player, everywhere) and reused across the leaderboard and
+# every profile, so a player carries ONE rank wherever they appear rather
+# than a different one per filtered view. Only ranked (non-provisional)
+# players get a division; a rebuild is cheap but pointless every request.
+_DIV_CACHE = {"ts": 0.0, "map": {}}
+_DIV_TTL = 90
+
+
+def division_map():
+    """norm_name -> division (a ranks.RANKS entry) for every ranked player,
+    by percentile on the canonical all-time board. Cached for _DIV_TTL sec."""
+    now = time.time()
+    if _DIV_CACHE["map"] and now - _DIV_CACHE["ts"] < _DIV_TTL:
+        return _DIV_CACHE["map"]
+    try:
+        conn = db(timeout=4)
+        c = conn.cursor()
+        rows = board_rows(c, "all", ALL_REGIONS)
+        conn.close()
+    except sqlite3.Error:
+        return _DIV_CACHE["map"]
+    rows.sort(key=leaderboard_sort_key)
+    ranked = [r for r in rows if (r[2] or 0) + (r[3] or 0) >= PROVISIONAL_GAMES]
+    total = len(ranked)
+    m = {}
+    for i, row in enumerate(ranked):
+        div = ranks.division_for(i, total)
+        if div:
+            m[normalize_name(row[0])] = div
+    _DIV_CACHE["ts"] = now
+    _DIV_CACHE["map"] = m
+    return m
 
 
 # You may only check in during the opening minutes of a match. Without
@@ -10428,6 +10475,10 @@ def leaderboard():
     # Which region each player turns up in most, for the badge on the
     # combined board. A player who splits their time gets the one they
     # play most - the profile has the full breakdown.
+    # One canonical skill-rank per player (top-X% of the all-time board),
+    # looked up by name so the same badge shows on every view.
+    divmap = division_map()
+
     home_region = {}
     if region == ALL_REGIONS:
         conn2 = db()
@@ -10466,6 +10517,9 @@ def leaderboard():
             # stops a one-game number reading like a settled one.
             "provisional": played < PROVISIONAL_GAMES,
             "region": home, "region_label": REGION_LABELS.get(home),
+            # Skill division (top-X% ship rank). None while provisional.
+            "division": (None if played < PROVISIONAL_GAMES
+                         else divmap.get(normalize_name(name))),
         })
     conn = db()
     c = conn.cursor()

@@ -17,6 +17,23 @@
 .invchip.cancel{background:rgba(255,86,112,.08);border-color:rgba(255,86,112,.45);
   color:var(--red)}
 .invchip.cancel:hover{background:rgba(255,86,112,.18)}
+.rankhero{display:flex;align-items:center;gap:20px;margin:2px 0 20px;padding:18px 22px;
+  border-radius:14px;border:1px solid color-mix(in srgb,var(--rk,#8b949e) 45%,transparent);
+  background:
+    radial-gradient(120% 140% at 12% 0%,var(--rkglow,rgba(139,148,158,.28)),transparent 60%),
+    linear-gradient(180deg,color-mix(in srgb,var(--rk,#8b949e) 12%,#151a22),#12161d);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 8px 24px rgba(0,0,0,.35)}
+.rankhero .rankemblem{flex:0 0 auto;width:92px;height:92px;display:flex;
+  align-items:center;justify-content:center;border-radius:12px;
+  background:radial-gradient(circle at 50% 38%,var(--rkglow,rgba(139,148,158,.3)),transparent 70%)}
+.rankhero .rankemblem svg{filter:drop-shadow(0 2px 6px var(--rkglow,rgba(0,0,0,.5)))}
+.rankhero .ranklabel{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;
+  font-weight:700;color:color-mix(in srgb,var(--rk,#8b949e) 70%,#c9d1d9)}
+.rankhero .rankname{font-size:26px;font-weight:800;line-height:1.15;margin:2px 0 4px;
+  color:var(--rk,#e6edf3);text-wrap:balance}
+.rankhero .rankship{font-size:12.5px;color:var(--muted)}
+.rankhero.placements{--rk:#8b949e}
+.rankhero.placements .rankname{font-size:19px;color:#c9d1d9}
 {% endblock %}
 {% block body %}
 {% if player %}
@@ -28,6 +45,26 @@
    {% if primary.only %}Plays in <b>{{ primary.label }}</b>{% else %}Mainly
    <b>{{ primary.label }}</b> ({{ primary.share }}% of matches){% endif %}{% endif %}
    &middot; <a href="/">Leaderboard</a></p>
+
+{% if player.division %}
+<div class="rankhero" style="--rk:{{ player.division.color }};--rkglow:{{ player.division.glow }}">
+  <div class="rankemblem">{{ rank_emblem(player.division.ship, 78, player.division.color, player.division.name)|safe }}</div>
+  <div class="rankmeta">
+    <div class="ranklabel">{{ t('Skill rank') }} &middot; {{ t('Tier') }} {{ player.division.tier }}/7</div>
+    <div class="rankname">{{ player.division.name }}</div>
+    <div class="rankship">{{ player.division.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</div>
+  </div>
+</div>
+{% elif player.placements_left %}
+<div class="rankhero placements">
+  <div class="rankemblem">{{ rank_emblem(101, 64, '#8b949e', 'Fly')|safe }}</div>
+  <div class="rankmeta">
+    <div class="ranklabel">{{ t('Skill rank') }}</div>
+    <div class="rankname">{{ t('In placements') }}</div>
+    <div class="rankship">{{ player.placements_left }} {{ t('more match(es) to earn a rank emblem') }}</div>
+  </div>
+</div>
+{% endif %}
 
 <div class="card">
   <h2>Compare with someone</h2>
