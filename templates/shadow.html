@@ -112,7 +112,7 @@ function loadMatches(off){
         var rows = players.map(function(p){
           var dc = p.d>0?'up':(p.d<0?'dn':'');
           return '<div class="prow"><span class="pn">'+esc(p.n)+'</span>'+
-            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; w'+p.w+'</span>'+
+            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; '+(p.m||'?')+'m &middot; w'+p.w+'</span>'+
             '<span class="pd delta '+dc+'">'+(p.d>0?'+':'')+p.d+'</span></div>';
         }).join('') || '<div class="prow muted">no rated players</div>';
         return '<div class="mteam'+(win?' win':'')+'"><h4><span>Team '+(Number(k)+1)+

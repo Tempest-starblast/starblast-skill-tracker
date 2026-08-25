@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.3"
+APP_VERSION = "7.8.4"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -5608,13 +5608,17 @@ def shadow_match():
             # A score of ~0 across the whole match = watching/AFK, not playing.
             if (p.get("score") or 0) < shadow_elo.MIN_SCORE:
                 continue
-            # Stake = 1 / station level you joined into (invest early, count fully).
+            # Must have actually been in the match (>= 10 min of presence).
+            if (p.get("minutes") or 0) < shadow_elo.MIN_MINUTES:
+                continue
+            # Stake = 100% at level 1, -25% per station level joined into.
             w = shadow_elo.join_weight(p.get("join_level"))
             if w <= 0:
                 continue
             elo, g = srat.get(nn, (shadow_elo.START, 0))
             lst.append({"name": nn, "disp": reg[nn], "elo": elo, "games": g,
-                        "weight": w, "jlvl": p.get("join_level")})
+                        "weight": w, "jlvl": p.get("join_level"),
+                        "mins": p.get("minutes")})
         teams[tk] = lst
 
     results, analytics = [], {}
@@ -5641,7 +5645,7 @@ def shadow_match():
     _dbyname = {x["name"]: x["delta"] for x in results}
     teams_json = json.dumps({tk: [{"n": m["disp"], "e": round(m["elo"], 1),
                                    "g": m["games"], "w": round(m["weight"], 2),
-                                   "j": m.get("jlvl"),
+                                   "j": m.get("jlvl"), "m": m.get("mins"),
                                    "d": _dbyname.get(m["name"], 0)}
                                   for m in teams[tk]] for tk in teams},
                             ensure_ascii=False)

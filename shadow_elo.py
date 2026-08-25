@@ -35,6 +35,10 @@ THETA = 0.60
 # is not participating. Below this final score, a player is dropped entirely.
 MIN_SCORE = 1
 
+# And they must have actually been in the match: at least this many minutes of
+# presence, or they don't count at all (owner rule, 25 Aug).
+MIN_MINUTES = 10
+
 
 def part_weight(presence):
     """presence in [0,1] -> influence weight in [0,1]. (Kept for reference; the
@@ -47,17 +51,16 @@ def part_weight(presence):
 
 
 def join_weight(join_level):
-    """Weight by the STATION LEVEL a player joined into. Joining a fresh level-1
-    game is a full stake (full gain AND full loss - you were invested from the
-    start); joining a developed level-N station is 1/N (you invested less, so
-    both the reward and the penalty are proportionally smaller)."""
+    """Weight by the STATION LEVEL a player joined into: -25% per level above 1.
+    Join at level 1 (start of game) = 100% stake (full gain AND full loss);
+    level 2 = 75%, level 3 = 50%, level 4 (max) = 25%. You're rewarded and
+    charged in proportion to how invested you were from the start."""
     try:
         lvl = int(join_level)
     except (TypeError, ValueError):
         lvl = 1
-    if lvl < 1:
-        lvl = 1
-    return 1.0 / lvl
+    lvl = max(1, min(4, lvl))
+    return max(0.25, 1.0 - 0.25 * (lvl - 1))
 
 
 def win_expectation(own, rivals):
