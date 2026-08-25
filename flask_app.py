@@ -3541,7 +3541,7 @@ def game_end():
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
     {"version": "7.8.0", "at": "2026-08-25T13:00:00Z", "changes": [
-        "Started trialling a new rating in the background. Because the raw observer now watches matches from the very first minute (the live tracker only picks them up 20 minutes in), it can measure how much of each match a player was actually present for — so a parallel “full-match” rating can weight players by real participation instead of a late snapshot. It runs from zero, on its own, and does not touch the live board; it exists to be reviewed against reality before anything changes."
+        "Behind-the-scenes groundwork for future rating improvements. No effect on the current leaderboard."
     ]},
     {"version": "7.7.9", "at": "2026-08-25T12:15:00Z", "changes": [
         "The tier-4 skill division is now Crusader (was Mercury)."
