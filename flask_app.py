@@ -20,7 +20,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.5"
+APP_VERSION = "7.7.6"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -2565,7 +2565,7 @@ def live_matches():
                     [{"name": _pl["n"], "elo": _pl["e"],
                       "known": _pl.get("k", 0),
                       "score": int(_pl.get("s", 0) or 0),
-                      "ship": (("Tier %d" % (_pl.get("sp") // 100)) if _pl.get("sp") else None), "imp": None}
+                      "ship": ship_shapes.ship_name(_pl.get("sp")) or (_pl.get("sp") or None), "imp": None}
                      for _pl in _plist],
                     key=lambda q: -q["score"])
                 continue
@@ -2591,7 +2591,7 @@ def live_matches():
                 _out.append({"name": _pl["n"], "elo": _pl["e"],
                              "known": _pl.get("k", 0),
                              "score": int(_pl.get("s", 0) or 0),
-                             "ship": (("Tier %d" % (_pl.get("sp") // 100)) if _pl.get("sp") else None),
+                             "ship": ship_shapes.ship_name(_pl.get("sp")) or (_pl.get("sp") or None),
                              "imp": round(_imp, 4)})
             _out.sort(key=lambda q: -q["imp"])
             players_by_team[k] = _out
@@ -3519,6 +3519,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.6", "at": "2026-08-25T10:15:00Z", "changes": [
+        "Fixed which ship a profile shows. The spectator scoreboard's ship-model byte was read one too low — it dropped the first ship of every tier and labelled the rest one below, so Shadow X-3 read as Odyssey, Bastion as Shadow X-3, and so on. Corrected the tracker's decoding and migrated the 1,071 existing ship records, so “ships flown” now names the actual ship you fly, with its silhouette, instead of falling back to the tier."
+    ]},
     {"version": "7.7.5", "at": "2026-08-25T09:30:00Z", "changes": [
         "Fixed the skill-rank percentile so it matches the rank shown: your division is now measured against the whole board (the same #N of total on your profile), instead of only against players past placements — so “Top 22% · #844 of 8210” lines up instead of reading like a contradiction. Also moved the career-peak bookkeeping off the page-load path onto a background timer, which was making the site feel slow and laggy under load."
     ]},
@@ -5108,10 +5111,13 @@ def player_ships(name):
               "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
               "WHERE norm_name = mp.norm_name), '') "
               "GROUP BY mp.ship ORDER BY 2 DESC", (key,))
-    # Only the TIER is reliable from the scoreboard packet - the model byte's
-    # per-tier numbering does not line up with the ship tree, so we cannot
-    # name the exact ship (see 7.7.2). Report the raw code for aggregation.
-    ships = [{"ship": r[0], "n": r[1], "wins": r[2] or 0} for r in c.fetchall()]
+    # The exact ship is now reliable: the scoreboard model byte was off by
+    # one (dropped the first ship of every tier and shifted the rest down);
+    # fixed in the tracker + a one-time data migration (7.7.6). So name the
+    # specific ship and carry its silhouette.
+    ships = [{"ship": r[0], "name": ship_shapes.ship_name(r[0]) or str(r[0]),
+              "path": ship_shapes.ship_path(r[0]), "n": r[1], "wins": r[2] or 0}
+             for r in c.fetchall()]
     _since = ("AND m.played_at > COALESCE((SELECT wiped_before FROM players "
               "WHERE norm_name = mp.norm_name), '')")
     # Average score counts WINS only (owner's rule, 23 Aug 2026): a
