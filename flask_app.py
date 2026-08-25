@@ -20,7 +20,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.6"
+APP_VERSION = "7.7.7"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -3519,6 +3519,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.7", "at": "2026-08-25T11:00:00Z", "changes": [
+        "Clan pages now show each member's skill rank: their division's ship emblem, their name in that rank's colour, and a rank label (Shadow X-3, Odyssey, U-Sniper, …) beside it. And the profile's rank theme is now contained to the profile itself — the rank colour and emblem sit on the identity card and name rather than washing the whole screen, so a profile reads clearly as a profile against the normal Starblast backdrop."
+    ]},
     {"version": "7.7.6", "at": "2026-08-25T10:15:00Z", "changes": [
         "Fixed which ship a profile shows. The spectator scoreboard's ship-model byte was read one too low — it dropped the first ship of every tier and labelled the rest one below, so Shadow X-3 read as Odyssey, Bastion as Shadow X-3, and so on. Corrected the tracker's decoding and migrated the 1,071 existing ship records, so “ships flown” now names the actual ship you fly, with its silhouette, instead of falling back to the tier."
     ]},
@@ -7221,6 +7224,10 @@ def clan_page(tag):
     conn.close()
 
     rows.sort(key=leaderboard_sort_key)
+    # Each member's skill division (top-X% ship rank), the same one shown on
+    # the leaderboard and their profile. `ranks` is a local dict here (place
+    # within the clan), so reach the module via division_map() instead.
+    _divmap = division_map()
 
     members = []
     total_wins = total_losses = total_elo = 0
@@ -7239,6 +7246,8 @@ def clan_page(tag):
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "rank": ranks[name],
+            "division": (_divmap.get(normalize_name(name))
+                         if played >= PROVISIONAL_GAMES else None),
             "joined": join_date(joined),
         })
 

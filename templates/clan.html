@@ -42,6 +42,12 @@
 .role-coleader{color:#7fc4ff;border-color:#2d4a63}
 .role-moderator{color:#9adf9a;border-color:#2f5a34}
 .role-member{color:var(--dim)}
+.remb{display:inline-block;margin-right:6px;line-height:0;vertical-align:middle;
+  filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+.remb svg{vertical-align:middle}
+.rankchip{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:11px;
+  font-size:10.5px;font-weight:700;letter-spacing:.02em;border:1px solid;
+  vertical-align:middle;white-space:nowrap}
 </style>
 <div class="tablewrap">
 <table>
@@ -59,7 +65,7 @@
     {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
     {%- else %}{{ loop.index }}{% endif -%}
   </td>
-  <td><a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}</td>
+  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.division.ship, 16, m.division.color, m.division.name)|safe }}</span>{% endif %}<a class="pname" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}{% if m.division %}<span class="rankchip" style="color:{{ m.division.color }};border-color:color-mix(in srgb,{{ m.division.color }} 42%,transparent);background:color-mix(in srgb,{{ m.division.color }} 12%,transparent)">{{ m.division.name }}</span>{% endif %}</td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
