@@ -26,7 +26,9 @@ RANKS = [
     {"level": 5, "key": "usniper",  "name": "U-Sniper",         "ship": 501,
      "cut": 0.22, "band": "Top 22%", "flair": 5,
      "color": "#bc8cff", "glow": "rgba(188,140,255,.38)"},
-    {"level": 4, "key": "mercury",  "name": "Mercury",          "ship": 402,
+    # key stays "mercury" (opaque id, keeps existing peak_div records valid);
+    # the division is shown as Crusader with the Crusader ship (406).
+    {"level": 4, "key": "mercury",  "name": "Crusader",         "ship": 406,
      "cut": 0.40, "band": "Top 40%", "flair": 4,
      "color": "#58a6ff", "glow": "rgba(88,166,255,.34)"},
     {"level": 3, "key": "pulse",    "name": "Pulse-Fighter",    "ship": 301,

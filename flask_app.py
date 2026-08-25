@@ -20,7 +20,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.8"
+APP_VERSION = "7.7.9"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
