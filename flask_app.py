@@ -19,7 +19,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.1"
+APP_VERSION = "7.7.2"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -2558,7 +2558,7 @@ def live_matches():
                     [{"name": _pl["n"], "elo": _pl["e"],
                       "known": _pl.get("k", 0),
                       "score": int(_pl.get("s", 0) or 0),
-                      "ship": ship_shapes.ship_name(_pl.get("sp")) or (_pl.get("sp") or None), "imp": None}
+                      "ship": (("Tier %d" % (_pl.get("sp") // 100)) if _pl.get("sp") else None), "imp": None}
                      for _pl in _plist],
                     key=lambda q: -q["score"])
                 continue
@@ -2584,7 +2584,7 @@ def live_matches():
                 _out.append({"name": _pl["n"], "elo": _pl["e"],
                              "known": _pl.get("k", 0),
                              "score": int(_pl.get("s", 0) or 0),
-                             "ship": ship_shapes.ship_name(_pl.get("sp")) or (_pl.get("sp") or None),
+                             "ship": (("Tier %d" % (_pl.get("sp") // 100)) if _pl.get("sp") else None),
                              "imp": round(_imp, 4)})
             _out.sort(key=lambda q: -q["imp"])
             players_by_team[k] = _out
@@ -3512,6 +3512,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.2", "at": "2026-08-25T07:15:00Z", "changes": [
+        "Reverted naming the exact ship (added in 7.7.1). The scoreboard packet's model number does not line up with the ship tree, so it can't be trusted to name the specific ship — it was mislabeling ships (a player's most-flown could read as Odyssey when it wasn't). Only the ship's TIER is reliable, so “ships flown” now shows tier usage (Tier 1–7) instead of a specific ship. Rank emblems are unaffected — those come from a fixed, correct ship list, not the packet."
+    ]},
     {"version": "7.7.1", "at": "2026-08-25T06:30:00Z", "changes": [
         "Ships now show by name instead of a code number. Your profile’s “ships flown” lists each ship by name — U-Sniper, Odyssey, and so on — with its silhouette beside it, and the live match rosters name the current ship the same way."
     ]},
@@ -5092,9 +5095,10 @@ def player_ships(name):
               "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
               "WHERE norm_name = mp.norm_name), '') "
               "GROUP BY mp.ship ORDER BY 2 DESC", (key,))
-    ships = [{"ship": r[0], "name": ship_shapes.ship_name(r[0]) or str(r[0]),
-              "path": ship_shapes.ship_path(r[0]), "n": r[1], "wins": r[2] or 0}
-             for r in c.fetchall()]
+    # Only the TIER is reliable from the scoreboard packet - the model byte's
+    # per-tier numbering does not line up with the ship tree, so we cannot
+    # name the exact ship (see 7.7.2). Report the raw code for aggregation.
+    ships = [{"ship": r[0], "n": r[1], "wins": r[2] or 0} for r in c.fetchall()]
     _since = ("AND m.played_at > COALESCE((SELECT wiped_before FROM players "
               "WHERE norm_name = mp.norm_name), '')")
     # Average score counts WINS only (owner's rule, 23 Aug 2026): a

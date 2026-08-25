@@ -108,13 +108,20 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
      if(!ships.length && !d.matches) return;
      document.getElementById('shipCard').style.display = 'block';
      document.getElementById('shipTitle').textContent =
-       ships.length ? 'Ships flown' : 'How they play';
+       ships.length ? 'Tiers flown' : 'How they play';
+     // The exact ship is not reliable from the scoreboard packet - its model
+     // numbering does not line up with the ship tree - but the TIER is, so
+     // aggregate by tier (ship code // 100) rather than naming a ship.
+     var byTier = {};
+     ships.forEach(function(s){ var t = Math.floor(s.ship / 100);
+       if(!byTier[t]) byTier[t] = { tier:t, n:0, wins:0 };
+       byTier[t].n += s.n; byTier[t].wins += s.wins; });
+     var tiers = Object.keys(byTier).map(function(k){ return byTier[k]; })
+       .sort(function(a,b){ return b.n - a.n; });
      var total = ships.reduce(function(a,s){return a+s.n;},0);
      document.getElementById('shipSummary').innerHTML = ships.length
-       ? (ships.length > 1
-            ? 'Flies the <b>' + esc2(ships[0].name) + '</b> most, across '
-              + total + (total === 1 ? ' match.' : ' matches.')
-            : 'Only flies the <b>' + esc2(ships[0].name) + '</b>.')
+       ? ('Mostly flies <b>tier ' + tiers[0].tier + '</b>, across '
+          + total + (total === 1 ? ' tracked match.' : ' tracked matches.'))
        : 'Across ' + d.matches + (d.matches === 1 ? ' tracked match' : ' tracked matches')
          + '. Which ship they fly is recorded from now on, and will appear here.';
      // The numbers behind the ships: how they score, how often they die,
@@ -142,15 +149,12 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
          + '<a href="/replay/' + d.best.mid + '">watch it</a></p>';
      }
      document.getElementById('shipFacts').innerHTML = fx;
-     var max = ships.length ? ships[0].n : 1;
-     document.getElementById('shipList').innerHTML = ships.map(function(s){
+     var max = tiers.length ? tiers[0].n : 1;
+     document.getElementById('shipList').innerHTML = tiers.map(function(s){
        var pct = Math.max(4, Math.round(100 * s.n / max));
        var wr = s.n ? Math.round(100 * s.wins / s.n) : 0;
-       var emb = s.path ? '<svg viewBox="0 0 100 100" width="20" height="20" '
-         + 'style="flex:0 0 auto;vertical-align:middle"><path d="' + s.path
-         + '" fill="#99DDFF"/></svg>' : '';
        return '<div style="display:flex;align-items:center;gap:9px;padding:4px 0">'
-         + emb + '<b style="width:118px">' + esc2(s.name) + '</b>'
+         + '<b style="width:70px">Tier ' + s.tier + '</b>'
          + '<span style="flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden">'
          + '<i style="display:block;height:100%;width:' + pct + '%;background:#99DDFF"></i></span>'
          + '<span class="sub" style="width:150px;text-align:right">' + s.n
