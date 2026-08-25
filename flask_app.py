@@ -19,7 +19,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.2"
+APP_VERSION = "7.7.3"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -1068,7 +1068,13 @@ def init_db():
     # whose result is whose.
     for _ddl in ("ALTER TABLE players ADD COLUMN game_name TEXT",
                  "ALTER TABLE players ADD COLUMN name_changes INTEGER DEFAULT 0",
-                 "ALTER TABLE players ADD COLUMN clan_joined_at TEXT"):
+                 "ALTER TABLE players ADD COLUMN clan_joined_at TEXT",
+                 # Peak leaderboard rank ever reached (lowest number) and the
+                 # highest skill division ever earned, each with when it landed.
+                 "ALTER TABLE players ADD COLUMN peak_rank INTEGER",
+                 "ALTER TABLE players ADD COLUMN peak_rank_at TEXT",
+                 "ALTER TABLE players ADD COLUMN peak_div TEXT",
+                 "ALTER TABLE players ADD COLUMN peak_div_at TEXT"):
         try:
             c.execute(_ddl)
         except sqlite3.OperationalError:
@@ -3512,6 +3518,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.3", "at": "2026-08-25T08:30:00Z", "changes": [
+        "Skill ranks got a new top division: Shadow X-3, for the top 0.1%, with a shiny holographic diamond treatment. Your profile's rank banner now escalates in style as you climb — a plain, rundown Fly at the bottom up to the glittering diamond Shadow X-3 — and the whole profile is themed in your rank's colour. Profiles also now keep your career peaks: the best leaderboard rank you've ever reached and the highest emblem you've ever earned, each with the date it happened."
+    ]},
     {"version": "7.7.2", "at": "2026-08-25T07:15:00Z", "changes": [
         "Reverted naming the exact ship (added in 7.7.1). The scoreboard packet's model number does not line up with the ship tree, so it can't be trusted to name the specific ship — it was mislabeling ships (a player's most-flown could read as Odyssey when it wasn't). Only the ship's TIER is reliable, so “ships flown” now shows tier usage (Tier 1–7) instead of a specific ship. Rank emblems are unaffected — those come from a fixed, correct ship list, not the packet."
     ]},
@@ -5149,7 +5158,8 @@ def player_profile(name):
     conn = db()
     c = conn.cursor()
     c.execute("SELECT name, elo, wins, losses, clan, google_sub, "
-              "COALESCE(strict_mode, 0) FROM players WHERE norm_name = ?",
+              "COALESCE(strict_mode, 0), peak_rank, peak_rank_at, "
+              "peak_div, peak_div_at FROM players WHERE norm_name = ?",
               (normalize_name(name),))
     row = c.fetchone()
     if not row:
@@ -5157,7 +5167,8 @@ def player_profile(name):
         return render_template('player.html', player=None, query=name,
                                version=APP_VERSION, page='players'), 404
 
-    stored_name, elo, wins, losses, clan, owner_sub, protected = row
+    (stored_name, elo, wins, losses, clan, owner_sub, protected,
+     peak_rank, peak_rank_at, peak_div_key, peak_div_at) = row
     c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
     rank = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM players")
@@ -5243,6 +5254,23 @@ def player_profile(name):
     # Canonical skill division (top-X% ship rank), only once out of placements.
     division = (division_map().get(normalize_name(stored_name))
                 if played >= PROVISIONAL_GAMES else None)
+    # Career peaks: best leaderboard rank ever, and highest emblem ever earned,
+    # each with the day it landed. The current division seeds the peak so a
+    # profile is never blank before division_map's next rebuild writes it.
+    if division:
+        _dl = division["level"]
+        if peak_div_key is None or ranks.RANK_BY_KEY.get(
+                peak_div_key, {}).get("level", 0) < _dl:
+            peak_div_key, peak_div_at = division["key"], (peak_div_at or "")
+        if peak_rank is None or rank < peak_rank:
+            peak_rank = rank
+    peak_division = ranks.RANK_BY_KEY.get(peak_div_key) if peak_div_key else None
+    peak = None
+    if peak_rank or peak_division:
+        peak = {"rank": peak_rank,
+                "rank_at": (str(peak_rank_at)[:10] if peak_rank_at else None),
+                "division": peak_division,
+                "div_at": (str(peak_div_at)[:10] if peak_div_at else None)}
     player = {"name": stored_name,
               "display": display_name(stored_name, clan, clan_shown),
               "clan_display": clan_shown,
@@ -5250,7 +5278,7 @@ def player_profile(name):
               "losses": losses or 0, "rank": rank, "rank_of": rank_of,
               "winrate": winrate,
               "clan": clan, "pending_claim": pending_claim,
-              "admin_of": admin_of, "division": division,
+              "admin_of": admin_of, "division": division, "peak": peak,
               "placements_left": (max(0, PROVISIONAL_GAMES - played)
                                   if played < PROVISIONAL_GAMES else 0),
               "owned": bool(owner_sub), "protected": bool(protected)}
@@ -5419,13 +5447,56 @@ def division_map():
     ranked = [r for r in rows if (r[2] or 0) + (r[3] or 0) >= PROVISIONAL_GAMES]
     total = len(ranked)
     m = {}
+    entries = []
     for i, row in enumerate(ranked):
         div = ranks.division_for(i, total)
         if div:
-            m[normalize_name(row[0])] = div
+            nn = normalize_name(row[0])
+            m[nn] = div
+            entries.append((nn, i + 1, div["key"], div["level"]))
+    _record_peaks(entries)
     _DIV_CACHE["ts"] = now
     _DIV_CACHE["map"] = m
     return m
+
+
+def _record_peaks(entries):
+    """Persist each ranked player's best-ever leaderboard rank and highest-ever
+    division. entries: (norm_name, rank_position, div_key, div_level). Only the
+    handful who just improved get written. Best-effort - never breaks a view."""
+    if not entries:
+        return
+    try:
+        conn = db(timeout=6)
+        c = conn.cursor()
+        names = [e[0] for e in entries]
+        cur = {}
+        for s in range(0, len(names), 400):
+            chunk = names[s:s + 400]
+            q = ("SELECT norm_name, peak_rank, peak_div FROM players "
+                 "WHERE norm_name IN (%s)" % ",".join("?" * len(chunk)))
+            for nn, pr, pd in c.execute(q, chunk).fetchall():
+                cur[nn] = (pr, pd)
+        rank_up, div_up = [], []
+        for nn, pos, dkey, dlevel in entries:
+            pr, pd = cur.get(nn, (None, None))
+            if pr is None or pos < pr:
+                rank_up.append((pos, nn))
+            pd_level = ranks.RANK_BY_KEY.get(pd, {}).get("level", 0) if pd else 0
+            if dlevel > pd_level:
+                div_up.append((dkey, nn))
+        if rank_up:
+            c.executemany("UPDATE players SET peak_rank = ?, "
+                          "peak_rank_at = datetime('now') WHERE norm_name = ?",
+                          rank_up)
+        if div_up:
+            c.executemany("UPDATE players SET peak_div = ?, "
+                          "peak_div_at = datetime('now') WHERE norm_name = ?",
+                          div_up)
+        conn.commit()
+        conn.close()
+    except sqlite3.Error:
+        pass
 
 
 # You may only check in during the opening minutes of a match. Without

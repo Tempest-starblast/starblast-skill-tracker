@@ -17,27 +17,94 @@
 .invchip.cancel{background:rgba(255,86,112,.08);border-color:rgba(255,86,112,.45);
   color:var(--red)}
 .invchip.cancel:hover{background:rgba(255,86,112,.18)}
-.rankhero{display:flex;align-items:center;gap:20px;margin:2px 0 20px;padding:18px 22px;
-  border-radius:14px;border:1px solid color-mix(in srgb,var(--rk,#8b949e) 45%,transparent);
+/* Rank hero - the treatment escalates with the division's flair (1 = plain,
+   rundown Fly; 8 = shiny holographic diamond Shadow X-3). */
+.rankhero{position:relative;overflow:hidden;display:flex;align-items:center;gap:20px;
+  margin:2px 0 14px;padding:18px 22px;border-radius:14px;
+  border:1px solid color-mix(in srgb,var(--rk,#8b949e) 42%,transparent);
   background:
-    radial-gradient(120% 140% at 12% 0%,var(--rkglow,rgba(139,148,158,.28)),transparent 60%),
-    linear-gradient(180deg,color-mix(in srgb,var(--rk,#8b949e) 12%,#151a22),#12161d);
+    radial-gradient(120% 140% at 12% 0%,var(--rkglow,rgba(139,148,158,.22)),transparent 60%),
+    linear-gradient(180deg,color-mix(in srgb,var(--rk,#8b949e) 10%,#141922),#11151c);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 8px 24px rgba(0,0,0,.35)}
-.rankhero .rankemblem{flex:0 0 auto;width:92px;height:92px;display:flex;
-  align-items:center;justify-content:center;border-radius:12px;
-  background:radial-gradient(circle at 50% 38%,var(--rkglow,rgba(139,148,158,.3)),transparent 70%)}
+.rankhero .rankemblem{position:relative;z-index:2;flex:0 0 auto;width:94px;height:94px;
+  display:flex;align-items:center;justify-content:center;border-radius:12px;
+  background:radial-gradient(circle at 50% 38%,var(--rkglow,rgba(139,148,158,.25)),transparent 70%)}
 .rankhero .rankemblem svg{filter:drop-shadow(0 2px 6px var(--rkglow,rgba(0,0,0,.5)))}
+.rankhero .rankmeta{position:relative;z-index:2}
 .rankhero .ranklabel{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;
   font-weight:700;color:color-mix(in srgb,var(--rk,#8b949e) 70%,#c9d1d9)}
-.rankhero .rankname{font-size:26px;font-weight:800;line-height:1.15;margin:2px 0 4px;
+.rankhero .rankname{font-size:27px;font-weight:800;line-height:1.15;margin:2px 0 4px;
   color:var(--rk,#e6edf3);text-wrap:balance}
 .rankhero .rankship{font-size:12.5px;color:var(--muted)}
-.rankhero.placements{--rk:#8b949e}
+/* f1 Fly - rundown, matte: flat, desaturated, no glow */
+.rankhero.flair-1{border-color:#2b3038;background:linear-gradient(180deg,#171a1f,#131519);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.02)}
+.rankhero.flair-1 .rankemblem{background:none}
+.rankhero.flair-1 .rankemblem svg{filter:none;opacity:.82}
+.rankhero.flair-1 .rankname{color:#9aa2ac}
+/* mid tiers gain glow */
+.rankhero.flair-4,.rankhero.flair-5{border-color:color-mix(in srgb,var(--rk) 55%,transparent)}
+.rankhero.flair-5 .rankname{text-shadow:0 0 18px var(--rkglow)}
+/* f6 gold - metallic sheen band */
+.rankhero.flair-6{border-color:color-mix(in srgb,var(--rk) 60%,transparent);background:
+  linear-gradient(115deg,transparent 30%,rgba(255,255,255,.06) 46%,transparent 62%),
+  radial-gradient(120% 140% at 12% 0%,var(--rkglow),transparent 60%),
+  linear-gradient(180deg,color-mix(in srgb,var(--rk) 14%,#16110a),#12100a)}
+.rankhero.flair-6 .rankname{text-shadow:0 0 16px var(--rkglow)}
+/* f7 Odyssey prestige - animated shine sweep + strong glow */
+.rankhero.flair-7{border-color:color-mix(in srgb,var(--rk) 65%,transparent);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 10px 30px var(--rkglow)}
+.rankhero.flair-7 .rankname{text-shadow:0 0 22px var(--rkglow)}
+.rankhero.flair-7::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.15) 50%,transparent 60%);
+  transform:translateX(-120%);animation:rk-sheen 4.5s ease-in-out infinite}
+/* f8 Shadow X-3 diamond - holographic border + text, shine, sparkles */
+.rankhero.diamond{border:1px solid transparent;
+  background:linear-gradient(#0b0f14,#0b0f14) padding-box,
+    linear-gradient(120deg,#8ef3ff,#d9c4ff,#fff,#b6fff0,#8ef3ff) border-box;
+  box-shadow:0 0 0 1px rgba(160,235,255,.22),0 10px 34px rgba(150,230,255,.32)}
+.rankhero.diamond .ranklabel{color:#bfeeff}
+.rankhero.diamond .rankname{background:linear-gradient(120deg,#a8ecff,#e6d4ff,#fff,#c9fff0,#a8ecff);
+  background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:rk-holo 6s linear infinite}
+.rankhero.diamond .rankemblem{background:radial-gradient(circle at 50% 40%,rgba(180,240,255,.5),transparent 70%)}
+.rankhero.diamond .rankemblem svg{filter:drop-shadow(0 0 8px rgba(180,240,255,.9))}
+.rankhero.diamond::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.32) 50%,transparent 58%);
+  transform:translateX(-120%);animation:rk-sheen 3.8s ease-in-out infinite}
+.rankhero .sparkles{position:absolute;inset:0;z-index:1;pointer-events:none;
+  background-image:
+    radial-gradient(1.5px 1.5px at 20% 30%,#fff,transparent),
+    radial-gradient(1.5px 1.5px at 72% 24%,#cfe9ff,transparent),
+    radial-gradient(1.5px 1.5px at 44% 72%,#fff,transparent),
+    radial-gradient(2px 2px at 88% 62%,#e6d4ff,transparent),
+    radial-gradient(1.5px 1.5px at 60% 46%,#fff,transparent),
+    radial-gradient(1.5px 1.5px at 32% 88%,#cfe9ff,transparent);
+  animation:rk-twinkle 2.4s ease-in-out infinite}
+@keyframes rk-sheen{0%{transform:translateX(-120%)}60%,100%{transform:translateX(120%)}}
+@keyframes rk-holo{0%{background-position:0 50%}100%{background-position:300% 50%}}
+@keyframes rk-twinkle{0%,100%{opacity:.3}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .rankhero::before,.rankhero .sparkles{animation:none}
+  .rankhero.diamond .rankname{animation:none;background-position:0 50%}}
+.rankhero.placements{--rk:#8b949e;background:linear-gradient(180deg,#161a20,#12151b);border-color:#2b3038}
 .rankhero.placements .rankname{font-size:19px;color:#c9d1d9}
+/* career peaks */
+.peaks{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 20px}
+.peakcard{flex:1 1 210px;display:flex;align-items:center;gap:12px;padding:12px 15px;
+  border-radius:11px;border:1px solid var(--line,#262c36);background:#12151b}
+.peakcard .pk-ic{font-size:18px;color:#e3b341;line-height:1}
+.peakcard .pk-emb{flex:0 0 auto;width:38px;height:38px;display:flex;align-items:center;
+  justify-content:center;border-radius:9px;
+  background:radial-gradient(circle at 50% 40%,var(--rkglow,rgba(139,148,158,.3)),transparent 70%)}
+.peakcard .pk-lbl{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--muted);font-weight:700}
+.peakcard .pk-val{font-size:19px;font-weight:800;color:#e6edf3;font-variant-numeric:tabular-nums}
+.peakcard .pk-at{font-size:11.5px;color:var(--muted)}
 {% endblock %}
 {% block body %}
 {% if player %}
-<h1 class="ptitle">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}
+<h1 class="ptitle"{% if player.division %} style="text-shadow:0 0 24px color-mix(in srgb,{{ player.division.color }} 32%,transparent)"{% endif %}>{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}
 {%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}"
    title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span></h1>
 <p class="msg" id="invMsg"></p>
@@ -47,14 +114,36 @@
    &middot; <a href="/">Leaderboard</a></p>
 
 {% if player.division %}
-<div class="rankhero" style="--rk:{{ player.division.color }};--rkglow:{{ player.division.glow }}">
-  <div class="rankemblem">{{ rank_emblem(player.division.ship, 78, player.division.color, player.division.name)|safe }}</div>
+{% set d = player.division %}
+<div class="rankhero flair-{{ d.flair }}{% if d.diamond %} diamond{% endif %}" style="--rk:{{ d.color }};--rkglow:{{ d.glow }}">
+  <div class="rankemblem">{{ rank_emblem(d.ship, 82, d.color, d.name)|safe }}</div>
   <div class="rankmeta">
-    <div class="ranklabel">{{ t('Skill rank') }} &middot; {{ t('Tier') }} {{ player.division.tier }}/7</div>
-    <div class="rankname">{{ player.division.name }}</div>
-    <div class="rankship">{{ player.division.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</div>
+    <div class="ranklabel">{{ t('Skill rank') }} &middot; {{ t('Division') }} {{ d.level }}/8</div>
+    <div class="rankname">{{ d.name }}</div>
+    <div class="rankship">{{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</div>
   </div>
+  {% if d.diamond %}<div class="sparkles" aria-hidden="true"></div>{% endif %}
 </div>
+{% if player.peak %}
+<div class="peaks">
+  {% if player.peak.rank %}
+  <div class="peakcard">
+    <div class="pk-ic">&#9650;</div>
+    <div><div class="pk-lbl">{{ t('Best rank reached') }}</div>
+      <div class="pk-val">#{{ player.peak.rank }}</div>
+      {% if player.peak.rank_at %}<div class="pk-at">{{ player.peak.rank_at }}</div>{% endif %}</div>
+  </div>
+  {% endif %}
+  {% if player.peak.division %}
+  <div class="peakcard" style="--rk:{{ player.peak.division.color }};--rkglow:{{ player.peak.division.glow }}">
+    <div class="pk-emb">{{ rank_emblem(player.peak.division.ship, 32, player.peak.division.color, player.peak.division.name)|safe }}</div>
+    <div><div class="pk-lbl">{{ t('Highest emblem earned') }}</div>
+      <div class="pk-val" style="color:var(--rk)">{{ player.peak.division.name }}</div>
+      {% if player.peak.div_at %}<div class="pk-at">{{ player.peak.div_at }}</div>{% endif %}</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 {% elif player.placements_left %}
 <div class="rankhero placements">
   <div class="rankemblem">{{ rank_emblem(101, 64, '#8b949e', 'Fly')|safe }}</div>
@@ -165,7 +254,7 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
 </script>
 
 <div class="card"><div class="grid">
-  <div class="stat"><div class="label">Skill</div><div class="value" style="color:var(--blue)">{{ player.elo }}</div></div>
+  <div class="stat"><div class="label">Skill</div><div class="value" style="color:{% if player.division %}{{ player.division.color }}{% else %}var(--blue){% endif %}">{{ player.elo }}</div></div>
   <div class="stat"><div class="label">Win rate</div><div class="value">{{ player.winrate }}</div></div>
   <div class="stat"><div class="label">Wins</div><div class="value" style="color:var(--green)">{{ player.wins }}</div></div>
   <div class="stat"><div class="label">Losses</div><div class="value" style="color:var(--red)">{{ player.losses }}</div></div>
