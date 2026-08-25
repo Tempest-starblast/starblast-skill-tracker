@@ -30,6 +30,11 @@ MIN_PRESENCE = 0.15
 FLOOR_W = 0.15
 THETA = 0.60
 
+# A player must have actually DONE something to be rated. Watcher bots and AFK
+# clients sit in the roster the whole match with a score of 0 - being present
+# is not participating. Below this final score, a player is dropped entirely.
+MIN_SCORE = 1
+
 
 def part_weight(presence):
     """presence in [0,1] -> influence weight in [0,1]."""

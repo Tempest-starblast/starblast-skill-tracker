@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.0"
+APP_VERSION = "7.8.1"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -5604,6 +5604,9 @@ def shadow_match():
         for p in (mem or []):
             nn = normalize_name(p.get("name", ""))
             if nn not in reg:
+                continue
+            # A score of ~0 across the whole match = watching/AFK, not playing.
+            if (p.get("score") or 0) < shadow_elo.MIN_SCORE:
                 continue
             w = shadow_elo.part_weight(p.get("presence"))
             if w <= 0:
