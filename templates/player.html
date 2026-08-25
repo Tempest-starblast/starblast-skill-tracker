@@ -101,9 +101,34 @@
   color:var(--muted);font-weight:700}
 .peakcard .pk-val{font-size:19px;font-weight:800;color:#e6edf3;font-variant-numeric:tabular-nums}
 .peakcard .pk-at{font-size:11.5px;color:var(--muted)}
+/* whole-profile rank theme: a fixed ambient wash behind everything, plus the
+   rank colour bled into cards, headings and links. Intensity escalates with
+   flair; the diamond gets a holographic multi-glow. */
+.rk-ambient{position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(150% 95% at 50% -12%, var(--rkglow,rgba(139,148,158,.2)), transparent 72%),
+    radial-gradient(120% 80% at 50% 108%, var(--rkglow,rgba(139,148,158,.14)), transparent 66%),
+    linear-gradient(180deg, color-mix(in srgb,var(--rk,#8b949e) 14%, #0a0e14), color-mix(in srgb,var(--rk,#8b949e) 7%, #06090e))}
+.rk-ambient.flair-7{background:
+    radial-gradient(150% 95% at 50% -12%, var(--rkglow), transparent 68%),
+    radial-gradient(70% 46% at 85% 8%, var(--rkglow), transparent 60%),
+    linear-gradient(180deg, color-mix(in srgb,var(--rk) 17%, #130b08), color-mix(in srgb,var(--rk) 8%, #0a0708))}
+.rk-ambient.diamond{background:
+    radial-gradient(85% 62% at 18% -8%, rgba(142,243,255,.5), transparent 64%),
+    radial-gradient(85% 62% at 82% -8%, rgba(217,196,255,.45), transparent 64%),
+    radial-gradient(120% 55% at 50% 108%, rgba(120,220,255,.34), transparent 60%),
+    linear-gradient(180deg, #0d1c2c, #0a1420)}
+body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 22%,var(--line))}
+body.pg-players h2{color:color-mix(in srgb,var(--rk,#8b949e) 58%,var(--text))}
+body.pg-players .psub a,body.pg-players a.rlink,body.pg-players .foot a{
+  color:color-mix(in srgb,var(--rk,#8b949e) 55%,#9fc7ff)}
 {% endblock %}
 {% block body %}
 {% if player %}
+{% if player.division %}
+<style>body.pg-players{--rk:{{ player.division.color }};--rkglow:{{ player.division.glow }}}</style>
+<div class="rk-ambient flair-{{ player.division.flair }}{% if player.division.diamond %} diamond{% endif %}" aria-hidden="true"></div>
+{% endif %}
 <h1 class="ptitle"{% if player.division %} style="text-shadow:0 0 24px color-mix(in srgb,{{ player.division.color }} 32%,transparent)"{% endif %}>{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}
 {%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}"
    title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span></h1>
