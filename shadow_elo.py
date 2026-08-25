@@ -37,12 +37,27 @@ MIN_SCORE = 1
 
 
 def part_weight(presence):
-    """presence in [0,1] -> influence weight in [0,1]."""
+    """presence in [0,1] -> influence weight in [0,1]. (Kept for reference; the
+    live model now weights by join station level, see join_weight.)"""
     if presence is None or presence < MIN_PRESENCE:
         return 0.0
     if presence >= THETA:
         return 1.0
     return FLOOR_W + (presence - MIN_PRESENCE) / (THETA - MIN_PRESENCE) * (1.0 - FLOOR_W)
+
+
+def join_weight(join_level):
+    """Weight by the STATION LEVEL a player joined into. Joining a fresh level-1
+    game is a full stake (full gain AND full loss - you were invested from the
+    start); joining a developed level-N station is 1/N (you invested less, so
+    both the reward and the penalty are proportionally smaller)."""
+    try:
+        lvl = int(join_level)
+    except (TypeError, ValueError):
+        lvl = 1
+    if lvl < 1:
+        lvl = 1
+    return 1.0 / lvl
 
 
 def win_expectation(own, rivals):
