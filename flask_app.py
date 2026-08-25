@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.1"
+APP_VERSION = "7.8.2"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -5636,6 +5636,7 @@ def shadow_match():
                  1 if won else 0, 0 if won else 1, r["weight"]))
     # Always log the match (even with 0 rated players) so the review page shows
     # coverage and every decision is auditable.
+    analytics["win_by"] = data.get("win_by")     # how the winner was decided
     _dbyname = {x["name"]: x["delta"] for x in results}
     teams_json = json.dumps({tk: [{"n": m["disp"], "e": round(m["elo"], 1),
                                    "g": m["games"], "w": round(m["weight"], 2),

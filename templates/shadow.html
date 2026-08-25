@@ -121,6 +121,7 @@ function loadMatches(off){
       host.insertAdjacentHTML('beforeend',
         '<div class="mcard"><div class="mhead"><span class="lob">'+esc(m.lobby||'lobby')+
         '</span><span class="muted">'+esc(m.region||'')+' &middot; '+esc(m.at||'')+
+        (m.analytics.win_by?' &middot; won by '+esc(m.analytics.win_by):'')+
         (m.rated?'':' &middot; <span style="color:#ff7a7a">not rated</span>')+'</span></div>'+
         '<div class="mteams">'+teamsHtml+'</div></div>');
     });
