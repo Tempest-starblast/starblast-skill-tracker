@@ -17,10 +17,11 @@ import i18n
 import info_i18n
 import ranks
 import ship_shapes
+import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.9"
+APP_VERSION = "7.8.0"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -1080,6 +1081,26 @@ def init_db():
             c.execute(_ddl)
         except sqlite3.OperationalError:
             pass
+
+    # Shadow rating system (participation-weighted, from-zero, review only).
+    # Separate tables so nothing here can touch the live board.
+    c.execute('''CREATE TABLE IF NOT EXISTS shadow_players (
+                    norm_name TEXT PRIMARY KEY,
+                    name TEXT,
+                    elo REAL DEFAULT 1000,
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    weight_sum REAL DEFAULT 0,
+                    matches INTEGER DEFAULT 0,
+                    updated_at TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS shadow_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_key TEXT UNIQUE,
+                    at TEXT, region TEXT, lobby TEXT, seed INTEGER,
+                    winner TEXT, teams_json TEXT, analytics_json TEXT,
+                    rated INTEGER DEFAULT 0)''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_shadow_matches_at "
+              "ON shadow_matches(id DESC)")
 
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3519,6 +3540,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.8.0", "at": "2026-08-25T13:00:00Z", "changes": [
+        "Started trialling a new rating in the background. Because the raw observer now watches matches from the very first minute (the live tracker only picks them up 20 minutes in), it can measure how much of each match a player was actually present for — so a parallel “full-match” rating can weight players by real participation instead of a late snapshot. It runs from zero, on its own, and does not touch the live board; it exists to be reviewed against reality before anything changes."
+    ]},
+    {"version": "7.7.9", "at": "2026-08-25T12:15:00Z", "changes": [
+        "The tier-4 skill division is now Crusader (was Mercury)."
+    ]},
     {"version": "7.7.8", "at": "2026-08-25T11:45:00Z", "changes": [
         "Rebuilt the top of a profile into one themed profile box: the ship emblem, name and clan, skill rank, the key stats (skill, win rate, record, region) and your career peaks all sit together in a single card, styled in your rank's colour and escalating to the holographic diamond at the very top. It reads clearly as a profile, and the theme lives in the box."
     ]},
@@ -5530,6 +5557,165 @@ def _record_peaks(entries):
         pass
     finally:
         _PEAK_STATE["running"] = False
+
+
+@app.route('/api/shadow/match', methods=['POST'])
+def shadow_match():
+    """Apply one finished full-watch match to the SHADOW rating (participation-
+    weighted, from zero). Review-only - never touches the live board. Posted by
+    the droplet scorer that reads the raw observer's full-match data."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    mkey = str(data.get("match_key") or "")
+    teams_in = data.get("teams") or {}
+    winner = str(data.get("winner") or "")
+    if not mkey or not teams_in or winner not in teams_in:
+        return jsonify({"error": "bad payload"}), 400
+    conn = db(timeout=8)
+    c = conn.cursor()
+    if c.execute("SELECT 1 FROM shadow_matches WHERE match_key = ?",
+                 (mkey,)).fetchone():
+        conn.close()
+        return jsonify({"status": "already scored"}), 200
+    # Only RATED (registered) players are re-rated, matching the live board's
+    # population; unregistered names contribute only through the team prior.
+    all_norms = set()
+    for mem in teams_in.values():
+        for p in (mem or []):
+            all_norms.add(normalize_name(p.get("name", "")))
+    all_norms.discard("")
+    reg, srat = {}, {}
+    if all_norms:
+        qs = ",".join("?" * len(all_norms))
+        for nn, nm in c.execute("SELECT norm_name, name FROM players "
+                                "WHERE norm_name IN (%s)" % qs,
+                                list(all_norms)).fetchall():
+            reg[nn] = nm
+    if reg:
+        qs = ",".join("?" * len(reg))
+        for nn, elo, g in c.execute("SELECT norm_name, elo, matches FROM "
+                                    "shadow_players WHERE norm_name IN (%s)" % qs,
+                                    list(reg)).fetchall():
+            srat[nn] = (elo, g)
+    teams = {}
+    for tk, mem in teams_in.items():
+        lst = []
+        for p in (mem or []):
+            nn = normalize_name(p.get("name", ""))
+            if nn not in reg:
+                continue
+            w = shadow_elo.part_weight(p.get("presence"))
+            if w <= 0:
+                continue
+            elo, g = srat.get(nn, (shadow_elo.START, 0))
+            lst.append({"name": nn, "disp": reg[nn], "elo": elo,
+                        "games": g, "weight": w})
+        teams[tk] = lst
+
+    results, analytics = [], {}
+    if any(teams.values()) and teams.get(winner) is not None:
+        results, analytics = shadow_elo.compute_match(teams, winner)
+        for r in results:
+            nn = r["name"]
+            won = r["won"]
+            init_elo = max(shadow_elo.FLOOR_ELO, shadow_elo.START + r["delta"])
+            c.execute(
+                "INSERT INTO shadow_players (norm_name, name, elo, wins, losses,"
+                " weight_sum, matches, updated_at) "
+                "VALUES (?,?,?,?,?,?,1,datetime('now')) "
+                "ON CONFLICT(norm_name) DO UPDATE SET "
+                "elo = MAX(?, elo + ?), wins = wins + ?, losses = losses + ?, "
+                "weight_sum = weight_sum + ?, matches = matches + 1, "
+                "updated_at = datetime('now')",
+                (nn, reg.get(nn, nn), init_elo, 1 if won else 0,
+                 0 if won else 1, r["weight"], shadow_elo.FLOOR_ELO, r["delta"],
+                 1 if won else 0, 0 if won else 1, r["weight"]))
+    # Always log the match (even with 0 rated players) so the review page shows
+    # coverage and every decision is auditable.
+    _dbyname = {x["name"]: x["delta"] for x in results}
+    teams_json = json.dumps({tk: [{"n": m["disp"], "e": round(m["elo"], 1),
+                                   "g": m["games"], "w": round(m["weight"], 2),
+                                   "d": _dbyname.get(m["name"], 0)}
+                                  for m in teams[tk]] for tk in teams},
+                            ensure_ascii=False)
+    c.execute("INSERT OR IGNORE INTO shadow_matches (match_key, at, region, "
+              "lobby, seed, winner, teams_json, analytics_json, rated) "
+              "VALUES (?,?,?,?,?,?,?,?,?)",
+              (mkey, data.get("at"), data.get("region"), data.get("lobby"),
+               data.get("seed"), winner, teams_json, json.dumps(analytics),
+               1 if results else 0))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "rated": len(results)}), 200
+
+
+@app.route('/shadow')
+def shadow_view():
+    """Owner-only review of the shadow (participation-weighted, from-zero)
+    rating that runs beside the live board, with match-by-match analytics."""
+    if not is_site_owner():
+        return redirect('/')
+    return render_template('shadow.html', page='shadow', version=APP_VERSION)
+
+
+@app.route('/api/shadow/board')
+def shadow_board_api():
+    if not is_site_owner():
+        return jsonify({"error": "forbidden"}), 403
+    conn = db()
+    c = conn.cursor()
+    # summary + how it lines up with the live board
+    tot = c.execute("SELECT COUNT(*), COUNT(CASE WHEN rated THEN 1 END) "
+                    "FROM shadow_matches").fetchone()
+    nplayers = c.execute("SELECT COUNT(*) FROM shadow_players "
+                         "WHERE matches > 0").fetchone()[0]
+    rows = c.execute(
+        "SELECT s.norm_name, s.name, s.elo, s.wins, s.losses, s.matches, "
+        "s.weight_sum, p.elo FROM shadow_players s "
+        "LEFT JOIN players p ON p.norm_name = s.norm_name "
+        "WHERE s.matches > 0 ORDER BY s.elo DESC LIMIT 100").fetchall()
+    board = []
+    for i, (nn, nm, elo, w, l, m, ws, live_elo) in enumerate(rows, 1):
+        board.append({
+            "rank": i, "name": nm, "elo": round(elo, 1),
+            "wins": w, "losses": l, "matches": m,
+            "avg_part": round(ws / m, 2) if m else 0,
+            "live_elo": round(live_elo, 1) if live_elo is not None else None})
+    conn.close()
+    return jsonify({"matches_total": tot[0], "matches_rated": tot[1],
+                    "players": nplayers, "board": board})
+
+
+@app.route('/api/shadow/matches')
+def shadow_matches_api():
+    if not is_site_owner():
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        off = max(0, int(request.args.get('offset', 0)))
+    except (TypeError, ValueError):
+        off = 0
+    conn = db()
+    c = conn.cursor()
+    rows = c.execute(
+        "SELECT at, region, lobby, winner, teams_json, analytics_json, rated "
+        "FROM shadow_matches ORDER BY id DESC LIMIT 30 OFFSET ?",
+        (off,)).fetchall()
+    out = []
+    for at, region, lobby, winner, tj, aj, rated in rows:
+        try:
+            teams = json.loads(tj) if tj else {}
+        except ValueError:
+            teams = {}
+        try:
+            an = json.loads(aj) if aj else {}
+        except ValueError:
+            an = {}
+        out.append({"at": at, "region": region, "lobby": lobby,
+                    "winner": winner, "teams": teams, "analytics": an,
+                    "rated": bool(rated)})
+    conn.close()
+    return jsonify({"matches": out})
 
 
 # You may only check in during the opening minutes of a match. Without

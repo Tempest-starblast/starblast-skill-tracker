@@ -510,6 +510,7 @@ async function devRestore(){
       <a href="/compare" role="menuitem" class="{% if page=='compare' %}on{% endif %}">Compare players</a>
       <div class="tmsec" id="ownerSec" style="display:none">Owner</div>
       <a href="/flood" role="menuitem" id="floodTab" style="display:none" class="{% if page=='flood' %}on{% endif %}">Flood review</a>
+      <a href="/shadow" role="menuitem" id="shadowTab" style="display:none" class="{% if page=='shadow' %}on{% endif %}">Shadow rating <span style="font-size:9px;color:#c9a6ff;letter-spacing:.5px">REVIEW</span></a>
     </div>
   </div>
   <span id="tabGlider" aria-hidden="true"></span>
@@ -619,6 +620,7 @@ window.addEventListener('DOMContentLoaded', async function(){
       // Owner-only: reveal the live win-probability monitor in the menu.
       if(d.is_owner){
         var ft=document.getElementById('floodTab'); if(ft) ft.style.display='';
+        var st=document.getElementById('shadowTab'); if(st) st.style.display='';
         var os=document.getElementById('ownerSec'); if(os) os.style.display='';
         if(d.live_flood > 0) sbFloodAlert(d.live_flood);
       }

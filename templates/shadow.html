@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Shadow rating (review) - Starblast{% endblock %}
+{% block css %}
+.shwrap{max-width:1000px}
+.shhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 4px}
+.shhead h1{margin:0}
+.shtag{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+  padding:2px 9px;border-radius:10px;background:rgba(163,113,247,.14);
+  border:1px solid rgba(163,113,247,.5);color:#c9a6ff}
+.shsum{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 18px}
+.shstat{flex:1 1 150px;background:var(--panel,rgba(6,10,18,.4));border:1px solid var(--line);
+  border-radius:10px;padding:12px 14px}
+.shstat .l{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700}
+.shstat .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.tabbtns{display:flex;gap:6px;margin:0 0 12px}
+.tabbtns button{padding:7px 14px;font-size:12px;font-weight:700;border-radius:8px;
+  border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--muted);cursor:pointer}
+.tabbtns button.on{background:rgba(163,113,247,.12);color:#dcc9ff;border-color:rgba(163,113,247,.5)}
+table.sh{width:100%;border-collapse:collapse}
+table.sh th,table.sh td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:13px}
+table.sh th{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+table.sh td.n{text-align:right;font-variant-numeric:tabular-nums}
+.delta.up{color:#66e6b8} .delta.dn{color:#ff7a7a}
+.diff.up{color:#66e6b8} .diff.dn{color:#ff7a7a} .diff.eq{color:var(--muted)}
+.mcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 14px;
+  background:var(--panel,rgba(6,10,18,.4))}
+.mhead{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;margin-bottom:10px}
+.mhead .lob{font-weight:700;color:var(--text)}
+.mteams{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.mteam{border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.mteam.win{border-color:rgba(102,230,184,.5);background:rgba(102,230,184,.05)}
+.mteam h4{margin:0 0 6px;font-size:12px;display:flex;justify-content:space-between}
+.mteam .exp{color:var(--muted);font-weight:600}
+.prow{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0}
+.prow .pn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prow .pw{color:var(--muted);font-variant-numeric:tabular-nums}
+.prow .pd{font-variant-numeric:tabular-nums;width:52px;text-align:right}
+.muted{color:var(--muted)} .empty{color:var(--muted);padding:20px;text-align:center}
+{% endblock %}
+{% block body %}
+<div class="shwrap">
+<div class="shhead"><h1>Shadow rating</h1><span class="shtag">Review &middot; from zero</span></div>
+<p class="psub muted">A parallel, participation-weighted rating built only from matches the
+  raw observer watched from minute&nbsp;0. It never touches the live board &mdash; this page is
+  to check whether it behaves before we consider switching.</p>
+
+<div class="shsum" id="shsum"></div>
+
+<div class="tabbtns">
+  <button id="tabBoard" class="on" onclick="showTab('board')">Board</button>
+  <button id="tabMatches" onclick="showTab('matches')">Match analytics</button>
+</div>
+
+<div id="paneBoard">
+  <div style="overflow-x:auto"><table class="sh"><thead><tr>
+    <th>#</th><th>Player</th><th class="n">Shadow</th><th class="n">Live</th>
+    <th class="n">Diff</th><th class="n">W-L</th><th class="n">Matches</th><th class="n">Avg part.</th>
+  </tr></thead><tbody id="boardBody"><tr><td colspan="8" class="empty">Loading&hellip;</td></tr></tbody></table></div>
+</div>
+
+<div id="paneMatches" style="display:none">
+  <div id="matchList"><p class="empty">Loading&hellip;</p></div>
+  <div style="text-align:center;margin:10px 0"><button class="tabbtns" onclick="moreMatches()"
+    style="padding:8px 16px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.35);color:var(--muted);cursor:pointer">Load more</button></div>
+</div>
+</div>
+
+<script>
+var COL = {america:'#66e6b8', europe:'#99ddff', asia:'#f0c04a', 0:'#66e6b8',1:'#ff7a7a',2:'#f0c04a'};
+function esc(s){var d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML;}
+function showTab(t){
+  document.getElementById('paneBoard').style.display = t==='board'?'':'none';
+  document.getElementById('paneMatches').style.display = t==='matches'?'':'none';
+  document.getElementById('tabBoard').className = t==='board'?'on':'';
+  document.getElementById('tabMatches').className = t==='matches'?'on':'';
+  if(t==='matches' && !window._mloaded){ window._mloaded=true; loadMatches(0); }
+}
+fetch('/api/shadow/board').then(function(r){return r.json();}).then(function(d){
+  var s = document.getElementById('shsum');
+  s.innerHTML =
+    stat('Matches scored', d.matches_rated + ' / ' + d.matches_total) +
+    stat('Players rated', d.players) +
+    stat('Top shadow', (d.board[0]? esc(d.board[0].name)+' &middot; '+d.board[0].elo : '—'));
+  var b = document.getElementById('boardBody');
+  if(!d.board.length){ b.innerHTML='<tr><td colspan="8" class="empty">No matches scored yet.</td></tr>'; return; }
+  b.innerHTML = d.board.map(function(p){
+    var diff = (p.live_elo!=null)? Math.round(p.elo - p.live_elo) : null;
+    var dc = diff==null?'eq':(diff>0?'up':(diff<0?'dn':'eq'));
+    return '<tr><td>'+p.rank+'</td><td>'+esc(p.name)+'</td>'+
+      '<td class="n">'+p.elo+'</td>'+
+      '<td class="n muted">'+(p.live_elo!=null?p.live_elo:'—')+'</td>'+
+      '<td class="n diff '+dc+'">'+(diff==null?'—':(diff>0?'+':'')+diff)+'</td>'+
+      '<td class="n">'+p.wins+'-'+p.losses+'</td>'+
+      '<td class="n">'+p.matches+'</td>'+
+      '<td class="n muted">'+p.avg_part+'</td></tr>';
+  }).join('');
+});
+function stat(l,v){ return '<div class="shstat"><div class="l">'+l+'</div><div class="v">'+v+'</div></div>'; }
+var _moff = 0;
+function loadMatches(off){
+  fetch('/api/shadow/matches?offset='+off).then(function(r){return r.json();}).then(function(d){
+    var host = document.getElementById('matchList');
+    if(off===0) host.innerHTML='';
+    if(!d.matches.length && off===0){ host.innerHTML='<p class="empty">No matches yet.</p>'; return; }
+    d.matches.forEach(function(m){
+      var keys = Object.keys(m.teams);
+      var teamsHtml = keys.map(function(k){
+        var players = m.teams[k]||[];
+        var exp = (m.analytics.expected && m.analytics.expected[k]!=null)? Math.round(m.analytics.expected[k]*100)+'%':'';
+        var str = (m.analytics.strengths && m.analytics.strengths[k]!=null)? m.analytics.strengths[k]:'';
+        var win = (String(m.winner)===String(k));
+        var rows = players.map(function(p){
+          var dc = p.d>0?'up':(p.d<0?'dn':'');
+          return '<div class="prow"><span class="pn">'+esc(p.n)+'</span>'+
+            '<span class="pw">'+p.e+' &middot; w'+p.w+'</span>'+
+            '<span class="pd delta '+dc+'">'+(p.d>0?'+':'')+p.d+'</span></div>';
+        }).join('') || '<div class="prow muted">no rated players</div>';
+        return '<div class="mteam'+(win?' win':'')+'"><h4><span>Team '+(Number(k)+1)+
+          (win?' &#9733;':'')+'</span><span class="exp">str '+str+' &middot; exp '+exp+'</span></h4>'+rows+'</div>';
+      }).join('');
+      host.insertAdjacentHTML('beforeend',
+        '<div class="mcard"><div class="mhead"><span class="lob">'+esc(m.lobby||'lobby')+
+        '</span><span class="muted">'+esc(m.region||'')+' &middot; '+esc(m.at||'')+
+        (m.rated?'':' &middot; <span style="color:#ff7a7a">not rated</span>')+'</span></div>'+
+        '<div class="mteams">'+teamsHtml+'</div></div>');
+    });
+    _moff = off + d.matches.length;
+  });
+}
+function moreMatches(){ loadMatches(_moff); }
+</script>
+{% endblock %}
