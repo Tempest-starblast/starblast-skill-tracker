@@ -11,6 +11,7 @@ import secrets
 import hmac
 import hashlib
 import zlib
+import threading
 from datetime import timedelta
 import i18n
 import info_i18n
@@ -19,7 +20,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.4"
+APP_VERSION = "7.7.5"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -3518,6 +3519,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.5", "at": "2026-08-25T09:30:00Z", "changes": [
+        "Fixed the skill-rank percentile so it matches the rank shown: your division is now measured against the whole board (the same #N of total on your profile), instead of only against players past placements — so “Top 22% · #844 of 8210” lines up instead of reading like a contradiction. Also moved the career-peak bookkeeping off the page-load path onto a background timer, which was making the site feel slow and laggy under load."
+    ]},
     {"version": "7.7.3", "at": "2026-08-25T08:30:00Z", "changes": [
         "Skill ranks got a new top division: Shadow X-3, for the top 0.1%, with a shiny holographic diamond treatment. Your profile's rank banner now escalates in style as you climb — a plain, rundown Fly at the bottom up to the glittering diamond Shadow X-3 — and the whole profile is themed in your rank's colour. Profiles also now keep your career peaks: the best leaderboard rank you've ever reached and the highest emblem you've ever earned, each with the date it happened."
     ]},
@@ -5428,6 +5432,8 @@ def board_rows(c, period="all", region="all"):
 # players get a division; a rebuild is cheap but pointless every request.
 _DIV_CACHE = {"ts": 0.0, "map": {}}
 _DIV_TTL = 90
+_PEAK_STATE = {"ts": 0.0, "running": False}
+_PEAK_EVERY = 300           # write peaks at most every 5 min, off the request path
 
 
 def division_map():
@@ -5444,19 +5450,32 @@ def division_map():
     except sqlite3.Error:
         return _DIV_CACHE["map"]
     rows.sort(key=leaderboard_sort_key)
-    ranked = [r for r in rows if (r[2] or 0) + (r[3] or 0) >= PROVISIONAL_GAMES]
-    total = len(ranked)
+    # Rank against the WHOLE board, not just non-provisional players, so the
+    # division ("top X%") matches the rank a profile actually shows (#N of
+    # total). Provisional players still occupy their board position (and count
+    # in the denominator) but don't display an emblem - that gating is done by
+    # the leaderboard row and the profile, not here.
+    total = len(rows)
     m = {}
     entries = []
-    for i, row in enumerate(ranked):
+    for i, row in enumerate(rows):
         div = ranks.division_for(i, total)
-        if div:
-            nn = normalize_name(row[0])
-            m[nn] = div
+        if not div:
+            continue
+        nn = normalize_name(row[0])
+        m[nn] = div
+        if (row[2] or 0) + (row[3] or 0) >= PROVISIONAL_GAMES:
             entries.append((nn, i + 1, div["key"], div["level"]))
-    _record_peaks(entries)
     _DIV_CACHE["ts"] = now
     _DIV_CACHE["map"] = m
+    # Persist career peaks off the request path, at most every few minutes, so
+    # the (occasionally large) write never blocks a page load.
+    if entries and not _PEAK_STATE["running"] and \
+            now - _PEAK_STATE["ts"] >= _PEAK_EVERY:
+        _PEAK_STATE["ts"] = now
+        _PEAK_STATE["running"] = True
+        threading.Thread(target=_record_peaks, args=(entries,),
+                         daemon=True).start()
     return m
 
 
@@ -5497,6 +5516,8 @@ def _record_peaks(entries):
         conn.close()
     except sqlite3.Error:
         pass
+    finally:
+        _PEAK_STATE["running"] = False
 
 
 # You may only check in during the opening minutes of a match. Without
