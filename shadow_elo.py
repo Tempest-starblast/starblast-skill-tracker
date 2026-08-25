@@ -12,6 +12,7 @@ Runs on its own tables (shadow_players / shadow_matches) so nothing here
 touches the live board until it's proven. Constants are copies of the live
 ones so the two boards are comparable; tune the participation curve here.
 """
+import math
 
 START = 1000.0
 K = 200.0            # max swing (matches live ELO_K)
@@ -38,6 +39,15 @@ MIN_SCORE = 1
 # And they must have actually been in the match: at least this many minutes of
 # presence, or they don't count at all (owner rule, 25 Aug).
 MIN_MINUTES = 10
+
+# Combat facet (owner rule, 25 Aug): "kills aren't indicative of elo or skill,
+# its just a facet." So combat (score earned from inferred kills) NEVER changes
+# a team's aggregate rating change or the system total - it only shifts credit
+# WITHIN a team by at most +/-COMBAT_BAND: the player who did more of the
+# fighting keeps a little more of a win / sheds a little less of a loss, the
+# passenger a little less, and the team total is renormalised back to exactly
+# what win/loss + participation decided. Set to 0.0 to make combat display-only.
+COMBAT_BAND = 0.15
 
 
 def part_weight(presence):
@@ -91,13 +101,33 @@ def team_strength(members):
     return (wsum + PRIOR_W * START) / (sw + PRIOR_W)
 
 
+def _combat_mults(members):
+    """Within ONE team, a bounded, team-neutral credit nudge from combat (score
+    earned from inferred kills). Returns {name: multiplier in [1-BAND, 1+BAND]}.
+    Average combat -> 1.0 (no change); a carrier -> up to 1+BAND; a passenger
+    with no kills -> down to ~1-BAND. tanh keeps it smooth and bounded. The
+    CALLER renormalises so the team total is preserved - so this only ever
+    RESHUFFLES credit inside a team, never inflates the system (kill-farming
+    cannot raise anyone's absolute rating). A facet, per the owner rule."""
+    if COMBAT_BAND <= 0:
+        return {m["name"]: 1.0 for m in members}
+    vals = [(m["name"], max(0.0, float(m.get("combat", 0) or 0))) for m in members]
+    if sum(1 for _, v in vals if v > 0) < 2:      # nothing to differentiate
+        return {n: 1.0 for n, _ in vals}
+    mean = sum(v for _, v in vals) / len(vals)
+    if mean <= 0:
+        return {n: 1.0 for n, _ in vals}
+    return {n: 1.0 + COMBAT_BAND * math.tanh(v / mean - 1.0) for n, v in vals}
+
+
 def compute_match(teams, winner_key):
-    """teams: {team_key: [ {name, elo, games, weight} ]} - only RATED players,
-    weight = participation weight (players below the floor are dropped upstream).
-    winner_key: the team that won.
+    """teams: {team_key: [ {name, elo, games, weight, combat, kills, deaths,
+    caliber} ]} - only RATED players, weight = participation weight (players
+    below the floor are dropped upstream). winner_key: the team that won.
 
     Returns (results, analytics):
-      results: [ {name, won, delta, weight} ] for each moved player.
+      results: [ {name, won, delta, weight, combat, kills, deaths, caliber,
+                  cmult} ] for each moved player.
       analytics: {strengths, expected, winner} for the review page.
     """
     keys = list(teams.keys())
@@ -112,6 +142,8 @@ def compute_match(teams, winner_key):
     for k in keys:
         won = (k == winner_key)
         rivals = [strengths[o] for o in keys if o != k] or [START]
+        mults = _combat_mults(teams[k])
+        tmp = []
         for m in teams[k]:
             w = m["weight"]
             if w <= 0:
@@ -120,7 +152,17 @@ def compute_match(teams, winner_key):
             base = win_expectation(eff, rivals)
             raw = K * ((1 - base) if won else base)   # win pays the upset; loss costs the expected win
             kmult = k_factor(m.get("games", 0)) / K
-            pending.append([m["name"], won, raw * w * kmult, w])
+            tmp.append([m, won, raw * w * kmult, w, mults.get(m["name"], 1.0)])
+        # combat facet: multiply each player's magnitude by their combat nudge,
+        # then rescale the team back to its pre-nudge total so the aggregate
+        # (and thus conservation below) is untouched. Credit only moves WITHIN
+        # the team.
+        base_sum = sum(t[2] for t in tmp)
+        adj_sum = sum(t[2] * t[4] for t in tmp)
+        rescale = (base_sum / adj_sum) if adj_sum else 1.0
+        for t in tmp:
+            t[2] = t[2] * t[4] * rescale
+        pending.extend(tmp)
 
     # A match neither creates nor destroys rating: damp the heavier side to the
     # lighter (never inflate a swing to balance the books).
@@ -134,10 +176,15 @@ def compute_match(teams, winner_key):
             fl = tg / tl
 
     results = []
-    for name, won, amt, w in pending:
+    for m, won, amt, w, cm in pending:
         delta = amt * (fg if won else -fl)
-        results.append({"name": name, "won": bool(won),
-                        "delta": round(delta, 2), "weight": round(w, 3)})
+        results.append({"name": m["name"], "won": bool(won),
+                        "delta": round(delta, 2), "weight": round(w, 3),
+                        "combat": int(m.get("combat", 0) or 0),
+                        "kills": int(m.get("kills", 0) or 0),
+                        "deaths": int(m.get("deaths", 0) or 0),
+                        "caliber": int(m.get("caliber", 0) or 0),
+                        "cmult": round(cm, 3)})
     analytics = {"strengths": {k: round(v, 1) for k, v in strengths.items()},
                  "expected": {k: round(v, 3) for k, v in expected.items()},
                  "winner": winner_key}

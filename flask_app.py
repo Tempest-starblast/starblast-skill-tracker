@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.4"
+APP_VERSION = "7.8.5"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -1101,6 +1101,14 @@ def init_db():
                     rated INTEGER DEFAULT 0)''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_shadow_matches_at "
               "ON shadow_matches(id DESC)")
+    # combat facet (kill inference) - lifetime totals per shadow player, for
+    # review only; they inform a bounded within-team credit nudge, not the elo.
+    for _col in ("kills INTEGER DEFAULT 0", "deaths INTEGER DEFAULT 0",
+                 "combat REAL DEFAULT 0", "caliber REAL DEFAULT 0"):
+        try:
+            c.execute("ALTER TABLE shadow_players ADD COLUMN %s" % _col)
+        except sqlite3.OperationalError:
+            pass      # already added
 
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3540,6 +3548,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.8.5", "at": "2026-08-25T20:40:00Z", "changes": [
+        "More behind-the-scenes work on the experimental rating pipeline. No effect on the current leaderboard."
+    ]},
     {"version": "7.8.0", "at": "2026-08-25T13:00:00Z", "changes": [
         "Behind-the-scenes groundwork for future rating improvements. No effect on the current leaderboard."
     ]},
@@ -5618,7 +5629,13 @@ def shadow_match():
             elo, g = srat.get(nn, (shadow_elo.START, 0))
             lst.append({"name": nn, "disp": reg[nn], "elo": elo, "games": g,
                         "weight": w, "jlvl": p.get("join_level"),
-                        "mins": p.get("minutes")})
+                        "mins": p.get("minutes"),
+                        # combat facet (kill inference) - review + a bounded,
+                        # team-neutral within-team credit nudge; not a driver.
+                        "combat": p.get("combat") or 0,
+                        "kills": p.get("kills") or 0,
+                        "deaths": p.get("deaths") or 0,
+                        "caliber": p.get("caliber") or 0})
         teams[tk] = lst
 
     results, analytics = [], {}
@@ -5628,25 +5645,37 @@ def shadow_match():
             nn = r["name"]
             won = r["won"]
             init_elo = max(shadow_elo.FLOOR_ELO, shadow_elo.START + r["delta"])
+            kc = int(r.get("kills") or 0)
+            dc = int(r.get("deaths") or 0)
+            cb = float(r.get("combat") or 0)
+            cl = float(r.get("caliber") or 0)
             c.execute(
                 "INSERT INTO shadow_players (norm_name, name, elo, wins, losses,"
-                " weight_sum, matches, updated_at) "
-                "VALUES (?,?,?,?,?,?,1,datetime('now')) "
+                " weight_sum, matches, kills, deaths, combat, caliber,"
+                " updated_at) "
+                "VALUES (?,?,?,?,?,?,1,?,?,?,?,datetime('now')) "
                 "ON CONFLICT(norm_name) DO UPDATE SET "
                 "elo = MAX(?, elo + ?), wins = wins + ?, losses = losses + ?, "
                 "weight_sum = weight_sum + ?, matches = matches + 1, "
-                "updated_at = datetime('now')",
+                "kills = kills + ?, deaths = deaths + ?, combat = combat + ?, "
+                "caliber = caliber + ?, updated_at = datetime('now')",
                 (nn, reg.get(nn, nn), init_elo, 1 if won else 0,
-                 0 if won else 1, r["weight"], shadow_elo.FLOOR_ELO, r["delta"],
-                 1 if won else 0, 0 if won else 1, r["weight"]))
+                 0 if won else 1, r["weight"], kc, dc, cb, cl,
+                 shadow_elo.FLOOR_ELO, r["delta"],
+                 1 if won else 0, 0 if won else 1, r["weight"],
+                 kc, dc, cb, cl))
     # Always log the match (even with 0 rated players) so the review page shows
     # coverage and every decision is auditable.
     analytics["win_by"] = data.get("win_by")     # how the winner was decided
-    _dbyname = {x["name"]: x["delta"] for x in results}
+    _rbyname = {x["name"]: x for x in results}
     teams_json = json.dumps({tk: [{"n": m["disp"], "e": round(m["elo"], 1),
                                    "g": m["games"], "w": round(m["weight"], 2),
                                    "j": m.get("jlvl"), "m": m.get("mins"),
-                                   "d": _dbyname.get(m["name"], 0)}
+                                   "d": (_rbyname.get(m["name"]) or {}).get("delta", 0),
+                                   # combat facet for review
+                                   "k": m.get("kills", 0), "x": m.get("deaths", 0),
+                                   "cb": m.get("combat", 0),
+                                   "cm": (_rbyname.get(m["name"]) or {}).get("cmult", 1.0)}
                                   for m in teams[tk]] for tk in teams},
                             ensure_ascii=False)
     c.execute("INSERT OR IGNORE INTO shadow_matches (match_key, at, region, "
@@ -5682,15 +5711,19 @@ def shadow_board_api():
                          "WHERE matches > 0").fetchone()[0]
     rows = c.execute(
         "SELECT s.norm_name, s.name, s.elo, s.wins, s.losses, s.matches, "
-        "s.weight_sum, p.elo FROM shadow_players s "
+        "s.weight_sum, s.kills, s.deaths, s.combat, p.elo FROM shadow_players s "
         "LEFT JOIN players p ON p.norm_name = s.norm_name "
         "WHERE s.matches > 0 ORDER BY s.elo DESC LIMIT 100").fetchall()
     board = []
-    for i, (nn, nm, elo, w, l, m, ws, live_elo) in enumerate(rows, 1):
+    for i, (nn, nm, elo, w, l, m, ws, kk, dd, cbt, live_elo) in enumerate(rows, 1):
         board.append({
             "rank": i, "name": nm, "elo": round(elo, 1),
             "wins": w, "losses": l, "matches": m,
             "avg_part": round(ws / m, 2) if m else 0,
+            # combat facet (kill inference) - review only, NOT part of the elo
+            "kills": kk or 0, "deaths": dd or 0,
+            "kd": round((kk or 0) / dd, 2) if dd else (kk or 0),
+            "combat_pg": round((cbt or 0) / m) if m else 0,
             "live_elo": round(live_elo, 1) if live_elo is not None else None})
     conn.close()
     return jsonify({"matches_total": tot[0], "matches_rated": tot[1],

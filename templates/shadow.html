@@ -21,6 +21,7 @@ table.sh th,table.sh td{padding:7px 10px;text-align:left;border-bottom:1px solid
 table.sh th{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
 table.sh td.n{text-align:right;font-variant-numeric:tabular-nums}
 .delta.up{color:#66e6b8} .delta.dn{color:#ff7a7a}
+.cm{color:#c9a24a;font-variant-numeric:tabular-nums}
 .diff.up{color:#66e6b8} .diff.dn{color:#ff7a7a} .diff.eq{color:var(--muted)}
 .mcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 14px;
   background:var(--panel,rgba(6,10,18,.4))}
@@ -55,7 +56,8 @@ table.sh td.n{text-align:right;font-variant-numeric:tabular-nums}
   <div style="overflow-x:auto"><table class="sh"><thead><tr>
     <th>#</th><th>Player</th><th class="n">Shadow</th><th class="n">Live</th>
     <th class="n">Diff</th><th class="n">W-L</th><th class="n">Matches</th><th class="n">Avg part.</th>
-  </tr></thead><tbody id="boardBody"><tr><td colspan="8" class="empty">Loading&hellip;</td></tr></tbody></table></div>
+    <th class="n" title="Kill inference - a review facet, NOT part of the rating">K/D</th>
+  </tr></thead><tbody id="boardBody"><tr><td colspan="9" class="empty">Loading&hellip;</td></tr></tbody></table></div>
 </div>
 
 <div id="paneMatches" style="display:none">
@@ -82,7 +84,7 @@ fetch('/api/shadow/board').then(function(r){return r.json();}).then(function(d){
     stat('Players rated', d.players) +
     stat('Top shadow', (d.board[0]? esc(d.board[0].name)+' &middot; '+d.board[0].elo : '—'));
   var b = document.getElementById('boardBody');
-  if(!d.board.length){ b.innerHTML='<tr><td colspan="8" class="empty">No matches scored yet.</td></tr>'; return; }
+  if(!d.board.length){ b.innerHTML='<tr><td colspan="9" class="empty">No matches scored yet.</td></tr>'; return; }
   b.innerHTML = d.board.map(function(p){
     var diff = (p.live_elo!=null)? Math.round(p.elo - p.live_elo) : null;
     var dc = diff==null?'eq':(diff>0?'up':(diff<0?'dn':'eq'));
@@ -92,7 +94,8 @@ fetch('/api/shadow/board').then(function(r){return r.json();}).then(function(d){
       '<td class="n diff '+dc+'">'+(diff==null?'—':(diff>0?'+':'')+diff)+'</td>'+
       '<td class="n">'+p.wins+'-'+p.losses+'</td>'+
       '<td class="n">'+p.matches+'</td>'+
-      '<td class="n muted">'+p.avg_part+'</td></tr>';
+      '<td class="n muted">'+p.avg_part+'</td>'+
+      '<td class="n muted" title="'+(p.kills||0)+' kills, '+(p.deaths||0)+' deaths &middot; combat/game '+p.combat_pg+'. Facet only.">'+p.kd+'</td></tr>';
   }).join('');
 });
 function stat(l,v){ return '<div class="shstat"><div class="l">'+l+'</div><div class="v">'+v+'</div></div>'; }
@@ -111,8 +114,12 @@ function loadMatches(off){
         var win = (String(m.winner)===String(k));
         var rows = players.map(function(p){
           var dc = p.d>0?'up':(p.d<0?'dn':'');
+          var kd = (p.k||p.x)? ' &middot; '+(p.k||0)+'k/'+(p.x||0)+'d':'';
+          // combat credit nudge (facet): show when it moved the split >1%
+          var cm = (p.cm!=null && Math.abs(p.cm-1)>0.01)?
+            ' <span class="cm" title="within-team combat credit nudge">&times;'+p.cm.toFixed(2)+'</span>':'';
           return '<div class="prow"><span class="pn">'+esc(p.n)+'</span>'+
-            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; '+(p.m||'?')+'m &middot; w'+p.w+'</span>'+
+            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; '+(p.m||'?')+'m &middot; w'+p.w+kd+cm+'</span>'+
             '<span class="pd delta '+dc+'">'+(p.d>0?'+':'')+p.d+'</span></div>';
         }).join('') || '<div class="prow muted">no rated players</div>';
         return '<div class="mteam'+(win?' win':'')+'"><h4><span>Team '+(Number(k)+1)+
