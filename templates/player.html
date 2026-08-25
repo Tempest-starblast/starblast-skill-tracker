@@ -111,7 +111,7 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
      document.getElementById('shipTitle').textContent =
        ships.length ? 'Ships flown' : 'How they play';
      document.getElementById('shipSummary').innerHTML = ships.length
-       ? ('Favourite ship <b>' + d.favourite + '</b>'
+       ? ('Favourite ship <b>' + esc2(ships[0].name) + '</b>'
           + (d.top_tier ? ' &middot; usually reaches ' + tierName[d.top_tier] : '')
           + '. Read off the game&#39;s own scoreboard at the end of each match.')
        : 'Across ' + d.matches + (d.matches === 1 ? ' tracked match' : ' tracked matches')
@@ -145,8 +145,11 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
      document.getElementById('shipList').innerHTML = ships.map(function(s){
        var pct = Math.max(4, Math.round(100 * s.n / max));
        var wr = s.n ? Math.round(100 * s.wins / s.n) : 0;
-       return '<div style="display:flex;align-items:center;gap:10px;padding:4px 0">'
-         + '<b style="width:44px;font-variant-numeric:tabular-nums">' + s.ship + '</b>'
+       var emb = s.path ? '<svg viewBox="0 0 100 100" width="20" height="20" '
+         + 'style="flex:0 0 auto;vertical-align:middle"><path d="' + s.path
+         + '" fill="#99DDFF"/></svg>' : '';
+       return '<div style="display:flex;align-items:center;gap:9px;padding:4px 0">'
+         + emb + '<b style="width:118px">' + esc2(s.name) + '</b>'
          + '<span style="flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden">'
          + '<i style="display:block;height:100%;width:' + pct + '%;background:#99DDFF"></i></span>'
          + '<span class="sub" style="width:150px;text-align:right">' + s.n

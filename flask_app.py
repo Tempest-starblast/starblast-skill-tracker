@@ -19,7 +19,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.0"
+APP_VERSION = "7.7.1"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -2558,7 +2558,7 @@ def live_matches():
                     [{"name": _pl["n"], "elo": _pl["e"],
                       "known": _pl.get("k", 0),
                       "score": int(_pl.get("s", 0) or 0),
-                      "ship": _pl.get("sp") or None, "imp": None}
+                      "ship": ship_shapes.ship_name(_pl.get("sp")) or (_pl.get("sp") or None), "imp": None}
                      for _pl in _plist],
                     key=lambda q: -q["score"])
                 continue
@@ -2584,7 +2584,7 @@ def live_matches():
                 _out.append({"name": _pl["n"], "elo": _pl["e"],
                              "known": _pl.get("k", 0),
                              "score": int(_pl.get("s", 0) or 0),
-                             "ship": _pl.get("sp") or None,
+                             "ship": ship_shapes.ship_name(_pl.get("sp")) or (_pl.get("sp") or None),
                              "imp": round(_imp, 4)})
             _out.sort(key=lambda q: -q["imp"])
             players_by_team[k] = _out
@@ -3512,6 +3512,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.1", "at": "2026-08-25T06:30:00Z", "changes": [
+        "Ships now show by name instead of a code number. Your profile’s “ships flown” lists each ship by name — U-Sniper, Odyssey, and so on — with its silhouette beside it, and the live match rosters name the current ship the same way."
+    ]},
     {"version": "7.7.0", "at": "2026-08-25T05:30:00Z", "changes": [
         "Added skill ranks. Every ranked player now carries one of seven divisions — Fly, Delta-Fighter, Pulse-Fighter, Mercury, U-Sniper, Advanced-Fighter and Odyssey — by where they sit on the all-time board (Odyssey is the top 3%). Your division shows as that ship’s emblem next to your name on the leaderboard, and your profile gets a rank-themed banner with the ship and your percentile. The emblems are the real ships: their silhouettes are generated from the game’s own ship-model geometry, so each one is the actual hull, not a stand-in. Players still in their first five placement matches don’t have a rank yet."
     ]},
@@ -5089,7 +5092,9 @@ def player_ships(name):
               "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
               "WHERE norm_name = mp.norm_name), '') "
               "GROUP BY mp.ship ORDER BY 2 DESC", (key,))
-    ships = [{"ship": r[0], "n": r[1], "wins": r[2] or 0} for r in c.fetchall()]
+    ships = [{"ship": r[0], "name": ship_shapes.ship_name(r[0]) or str(r[0]),
+              "path": ship_shapes.ship_path(r[0]), "n": r[1], "wins": r[2] or 0}
+             for r in c.fetchall()]
     _since = ("AND m.played_at > COALESCE((SELECT wiped_before FROM players "
               "WHERE norm_name = mp.norm_name), '')")
     # Average score counts WINS only (owner's rule, 23 Aug 2026): a
