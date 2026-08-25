@@ -15,7 +15,7 @@ import ship_shapes
 # 8 = holographic diamond). `diamond` gets the glitter/shimmer treatment.
 RANKS = [
     {"level": 8, "key": "shadowx3", "name": "Shadow X-3",       "ship": 702,
-     "cut": 0.001, "band": "Top 0.1%", "flair": 8, "diamond": True,
+     "cut": 0.005, "band": "Top 0.5%", "flair": 8, "diamond": True,
      "color": "#8ef3ff", "glow": "rgba(150,230,255,.55)"},
     {"level": 7, "key": "odyssey",  "name": "Odyssey",          "ship": 701,
      "cut": 0.03, "band": "Top 3%", "flair": 7,
