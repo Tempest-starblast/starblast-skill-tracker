@@ -106,62 +106,116 @@
    background and layout are left alone, so the page still reads as a profile
    on the site rather than a themed takeover. */
 body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(--line))}
+/* Consolidated profile box: identity + rank + stats + peaks in one themed
+   card. Escalates with flair (1 = plain rundown Fly; 8 = holographic diamond). */
+.pbox{position:relative;overflow:hidden;margin:2px 0 22px;padding:20px 22px;border-radius:16px;
+  border:1px solid color-mix(in srgb,var(--rk,#8b949e) 42%,transparent);
+  background:
+    radial-gradient(120% 130% at 14% -12%,var(--rkglow,rgba(139,148,158,.22)),transparent 58%),
+    linear-gradient(180deg,color-mix(in srgb,var(--rk,#8b949e) 11%,#141922),#11151c);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 10px 30px rgba(0,0,0,.4)}
+.pbox>*{position:relative;z-index:2}
+.pbox-top{display:flex;align-items:center;gap:20px}
+.pbox-emblem{flex:0 0 auto;width:100px;height:100px;display:flex;align-items:center;
+  justify-content:center;border-radius:14px;
+  background:radial-gradient(circle at 50% 40%,var(--rkglow,rgba(139,148,158,.28)),transparent 70%)}
+.pbox-emblem svg{filter:drop-shadow(0 2px 8px var(--rkglow,rgba(0,0,0,.5)))}
+.pbox-id{min-width:0;flex:1}
+.pname2{font-size:25px;font-weight:800;line-height:1.15;margin:0 0 5px;color:#f0f4f8;text-wrap:balance}
+.pbox-rank{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.pbox-rank .rk-name{font-size:19px;font-weight:800;color:var(--rk,#e6edf3);letter-spacing:.2px}
+.pbox-rank .rk-band{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.pbox-stats{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px;padding-top:16px;
+  border-top:1px solid color-mix(in srgb,var(--rk,#8b949e) 20%,var(--line))}
+.pstat{flex:1 1 84px;min-width:78px}
+.pst-l{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700}
+.pst-v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:#e6edf3;margin-top:2px}
+.pbox-peaks{display:flex;gap:20px;flex-wrap:wrap;margin-top:14px;padding-top:12px;
+  border-top:1px solid color-mix(in srgb,var(--rk,#8b949e) 14%,var(--line))}
+.ppk{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+.ppk svg{vertical-align:middle}
+.ppk-l{text-transform:uppercase;letter-spacing:.8px;font-size:10px;font-weight:700}
+.ppk-v{font-weight:800;color:#e6edf3}
+.ppk-at{font-size:11px;color:var(--muted)}
+.pbox-foot{margin:16px 0 0;font-size:12.5px}
+.pbox-foot a{color:color-mix(in srgb,var(--rk,#8b949e) 60%,#9fc7ff);text-decoration:none}
+.pbox-foot a:hover{text-decoration:underline}
+.pbox.flair-1{border-color:#2b3038;background:linear-gradient(180deg,#171a1f,#131519)}
+.pbox.flair-1 .pbox-emblem{background:none}
+.pbox.flair-1 .pbox-emblem svg{filter:none;opacity:.82}
+.pbox.flair-1 .rk-name{color:#9aa2ac}
+.pbox.flair-5 .rk-name{text-shadow:0 0 16px var(--rkglow)}
+.pbox.flair-6{border-color:color-mix(in srgb,var(--rk) 60%,transparent);background:
+  linear-gradient(115deg,transparent 30%,rgba(255,255,255,.05) 46%,transparent 62%),
+  radial-gradient(120% 130% at 14% -12%,var(--rkglow),transparent 58%),
+  linear-gradient(180deg,color-mix(in srgb,var(--rk) 14%,#16110a),#12100a)}
+.pbox.flair-6 .rk-name{text-shadow:0 0 15px var(--rkglow)}
+.pbox.flair-7{border-color:color-mix(in srgb,var(--rk) 65%,transparent);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 12px 34px var(--rkglow)}
+.pbox.flair-7 .rk-name{text-shadow:0 0 20px var(--rkglow)}
+.pbox.flair-7::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.12) 50%,transparent 60%);
+  transform:translateX(-120%);animation:rk-sheen 4.6s ease-in-out infinite}
+.pbox.diamond{border:1px solid transparent;
+  background:linear-gradient(#0b0f14,#0b0f14) padding-box,
+    linear-gradient(120deg,#8ef3ff,#d9c4ff,#fff,#b6fff0,#8ef3ff) border-box;
+  box-shadow:0 0 0 1px rgba(160,235,255,.22),0 12px 36px rgba(150,230,255,.3)}
+.pbox.diamond .rk-name{background:linear-gradient(120deg,#a8ecff,#e6d4ff,#fff,#c9fff0,#a8ecff);
+  background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:rk-holo 6s linear infinite}
+.pbox.diamond .pbox-emblem{background:radial-gradient(circle at 50% 40%,rgba(180,240,255,.5),transparent 70%)}
+.pbox.diamond .pbox-emblem svg{filter:drop-shadow(0 0 9px rgba(180,240,255,.9))}
+.pbox.diamond::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.28) 50%,transparent 58%);
+  transform:translateX(-120%);animation:rk-sheen 3.8s ease-in-out infinite}
+.pbox .sparkles{position:absolute;inset:0;z-index:1;pointer-events:none;
+  background-image:
+    radial-gradient(1.5px 1.5px at 20% 30%,#fff,transparent),
+    radial-gradient(1.5px 1.5px at 72% 24%,#cfe9ff,transparent),
+    radial-gradient(1.5px 1.5px at 44% 72%,#fff,transparent),
+    radial-gradient(2px 2px at 88% 62%,#e6d4ff,transparent),
+    radial-gradient(1.5px 1.5px at 60% 46%,#fff,transparent),
+    radial-gradient(1.5px 1.5px at 32% 88%,#cfe9ff,transparent);
+  animation:rk-twinkle 2.4s ease-in-out infinite}
+.pbox.placements{border-color:#2b3038;background:linear-gradient(180deg,#161a20,#12151b)}
+.pbox.placements .rk-name{color:#c9d1d9}
+@media (prefers-reduced-motion:reduce){.pbox::before,.pbox .sparkles{animation:none}
+  .pbox.diamond .rk-name{animation:none;background-position:0 50%}}
 {% endblock %}
 {% block body %}
 {% if player %}
 {% if player.division %}
 <style>body.pg-players{--rk:{{ player.division.color }};--rkglow:{{ player.division.glow }}}</style>
 {% endif %}
-<h1 class="ptitle"{% if player.division %} style="text-shadow:0 0 24px color-mix(in srgb,{{ player.division.color }} 32%,transparent)"{% endif %}>{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}
-{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}"
-   title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span></h1>
-<p class="msg" id="invMsg"></p>
-<p class="psub">Rank #{{ player.rank }} of {{ player.rank_of }}{% if primary %} &middot;
-   {% if primary.only %}Plays in <b>{{ primary.label }}</b>{% else %}Mainly
-   <b>{{ primary.label }}</b> ({{ primary.share }}% of matches){% endif %}{% endif %}
-   &middot; <a href="/">Leaderboard</a></p>
-
-{% if player.division %}
 {% set d = player.division %}
-<div class="rankhero flair-{{ d.flair }}{% if d.diamond %} diamond{% endif %}" style="--rk:{{ d.color }};--rkglow:{{ d.glow }}">
-  <div class="rankemblem">{{ rank_emblem(d.ship, 82, d.color, d.name)|safe }}</div>
-  <div class="rankmeta">
-    <div class="ranklabel">{{ t('Skill rank') }} &middot; {{ t('Division') }} {{ d.level }}/8</div>
-    <div class="rankname">{{ d.name }}</div>
-    <div class="rankship">{{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</div>
+<div class="pbox{% if d %} flair-{{ d.flair }}{% if d.diamond %} diamond{% endif %}{% elif player.placements_left %} placements{% endif %}"{% if d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
+  {% if d and d.diamond %}<div class="sparkles" aria-hidden="true"></div>{% endif %}
+  <div class="pbox-top">
+    <div class="pbox-emblem">{% if d %}{{ rank_emblem(d.ship, 88, d.color, d.name)|safe }}{% else %}{{ rank_emblem(101, 74, '#8b949e', 'Fly')|safe }}{% endif %}</div>
+    <div class="pbox-id">
+      <h1 class="pname2">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}" title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span></h1>
+      <div class="pbox-rank">
+        {%- if d %}<span class="rk-name">{{ d.name }}</span><span class="rk-band">{{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>
+        {%- elif player.placements_left %}<span class="rk-name">{{ t('In placements') }}</span><span class="rk-band">{{ player.placements_left }} {{ t('more to earn a rank') }}</span>
+        {%- else %}<span class="rk-band">Rank #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>{% endif %}
+      </div>
+      <p class="msg" id="invMsg"></p>
+    </div>
   </div>
-  {% if d.diamond %}<div class="sparkles" aria-hidden="true"></div>{% endif %}
-</div>
-{% if player.peak %}
-<div class="peaks">
-  {% if player.peak.rank %}
-  <div class="peakcard">
-    <div class="pk-ic">&#9650;</div>
-    <div><div class="pk-lbl">{{ t('Best rank reached') }}</div>
-      <div class="pk-val">#{{ player.peak.rank }}</div>
-      {% if player.peak.rank_at %}<div class="pk-at">{{ player.peak.rank_at }}</div>{% endif %}</div>
+  <div class="pbox-stats">
+    <div class="pstat"><div class="pst-l">{{ t('Skill') }}</div><div class="pst-v"{% if d %} style="color:var(--rk)"{% endif %}>{{ player.elo }}</div></div>
+    <div class="pstat"><div class="pst-l">{{ t('Win rate') }}</div><div class="pst-v">{{ player.winrate }}</div></div>
+    <div class="pstat"><div class="pst-l">{{ t('Record') }}</div><div class="pst-v">{{ player.wins }}-{{ player.losses }}</div></div>
+    <div class="pstat"><div class="pst-l">{{ t('Plays in') }}</div><div class="pst-v" style="font-size:15px;padding-top:6px">{% if primary %}{{ primary.label }}{% else %}&mdash;{% endif %}</div></div>
+  </div>
+  {% if player.peak %}
+  <div class="pbox-peaks">
+    {% if player.peak.rank %}<div class="ppk"><span class="ppk-l">{{ t('Best rank') }}</span> <span class="ppk-v">#{{ player.peak.rank }}</span>{% if player.peak.rank_at %} <span class="ppk-at">{{ player.peak.rank_at }}</span>{% endif %}</div>{% endif %}
+    {% if player.peak.division %}<div class="ppk"><span class="ppk-l">{{ t('Highest emblem') }}</span> {{ rank_emblem(player.peak.division.ship, 18, player.peak.division.color, player.peak.division.name)|safe }} <span class="ppk-v" style="color:{{ player.peak.division.color }}">{{ player.peak.division.name }}</span>{% if player.peak.div_at %} <span class="ppk-at">{{ player.peak.div_at }}</span>{% endif %}</div>{% endif %}
   </div>
   {% endif %}
-  {% if player.peak.division %}
-  <div class="peakcard" style="--rk:{{ player.peak.division.color }};--rkglow:{{ player.peak.division.glow }}">
-    <div class="pk-emb">{{ rank_emblem(player.peak.division.ship, 32, player.peak.division.color, player.peak.division.name)|safe }}</div>
-    <div><div class="pk-lbl">{{ t('Highest emblem earned') }}</div>
-      <div class="pk-val" style="color:var(--rk)">{{ player.peak.division.name }}</div>
-      {% if player.peak.div_at %}<div class="pk-at">{{ player.peak.div_at }}</div>{% endif %}</div>
-  </div>
-  {% endif %}
+  <p class="pbox-foot"><a href="/">&larr; {{ t('Leaderboard') }}</a></p>
 </div>
-{% endif %}
-{% elif player.placements_left %}
-<div class="rankhero placements">
-  <div class="rankemblem">{{ rank_emblem(101, 64, '#8b949e', 'Fly')|safe }}</div>
-  <div class="rankmeta">
-    <div class="ranklabel">{{ t('Skill rank') }}</div>
-    <div class="rankname">{{ t('In placements') }}</div>
-    <div class="rankship">{{ player.placements_left }} {{ t('more match(es) to earn a rank emblem') }}</div>
-  </div>
-</div>
-{% endif %}
 
 <div class="card">
   <h2>Compare with someone</h2>
@@ -256,13 +310,6 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
    }).catch(function(){});
 })();
 </script>
-
-<div class="card"><div class="grid">
-  <div class="stat"><div class="label">Skill</div><div class="value" style="color:{% if player.division %}{{ player.division.color }}{% else %}var(--blue){% endif %}">{{ player.elo }}</div></div>
-  <div class="stat"><div class="label">Win rate</div><div class="value">{{ player.winrate }}</div></div>
-  <div class="stat"><div class="label">Wins</div><div class="value" style="color:var(--green)">{{ player.wins }}</div></div>
-  <div class="stat"><div class="label">Losses</div><div class="value" style="color:var(--red)">{{ player.losses }}</div></div>
-</div></div>
 
 <div class="card">
   <h2>Where these matches were played</h2>

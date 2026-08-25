@@ -20,7 +20,7 @@ import ship_shapes
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7.7"
+APP_VERSION = "7.7.8"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -3519,6 +3519,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.7.8", "at": "2026-08-25T11:45:00Z", "changes": [
+        "Rebuilt the top of a profile into one themed profile box: the ship emblem, name and clan, skill rank, the key stats (skill, win rate, record, region) and your career peaks all sit together in a single card, styled in your rank's colour and escalating to the holographic diamond at the very top. It reads clearly as a profile, and the theme lives in the box."
+    ]},
     {"version": "7.7.7", "at": "2026-08-25T11:00:00Z", "changes": [
         "Clan pages now show each member's skill rank: their division's ship emblem, their name in that rank's colour, and a rank label (Shadow X-3, Odyssey, U-Sniper, …) beside it. And the profile's rank theme is now contained to the profile itself — the rank colour and emblem sit on the identity card and name rather than washing the whole screen, so a profile reads clearly as a profile against the normal Starblast backdrop."
     ]},
