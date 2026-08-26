@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.5"
+APP_VERSION = "7.8.6"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -1307,6 +1307,31 @@ def init_db():
         pass
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_region ON matches(region, played_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_row ON match_players(match_row)")
+
+    # Cold storage for matches removed by a record wipe. A wipe is meant to
+    # be a true reset to placement, so the wiped matches are DELETED from
+    # match_players (nothing - the profile, a recompute, a future restore -
+    # can then rebuild a record from them). They are copied here first so an
+    # admin can still recover or audit them if a wipe is ever disputed.
+    c.execute('''CREATE TABLE IF NOT EXISTS wiped_match_players (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    wiped_at TEXT,
+                    account TEXT,
+                    norm_name TEXT,
+                    match_row INTEGER,
+                    match_id TEXT,
+                    played_at TEXT,
+                    region TEXT,
+                    won INTEGER,
+                    delta REAL,
+                    half INTEGER,
+                    played_as TEXT,
+                    score INTEGER,
+                    ship INTEGER,
+                    deaths INTEGER
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_wiped_mp_norm "
+              "ON wiped_match_players(norm_name, wiped_at)")
 
     # Flood evidence: how badly one name was duplicated in this match, and
     # by whom. Recorded for every match, judged by nobody - it exists so a
@@ -3548,6 +3573,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.8.6", "at": "2026-08-26T04:00:00Z", "changes": [
+        "The one-time wipe offered right after you claim a name is now a full reset to placement: the name's earlier matches are moved to archive and removed from the board, rather than just hidden from your total. Keeping them is still the default."
+    ]},
     {"version": "7.8.5", "at": "2026-08-25T20:40:00Z", "changes": [
         "More behind-the-scenes work on the experimental rating pipeline. No effect on the current leaderboard."
     ]},
@@ -10524,9 +10552,14 @@ def account_wipe():
     """The one-time claim wipe. A freshly claimed name may carry a record
     other people built before its real owner arrived; right after a claim
     completes - and only then - the owner may wipe it and start clean at
-    the starting rating. 'Keep' dismisses the offer instead. Match records
-    themselves are untouched (they belong to the matches); the profile
-    simply starts counting from the wipe."""
+    the starting rating. 'Keep' dismisses the offer instead.
+
+    A wipe is a TRUE reset to placement: the account's matches are archived
+    into wiped_match_players and then DELETED from match_players, so nothing
+    - the profile history, a stats recompute, or a future restore - can
+    rebuild a record from them. Pending (held) results for the identity are
+    dropped too, so an old match can't be applied after the reset. The
+    archive keeps everything recoverable by an admin if a wipe is disputed."""
     sub_id = current_user()
     if not sub_id:
         return redirect('/account')
@@ -10540,9 +10573,27 @@ def account_wipe():
         conn.close()
         return redirect('/account')
     if choice == 'wipe':
+        acct = row[0]
+        nn = normalize_name(acct)
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        # 1) copy this account's matches into cold storage
+        c.execute(
+            "INSERT INTO wiped_match_players "
+            "(wiped_at, account, norm_name, match_row, match_id, played_at, "
+            " region, won, delta, half, played_as, score, ship, deaths) "
+            "SELECT ?, ?, mp.norm_name, mp.match_row, m.match_id, m.played_at, "
+            " m.region, mp.won, mp.delta, mp.half, mp.played_as, mp.score, "
+            " mp.ship, mp.deaths "
+            "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+            "WHERE mp.norm_name = ?", (now, acct, nn))
+        # 2) remove them from the live tables so nothing counts them again
+        c.execute("DELETE FROM match_players WHERE norm_name = ?", (nn,))
+        c.execute("DELETE FROM held_results WHERE norm_name = ?", (nn,))
+        # 3) reset the account to placement (fresh at the starting rating).
+        #    wiped_before is still stamped as an audit marker of when it happened.
         c.execute("UPDATE players SET elo = ?, wins = 0, losses = 0, "
                   "wiped_before = ?, wipe_available = 0 WHERE name = ?",
-                  (STARTING_ELO, time.strftime('%Y-%m-%d %H:%M:%S'), row[0]))
+                  (STARTING_ELO, now, acct))
     else:
         c.execute("UPDATE players SET wipe_available = 0 WHERE name = ?", (row[0],))
     conn.commit()
