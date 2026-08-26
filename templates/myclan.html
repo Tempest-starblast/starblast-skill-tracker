@@ -229,6 +229,11 @@
     <label>{{ t('Co-leader') }} <span class="df">default</span>
       <input type="text" id="rn_coleader" maxlength="24" autocomplete="off"
              value="{{ clan.role_names.coleader }}" placeholder="Co-leader"></label>
+    {%- if clan.is_leader %}
+    <label>{{ t('Leader') }} <span class="df">default &middot; leader only</span>
+      <input type="text" id="rn_leader" maxlength="24" autocomplete="off"
+             value="{{ clan.role_names.leader }}" placeholder="Leader"></label>
+    {%- endif %}
   </div>
   <button class="primary" onclick="saveRoleNames()">{{ t('Save role names') }}</button>
   <p class="msg" id="roleNamesMsg"></p>
@@ -412,6 +417,8 @@ async function saveRoleNames(){
     moderator: document.getElementById('rn_moderator').value,
     coleader: document.getElementById('rn_coleader').value
   };
+  const rl = document.getElementById('rn_leader');   // leader-only field
+  if (rl) labels.leader = rl.value;
   try{
     const [r, d] = await post('/clan/rolenames', {clan: TAG, labels: labels});
     say('roleNamesMsg', d.ok, d.message);

@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.9"
+APP_VERSION = "7.9.0"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -783,9 +783,10 @@ def canonical_clan_tag(text, tags=None):
 CLAN_ROLES = ('moderator', 'coleader', 'leader')
 CLAN_ROLE_LABELS = {'leader': 'Leader', 'coleader': 'Co-leader',
                     'moderator': 'Moderator', 'player': 'Member'}
-# The role titles a clan may rename for itself. 'leader' is deliberately not
-# here - the owner title stays fixed - and 'player' is the base member.
-CUSTOMIZABLE_ROLES = ('player', 'moderator', 'coleader')
+# The role titles a clan may rename for itself. 'player' is the base member;
+# 'leader' is renameable too but only by the leader (enforced in
+# perform_clan_labels), where the other three are the leader's or a co-leader's.
+CUSTOMIZABLE_ROLES = ('player', 'moderator', 'coleader', 'leader')
 CLAN_ROLE_NAME_MAX = 24
 
 
@@ -3607,6 +3608,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.0", "at": "2026-08-26T09:00:00Z", "changes": [
+        "The leader title can now be renamed too, alongside member, moderator and co-leader - though only the leader can change the leader title. Custom role names are filtered the same way typed player names are, so nothing offensive gets through."
+    ]},
     {"version": "7.8.9", "at": "2026-08-26T08:00:00Z", "changes": [
         "Clan leaders can now transfer ownership to another member from Your clan — the new leader takes over and the old one steps down to co-leader. And a clan can rename its roles: the member, moderator and co-leader titles are now yours to set (the colours stay the same), shown on the roster and the public clan page."
     ]},
@@ -10356,17 +10360,26 @@ def perform_clan_labels(c, sub_id, raw_tag, labels, trusted=False):
     if not trusted and not may_manage(c, sub_id, known):
         return 403, {"ok": False,
                      "message": "Only the leader or a co-leader can rename roles."}
+    actor_leader = trusted or is_clan_leader(c, sub_id, known)
     if not isinstance(labels, dict):
         return 400, {"ok": False, "message": "Nothing to change."}
     for role in CUSTOMIZABLE_ROLES:
         if role not in labels:
             continue
+        # The leader title is the leader's alone to change.
+        if role == 'leader' and not actor_leader:
+            return 403, {"ok": False,
+                         "message": "Only the clan's leader can rename the leader role."}
         val = " ".join(str(labels.get(role) or "").split())   # collapse whitespace
         if len(val) > CLAN_ROLE_NAME_MAX:
             return 400, {"ok": False,
                          "message": f"A role name is at most {CLAN_ROLE_NAME_MAX} characters."}
         if any(ord(ch) < 32 for ch in val):
             return 400, {"ok": False, "message": "A role name has an invalid character."}
+        # Same moderation as a typed player name - no slurs or profanity.
+        if val and is_blocked_word(val):
+            return 400, {"ok": False,
+                         "message": "That role name isn't allowed. Pick another."}
         if val and val.lower() != CLAN_ROLE_LABELS.get(role, '').lower():
             c.execute("INSERT INTO clan_role_labels (clan, role, label) VALUES (?, ?, ?) "
                       "ON CONFLICT(clan, role) DO UPDATE SET label = ?",
