@@ -22,6 +22,7 @@ table.sh th{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:
 table.sh td.n{text-align:right;font-variant-numeric:tabular-nums}
 .delta.up{color:#66e6b8} .delta.dn{color:#ff7a7a}
 .cm{color:#c9a24a;font-variant-numeric:tabular-nums}
+.qc{color:#ff9f5a;font-variant-numeric:tabular-nums}
 .diff.up{color:#66e6b8} .diff.dn{color:#ff7a7a} .diff.eq{color:var(--muted)}
 .mcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 14px;
   background:var(--panel,rgba(6,10,18,.4))}
@@ -53,6 +54,10 @@ table.sh td.n{text-align:right;font-variant-numeric:tabular-nums}
 </div>
 
 <div id="paneBoard">
+  <div style="margin:0 0 12px"><input id="boardSearch" type="search" autocomplete="off"
+    placeholder="Look up a player&hellip;" oninput="onSearch()"
+    style="width:100%;max-width:340px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;
+    background:rgba(0,0,0,.35);color:var(--fg,#e8eef7);font-size:14px"></div>
   <div style="overflow-x:auto"><table class="sh"><thead><tr>
     <th>#</th><th>Player</th><th class="n">Shadow</th><th class="n">Live</th>
     <th class="n">Diff</th><th class="n">W-L</th><th class="n">Matches</th><th class="n">Avg part.</th>
@@ -77,14 +82,19 @@ function showTab(t){
   document.getElementById('tabMatches').className = t==='matches'?'on':'';
   if(t==='matches' && !window._mloaded){ window._mloaded=true; loadMatches(0); }
 }
-fetch('/api/shadow/board').then(function(r){return r.json();}).then(function(d){
-  var s = document.getElementById('shsum');
-  s.innerHTML =
-    stat('Matches scored', d.matches_rated + ' / ' + d.matches_total) +
-    stat('Players rated', d.players) +
-    stat('Top shadow', (d.board[0]? esc(d.board[0].name)+' &middot; '+d.board[0].elo : '—'));
+function renderBoard(d, q){
+  if(!q){
+    var s = document.getElementById('shsum');
+    s.innerHTML =
+      stat('Matches scored', d.matches_rated + ' / ' + d.matches_total) +
+      stat('Players rated', d.players) +
+      stat('Top shadow', (d.board[0]? esc(d.board[0].name)+' &middot; '+d.board[0].elo : '—'));
+  }
   var b = document.getElementById('boardBody');
-  if(!d.board.length){ b.innerHTML='<tr><td colspan="9" class="empty">No matches scored yet.</td></tr>'; return; }
+  if(!d.board.length){
+    b.innerHTML='<tr><td colspan="9" class="empty">'+(q?'No player matches &ldquo;'+esc(q)+'&rdquo;.':'No matches scored yet.')+'</td></tr>';
+    return;
+  }
   b.innerHTML = d.board.map(function(p){
     var diff = (p.live_elo!=null)? Math.round(p.elo - p.live_elo) : null;
     var dc = diff==null?'eq':(diff>0?'up':(diff<0?'dn':'eq'));
@@ -97,7 +107,18 @@ fetch('/api/shadow/board').then(function(r){return r.json();}).then(function(d){
       '<td class="n muted">'+p.avg_part+'</td>'+
       '<td class="n muted" title="'+(p.kills||0)+' kills, '+(p.deaths||0)+' deaths &middot; combat/game '+p.combat_pg+'. Facet only.">'+p.kd+'</td></tr>';
   }).join('');
-});
+}
+function loadBoard(q){
+  var url = '/api/shadow/board' + (q ? ('?q='+encodeURIComponent(q)) : '');
+  fetch(url).then(function(r){return r.json();}).then(function(d){ renderBoard(d, q); });
+}
+var _searchT=null;
+function onSearch(){
+  var q = document.getElementById('boardSearch').value.trim();
+  clearTimeout(_searchT);
+  _searchT = setTimeout(function(){ loadBoard(q); }, 200);
+}
+loadBoard('');
 function stat(l,v){ return '<div class="shstat"><div class="l">'+l+'</div><div class="v">'+v+'</div></div>'; }
 var _moff = 0;
 function loadMatches(off){
@@ -118,8 +139,11 @@ function loadMatches(off){
           // combat credit nudge (facet): show when it moved the split >1%
           var cm = (p.cm!=null && Math.abs(p.cm-1)>0.01)?
             ' <span class="cm" title="within-team combat credit nudge">&times;'+p.cm.toFixed(2)+'</span>':'';
+          // quit credit: flag anyone who left early and the fraction they kept
+          var qc = (p.stayed===false)?
+            ' <span class="qc" title="left before the end - kept this fraction of the result">quit '+Math.round((p.qc!=null?p.qc:1)*100)+'%</span>':'';
           return '<div class="prow"><span class="pn">'+esc(p.n)+'</span>'+
-            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; '+(p.m||'?')+'m &middot; w'+p.w+kd+cm+'</span>'+
+            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; '+(p.m||'?')+'m &middot; w'+p.w+kd+cm+qc+'</span>'+
             '<span class="pd delta '+dc+'">'+(p.d>0?'+':'')+p.d+'</span></div>';
         }).join('') || '<div class="prow muted">no rated players</div>';
         return '<div class="mteam'+(win?' win':'')+'"><h4><span>Team '+(Number(k)+1)+

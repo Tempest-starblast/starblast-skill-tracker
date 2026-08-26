@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.6"
+APP_VERSION = "7.8.7"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -3573,6 +3573,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.8.7", "at": "2026-08-26T05:30:00Z", "changes": [
+        "More work on the experimental rating pipeline, plus a player lookup on the internal review view. No effect on the current leaderboard."
+    ]},
     {"version": "7.8.6", "at": "2026-08-26T04:00:00Z", "changes": [
         "The one-time wipe offered right after you claim a name is now a full reset to placement: the name's earlier matches are moved to archive and removed from the board, rather than just hidden from your total. Keeping them is still the default."
     ]},
@@ -5650,14 +5653,22 @@ def shadow_match():
             # Must have actually been in the match (>= 10 min of presence).
             if (p.get("minutes") or 0) < shadow_elo.MIN_MINUTES:
                 continue
-            # Stake = 100% at level 1, -25% per station level joined into.
+            # Stake = 100% at level 1, -25% per station level joined into...
             w = shadow_elo.join_weight(p.get("join_level"))
+            # ...times the QUIT CREDIT: a player who left before the end keeps
+            # only a fraction (25/50/75%) by how deep they got, 100% if they
+            # stayed, 0% below the bar. Scales the weight, so it applies the
+            # same fraction to a win (partial gain) and a loss (partial loss).
+            qc = p.get("quit_credit")
+            qc = 1.0 if qc is None else float(qc)
+            w = w * qc
             if w <= 0:
                 continue
             elo, g = srat.get(nn, (shadow_elo.START, 0))
             lst.append({"name": nn, "disp": reg[nn], "elo": elo, "games": g,
                         "weight": w, "jlvl": p.get("join_level"),
                         "mins": p.get("minutes"),
+                        "qc": qc, "stayed": bool(p.get("stayed", True)),
                         # combat facet (kill inference) - review + a bounded,
                         # team-neutral within-team credit nudge; not a driver.
                         "combat": p.get("combat") or 0,
@@ -5703,7 +5714,10 @@ def shadow_match():
                                    # combat facet for review
                                    "k": m.get("kills", 0), "x": m.get("deaths", 0),
                                    "cb": m.get("combat", 0),
-                                   "cm": (_rbyname.get(m["name"]) or {}).get("cmult", 1.0)}
+                                   "cm": (_rbyname.get(m["name"]) or {}).get("cmult", 1.0),
+                                   # quit credit for review (1.0 = stayed)
+                                   "qc": round(m.get("qc", 1.0), 2),
+                                   "stayed": m.get("stayed", True)}
                                   for m in teams[tk]] for tk in teams},
                             ensure_ascii=False)
     c.execute("INSERT OR IGNORE INTO shadow_matches (match_key, at, region, "
@@ -5737,15 +5751,27 @@ def shadow_board_api():
                     "FROM shadow_matches").fetchone()
     nplayers = c.execute("SELECT COUNT(*) FROM shadow_players "
                          "WHERE matches > 0").fetchone()[0]
-    rows = c.execute(
-        "SELECT s.norm_name, s.name, s.elo, s.wins, s.losses, s.matches, "
-        "s.weight_sum, s.kills, s.deaths, s.combat, p.elo FROM shadow_players s "
-        "LEFT JOIN players p ON p.norm_name = s.norm_name "
-        "WHERE s.matches > 0 ORDER BY s.elo DESC LIMIT 100").fetchall()
+    base = ("SELECT s.norm_name, s.name, s.elo, s.wins, s.losses, s.matches, "
+            "s.weight_sum, s.kills, s.deaths, s.combat, p.elo FROM shadow_players s "
+            "LEFT JOIN players p ON p.norm_name = s.norm_name "
+            "WHERE s.matches > 0 ")
+    q = (request.args.get('q') or '').strip()
+    if q:
+        # lookup: find a player anywhere on the shadow board, not just the top 100
+        nq = normalize_name(q)
+        rows = c.execute(base + "AND (s.norm_name LIKE ? OR UPPER(s.name) LIKE ?) "
+                         "ORDER BY s.elo DESC LIMIT 50",
+                         ('%' + nq + '%', '%' + q.upper() + '%')).fetchall()
+    else:
+        rows = c.execute(base + "ORDER BY s.elo DESC LIMIT 100").fetchall()
     board = []
     for i, (nn, nm, elo, w, l, m, ws, kk, dd, cbt, live_elo) in enumerate(rows, 1):
+        # a searched player shows their TRUE board position, not the row index
+        rank = (c.execute("SELECT COUNT(*)+1 FROM shadow_players "
+                          "WHERE matches > 0 AND elo > ?", (elo,)).fetchone()[0]
+                if q else i)
         board.append({
-            "rank": i, "name": nm, "elo": round(elo, 1),
+            "rank": rank, "name": nm, "elo": round(elo, 1),
             "wins": w, "losses": l, "matches": m,
             "avg_part": round(ws / m, 2) if m else 0,
             # combat facet (kill inference) - review only, NOT part of the elo
@@ -5755,7 +5781,7 @@ def shadow_board_api():
             "live_elo": round(live_elo, 1) if live_elo is not None else None})
     conn.close()
     return jsonify({"matches_total": tot[0], "matches_rated": tot[1],
-                    "players": nplayers, "board": board})
+                    "players": nplayers, "q": q, "board": board})
 
 
 @app.route('/api/shadow/matches')
