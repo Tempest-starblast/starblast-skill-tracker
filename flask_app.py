@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.8"
+APP_VERSION = "7.8.9"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -782,7 +782,11 @@ def canonical_clan_tag(text, tags=None):
 # rather than a table of special cases.
 CLAN_ROLES = ('moderator', 'coleader', 'leader')
 CLAN_ROLE_LABELS = {'leader': 'Leader', 'coleader': 'Co-leader',
-                    'moderator': 'Moderator'}
+                    'moderator': 'Moderator', 'player': 'Member'}
+# The role titles a clan may rename for itself. 'leader' is deliberately not
+# here - the owner title stays fixed - and 'player' is the base member.
+CUSTOMIZABLE_ROLES = ('player', 'moderator', 'coleader')
+CLAN_ROLE_NAME_MAX = 24
 
 
 def clan_rank(role):
@@ -850,6 +854,27 @@ def clan_display(c, tag):
     c.execute("SELECT display_tag FROM clans WHERE tag = ?", (tag,))
     row = c.fetchone()
     return (row[0] if row and row[0] else tag)
+
+
+def clan_custom_labels(c, tag):
+    """Only the role titles a clan has explicitly renamed: {role: label}."""
+    if not tag:
+        return {}
+    try:
+        return {r: l for r, l in c.execute(
+            "SELECT role, label FROM clan_role_labels WHERE clan = ?", (tag,)) if l}
+    except sqlite3.OperationalError:
+        return {}
+
+
+def role_label_for(role, custom):
+    """The display title for a role, given a clan's custom overrides. An
+    ordinary member (no admin role) shows the clan's 'player' title only when
+    it has been customised, so an untranslated default doesn't override the
+    template's own localised 'Member'."""
+    if role in CLAN_ROLES:
+        return custom.get(role) or CLAN_ROLE_LABELS.get(role, "")
+    return custom.get('player') or ""
 
 
 def clan_admin_tags(c, sub_id):
@@ -1185,6 +1210,15 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     c.execute("UPDATE clan_admins SET role = 'leader' WHERE role IS NULL OR role = ''")
+    # A clan can rename its role titles (player / moderator / co-leader). Only
+    # the titles it has changed live here; everything else falls back to the
+    # defaults in CLAN_ROLE_LABELS. The 'leader' title is not customisable.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_role_labels (
+                    clan TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    label TEXT,
+                    PRIMARY KEY (clan, role)
+                )''')
     # One-time codes are how admin is handed out. The site owner cannot see
     # anyone's Google account id, so there has to be something to pass along
     # out of band - a code sent on Discord is that something.
@@ -3573,6 +3607,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.8.9", "at": "2026-08-26T08:00:00Z", "changes": [
+        "Clan leaders can now transfer ownership to another member from Your clan — the new leader takes over and the old one steps down to co-leader. And a clan can rename its roles: the member, moderator and co-leader titles are now yours to set (the colours stay the same), shown on the roster and the public clan page."
+    ]},
     {"version": "7.8.8", "at": "2026-08-26T06:30:00Z", "changes": [
         "Internal tuning of the experimental rating pipeline. No effect on the current leaderboard."
     ]},
@@ -7486,6 +7523,7 @@ def clan_page(tag):
               (known,))
     roles = {r[0]: r[1] for r in c.fetchall() if r[0]}
     admin_subs = set(roles)
+    role_labels = clan_custom_labels(c, known)
     # Rank is the player's place on the WHOLE leaderboard, not within the
     # clan: a member shown as #12 has to mean the same thing on both pages.
     ranks = {}
@@ -7520,7 +7558,7 @@ def clan_page(tag):
             "name": name, "display": display_name(name, known, shown_tag),
             "admin": bool(owner_sub) and owner_sub in admin_subs,
             "role": roles.get(owner_sub, ""),
-            "role_label": CLAN_ROLE_LABELS.get(roles.get(owner_sub), ""),
+            "role_label": role_label_for(roles.get(owner_sub, ""), role_labels),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "rank": ranks[name],
@@ -10269,6 +10307,80 @@ def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
                             f"match history are untouched."}
 
 
+def perform_clan_transfer(c, sub_id, raw_tag, name, trusted=False):
+    """Hand a clan's leadership to another member. The new leader takes the
+    'leader' role and the old leader steps down to co-leader (they keep every
+    power except the ones that are the leader's alone). Leader only. The target
+    must be a member of the clan and have an account. Does NOT commit."""
+    known = canonical_clan_tag(raw_tag, all_clan_tags(c))
+    if not known:
+        return 404, {"ok": False, "message": "No clan with that tag."}
+    if not trusted and not is_clan_leader(c, sub_id, known):
+        return 403, {"ok": False, "message": "Only the clan's leader can transfer it."}
+    c.execute("SELECT name, google_sub, clan FROM players WHERE norm_name = ?",
+              (normalize_name(str(name or '')),))
+    row = c.fetchone()
+    if not row:
+        return 404, {"ok": False, "message": f"'{name}' is not on the leaderboard."}
+    stored_name, target_sub, their_clan = row
+    if not target_sub:
+        return 400, {"ok": False,
+                     "message": f"'{stored_name}' has no account, so they can't lead a clan. "
+                                f"They have to sign in first."}
+    if their_clan != known:
+        return 400, {"ok": False, "message": f"'{stored_name}' is not in {known}."}
+    if target_sub == sub_id and not trusted:
+        return 400, {"ok": False, "message": "You already lead this clan."}
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    # step every current leader down to co-leader first (there is normally
+    # exactly one), then install the new one - so the clan is never leaderless
+    # and never has two leaders.
+    c.execute("UPDATE clan_admins SET role = 'coleader' "
+              "WHERE clan = ? AND role = 'leader' AND google_sub != ?",
+              (known, target_sub))
+    c.execute("INSERT INTO clan_admins (clan, google_sub, role, created_at) "
+              "VALUES (?, ?, 'leader', ?) "
+              "ON CONFLICT(clan, google_sub) DO UPDATE SET role = 'leader'",
+              (known, target_sub, now))
+    return 200, {"ok": True, "clan": known, "name": stored_name,
+                 "message": f"{stored_name} now leads {known}. "
+                            f"You are a co-leader."}
+
+
+def perform_clan_labels(c, sub_id, raw_tag, labels, trusted=False):
+    """Rename a clan's role titles (player / moderator / co-leader). An empty
+    or default value clears the override. Leader or co-leader. Does NOT commit."""
+    known = canonical_clan_tag(raw_tag, all_clan_tags(c))
+    if not known:
+        return 404, {"ok": False, "message": "No clan with that tag."}
+    if not trusted and not may_manage(c, sub_id, known):
+        return 403, {"ok": False,
+                     "message": "Only the leader or a co-leader can rename roles."}
+    if not isinstance(labels, dict):
+        return 400, {"ok": False, "message": "Nothing to change."}
+    for role in CUSTOMIZABLE_ROLES:
+        if role not in labels:
+            continue
+        val = " ".join(str(labels.get(role) or "").split())   # collapse whitespace
+        if len(val) > CLAN_ROLE_NAME_MAX:
+            return 400, {"ok": False,
+                         "message": f"A role name is at most {CLAN_ROLE_NAME_MAX} characters."}
+        if any(ord(ch) < 32 for ch in val):
+            return 400, {"ok": False, "message": "A role name has an invalid character."}
+        if val and val.lower() != CLAN_ROLE_LABELS.get(role, '').lower():
+            c.execute("INSERT INTO clan_role_labels (clan, role, label) VALUES (?, ?, ?) "
+                      "ON CONFLICT(clan, role) DO UPDATE SET label = ?",
+                      (known, role, val, val))
+        else:      # blank or same-as-default -> back to the default
+            c.execute("DELETE FROM clan_role_labels WHERE clan = ? AND role = ?",
+                      (known, role))
+    custom = clan_custom_labels(c, known)
+    return 200, {"ok": True, "clan": known,
+                 "labels": {r: custom.get(r) or CLAN_ROLE_LABELS.get(r, "")
+                            for r in CUSTOMIZABLE_ROLES},
+                 "message": "Role names saved."}
+
+
 @app.route('/clan/role', methods=['POST'])
 def clan_role_route():
     """Appoint or unappoint a co-leader or moderator."""
@@ -10281,6 +10393,42 @@ def clan_role_route():
     c = conn.cursor()
     status, payload = perform_clan_role(c, sub_id, data.get('clan'), data.get('name'),
                                         data.get('role'), trusted=trusted)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+@app.route('/clan/transfer', methods=['POST'])
+def clan_transfer():
+    """Hand leadership of your clan to another member (you become a co-leader)."""
+    sub_id = current_user()
+    trusted = api_key_ok(request.headers.get('X-API-Key'))
+    if not sub_id and not trusted:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_transfer(c, sub_id, data.get('clan'),
+                                            data.get('name'), trusted=trusted)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+@app.route('/clan/rolenames', methods=['POST'])
+def clan_rolenames():
+    """Rename a clan's role titles (player / moderator / co-leader)."""
+    sub_id = current_user()
+    trusted = api_key_ok(request.headers.get('X-API-Key'))
+    if not sub_id and not trusted:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_labels(c, sub_id, data.get('clan'),
+                                          data.get('labels'), trusted=trusted)
     if status == 200:
         conn.commit()
     conn.close()
@@ -10397,6 +10545,7 @@ def my_clan_page():
     c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
               (tag,))
     roles = {r[0]: r[1] for r in c.fetchall() if r[0]}
+    role_labels = clan_custom_labels(c, tag)
     rows.sort(key=leaderboard_sort_key)
     members = []
     for name, elo, wins, losses, owner_sub, joined in rows:
@@ -10406,11 +10555,13 @@ def my_clan_page():
         members.append({
             "name": name, "display": display_name(name, tag, clan_display(c, tag)),
             "role": roles.get(owner_sub, ""),
-            "role_label": CLAN_ROLE_LABELS.get(roles.get(owner_sub), ""),
+            "role_label": role_label_for(roles.get(owner_sub, ""), role_labels),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "joined": join_date(joined),
             "is_you": bool(owner_sub) and owner_sub == sub_id,
+            # only an account-holder can be given a rank or made leader
+            "has_account": bool(owner_sub),
         })
 
     c.execute("SELECT region FROM clans WHERE tag = ?", (tag,))
@@ -10425,9 +10576,12 @@ def my_clan_page():
             "SELECT id, name FROM clan_invites WHERE clan = ? "
             "AND status = 'pending' AND direction = 'invite' "
             "ORDER BY name", (tag,)).fetchall()],
-        "role": role, "role_label": CLAN_ROLE_LABELS.get(role, ""),
+        "role": role, "role_label": role_label_for(role, role_labels),
         "can_manage": clan_rank(role) >= clan_rank('coleader'),
         "is_leader": role == 'leader',
+        # current role titles (custom or default) for the rename form
+        "role_names": {r: role_labels.get(r) or CLAN_ROLE_LABELS.get(r, "")
+                       for r in CUSTOMIZABLE_ROLES},
         "others": [t for t in tags if t != tag],
         "link": invite_link_json(link_row) if link_row else None,
         "link_days": INVITE_LINK_DAYS,

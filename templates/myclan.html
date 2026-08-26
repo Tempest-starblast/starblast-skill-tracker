@@ -46,6 +46,12 @@
   border:1px solid rgba(255,199,87,.45)}
 .mcprompt b{color:#ffd98a}
 .mcprompt a{color:#ffd98a}
+.rolenames{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;
+  margin:4px 0 12px}
+.rolenames label{display:flex;flex-direction:column;gap:6px;font-size:10.5px;letter-spacing:1px;
+  text-transform:uppercase;color:var(--dim)}
+.rolenames .df{color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px}
+.rolenames input{font-size:14px}
 {% endblock %}
 {% block body %}
 
@@ -208,9 +214,44 @@
   </div>
   <p class="msg" id="regionMsg"></p>
 </div>
+
+<div class="card">
+  <h2>{{ t('Role names') }}</h2>
+  <p class="desc">Rename the roles your clan uses. These titles show on the roster and the
+     public page &mdash; the colours stay the same. Leave one blank to use the default.</p>
+  <div class="rolenames">
+    <label>{{ t('Member') }} <span class="df">default</span>
+      <input type="text" id="rn_player" maxlength="24" autocomplete="off"
+             value="{{ clan.role_names.player }}" placeholder="Member"></label>
+    <label>{{ t('Moderator') }} <span class="df">default</span>
+      <input type="text" id="rn_moderator" maxlength="24" autocomplete="off"
+             value="{{ clan.role_names.moderator }}" placeholder="Moderator"></label>
+    <label>{{ t('Co-leader') }} <span class="df">default</span>
+      <input type="text" id="rn_coleader" maxlength="24" autocomplete="off"
+             value="{{ clan.role_names.coleader }}" placeholder="Co-leader"></label>
+  </div>
+  <button class="primary" onclick="saveRoleNames()">{{ t('Save role names') }}</button>
+  <p class="msg" id="roleNamesMsg"></p>
+</div>
 {% endif %}
 
 {% if clan.is_leader %}
+<div class="card">
+  <h2>{{ t('Transfer ownership') }}</h2>
+  <p class="desc">Hand {{ clan.display }} to another member. They become the leader and you step
+     down to co-leader. Only a member with an account can lead a clan.</p>
+  <div class="row">
+    <select id="transferSel">
+      <option value="">{{ t('Choose a member') }}&hellip;</option>
+      {%- for m in clan.members %}{% if not m.is_you and m.has_account and m.role != 'leader' %}
+      <option value="{{ m.name }}">{{ m.display }}</option>
+      {%- endif %}{% endfor %}
+    </select>
+    <button class="danger" onclick="transferClan()">{{ t('Transfer') }}</button>
+  </div>
+  <p class="msg" id="transferMsg"></p>
+</div>
+
 <div class="card">
   <h2>Delete {{ clan.display }}</h2>
   <p class="desc">Every member is released and the tag is free again. Their ratings and
@@ -364,6 +405,29 @@ async function deleteClan(){
     say('deleteMsg', r.ok, d.message);
     if (r.ok) setTimeout(function(){ location.href = '/clans'; }, 1200);
   }catch(e){ say('deleteMsg', false, 'Server connection error.'); }
+}
+async function saveRoleNames(){
+  const labels = {
+    player: document.getElementById('rn_player').value,
+    moderator: document.getElementById('rn_moderator').value,
+    coleader: document.getElementById('rn_coleader').value
+  };
+  try{
+    const [r, d] = await post('/clan/rolenames', {clan: TAG, labels: labels});
+    say('roleNamesMsg', d.ok, d.message);
+    if (d.ok) reloadSoon();
+  }catch(e){ say('roleNamesMsg', false, 'Server connection error.'); }
+}
+async function transferClan(){
+  const name = document.getElementById('transferSel').value;
+  if (!name) return say('transferMsg', false, 'Choose a member first.');
+  if (!window.confirm('Make ' + name + ' the leader of ' + TAG +
+      '? You will step down to co-leader.')) return;
+  try{
+    const [r, d] = await post('/clan/transfer', {clan: TAG, name: name});
+    say('transferMsg', d.ok, d.message);
+    if (d.ok) reloadSoon();
+  }catch(e){ say('transferMsg', false, 'Server connection error.'); }
 }
 </script>
 {% endblock %}
