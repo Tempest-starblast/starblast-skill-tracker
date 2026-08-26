@@ -21,7 +21,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.8.7"
+APP_VERSION = "7.8.8"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -3573,6 +3573,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.8.8", "at": "2026-08-26T06:30:00Z", "changes": [
+        "Internal tuning of the experimental rating pipeline. No effect on the current leaderboard."
+    ]},
     {"version": "7.8.7", "at": "2026-08-26T05:30:00Z", "changes": [
         "More work on the experimental rating pipeline, plus a player lookup on the internal review view. No effect on the current leaderboard."
     ]},
@@ -5653,22 +5656,14 @@ def shadow_match():
             # Must have actually been in the match (>= 10 min of presence).
             if (p.get("minutes") or 0) < shadow_elo.MIN_MINUTES:
                 continue
-            # Stake = 100% at level 1, -25% per station level joined into...
+            # Stake = 100% at level 1, -25% per station level joined into.
             w = shadow_elo.join_weight(p.get("join_level"))
-            # ...times the QUIT CREDIT: a player who left before the end keeps
-            # only a fraction (25/50/75%) by how deep they got, 100% if they
-            # stayed, 0% below the bar. Scales the weight, so it applies the
-            # same fraction to a win (partial gain) and a loss (partial loss).
-            qc = p.get("quit_credit")
-            qc = 1.0 if qc is None else float(qc)
-            w = w * qc
             if w <= 0:
                 continue
             elo, g = srat.get(nn, (shadow_elo.START, 0))
             lst.append({"name": nn, "disp": reg[nn], "elo": elo, "games": g,
                         "weight": w, "jlvl": p.get("join_level"),
                         "mins": p.get("minutes"),
-                        "qc": qc, "stayed": bool(p.get("stayed", True)),
                         # combat facet (kill inference) - review + a bounded,
                         # team-neutral within-team credit nudge; not a driver.
                         "combat": p.get("combat") or 0,
@@ -5714,10 +5709,7 @@ def shadow_match():
                                    # combat facet for review
                                    "k": m.get("kills", 0), "x": m.get("deaths", 0),
                                    "cb": m.get("combat", 0),
-                                   "cm": (_rbyname.get(m["name"]) or {}).get("cmult", 1.0),
-                                   # quit credit for review (1.0 = stayed)
-                                   "qc": round(m.get("qc", 1.0), 2),
-                                   "stayed": m.get("stayed", True)}
+                                   "cm": (_rbyname.get(m["name"]) or {}).get("cmult", 1.0)}
                                   for m in teams[tk]] for tk in teams},
                             ensure_ascii=False)
     c.execute("INSERT OR IGNORE INTO shadow_matches (match_key, at, region, "

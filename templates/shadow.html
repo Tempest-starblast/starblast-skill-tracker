@@ -22,7 +22,6 @@ table.sh th{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:
 table.sh td.n{text-align:right;font-variant-numeric:tabular-nums}
 .delta.up{color:#66e6b8} .delta.dn{color:#ff7a7a}
 .cm{color:#c9a24a;font-variant-numeric:tabular-nums}
-.qc{color:#ff9f5a;font-variant-numeric:tabular-nums}
 .diff.up{color:#66e6b8} .diff.dn{color:#ff7a7a} .diff.eq{color:var(--muted)}
 .mcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 14px;
   background:var(--panel,rgba(6,10,18,.4))}
@@ -139,11 +138,8 @@ function loadMatches(off){
           // combat credit nudge (facet): show when it moved the split >1%
           var cm = (p.cm!=null && Math.abs(p.cm-1)>0.01)?
             ' <span class="cm" title="within-team combat credit nudge">&times;'+p.cm.toFixed(2)+'</span>':'';
-          // quit credit: flag anyone who left early and the fraction they kept
-          var qc = (p.stayed===false)?
-            ' <span class="qc" title="left before the end - kept this fraction of the result">quit '+Math.round((p.qc!=null?p.qc:1)*100)+'%</span>':'';
           return '<div class="prow"><span class="pn">'+esc(p.n)+'</span>'+
-            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; '+(p.m||'?')+'m &middot; w'+p.w+kd+cm+qc+'</span>'+
+            '<span class="pw">'+p.e+' &middot; lvl'+(p.j||'?')+' &middot; '+(p.m||'?')+'m &middot; w'+p.w+kd+cm+'</span>'+
             '<span class="pd delta '+dc+'">'+(p.d>0?'+':'')+p.d+'</span></div>';
         }).join('') || '<div class="prow muted">no rated players</div>';
         return '<div class="mteam'+(win?' win':'')+'"><h4><span>Team '+(Number(k)+1)+
