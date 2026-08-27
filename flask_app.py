@@ -24,6 +24,13 @@ app = Flask(__name__)
 
 APP_VERSION = "7.9.5"
 
+# Google Search Console ownership token (the "HTML tag" method). Empty until
+# the owner adds the site in Search Console and pastes the token here; it is
+# then rendered into every page's <head> so Google can confirm ownership. The
+# public site root, used for canonical URLs, the sitemap and Open Graph.
+GOOGLE_SITE_VERIFICATION = ""
+SITE_ROOT = "https://starblastelo.pythonanywhere.com"
+
 # Public /rawlive is served this many seconds behind real time (owner sees it
 # live). Framed to viewers as a security delay so the named, real-time feed
 # can't be used to follow players around live.
@@ -11420,6 +11427,65 @@ def info_page():
                                                elo=STARTING_ELO, k=ELO_K,
                                                minscore=MIN_RATED_SCORE,
                                                contact=CONTACT_HANDLE))
+
+
+@app.context_processor
+def inject_seo():
+    """Make the search-engine bits available to every template's <head>."""
+    return {"google_site_verification": GOOGLE_SITE_VERIFICATION,
+            "site_root": SITE_ROOT}
+
+
+@app.route('/robots.txt')
+def robots_txt():
+    """Let search engines crawl the public content, keep them out of the API,
+    accounts, sign-in and the live/real-time views, and point them at the
+    sitemap so they can find every profile and clan page."""
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /api/",
+        "Disallow: /account",
+        "Disallow: /auth/",
+        "Disallow: /dev/",
+        "Disallow: /checkin",
+        "Disallow: /compare",
+        "Disallow: /play",
+        "Disallow: /live",
+        "Disallow: /rawlive",
+        "Disallow: /shadow",
+        "Sitemap: %s/sitemap.xml" % SITE_ROOT,
+    ]
+    return app.response_class("\n".join(lines) + "\n", mimetype="text/plain")
+
+
+@app.route('/sitemap.xml')
+def sitemap_xml():
+    """Every page worth indexing: the main sections, the top-rated players'
+    profiles, and each clan page. Generated live so new players and clans
+    appear without anyone maintaining a list."""
+    urls = ["/", "/players", "/clans", "/replays", "/changelog", "/info"]
+    try:
+        conn = db()
+        c = conn.cursor()
+        players = [r[0] for r in c.execute(
+            "SELECT name FROM players WHERE COALESCE(wins,0)+COALESCE(losses,0) > 0 "
+            "AND name IS NOT NULL ORDER BY elo DESC LIMIT 1000")]
+        clans = [r[0] for r in c.execute(
+            "SELECT DISTINCT clan FROM players WHERE clan IS NOT NULL AND clan != ''")]
+        conn.close()
+    except Exception:
+        players, clans = [], []
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for u in urls:
+        parts.append("<url><loc>%s%s</loc></url>" % (SITE_ROOT, u))
+    for n in players:
+        parts.append("<url><loc>%s/player/%s</loc></url>" % (SITE_ROOT, quote(n)))
+    for tag in clans:
+        parts.append("<url><loc>%s/clan/%s</loc></url>" % (SITE_ROOT, quote(tag)))
+    parts.append("</urlset>")
+    return app.response_class("\n".join(parts), mimetype="application/xml")
 
 
 @app.route('/how-it-works')

@@ -1,6 +1,16 @@
 <!DOCTYPE html><html lang="{{ lang or 'en' }}"{% if lang == 'fa' %} dir="rtl"{% endif %}><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Starblast Team Mode Skill Leaderboard{% endblock %}</title>
+<meta name="description" content="{% block meta_description %}Live skill ratings for Starblast.io team mode — Elo, win rates and match history for players across North America, Europe and Asia. Look up any player, compare two head-to-head, and follow clans.{% endblock %}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="{{ site_root }}{{ request.path }}">
+<meta property="og:site_name" content="Starblast Team Mode Skill Leaderboard">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}">
+<meta property="og:description" content="{{ self.meta_description() }}">
+<meta property="og:url" content="{{ site_root }}{{ request.path }}">
+<meta name="twitter:card" content="summary">
+{% if google_site_verification %}<meta name="google-site-verification" content="{{ google_site_verification }}">{% endif %}
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Play:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://accounts.google.com/gsi/client" async defer></script>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{% if player %}{{ player.display }}{% else %}Player not found{% endif %} - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}{% if player %}{{ player.display }} on the Starblast team-mode skill leaderboard — rank #{{ player.rank }} of {{ player.rank_of }}, {{ player.elo }} skill, {{ player.wins }}W–{{ player.losses }}L ({{ player.winrate }} win rate). Match history, ships flown and regional record.{% else %}Player profiles on the Starblast team-mode skill leaderboard.{% endif %}{% endblock %}
 {% block css %}
 .halfmark{font-size:11px;color:var(--muted);border:1px solid #3a3a3a;border-radius:4px;
   padding:1px 5px;margin-left:5px;font-weight:600;cursor:default}
