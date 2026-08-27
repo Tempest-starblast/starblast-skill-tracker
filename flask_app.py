@@ -28,7 +28,7 @@ APP_VERSION = "7.9.5"
 # the owner adds the site in Search Console and pastes the token here; it is
 # then rendered into every page's <head> so Google can confirm ownership. The
 # public site root, used for canonical URLs, the sitemap and Open Graph.
-GOOGLE_SITE_VERIFICATION = ""
+GOOGLE_SITE_VERIFICATION = "MX5cDNZKcWuypGXPCHfjD5IosRkoivKJY5g9unrw4yo"
 SITE_ROOT = "https://starblastelo.pythonanywhere.com"
 
 # Public /rawlive is served this many seconds behind real time (owner sees it
