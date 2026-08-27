@@ -217,6 +217,96 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
   <p class="pbox-foot"><a href="/">&larr; {{ t('Leaderboard') }}</a></p>
 </div>
 
+{% if player.bio or player.is_me %}
+<div class="card bio-card">
+  <div class="bio-head">
+    <h2>{{ t('About') }}</h2>
+    {% if player.is_me %}<button class="bio-edit" id="bioEditBtn" onclick="bioEdit(true)">{% if player.bio %}{{ t('Edit') }}{% else %}{{ t('Add a bio') }}{% endif %}</button>{% endif %}
+  </div>
+  <div id="bioView">
+    {% if player.bio %}
+      <p class="bio-text clamped" id="bioText">{{ player.bio }}</p>
+      <button class="bio-more" id="bioMore" style="display:none" onclick="bioToggle()">{{ t('Show more') }}</button>
+    {% elif player.is_me %}
+      <p class="desc" id="bioEmpty">{{ t('No bio yet — tell visitors who you are.') }}</p>
+    {% endif %}
+  </div>
+  {% if player.is_me %}
+  <div id="bioEditor" style="display:none">
+    <textarea id="bioInput" maxlength="{{ bio_max }}" rows="5"
+              placeholder="{{ t('A few lines about yourself…') }}">{{ player.bio }}</textarea>
+    <div class="bio-actions">
+      <span class="bio-count" id="bioCount"></span>
+      <span class="bio-spacer"></span>
+      <button class="ghost" onclick="bioEdit(false)">{{ t('Cancel') }}</button>
+      <button class="primary" onclick="bioSave()">{{ t('Save') }}</button>
+    </div>
+    <p class="bio-msg" id="bioMsg"></p>
+  </div>
+  {% endif %}
+</div>
+<style>
+.bio-card .bio-head{display:flex;align-items:center;gap:10px}
+.bio-card .bio-head h2{margin:0}
+.bio-edit{margin-left:auto;background:transparent;border:1px solid var(--line);
+  color:var(--muted);border-radius:8px;padding:4px 11px;font-size:12px;cursor:pointer}
+.bio-edit:hover{color:var(--text);border-color:rgba(153,221,255,.4)}
+.bio-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;line-height:1.6;color:var(--text)}
+.bio-text.clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.bio-more{margin-top:8px;background:none;border:none;color:var(--blue);cursor:pointer;
+  font-size:13px;padding:0;font-weight:600}
+.bio-more:hover{text-decoration:underline}
+#bioEditor{margin-top:4px}
+#bioInput{width:100%;box-sizing:border-box;resize:vertical;min-height:104px;font:inherit;
+  line-height:1.55;padding:9px 11px;color:var(--text);background:var(--card);
+  border:1px solid var(--line);border-radius:9px}
+#bioInput:focus{outline:none;border-color:rgba(153,221,255,.45)}
+.bio-actions{display:flex;align-items:center;gap:8px;margin-top:9px}
+.bio-spacer{flex:1}
+.bio-count{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.bio-msg{color:var(--red);font-size:13px;margin:7px 0 0}
+</style>
+<script>
+(function(){
+  var BIO_MAX = {{ bio_max }};
+  window.bioEdit=function(on){
+    var v=document.getElementById('bioView'), e=document.getElementById('bioEditor'),
+        b=document.getElementById('bioEditBtn');
+    if(v) v.style.display=on?'none':'';
+    if(e) e.style.display=on?'':'none';
+    if(b) b.style.display=on?'none':'';
+    if(on){var ta=document.getElementById('bioInput');
+      if(ta){ta.focus(); try{ta.setSelectionRange(ta.value.length,ta.value.length);}catch(_){} bioCount();}}
+  };
+  window.bioToggle=function(){
+    var t=document.getElementById('bioText'), m=document.getElementById('bioMore');
+    var clamped=t.classList.toggle('clamped');
+    m.textContent=clamped?{{ t('Show more')|tojson }}:{{ t('Show less')|tojson }};
+  };
+  function bioCount(){
+    var ta=document.getElementById('bioInput'), c=document.getElementById('bioCount');
+    if(ta&&c) c.textContent=ta.value.length+' / '+BIO_MAX;
+  }
+  window.bioCount=bioCount;
+  window.bioSave=function(){
+    var ta=document.getElementById('bioInput'), msg=document.getElementById('bioMsg');
+    if(msg) msg.textContent='';
+    fetch('/account/bio',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({bio: ta.value})})
+     .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+     .then(function(res){
+       if(!res.ok){ if(msg) msg.textContent=(res.d&&res.d.message)||{{ t('Could not save.')|tojson }}; return; }
+       location.reload();
+     }).catch(function(){ if(msg) msg.textContent={{ t('Could not save.')|tojson }}; });
+  };
+  // Only offer "Show more" when the bio actually overflows the clamp.
+  var t=document.getElementById('bioText'), m=document.getElementById('bioMore');
+  if(t&&m&&(t.scrollHeight-1>t.clientHeight)) m.style.display='';
+  var ta=document.getElementById('bioInput'); if(ta) ta.addEventListener('input', bioCount);
+})();
+</script>
+{% endif %}
+
 <div class="card">
   <h2>Compare with someone</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">

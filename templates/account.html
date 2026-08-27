@@ -68,6 +68,49 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   </div>
 </div>
 
+<div class="card bio-card">
+  <h2>{{ t('Bio') }}</h2>
+  <p class="desc">{{ t('A few lines about yourself, shown on your public profile.') }}
+    <a href="/player/{{ acct.name|urlencode }}">{{ t('View profile') }} &rarr;</a></p>
+  <textarea id="accBio" maxlength="{{ bio_max }}" rows="5"
+            placeholder="{{ t('A few lines about yourself…') }}">{{ acct.bio }}</textarea>
+  <div class="bio-actions">
+    <span class="bio-count" id="accBioCount"></span>
+    <span class="bio-spacer"></span>
+    <button class="primary" onclick="saveBio()">{{ t('Save bio') }}</button>
+  </div>
+  <p class="bio-msg" id="accBioMsg"></p>
+</div>
+<style>
+.bio-card #accBio{width:100%;box-sizing:border-box;resize:vertical;min-height:104px;font:inherit;
+  line-height:1.55;padding:9px 11px;color:var(--text);background:var(--card);
+  border:1px solid var(--line);border-radius:9px}
+.bio-card #accBio:focus{outline:none;border-color:rgba(153,221,255,.45)}
+.bio-card .bio-actions{display:flex;align-items:center;gap:8px;margin-top:9px}
+.bio-card .bio-spacer{flex:1}
+.bio-card .bio-count{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.bio-card .bio-msg{color:var(--red);font-size:13px;margin:7px 0 0;min-height:1px}
+</style>
+<script>
+(function(){
+  var MAX={{ bio_max }};
+  var ta=document.getElementById('accBio');
+  if(!ta) return;
+  function cnt(){document.getElementById('accBioCount').textContent=ta.value.length+' / '+MAX;}
+  ta.addEventListener('input',cnt); cnt();
+  window.saveBio=function(){
+    var msg=document.getElementById('accBioMsg'); msg.textContent=''; msg.style.color='';
+    fetch('/account/bio',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({bio:ta.value})})
+     .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+     .then(function(res){
+       if(!res.ok){ msg.textContent=(res.d&&res.d.message)||{{ t('Could not save.')|tojson }}; return; }
+       msg.style.color='var(--green)'; msg.textContent={{ t('Bio saved.')|tojson }};
+     }).catch(function(){ msg.textContent={{ t('Could not save.')|tojson }}; });
+  };
+})();
+</script>
+
 {% if acct.wipe_available %}
 <div class="card" style="border-color:rgba(216,160,42,.5)">
   <h2 style="color:var(--amber,#d8a02a)">You just claimed this name</h2>

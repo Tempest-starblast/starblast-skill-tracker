@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.3"
+APP_VERSION = "7.9.4"
 
 # Public /rawlive is served this many seconds behind real time (owner sees it
 # live). Framed to viewers as a security delay so the named, real-time feed
@@ -1109,6 +1109,20 @@ def is_blocked_word(name):
     return any(bad in upper_name for bad in BLOCKED_SUBSTRINGS)
 
 
+# A profile bio is prose, not a name, so it is screened PER WORD against the
+# same lists: a substring slur ("fuck") is caught inside any word, while the
+# short whole-name-only terms ("ass", "rape", "sex") are caught as standalone
+# words but not inside innocent ones ("class", "grape", "Middlesex").
+BIO_MAX = 1000
+
+
+def bio_blocked(text):
+    for tok in re.findall(r"[A-Za-z0-9]+", text or ""):
+        if is_blocked_word(tok):
+            return True
+    return False
+
+
 # Sign in with Google. This client ID is public by design - it is
 # embedded in the page the browser loads - so it belongs in the source.
 # There is deliberately no client secret: the ID token flow never uses
@@ -1233,7 +1247,10 @@ def init_db():
                  "ALTER TABLE players ADD COLUMN peak_rank INTEGER",
                  "ALTER TABLE players ADD COLUMN peak_rank_at TEXT",
                  "ALTER TABLE players ADD COLUMN peak_div TEXT",
-                 "ALTER TABLE players ADD COLUMN peak_div_at TEXT"):
+                 "ALTER TABLE players ADD COLUMN peak_div_at TEXT",
+                 # A short self-written blurb shown on the public profile,
+                 # editable by the account that owns the name. 7.9.4.
+                 "ALTER TABLE players ADD COLUMN bio TEXT"):
         try:
             c.execute(_ddl)
         except sqlite3.OperationalError:
@@ -3914,6 +3931,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.4", "at": "2026-08-27T08:00:00Z", "changes": [
+        "You can now add a bio to your profile — a few lines about yourself that everyone sees on your public page. Set it from Your account or straight from your own profile (visitors see a short preview with a “Show more” to read the rest). Slurs and profanity are filtered out, same as names."
+    ]},
     {"version": "7.9.3", "at": "2026-08-27T07:00:00Z", "changes": [
         "There's now a #site-updates channel in the Discord: every new site, bot and tracker update is posted there automatically as it ships, so you can follow what's changing without checking the changelog page."
     ]},
@@ -5603,7 +5623,7 @@ def player_profile(name):
     c = conn.cursor()
     c.execute("SELECT name, elo, wins, losses, clan, google_sub, "
               "COALESCE(strict_mode, 0), peak_rank, peak_rank_at, "
-              "peak_div, peak_div_at FROM players WHERE norm_name = ?",
+              "peak_div, peak_div_at, bio FROM players WHERE norm_name = ?",
               (normalize_name(name),))
     row = c.fetchone()
     if not row:
@@ -5612,7 +5632,10 @@ def player_profile(name):
                                version=APP_VERSION, page='players'), 404
 
     (stored_name, elo, wins, losses, clan, owner_sub, protected,
-     peak_rank, peak_rank_at, peak_div_key, peak_div_at) = row
+     peak_rank, peak_rank_at, peak_div_key, peak_div_at, bio) = row
+    # Is the viewer the account that owns this name? Only they get the
+    # inline bio editor. current_user() is None for signed-out visitors.
+    is_me = bool(owner_sub) and owner_sub == current_user()
     c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
     rank = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM players")
@@ -5725,11 +5748,12 @@ def player_profile(name):
               "admin_of": admin_of, "division": division, "peak": peak,
               "placements_left": (max(0, PROVISIONAL_GAMES - played)
                                   if played < PROVISIONAL_GAMES else 0),
-              "owned": bool(owner_sub), "protected": bool(protected)}
+              "owned": bool(owner_sub), "protected": bool(protected),
+              "bio": bio or "", "is_me": is_me}
     return render_template('player.html', player=player,
                            region_ranks=region_ranks, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='players', history=history,
-                           by_region=by_region, primary=primary)
+                           by_region=by_region, primary=primary, bio_max=BIO_MAX)
 
 
 @app.route('/rename', methods=['POST'])
@@ -11028,11 +11052,11 @@ def account_page():
     acct = None
     if account_name:
         c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan, "
-                  "COALESCE(wipe_available,0) "
+                  "COALESCE(wipe_available,0), bio "
                   "FROM players WHERE norm_name = ?", (normalize_name(account_name),))
         row = c.fetchone()
         if row:
-            name, elo, wins, losses, clan, wipe_avail = row
+            name, elo, wins, losses, clan, wipe_avail, bio = row
             c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
             rank = c.fetchone()[0]
             c.execute("SELECT COUNT(*) FROM players")
@@ -11065,6 +11089,7 @@ def account_page():
                 "clan": clan, "clan_display": clan_display(c, clan) if clan else None,
                 "by_region": by_region, "recent": recent,
                 "wipe_available": int(wipe_avail or 0),
+                "bio": bio or "",
             }
     # Discord link status for the settings section. A Discord sign-in IS its
     # own Discord (nothing to link); a Google account may have one bound.
@@ -11083,7 +11108,42 @@ def account_page():
                            discord_link=discord_link,
                            discord_can_link=bool(sub_id) and not is_discord_acct,
                            link_status=request.args.get('link'),
-                           wins_required=CLAIM_WINS_REQUIRED)
+                           wins_required=CLAIM_WINS_REQUIRED, bio_max=BIO_MAX)
+
+
+@app.route('/account/bio', methods=['POST'])
+def account_bio():
+    """Set (or clear) the bio shown on your public profile. Applies to the
+    name your account owns; screened for slurs/profanity like a typed name,
+    and capped so it stays a blurb, not an essay."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    raw = (request.json or {}).get('bio')
+    if raw is None:
+        return jsonify({"message": "No bio provided."}), 400
+    # Normalise line endings, drop control characters except newline/tab, and
+    # trim trailing blank lines - but keep the author's own line breaks.
+    text = str(raw).replace('\r\n', '\n').replace('\r', '\n')
+    text = ''.join(ch for ch in text if ch == '\n' or ch == '\t' or ord(ch) >= 32)
+    text = text.strip()
+    if len(text) > BIO_MAX:
+        return jsonify({"message": f"A bio is at most {BIO_MAX} characters."}), 400
+    if bio_blocked(text):
+        return jsonify({"message": "That bio isn't allowed. Please remove any "
+                                   "slurs or profanity."}), 400
+    conn = db()
+    c = conn.cursor()
+    account_name = account_name_for(c, sub_id)
+    if not account_name:
+        conn.close()
+        return jsonify({"message": "Claim or register a name first, then you "
+                                   "can add a bio to it."}), 400
+    c.execute("UPDATE players SET bio = ? WHERE norm_name = ?",
+              (text or None, normalize_name(account_name)))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "bio": text}), 200
 
 
 @app.route('/account/wipe', methods=['POST'])
