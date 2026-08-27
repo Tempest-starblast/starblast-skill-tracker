@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.2"
+APP_VERSION = "7.9.3"
 
 # Public /rawlive is served this many seconds behind real time (owner sees it
 # live). Framed to viewers as a security delay so the named, real-time feed
@@ -1473,6 +1473,21 @@ def init_db():
         pass
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_region ON matches(region, played_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_row ON match_players(match_row)")
+
+    # Which changelog versions the Discord #site-updates feed has posted.
+    # Born marking every EXISTING version announced EXCEPT the newest, so the
+    # feed opens with the current update rather than replaying the whole back
+    # catalogue, and every release after this one posts itself. 7.9.3.
+    c.execute("CREATE TABLE IF NOT EXISTS changelog_announced ("
+              "version TEXT PRIMARY KEY, announced_at TEXT)")
+    if c.execute("SELECT COUNT(*) FROM changelog_announced").fetchone()[0] == 0:
+        _cl = globals().get('CHANGELOG') or []
+        _newest = _cl[0].get('version') if _cl else None
+        c.executemany(
+            "INSERT OR IGNORE INTO changelog_announced(version, announced_at) "
+            "VALUES (?, 'backfill')",
+            [(e['version'],) for e in _cl
+             if e.get('version') and e['version'] != _newest])
 
     # Cold storage for matches removed by a record wipe. A wipe is meant to
     # be a true reset to placement, so the wiped matches are DELETED from
@@ -3899,6 +3914,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.3", "at": "2026-08-27T07:00:00Z", "changes": [
+        "There's now a #site-updates channel in the Discord: every new site, bot and tracker update is posted there automatically as it ships, so you can follow what's changing without checking the changelog page."
+    ]},
     {"version": "7.9.2", "at": "2026-08-27T06:30:00Z", "changes": [
         "The live-matches test view is now public, but shown on a roughly two-minute delay for security — the radar and each team's win chance, with no player names. The real-time, named view stays for the signed-in owner only."
     ]},
@@ -8747,6 +8765,45 @@ def bot_changelog_route():
         n = 3
     return jsonify({"version": APP_VERSION,
                     "entries": CHANGELOG[:n]}), 200
+
+
+@app.route('/api/bot/changelog/undelivered')
+def bot_changelog_undelivered():
+    """Changelog versions not yet posted to the Discord #site-updates feed,
+    OLDEST first so they post in release order. Backfilled on first run so
+    only genuinely new releases appear here (see init_db)."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS changelog_announced ("
+              "version TEXT PRIMARY KEY, announced_at TEXT)")
+    done = {r[0] for r in c.execute("SELECT version FROM changelog_announced")}
+    conn.close()
+    pending = [e for e in CHANGELOG
+               if e.get("version") and e["version"] not in done]
+    pending.reverse()      # CHANGELOG is newest-first; deliver oldest-first
+    return jsonify({"version": APP_VERSION, "entries": pending}), 200
+
+
+@app.route('/api/bot/changelog/delivered', methods=['POST'])
+def bot_changelog_delivered():
+    """The bot marks the versions it has posted to #site-updates."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    versions = [str(v) for v in ((request.json or {}).get("versions") or []) if v]
+    if versions:
+        now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        conn = db()
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS changelog_announced ("
+                  "version TEXT PRIMARY KEY, announced_at TEXT)")
+        c.executemany("INSERT OR IGNORE INTO changelog_announced"
+                      "(version, announced_at) VALUES (?, ?)",
+                      [(v, now) for v in versions])
+        conn.commit()
+        conn.close()
+    return jsonify({"ok": True, "marked": len(versions)}), 200
 
 
 @app.route('/api/bot/clan')
