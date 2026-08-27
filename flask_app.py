@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.4"
+APP_VERSION = "7.9.5"
 
 # Public /rawlive is served this many seconds behind real time (owner sees it
 # live). Framed to viewers as a security delay so the named, real-time feed
@@ -1113,7 +1113,7 @@ def is_blocked_word(name):
 # same lists: a substring slur ("fuck") is caught inside any word, while the
 # short whole-name-only terms ("ass", "rape", "sex") are caught as standalone
 # words but not inside innocent ones ("class", "grape", "Middlesex").
-BIO_MAX = 1000
+BIO_MAX = 5000
 
 
 def bio_blocked(text):
@@ -3931,6 +3931,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.5", "at": "2026-08-27T08:20:00Z", "changes": [
+        "Profile bios can now be up to 5,000 characters — room for a proper write-up, not just a line or two. It still shows as a short preview with “Show more” on your profile."
+    ]},
     {"version": "7.9.4", "at": "2026-08-27T08:00:00Z", "changes": [
         "You can now add a bio to your profile — a few lines about yourself that everyone sees on your public page. Set it from Your account or straight from your own profile (visitors see a short preview with a “Show more” to read the rest). Slurs and profanity are filtered out, same as names."
     ]},
