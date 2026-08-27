@@ -44,6 +44,8 @@
 /* rosters */
 .rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
 .rl-tname{font-weight:600;color:var(--text)}
+.rl-wp{font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;
+  letter-spacing:.02em}
 .rl-tmeta{margin-left:auto;color:var(--dim,#8aa0b0);font-size:11px;
   font-variant-numeric:tabular-nums}
 .rl-plist{font-size:11.5px;line-height:1.5;margin-bottom:2px}
@@ -59,8 +61,9 @@
   <h1>Live matches &mdash; from minute zero<span class="rl-badge">test</span></h1>
   <div class="rl-sub">Every vanilla team lobby the new browserless watcher is following, joined at
     the opening and stayed resident &mdash; all regions. Full rosters, station replicas and a live
-    radar, straight from the game. No probability; this is the parallel early-entry feed, and the
-    elo still comes from the main tracker.</div>
+    radar, straight from the game. Each team shows its <b>win chance</b>, learned from full matches
+    watched end to end &mdash; least certain early, sharper as the match unfolds. Review only; the
+    board elo is unaffected.</div>
   <div class="rl-status"><span class="rl-dot"></span><span id="rlStatus">Connecting&hellip;</span></div>
 </div>
 
@@ -206,7 +209,7 @@
     // rebuilding every poll is what made it flicker.
     var teams=m.teams.slice().sort(function(a,b){return (b.score||0)-(a.score||0);});
     var psig=JSON.stringify([m.full_watch,m.name,teams.map(function(t){
-      return [t.key,t.score,t.count,(t.station||[]).slice(0,6),
+      return [t.key,t.score,t.count,t.prob,(t.station||[]).slice(0,6),
               (t.players||[]).map(function(p){return p.name+'|'+p.score+'|'+p.tier+'|'+(p.dead?1:0);})];})]);
     c.seed=m.seed; c.lastM=m;
     ensureAsteroids(m.seed);
@@ -222,8 +225,9 @@
           return '<div class="rl-prow'+(p.dead?' dead':'')+'"><span class="rn">'+esc(p.name)
             +'</span><span class="rt">T'+p.tier+'</span><span class="rs">'+fmt(p.score)+'</span></div>';
         }).join('');
+        var wp=(t.prob!=null)?'<span class="rl-wp" style="color:'+COLORS[t.key]+'">'+t.prob+'%</span>':'';
         return '<div class="rl-teamrow"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
-          +'<span class="rl-tname">'+esc(t.label)+'</span>'
+          +'<span class="rl-tname">'+esc(t.label)+'</span>'+wp
           +'<span class="rl-tmeta">'+fmt(t.score)+' &middot; '+t.count+'p</span></div>'
           +'<div class="rl-plist">'+rows+'</div>';
       }).join('');

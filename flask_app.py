@@ -5,6 +5,7 @@ from urllib.parse import quote
 import random
 import json
 import sqlite3
+import math
 import os
 import time
 import secrets
@@ -21,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.0"
+APP_VERSION = "7.9.1"
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -372,6 +373,12 @@ def live_db():
                  "sys_id INTEGER PRIMARY KEY, saved REAL, payload TEXT)")
     conn.execute("CREATE TABLE IF NOT EXISTS model ("
                  "id INTEGER PRIMARY KEY, weights TEXT, meta TEXT, updated REAL)")
+    # The SHADOW win-probability model (from t=0, trained on the raw_observer
+    # full-match feed) - a DIFFERENT model from `model` above, which is the
+    # old 20-minute browser-tracker one. Kept in its own row so the two never
+    # collide. Posted daily by winprob/shadow_wp_train.py. 7.9.0.
+    conn.execute("CREATE TABLE IF NOT EXISTS shadow_model ("
+                 "id INTEGER PRIMARY KEY, weights TEXT, meta TEXT, updated REAL)")
     # The from-the-opening raw_observer feed - one row per lobby, latest
     # snapshot only. Separate from `live` (the browser tracker) so the two
     # never collide; this is the parallel early-entry viewer (7.5.0).
@@ -400,6 +407,117 @@ def load_live_model():
     except Exception:
         pass
     return None, None
+
+
+# --- SHADOW win probability (from t=0) --------------------------------------
+# Trained on the raw_observer full-match feed by winprob/shadow_wp_train.py.
+# COMPLETELY SEPARATE from the live model above (which scores the 20-minute
+# browser tracker). The feature builder below MUST stay byte-for-byte in step
+# with feats_for_read() in shadow_wp_train.py - if you change one, change both,
+# or the site will score live lobbies with features the model never saw.
+SHADOW_WP_FEATURES = ["ss", "sm", "cs", "cm", "lvlm", "deadm", "hpm", "tierm",
+                      "avgtierm", "conc", "skillm", "smXp", "cmXp", "hmXp",
+                      "lmXp", "tmXp", "skillEarly", "prog", "bias"]
+# Baked from the first real train (467 matches, acc 0.596) so /rawlive shows
+# probabilities immediately, before the daily retrain has posted once. The DB
+# row (set by the trainer) overrides this whenever present.
+SHADOW_WP_BUILTIN = [0.155, 1.615, -0.099, -0.313, 0.406, 0.908, 0.915, 0.227,
+                     0.881, -0.756, 0.723, -0.492, 1.042, 0.958, 0.38, -0.347,
+                     -0.788, 0.0, 0.0]
+
+
+def load_shadow_wp_model():
+    """Current shadow win-prob weights + meta. Falls back to the built-in
+    weights until the daily retrain has posted at least once."""
+    try:
+        conn = live_db()
+        r = conn.execute("SELECT weights, meta FROM shadow_model WHERE id=1").fetchone()
+        conn.close()
+        if r and r[0]:
+            w = json.loads(r[0])
+            meta = json.loads(r[1]) if r[1] else {}
+            if isinstance(w, list) and len(w) == len(SHADOW_WP_FEATURES):
+                return w, meta
+    except Exception:
+        pass
+    return SHADOW_WP_BUILTIN, {"builtin": True}
+
+
+def _shadow_wp_stat(sh, ti):
+    """Station (lvl, gems, dead, hp) for team index ti - mirrors trainer.stat."""
+    if not (isinstance(sh, list) and ti < len(sh) and isinstance(sh[ti], dict)):
+        return (0, 0, 12, 0.0)
+    s = sh[ti]
+    mods = s.get("mods") or []
+    hp = (sum(mods) / (255.0 * len(mods))) if mods else 0.0
+    return (s.get("lvl", 0) or 0, s.get("gems", 0) or 0, s.get("dead", 0) or 0, hp)
+
+
+def _shadow_wp_agg(rd, i, elo_map):
+    """Roster aggregates (maxtier, avgtier, top-2 score share, top-2 mean elo)
+    for team index i - mirrors trainer.agg."""
+    ros = (rd.get("teams") or {}).get("team_%d" % (i + 1)) or []
+    scs = sorted([(r[1] or 0) for r in ros if r], reverse=True)
+    tot = sum(scs) or 1
+    maxt = max([(r[2] or 0) for r in ros] or [0])
+    avgt = (sum((r[2] or 0) for r in ros) / len(ros)) if ros else 0
+    top2 = (sum(scs[:2]) / tot) if scs else 0
+    els = sorted([elo_map.get(normalize_name(r[0]), 1000.0)
+                  for r in ros if r and r[0]], reverse=True)
+    return maxt, avgt, top2, ((sum(els[:2]) / len(els[:2])) if els else 1000.0)
+
+
+def _shadow_wp_feats(rd, elo_map, prog):
+    """Per-alive-team feature vectors from one raw snapshot. MUST match
+    feats_for_read() in shadow_wp_train.py exactly (same order, same math)."""
+    sc = rd.get("scores") or {}
+    ct = rd.get("counts") or {}
+    tot = sum(sc.values())
+    if tot < 5000:
+        return None
+    alive = [i for i in range(3) if (ct.get("team_%d" % (i + 1), 0) or 0) > 0]
+    if len(alive) < 2:
+        return None
+    ts = float(tot)
+    tc = float(sum(ct.values())) or 1.0
+    AG = {i: _shadow_wp_agg(rd, i, elo_map) for i in alive}
+    ST = {i: _shadow_wp_stat(rd.get("sh"), i) for i in alive}
+    out = {}
+    for i in alive:
+        si = sc.get("team_%d" % (i + 1), 0) or 0
+        ci = ct.get("team_%d" % (i + 1), 0) or 0
+        lv, gm, dd, hp = ST[i]
+        maxt, avgt, top2, skill = AG[i]
+        R = [j for j in alive if j != i]
+        rmax = lambda f: max([f(j) for j in R] or [0])
+        ss = si / ts
+        cs = ci / tc
+        sm = (si - rmax(lambda j: sc.get("team_%d" % (j + 1), 0) or 0)) / (ts + 1)
+        cm = (ci - rmax(lambda j: ct.get("team_%d" % (j + 1), 0) or 0)) / (tc + 1)
+        lm = (lv - rmax(lambda j: ST[j][0])) / 4.0
+        dm = (rmax(lambda j: ST[j][2]) - dd) / 12.0
+        hm = hp - rmax(lambda j: ST[j][3])
+        tm = (maxt - rmax(lambda j: AG[j][0])) / 7.0
+        atm = (avgt - rmax(lambda j: AG[j][1])) / 7.0
+        skm = (skill - rmax(lambda j: AG[j][3])) / 400.0
+        out[i] = [ss, sm, cs, cm, lm, dm, hm, tm, atm, top2, skm,
+                  sm * prog, cm * prog, hm * prog, lm * prog, tm * prog,
+                  skm * (1 - prog), prog, 1.0]
+    return out
+
+
+def shadow_win_probability(rd, elo_map, weights, prog):
+    """P(win) per alive team index for one raw snapshot, or None when the
+    match is too young / one-sided to score (mirrors the trainer's gate)."""
+    f = _shadow_wp_feats(rd, elo_map, prog)
+    if not f:
+        return None
+    nf = len(SHADOW_WP_FEATURES)
+    xs = {i: sum(weights[k] * f[i][k] for k in range(nf)) for i in f}
+    m = max(xs.values())
+    ex = {i: math.exp(xs[i] - m) for i in xs}
+    z = sum(ex.values()) or 1.0
+    return {i: ex[i] / z for i in ex}
 
 
 
@@ -1933,6 +2051,21 @@ def rawlive_ingest():
     d = repair_surrogates(d)
     try:
         conn = live_db(); c = conn.cursor()
+        # Stamp when THIS match (sys_id + match_seq) was first seen, so the
+        # /rawlive win-prob can compute match progress. A single snapshot has
+        # no start time; carry the earliest ts forward until match_seq rolls.
+        _now_ts = d.get("ts") or time.time()
+        _mstart = _now_ts
+        prev = c.execute("SELECT payload FROM rawlive WHERE sys_id=?",
+                         (int(d['sid']),)).fetchone()
+        if prev:
+            try:
+                pj = json.loads(prev[0])
+                if pj.get("match_seq") == d.get("match_seq") and pj.get("_mstart"):
+                    _mstart = pj["_mstart"]
+            except Exception:
+                pass
+        d["_mstart"] = _mstart
         c.execute("INSERT INTO rawlive (sys_id, updated, payload) VALUES (?,?,?) "
                   "ON CONFLICT(sys_id) DO UPDATE SET updated=excluded.updated, "
                   "payload=excluded.payload",
@@ -1959,11 +2092,49 @@ def rawlive_matches():
         conn.close()
     except Exception:
         rows = []
+    # Parse once, then score win probability from the SHADOW model. Everyone
+    # sees the team-level P(win) (it is aggregate, not a roster); the rosters
+    # themselves stay owner-only below.
+    parsed = []
+    names = set()
     for sys_id, updated, payload in rows:
         try:
             d = json.loads(payload)
         except Exception:
             continue
+        parsed.append((sys_id, updated, d))
+        for ros in (d.get("teams") or {}).values():
+            for r in ros or []:
+                if r and r[0]:
+                    names.add(normalize_name(r[0]))
+    elo_map = {}
+    if names:
+        try:
+            pconn = db()
+            qs = list(names)
+            for i in range(0, len(qs), 400):
+                chunk = qs[i:i + 400]
+                ph = ",".join("?" * len(chunk))
+                for nn, el in pconn.execute(
+                        "SELECT norm_name, elo FROM shadow_players "
+                        "WHERE norm_name IN (%s)" % ph, chunk):
+                    elo_map[nn] = float(el)
+            pconn.close()
+        except Exception:
+            elo_map = {}
+    wp_w, wp_meta = load_shadow_wp_model()
+    for sys_id, updated, d in parsed:
+        prog = 0.0
+        try:
+            ms = d.get("_mstart")
+            if ms:
+                prog = min(1.0, max(0.0, ((d.get("ts") or now) - ms) / 2400.0))
+        except Exception:
+            prog = 0.0
+        try:
+            probs = shadow_win_probability(d, elo_map, wp_w, prog)
+        except Exception:
+            probs = None
         facs = d.get("factions") or []
         _sh = d.get("sh") or []
         _lay = d.get("stlay") or []
@@ -1988,6 +2159,10 @@ def rawlive_matches():
                 "score": d.get("scores", {}).get(k, 0),
                 "station": station,
                 "layout": layout,
+                # P(win) from the shadow model, 0-100, or null when the match is
+                # too young / one-sided for the model to score yet.
+                "prob": (round(probs[idx] * 100) if probs and idx in probs
+                         else None),
                 "players": (sorted(
                     [{"name": r[0], "score": r[1], "tier": r[2],
                       "dead": (r[3] == 0)} for r in roster],
@@ -2002,10 +2177,17 @@ def rawlive_matches():
             # [team_idx, ship_id, x, y] per ship - id lets the viewer glide
             # each dot to its new spot instead of redrawing from scratch.
             "radar": d.get("radar") or [],
+            # match progress the model used, 0-1, so the viewer can note the
+            # early-game reads are less certain.
+            "prog": round(prog, 3),
+            "wp": bool(probs),
             "teams": teams,
         })
     return jsonify({"matches": out, "count": len(out),
-                    "show_players": _owner}), 200
+                    "show_players": _owner,
+                    "wp_model": {"acc": wp_meta.get("accuracy"),
+                                 "trained_at": wp_meta.get("trained_at"),
+                                 "builtin": bool(wp_meta.get("builtin"))}}), 200
 
 
 @app.route('/api/asteroids/<int:seed>')
@@ -2794,6 +2976,32 @@ def live_model_update():
     conn.commit()
     conn.close()
     return jsonify({"ok": True}), 200
+
+
+@app.route('/api/shadow/wp_model', methods=['POST'])
+def shadow_wp_model_update():
+    """The daily FROM-T=0 shadow retrain (winprob/shadow_wp_train.py) posts its
+    weights here. Stored in its own shadow_model row so /rawlive scores live
+    lobbies with the freshest model - no code deploy. Kept apart from the live
+    (20-min) model. Rejected unless it is exactly the feature count we expect."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    w = d.get("w") or d.get("weights")
+    meta = d.get("meta") or {}
+    nf = len(SHADOW_WP_FEATURES)
+    if not (isinstance(w, list) and len(w) == nf
+            and all(isinstance(x, (int, float)) for x in w)):
+        return jsonify({"error": "w must be %d numbers" % nf}), 400
+    conn = live_db()
+    conn.execute("INSERT INTO shadow_model (id, weights, meta, updated) "
+                 "VALUES (1,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                 "weights=excluded.weights, meta=excluded.meta, "
+                 "updated=excluded.updated",
+                 (json.dumps(w), json.dumps(meta), time.time()))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "features": nf}), 200
 
 
 @app.route('/api/live/skill_export')
@@ -3608,6 +3816,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.1", "at": "2026-08-27T05:00:00Z", "changes": [
+        "The experimental live view now shows each team's win chance from the very start of the match, learned from full matches watched end to end. Internal review only; no effect on the current leaderboard."
+    ]},
     {"version": "7.9.0", "at": "2026-08-26T09:00:00Z", "changes": [
         "The leader title can now be renamed too, alongside member, moderator and co-leader - though only the leader can change the leader title. Custom role names are filtered the same way typed player names are, so nothing offensive gets through."
     ]},
