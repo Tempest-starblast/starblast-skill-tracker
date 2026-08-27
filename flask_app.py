@@ -22,7 +22,12 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.1"
+APP_VERSION = "7.9.2"
+
+# Public /rawlive is served this many seconds behind real time (owner sees it
+# live). Framed to viewers as a security delay so the named, real-time feed
+# can't be used to follow players around live.
+RAWLIVE_PUBLIC_DELAY = 120
 
 # Win probability is PAUSED (owner, 24 Aug 2026): the model was trained on
 # late-join partial trajectories, and the whole approach is being rebuilt on
@@ -384,6 +389,14 @@ def live_db():
     # never collide; this is the parallel early-entry viewer (7.5.0).
     conn.execute("CREATE TABLE IF NOT EXISTS rawlive ("
                  "sys_id INTEGER PRIMARY KEY, updated REAL, payload TEXT)")
+    # A short rolling history of raw_observer snapshots (a few minutes), so the
+    # PUBLIC /rawlive can be served ~2 minutes behind. Signed-in owner still
+    # reads the latest `rawlive` row; the public reads the closest hist row
+    # older than the delay. Pruned on every ingest. 7.9.2.
+    conn.execute("CREATE TABLE IF NOT EXISTS rawlive_hist ("
+                 "sys_id INTEGER, updated REAL, payload TEXT)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rawlive_hist "
+                 "ON rawlive_hist(sys_id, updated)")
     # Asteroid field per map seed, baked once by asteroid_baker.py (the
     # field is deterministic + static per seed). Positions already in the
     # radar's +/-128 space. 7.6.0.
@@ -2037,7 +2050,8 @@ def rawlive_view():
     A test view alongside /live: same idea, but sourced from the resident
     raw-socket recorder (up to 10 lobbies, full rosters from the opening),
     and with no probability - it is pure observed state (7.5.0)."""
-    return render_template('rawlive.html', page='rawlive', version=APP_VERSION)
+    return render_template('rawlive.html', page='rawlive', version=APP_VERSION,
+                           is_owner=1 if is_site_owner() else 0)
 
 
 @app.route('/api/rawlive/state', methods=['POST'])
@@ -2066,75 +2080,146 @@ def rawlive_ingest():
             except Exception:
                 pass
         d["_mstart"] = _mstart
+        _blob = json.dumps(d, ensure_ascii=False)
+        _wall = time.time()
         c.execute("INSERT INTO rawlive (sys_id, updated, payload) VALUES (?,?,?) "
                   "ON CONFLICT(sys_id) DO UPDATE SET updated=excluded.updated, "
                   "payload=excluded.payload",
-                  (int(d['sid']), time.time(), json.dumps(d, ensure_ascii=False)))
+                  (int(d['sid']), _wall, _blob))
+        # Keep a rolling history for the delayed public view, and prune beyond
+        # what the delay needs (a little slack past the delay window).
+        c.execute("INSERT INTO rawlive_hist (sys_id, updated, payload) VALUES (?,?,?)",
+                  (int(d['sid']), _wall, _blob))
+        c.execute("DELETE FROM rawlive_hist WHERE updated < ?",
+                  (_wall - (RAWLIVE_PUBLIC_DELAY + 90),))
         conn.commit(); conn.close()
     except Exception as e:
         return jsonify({"error": str(e)[:120]}), 500
     return jsonify({"ok": True}), 200
 
 
+def _shadow_elo_lookup(names):
+    """norm_name -> shadow elo for a set of names (batched)."""
+    elo_map = {}
+    if not names:
+        return elo_map
+    try:
+        pconn = db()
+        qs = list(names)
+        for i in range(0, len(qs), 400):
+            chunk = qs[i:i + 400]
+            ph = ",".join("?" * len(chunk))
+            for nn, el in pconn.execute(
+                    "SELECT norm_name, elo FROM shadow_players "
+                    "WHERE norm_name IN (%s)" % ph, chunk):
+                elo_map[nn] = float(el)
+        pconn.close()
+    except Exception:
+        return {}
+    return elo_map
+
+
+def _wp_player_impacts(d, elo_map, wp_w, prog, base_probs):
+    """Owner-only: how much each player is moving their team's win chance.
+
+    Leave-one-out on the ROSTER: drop the player from their team and re-run
+    the model (team score/count are held fixed - only the roster-derived
+    features change: top-2 skill, tier, score concentration). The drop in
+    that team's P(win) is the player's contribution, in points. Naturally ~0
+    for anyone outside the top of their team, since only those feed the
+    features. Returns {(team_idx, roster_idx): delta_pct}."""
+    out = {}
+    if not base_probs:
+        return out
+    teams = d.get("teams") or {}
+    for i in range(3):
+        if i not in base_probs:
+            continue
+        tk = "team_%d" % (i + 1)
+        ros = teams.get(tk) or []
+        if len(ros) < 2:
+            continue
+        for pi, pr in enumerate(ros):
+            if not (pr and pr[0]):
+                continue
+            d2 = dict(d)
+            t2 = dict(teams)
+            t2[tk] = ros[:pi] + ros[pi + 1:]
+            d2["teams"] = t2
+            try:
+                pb = shadow_win_probability(d2, elo_map, wp_w, prog)
+            except Exception:
+                pb = None
+            if pb and i in pb:
+                out[(i, pi)] = round((base_probs[i] - pb[i]) * 100, 1)
+    return out
+
+
 @app.route('/api/rawlive/matches')
 def rawlive_matches():
-    """Current raw_observer lobbies, freshest first."""
+    """Raw_observer lobbies. The signed-in owner sees the live, named feed
+    with per-player win-prob impact; everyone else sees it ~2 minutes behind
+    (security delay), anonymous, radar + probabilities only."""
     now = time.time()
-    # Which players are in which game is owner-only. Everyone else sees the
-    # match (scores, counts, stations, anonymous radar) but not the roster.
     _owner = is_site_owner()
-    out = []
+    delayed = not _owner
+    # Gather the payloads to render: latest for the owner, ~2-min-old for the
+    # public (the closest history snapshot older than the delay).
+    render = []
     try:
         conn = live_db()
-        rows = conn.execute("SELECT sys_id, updated, payload FROM rawlive "
-                            "WHERE updated > ? ORDER BY updated DESC",
-                            (now - 40,)).fetchall()
+        active = conn.execute("SELECT sys_id, updated FROM rawlive "
+                              "WHERE updated > ? ORDER BY updated DESC",
+                              (now - 40,)).fetchall()
+        if delayed:
+            cutoff = now - RAWLIVE_PUBLIC_DELAY
+            for sys_id, _u in active:
+                h = conn.execute(
+                    "SELECT updated, payload FROM rawlive_hist WHERE sys_id=? "
+                    "AND updated <= ? ORDER BY updated DESC LIMIT 1",
+                    (sys_id, cutoff)).fetchone()
+                if not h:        # lobby younger than the delay -> not shown yet
+                    continue
+                try:
+                    render.append((sys_id, h[0], json.loads(h[1])))
+                except Exception:
+                    pass
+        else:
+            for sys_id, upd in active:
+                r = conn.execute("SELECT payload FROM rawlive WHERE sys_id=?",
+                                 (sys_id,)).fetchone()
+                if not r:
+                    continue
+                try:
+                    render.append((sys_id, upd, json.loads(r[0])))
+                except Exception:
+                    pass
         conn.close()
     except Exception:
-        rows = []
-    # Parse once, then score win probability from the SHADOW model. Everyone
-    # sees the team-level P(win) (it is aggregate, not a roster); the rosters
-    # themselves stay owner-only below.
-    parsed = []
+        render = []
     names = set()
-    for sys_id, updated, payload in rows:
-        try:
-            d = json.loads(payload)
-        except Exception:
-            continue
-        parsed.append((sys_id, updated, d))
+    for _s, _u, d in render:
         for ros in (d.get("teams") or {}).values():
             for r in ros or []:
                 if r and r[0]:
                     names.add(normalize_name(r[0]))
-    elo_map = {}
-    if names:
-        try:
-            pconn = db()
-            qs = list(names)
-            for i in range(0, len(qs), 400):
-                chunk = qs[i:i + 400]
-                ph = ",".join("?" * len(chunk))
-                for nn, el in pconn.execute(
-                        "SELECT norm_name, elo FROM shadow_players "
-                        "WHERE norm_name IN (%s)" % ph, chunk):
-                    elo_map[nn] = float(el)
-            pconn.close()
-        except Exception:
-            elo_map = {}
+    elo_map = _shadow_elo_lookup(names)
     wp_w, wp_meta = load_shadow_wp_model()
-    for sys_id, updated, d in parsed:
+    out = []
+    for sys_id, updated, d in render:
         prog = 0.0
         try:
             ms = d.get("_mstart")
             if ms:
-                prog = min(1.0, max(0.0, ((d.get("ts") or now) - ms) / 2400.0))
+                prog = min(1.0, max(0.0, ((d.get("ts") or updated) - ms) / 2400.0))
         except Exception:
             prog = 0.0
         try:
             probs = shadow_win_probability(d, elo_map, wp_w, prog)
         except Exception:
             probs = None
+        impacts = (_wp_player_impacts(d, elo_map, wp_w, prog, probs)
+                   if _owner else {})
         facs = d.get("factions") or []
         _sh = d.get("sh") or []
         _lay = d.get("stlay") or []
@@ -2142,8 +2227,6 @@ def rawlive_matches():
         for k in ("team_1", "team_2", "team_3"):
             roster = d.get("teams", {}).get(k) or []
             idx = int(k[-1]) - 1
-            # Station in the same 7-array shape /live draws from:
-            # [lvl, gems, alive, total, weak, dead, [mods hp]].
             station = None
             if isinstance(_sh, list) and idx < len(_sh) and isinstance(_sh[idx], dict):
                 h = _sh[idx]
@@ -2152,6 +2235,13 @@ def rawlive_matches():
                 station = [h.get("lvl"), h.get("gems") or 0, n - dead, n,
                            h.get("weak") or 0, dead, h.get("mods")]
             layout = _lay[idx] if idx < len(_lay) else []
+            players = []
+            if _owner:
+                players = sorted(
+                    [{"name": r[0], "score": r[1], "tier": r[2],
+                      "dead": (r[3] == 0), "impact": impacts.get((idx, ri))}
+                     for ri, r in enumerate(roster) if r and r[0]],
+                    key=lambda q: -q["score"])[:12]
             teams.append({
                 "key": k,
                 "label": (facs[idx] if idx < len(facs) and facs[idx] else "Team %d" % (idx+1)),
@@ -2159,14 +2249,9 @@ def rawlive_matches():
                 "score": d.get("scores", {}).get(k, 0),
                 "station": station,
                 "layout": layout,
-                # P(win) from the shadow model, 0-100, or null when the match is
-                # too young / one-sided for the model to score yet.
                 "prob": (round(probs[idx] * 100) if probs and idx in probs
                          else None),
-                "players": (sorted(
-                    [{"name": r[0], "score": r[1], "tier": r[2],
-                      "dead": (r[3] == 0)} for r in roster],
-                    key=lambda q: -q["score"])[:12] if _owner else []),
+                "players": players,
             })
         out.append({
             "sys_id": sys_id, "name": d.get("name") or ("Lobby %d" % sys_id),
@@ -2174,17 +2259,15 @@ def rawlive_matches():
             "match_seq": d.get("match_seq"), "full_watch": bool(d.get("full_watch")),
             "cap": d.get("cap"), "age": round(now - updated, 1),
             "seed": d.get("seed"),
-            # [team_idx, ship_id, x, y] per ship - id lets the viewer glide
-            # each dot to its new spot instead of redrawing from scratch.
             "radar": d.get("radar") or [],
-            # match progress the model used, 0-1, so the viewer can note the
-            # early-game reads are less certain.
             "prog": round(prog, 3),
             "wp": bool(probs),
             "teams": teams,
         })
     return jsonify({"matches": out, "count": len(out),
                     "show_players": _owner,
+                    "delayed": delayed,
+                    "delay_sec": (RAWLIVE_PUBLIC_DELAY if delayed else 0),
                     "wp_model": {"acc": wp_meta.get("accuracy"),
                                  "trained_at": wp_meta.get("trained_at"),
                                  "builtin": bool(wp_meta.get("builtin"))}}), 200
@@ -3816,6 +3899,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.2", "at": "2026-08-27T06:30:00Z", "changes": [
+        "The live-matches test view is now public, but shown on a roughly two-minute delay for security — the radar and each team's win chance, with no player names. The real-time, named view stays for the signed-in owner only."
+    ]},
     {"version": "7.9.1", "at": "2026-08-27T05:00:00Z", "changes": [
         "The experimental live view now shows each team's win chance from the very start of the match, learned from full matches watched end to end. Internal review only; no effect on the current leaderboard."
     ]},

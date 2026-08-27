@@ -54,17 +54,25 @@
 .rl-prow .rt{color:var(--dim,#8aa0b0);flex:none;font-variant-numeric:tabular-nums}
 .rl-prow .rs{flex:none;font-variant-numeric:tabular-nums;color:var(--text)}
 .rl-prow.dead .rn{color:#6a7681;text-decoration:line-through}
+.rl-impact{flex:none;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;
+  padding:0 4px;border-radius:5px;letter-spacing:.01em}
+.rl-impact.up{color:#66E6B8;background:rgba(102,230,184,.12)}
+.rl-impact.down{color:#ff9a9a;background:rgba(255,122,122,.12)}
+.rl-delaychip{margin-left:8px;font-size:11px;font-weight:600;color:#f0c04a;
+  background:rgba(240,192,74,.13);border-radius:6px;padding:1px 7px}
 .rl-empty{max-width:1180px;margin:40px auto;text-align:center;color:var(--dim,#8aa0b0)}
 </style>
 
 <div class="rl-head">
   <h1>Live matches &mdash; from minute zero<span class="rl-badge">test</span></h1>
   <div class="rl-sub">Every vanilla team lobby the new browserless watcher is following, joined at
-    the opening and stayed resident &mdash; all regions. Full rosters, station replicas and a live
-    radar, straight from the game. Each team shows its <b>win chance</b>, learned from full matches
-    watched end to end &mdash; least certain early, sharper as the match unfolds. Review only; the
-    board elo is unaffected.</div>
-  <div class="rl-status"><span class="rl-dot"></span><span id="rlStatus">Connecting&hellip;</span></div>
+    the opening and stayed resident &mdash; all regions. Station replicas and a live radar, straight
+    from the game, with each team's <b>win chance</b> &mdash; learned from full matches watched end
+    to end, least certain early and sharper as the match unfolds.
+    {% if is_owner %}You're signed in: this is the <b>live, named</b> view, with each player's effect
+    on the win chance.{% else %}Shown about <b>two minutes behind</b> for security, without player
+    names.{% endif %}</div>
+  <div class="rl-status"><span class="rl-dot"></span><span id="rlStatus">Connecting&hellip;</span><span id="rlDelay" class="rl-delaychip" style="display:none"></span></div>
 </div>
 
 <div class="rl-wrap" id="rlWrap"></div>
@@ -210,7 +218,7 @@
     var teams=m.teams.slice().sort(function(a,b){return (b.score||0)-(a.score||0);});
     var psig=JSON.stringify([m.full_watch,m.name,teams.map(function(t){
       return [t.key,t.score,t.count,t.prob,(t.station||[]).slice(0,6),
-              (t.players||[]).map(function(p){return p.name+'|'+p.score+'|'+p.tier+'|'+(p.dead?1:0);})];})]);
+              (t.players||[]).map(function(p){return p.name+'|'+p.score+'|'+p.tier+'|'+(p.dead?1:0)+'|'+(p.impact==null?'':p.impact);})];})]);
     c.seed=m.seed; c.lastM=m;
     ensureAsteroids(m.seed);
     if(c.psig!==psig){
@@ -222,8 +230,14 @@
       c.rbase.innerHTML=radarBase(m, Array.isArray(astCache[m.seed])?astCache[m.seed]:null);
       c.rosEl.innerHTML=teams.map(function(t){
         var rows=(t.players||[]).map(function(p){
+          var imp='';
+          if(p.impact!=null && Math.abs(p.impact)>=0.1){
+            var pos=p.impact>0;
+            imp='<span class="rl-impact '+(pos?'up':'down')+'" title="how much this player is raising or lowering their team’s win chance">'
+              +(pos?'+':'−')+Math.abs(p.impact).toFixed(1)+'%</span>';
+          }
           return '<div class="rl-prow'+(p.dead?' dead':'')+'"><span class="rn">'+esc(p.name)
-            +'</span><span class="rt">T'+p.tier+'</span><span class="rs">'+fmt(p.score)+'</span></div>';
+            +'</span>'+imp+'<span class="rt">T'+p.tier+'</span><span class="rs">'+fmt(p.score)+'</span></div>';
         }).join('');
         var wp=(t.prob!=null)?'<span class="rl-wp" style="color:'+COLORS[t.key]+'">'+t.prob+'%</span>':'';
         return '<div class="rl-teamrow"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
@@ -284,6 +298,11 @@
         if(!live[sid]&&cards[sid]){ cards[sid].el.remove(); delete cards[sid]; return false; }
         return true;
       });
+      var delayChip=document.getElementById('rlDelay');
+      if(d.delayed && d.delay_sec){
+        delayChip.textContent='delayed ~'+Math.round(d.delay_sec/60)+' min (security)';
+        delayChip.style.display='';
+      } else { delayChip.style.display='none'; }
       var now=new Date();
       var fw=ms.filter(function(m){return m.full_watch;}).length;
       status.innerHTML=ms.length+' lobb'+(ms.length===1?'y':'ies')+' watched'
