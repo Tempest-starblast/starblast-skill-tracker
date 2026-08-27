@@ -310,8 +310,11 @@
         +('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
     }catch(e){status.textContent='Reconnecting…';}
   }
-  tick();
-  setInterval(tick,1500);
+  // Self-scheduling poll: wait for each fetch to FINISH before starting the
+  // next, so a slow response can never let two polls overlap and land radar
+  // updates out of order (that was the stutter). Fixed gap = steady cadence,
+  // which is what the ship-glide timing depends on.
+  (function loop(){ tick().finally(function(){ setTimeout(loop, 1400); }); })();
 })();
 </script>
 {% endblock %}

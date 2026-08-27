@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.5"
+APP_VERSION = "7.9.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -446,21 +446,31 @@ SHADOW_WP_BUILTIN = [0.155, 1.615, -0.099, -0.313, 0.406, 0.908, 0.915, 0.227,
                      -0.788, 0.0, 0.0]
 
 
+_SHADOW_WP_CACHE = {"w": None, "meta": None, "at": 0.0}
+
+
 def load_shadow_wp_model():
     """Current shadow win-prob weights + meta. Falls back to the built-in
-    weights until the daily retrain has posted at least once."""
+    weights until the daily retrain has posted at least once. Cached for 60s
+    so /rawlive doesn't do a DB read on every 1.5s poll (the model only
+    changes once a day)."""
+    now = time.time()
+    if _SHADOW_WP_CACHE["w"] is not None and now - _SHADOW_WP_CACHE["at"] < 60:
+        return _SHADOW_WP_CACHE["w"], _SHADOW_WP_CACHE["meta"]
+    w, meta = SHADOW_WP_BUILTIN, {"builtin": True}
     try:
         conn = live_db()
         r = conn.execute("SELECT weights, meta FROM shadow_model WHERE id=1").fetchone()
         conn.close()
         if r and r[0]:
-            w = json.loads(r[0])
-            meta = json.loads(r[1]) if r[1] else {}
-            if isinstance(w, list) and len(w) == len(SHADOW_WP_FEATURES):
-                return w, meta
+            _w = json.loads(r[0])
+            if isinstance(_w, list) and len(_w) == len(SHADOW_WP_FEATURES):
+                w = _w
+                meta = json.loads(r[1]) if r[1] else {}
     except Exception:
         pass
-    return SHADOW_WP_BUILTIN, {"builtin": True}
+    _SHADOW_WP_CACHE.update(w=w, meta=meta, at=now)
+    return w, meta
 
 
 def _shadow_wp_stat(sh, ti):
@@ -2178,9 +2188,13 @@ def _wp_player_impacts(d, elo_map, wp_w, prog, base_probs):
         ros = teams.get(tk) or []
         if len(ros) < 2:
             continue
-        for pi, pr in enumerate(ros):
-            if not (pr and pr[0]):
-                continue
+        # Only the top players by score can move the skill/tier/concentration
+        # features; the rest come out ~0 and show no badge anyway. Scoring
+        # just the top few caps the per-poll leave-one-out cost so /rawlive
+        # stays fast enough for the radar to stay smooth.
+        idxs = sorted((pi for pi, pr in enumerate(ros) if pr and pr[0]),
+                      key=lambda pi: -(ros[pi][1] or 0))[:6]
+        for pi in idxs:
             d2 = dict(d)
             t2 = dict(teams)
             t2[tk] = ros[:pi] + ros[pi + 1:]
@@ -3938,6 +3952,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.6", "at": "2026-08-27T21:30:00Z", "changes": [
+        "Smoothed the live-matches radar again: the page now waits for each refresh to finish before starting the next (so a slow one can't make the dots jump), and the win-chance maths behind it was made lighter so it keeps up."
+    ]},
     {"version": "7.9.5", "at": "2026-08-27T08:20:00Z", "changes": [
         "Profile bios can now be up to 5,000 characters — room for a proper write-up, not just a line or two. It still shows as a short preview with “Show more” on your profile."
     ]},
