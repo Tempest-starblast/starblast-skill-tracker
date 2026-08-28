@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.8"
+APP_VERSION = "7.9.9"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4035,6 +4035,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.9", "at": "2026-08-28T02:00:00Z", "changes": [
+        "You can now set your profile bio from Discord too: /bio writes the bio shown on your public profile (leave it blank to clear it), the same as the website's Your account page. No sign-in needed."
+    ]},
     {"version": "7.9.8", "at": "2026-08-28T01:00:00Z", "changes": [
         "The Discord bot can now set your clan profile too: /clancolor recolours a role's chip, /clantint tints the clan page, and /clanbio sets the clan bio — the same controls as the website, from Discord, with no sign-in. Leaders and co-leaders only."
     ]},
@@ -9909,6 +9912,23 @@ def bot_gamename_route():
     return jsonify(payload), 200
 
 
+@app.route('/api/bot/bio', methods=['POST'])
+def bot_bio_route():
+    """Set (or clear) your profile bio from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_set_bio(c, sub_id, (request.json or {}).get('bio'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
 @app.route('/api/bot/claim', methods=['POST'])
 def bot_claim_route():
     """File a claim from Discord, rate limited per account rather than per
@@ -11373,6 +11393,33 @@ def account_page():
                            wins_required=CLAIM_WINS_REQUIRED, bio_max=BIO_MAX)
 
 
+def perform_set_bio(c, sub_id, raw):
+    """Set (or clear) the bio on the name this account owns. Screened for
+    slurs/profanity like a typed name, and capped so it stays a blurb. Shared
+    by the web /account/bio and the bot's /api/bot/bio. Does NOT commit;
+    returns (status, payload)."""
+    if raw is None:
+        return 400, {"ok": False, "message": "No bio provided."}
+    # Normalise line endings, drop control characters except newline/tab, and
+    # trim trailing blank lines - but keep the author's own line breaks.
+    text = str(raw).replace('\r\n', '\n').replace('\r', '\n')
+    text = ''.join(ch for ch in text if ch == '\n' or ch == '\t' or ord(ch) >= 32)
+    text = text.strip()
+    if len(text) > BIO_MAX:
+        return 400, {"ok": False, "message": f"A bio is at most {BIO_MAX} characters."}
+    if bio_blocked(text):
+        return 400, {"ok": False, "message": "That bio isn't allowed. Please remove "
+                                             "any slurs or profanity."}
+    account_name = account_name_for(c, sub_id)
+    if not account_name:
+        return 400, {"ok": False, "message": "Claim or register a name first, then "
+                                             "you can add a bio to it."}
+    c.execute("UPDATE players SET bio = ? WHERE norm_name = ?",
+              (text or None, normalize_name(account_name)))
+    return 200, {"ok": True, "bio": text,
+                 "message": "Bio saved." if text else "Bio cleared."}
+
+
 @app.route('/account/bio', methods=['POST'])
 def account_bio():
     """Set (or clear) the bio shown on your public profile. Applies to the
@@ -11381,31 +11428,13 @@ def account_bio():
     sub_id = current_user()
     if not sub_id:
         return jsonify({"message": "Sign in first."}), 401
-    raw = (request.json or {}).get('bio')
-    if raw is None:
-        return jsonify({"message": "No bio provided."}), 400
-    # Normalise line endings, drop control characters except newline/tab, and
-    # trim trailing blank lines - but keep the author's own line breaks.
-    text = str(raw).replace('\r\n', '\n').replace('\r', '\n')
-    text = ''.join(ch for ch in text if ch == '\n' or ch == '\t' or ord(ch) >= 32)
-    text = text.strip()
-    if len(text) > BIO_MAX:
-        return jsonify({"message": f"A bio is at most {BIO_MAX} characters."}), 400
-    if bio_blocked(text):
-        return jsonify({"message": "That bio isn't allowed. Please remove any "
-                                   "slurs or profanity."}), 400
     conn = db()
     c = conn.cursor()
-    account_name = account_name_for(c, sub_id)
-    if not account_name:
-        conn.close()
-        return jsonify({"message": "Claim or register a name first, then you "
-                                   "can add a bio to it."}), 400
-    c.execute("UPDATE players SET bio = ? WHERE norm_name = ?",
-              (text or None, normalize_name(account_name)))
-    conn.commit()
+    status, payload = perform_set_bio(c, sub_id, (request.json or {}).get('bio'))
+    if status == 200:
+        conn.commit()
     conn.close()
-    return jsonify({"ok": True, "bio": text}), 200
+    return jsonify(payload), status
 
 
 @app.route('/account/wipe', methods=['POST'])
