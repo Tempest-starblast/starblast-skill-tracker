@@ -406,6 +406,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 {% block css %}{% endblock %}
 </style>
 </head><body class="pg-{{ page or 'leaderboard' }}">
+{% block backdrop %}{% endblock %}
 <div class="spacescape" aria-hidden="true"></div>
 <div class="constellations" aria-hidden="true"><svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
 <g stroke="rgba(176,204,236,.14)" stroke-width="1" fill="none">

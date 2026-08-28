@@ -9,9 +9,9 @@
 .me{background:#1b2a1a}
 .adminbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 {% endblock %}
+{% block backdrop %}{% if clan and clan.theme_color %}<div class="clantint" style="--tint:{{ clan.theme_color }}"></div>{% endif %}{% endblock %}
 {% block body %}
 {% if clan %}
-{% if clan.theme_color %}<div class="clantint" style="--tint:{{ clan.theme_color }}"></div>{% endif %}
 <h1 class="ptitle">{{ clan.display or clan.tag }}</h1>
 <p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %}
   {%- if clan.admins %} &middot; run by {{ clan.admins|join(', ') }}{% endif %}
@@ -74,10 +74,15 @@
   overflow:hidden}
 .biomore{margin:6px 0 0;background:none;border:0;color:var(--blue);cursor:pointer;
   font:inherit;font-size:12.5px;padding:0}
-/* The page tint: a soft wash of the clan's colour behind the whole page. */
-.clantint{position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background:radial-gradient(1100px 620px at 50% -10%,
-    color-mix(in srgb, var(--tint) 22%, transparent), transparent 70%)}
+/* The page tint: a wash of the clan's colour behind the whole page. A direct
+   child of <body> (via the backdrop block) at z-index:0 — ABOVE the opaque
+   .spacescape backdrop (z-index:-1) and BELOW all content (.page/.topbar are
+   z-index:1), so it colours the whole field without touching readability. */
+.clantint{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(1200px 700px at 50% -8%, color-mix(in srgb, var(--tint) 42%, transparent), transparent 68%),
+    radial-gradient(900px 900px at 88% 108%, color-mix(in srgb, var(--tint) 26%, transparent), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--tint) 12%, transparent), transparent 45%)}
 </style>
 <div class="tablewrap">
 <table>

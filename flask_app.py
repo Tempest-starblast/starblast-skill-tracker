@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.7"
+APP_VERSION = "7.9.8"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4035,6 +4035,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.8", "at": "2026-08-28T01:00:00Z", "changes": [
+        "The Discord bot can now set your clan profile too: /clancolor recolours a role's chip, /clantint tints the clan page, and /clanbio sets the clan bio — the same controls as the website, from Discord, with no sign-in. Leaders and co-leaders only."
+    ]},
     {"version": "7.9.7", "at": "2026-08-28T00:00:00Z", "changes": [
         "Clans got a proper profile. Leaders and co-leaders can now write a clan bio, tint the clan page a colour of their choice, and recolour each role chip from a set palette — all shown on the public clan page. Tap any role to see exactly what it can do (and there's no limit on how many of each role you hand out; a member just needs an account to hold one). A small green circle now sits after the name of any member who has an account, and turns into a green check mark when their rating is protected."
     ]},
@@ -9783,6 +9786,47 @@ def bot_clan_region_route():
     return jsonify(payload), 200
 
 
+@app.route('/api/bot/clan/rolenames', methods=['POST'])
+def bot_clan_rolenames_route():
+    """Rename and/or recolour a clan's role chips, from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_labels(c, sub_id, data.get('clan'),
+                                          data.get('labels'), data.get('colors'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
+@app.route('/api/bot/clan/profile', methods=['POST'])
+def bot_clan_profile_route():
+    """Set a clan's bio and/or page tint, from Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"error": "no discord_id"}), 400
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    # bio/theme absent => leave that field unchanged; "" => clear it.
+    status, payload = perform_clan_profile(
+        c, sub_id, data.get('clan'),
+        bio=data.get('bio') if 'bio' in data else None,
+        theme=data.get('theme') if 'theme' in data else None)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), 200
+
+
 @app.route('/api/bot/clan/delete', methods=['POST'])
 def bot_clan_delete_route():
     """Delete a clan you are an admin of, from Discord."""
@@ -11208,8 +11252,10 @@ def clans_page():
     conn = db()
     c = conn.cursor()
     curated = curated_clans(c)
-    c.execute("SELECT tag, region FROM clans")
-    regions = {r[0]: (r[1] or "") for r in c.fetchall()}
+    c.execute("SELECT tag, region, theme FROM clans")
+    _clanmeta = c.fetchall()
+    regions = {r[0]: (r[1] or "") for r in _clanmeta}
+    themes = {r[0]: (r[2] or "") for r in _clanmeta}
     shown = clan_display_map(c)
     rows = []
     for tag in sorted(all_clan_tags(c)):
@@ -11232,6 +11278,8 @@ def clans_page():
             "display": shown.get(tag, tag),
             "region": regions.get(tag, ""),
             "region_label": REGION_LABELS.get(regions.get(tag, ""), ""),
+            "theme": themes.get(tag, ""),
+            "theme_color": CLAN_THEMES.get(themes.get(tag, ""), ""),
             "curated": tag in curated,
         })
     conn.close()
