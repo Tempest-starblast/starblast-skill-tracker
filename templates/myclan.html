@@ -31,12 +31,40 @@
   background:var(--card,#161616);border:1px solid var(--line);border-radius:8px;
   box-shadow:0 6px 20px rgba(0,0,0,.45);min-width:170px}
 .rankmenu button{white-space:nowrap;text-align:left}
-.rolechip{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;
-  font-weight:700;border:1px solid var(--line);color:var(--dim);margin-left:6px}
-.role-leader{color:#e8c153;border-color:#6b5320}
-.role-coleader{color:#7fc4ff;border-color:#2d4a63}
-.role-moderator{color:#9adf9a;border-color:#2f5a34}
-.role-member{color:var(--dim)}
+/* Role chips now carry the clan's chosen colour inline (--rc). The border
+   is a dim wash of that colour so the chip reads as a set. Clickable, because
+   tapping one explains what the role can do. */
+.rolechip{display:inline-block;padding:1px 8px;border-radius:9px;font-size:11px;
+  font-weight:700;border:1px solid color-mix(in srgb, var(--rc,var(--dim)) 45%, transparent);
+  color:var(--rc,var(--dim));background:color-mix(in srgb, var(--rc,var(--dim)) 12%, transparent);
+  margin-left:6px;cursor:pointer;font:inherit;line-height:1.5}
+.rolechip:focus-visible{outline:2px solid var(--rc,var(--blue));outline-offset:2px}
+/* A blue dot = this player has an account on the site ("logged in"). It sits
+   BEFORE the name; the green protection tick sits AFTER, so the two never
+   share a spot even when a player is both. */
+.logdot{display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:var(--blue);box-shadow:0 0 6px rgba(153,221,255,.6);flex:0 0 auto}
+.tick{display:inline-block;color:var(--green);font-size:12px;vertical-align:middle}
+/* Swatch pickers for role colours and the page tint. */
+.swrow{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 2px}
+.sw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;
+  cursor:pointer;padding:0;transition:transform .1s,border-color .1s}
+.sw:hover{transform:scale(1.12)}
+.sw.on{border-color:var(--text);box-shadow:0 0 0 2px var(--bg,#111),0 0 8px rgba(0,0,0,.5)}
+.sw.none{background:var(--card,#161616);border:2px dashed var(--line);
+  color:var(--dim);font-size:12px;display:flex;align-items:center;justify-content:center}
+.rolecolors{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:14px;margin:10px 0 4px}
+.rolecolors .rcname{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--dim);margin-bottom:2px}
+/* The role-help popover a chip opens. */
+.rolehelp{margin:2px 0 0;padding:11px 13px;border-radius:8px;font-size:12.5px;
+  line-height:1.6;color:var(--muted);background:var(--card,#161616);
+  border:1px solid var(--line);border-left:3px solid var(--rc,var(--blue))}
+.rolehelp b{color:var(--text)}
+.bioarea{width:100%;min-height:120px;resize:vertical;font:inherit;line-height:1.6;
+  padding:10px 12px}
+.biocount{font-size:11px;color:var(--dim);margin:4px 0 0;text-align:right}
 .sub{margin:18px 0 6px;font-size:14px;color:var(--text)}
 /* A leader with no leaderboard name is invisible on their own roster and
    the clan reads "no run by". Amber, because it is worth doing and nothing
@@ -148,8 +176,12 @@
   <div class="mcrow">
     <div class="mcwho">
       <div class="mcname">
+        {%- if m.has_account %}<span class="logdot" title="Has an account on the site"></span>{% endif %}
         <a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
-        <span class="rolechip role-{{ m.role or 'member' }}">{{ m.role_label or t('Member') }}</span>
+        {%- if m.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>{% endif %}
+        <button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
+                onclick="roleHelp(this,'{{ m.role or 'player' }}')"
+                title="What this role can do">{{ m.role_label or t('Member') }}</button>
       </div>
       <div class="mcstats">
         <span class="mcstat"><b class="skill">{{ m.elo }}</b>{{ t('Skill') }}</span>
@@ -191,11 +223,17 @@
 {% if clan.can_manage %}
 <div class="card">
   <h2>{{ t('Ranks') }}</h2>
-  <p class="desc">A <b>moderator</b> can remove ordinary members and nothing else.
-     A <b>co-leader</b> can do everything you can except delete the clan, remove another
-     co-leader, or appoint one. Nobody can remove someone of their own rank or above.
-     The player needs an account on the site to hold a rank.</p>
-  <p class="desc">Use the <b>+</b> next to a member above to give them a rank.</p>
+  <p class="desc">Tap a role to see exactly what it can do. Use the <b>+</b> next to a
+     member above to give them a rank. There is <b>no limit</b> on how many of each
+     role you hand out &mdash; the only rule is that a member needs an account on the
+     site to hold one, so the <b>+</b> only appears next to members who have signed in.</p>
+  <div class="swrow" style="margin:2px 0 0">
+    {%- for r in ['leader','coleader','moderator','player'] %}
+    <button type="button" class="rolechip" style="--rc:{{ clan.role_colors[r] }};margin-left:0"
+            onclick="roleHelp(this,'{{ r }}')">{{ clan.role_names[r] if r != 'leader' else (clan.role_names.leader or 'Leader') }}</button>
+    {%- endfor %}
+  </div>
+  <div id="rankHelp"></div>
   <p class="msg" id="roleMsg"></p>
 </div>
 
@@ -216,27 +254,57 @@
 </div>
 
 <div class="card">
-  <h2>{{ t('Role names') }}</h2>
-  <p class="desc">Rename the roles your clan uses. These titles show on the roster and the
-     public page &mdash; the colours stay the same. Leave one blank to use the default.</p>
-  <div class="rolenames">
-    <label>{{ t('Member') }} <span class="df">default</span>
-      <input type="text" id="rn_player" maxlength="24" autocomplete="off"
-             value="{{ clan.role_names.player }}" placeholder="Member"></label>
-    <label>{{ t('Moderator') }} <span class="df">default</span>
-      <input type="text" id="rn_moderator" maxlength="24" autocomplete="off"
-             value="{{ clan.role_names.moderator }}" placeholder="Moderator"></label>
-    <label>{{ t('Co-leader') }} <span class="df">default</span>
-      <input type="text" id="rn_coleader" maxlength="24" autocomplete="off"
-             value="{{ clan.role_names.coleader }}" placeholder="Co-leader"></label>
-    {%- if clan.is_leader %}
-    <label>{{ t('Leader') }} <span class="df">default &middot; leader only</span>
-      <input type="text" id="rn_leader" maxlength="24" autocomplete="off"
-             value="{{ clan.role_names.leader }}" placeholder="Leader"></label>
-    {%- endif %}
+  <h2>{{ t('Roles') }}</h2>
+  <p class="desc">Rename each role and pick its chip colour. Titles and colours show on the
+     roster and the public clan page. Leave a name blank to use the default. The leader
+     role can only be renamed by the leader.</p>
+  <div class="rolecolors">
+    {%- set editable = ['player','moderator','coleader'] + (['leader'] if clan.is_leader else []) %}
+    {%- set defnames = {'player':'Member','moderator':'Moderator','coleader':'Co-leader','leader':'Leader'} %}
+    {%- for r in editable %}
+    <div class="rolefield">
+      <div class="rcname">{{ t(defnames[r]) }}</div>
+      <input type="text" id="rn_{{ r }}" class="rn" maxlength="24" autocomplete="off"
+             value="{{ clan.role_names[r] }}" placeholder="{{ defnames[r] }}"
+             style="font-size:14px;width:100%">
+      <div class="swrow" data-role="{{ r }}">
+        {%- for key, hexv in palette.items() %}
+        <button type="button" class="sw{% if clan.role_color_keys[r] == key %} on{% endif %}"
+                style="background:{{ hexv }}" data-key="{{ key }}"
+                title="{{ key }}" onclick="pickColor(this)"
+                aria-label="{{ key }} colour"></button>
+        {%- endfor %}
+      </div>
+      <input type="hidden" id="rc_{{ r }}" value="{{ clan.role_color_keys[r] }}">
+    </div>
+    {%- endfor %}
   </div>
-  <button class="primary" onclick="saveRoleNames()">{{ t('Save role names') }}</button>
+  <button class="primary" onclick="saveRoleNames()">{{ t('Save roles') }}</button>
   <p class="msg" id="roleNamesMsg"></p>
+</div>
+
+<div class="card">
+  <h2>{{ t('Clan profile') }}</h2>
+  <p class="desc">A short bio and a page tint make your clan page your own. Both show to
+     everyone on the public clan page. Keep it clean &mdash; no slurs or profanity.</p>
+  <div class="sub" style="margin-top:2px">{{ t('Page tint') }}</div>
+  <div class="swrow" id="themeRow">
+    <button type="button" class="sw none{% if not clan.theme %} on{% endif %}"
+            data-key="" title="No tint" onclick="pickTheme(this)"
+            aria-label="No tint">&times;</button>
+    {%- for key, hexv in themes.items() %}
+    <button type="button" class="sw{% if clan.theme == key %} on{% endif %}"
+            style="background:{{ hexv }}" data-key="{{ key }}" title="{{ key }}"
+            onclick="pickTheme(this)" aria-label="{{ key }} tint"></button>
+    {%- endfor %}
+  </div>
+  <div class="sub">{{ t('Clan bio') }}</div>
+  <textarea id="clanBio" class="bioarea" maxlength="{{ clan.bio_max }}"
+            placeholder="Tell people who you are..."
+            oninput="bioCount()">{{ clan.bio }}</textarea>
+  <p class="biocount"><span id="bioNow">0</span> / {{ clan.bio_max }}</p>
+  <button class="primary" onclick="saveProfile()">{{ t('Save profile') }}</button>
+  <p class="msg" id="profileMsg"></p>
 </div>
 {% endif %}
 
@@ -276,6 +344,45 @@
 
 <script>
 const TAG = {{ (clan.tag if clan else '')|tojson }};
+const ROLE_HELP = {{ role_help|tojson }};
+const ROLE_COLORS = {{ (clan.role_colors if clan else {})|tojson }};
+
+// Tap a role chip to explain what the role can do. The popover sits inside the
+// member's row (or the Ranks legend), toggling off when the same chip is tapped
+// again. Label comes via textContent so a custom role name can't inject markup.
+function roleHelp(btn, role){
+  const inRow = btn.closest('.mcwho');
+  const container = inRow || document.getElementById('rankHelp');
+  if (!container) return;
+  const existing = container.querySelector('.rolehelp');
+  if (existing && existing.dataset.role === role){ existing.remove(); return; }
+  if (existing) existing.remove();
+  const pop = document.createElement('div');
+  pop.className = 'rolehelp';
+  pop.dataset.role = role;
+  pop.style.setProperty('--rc', ROLE_COLORS[role] || '');
+  const b = document.createElement('b');
+  b.textContent = btn.textContent.trim();
+  pop.appendChild(b);
+  pop.appendChild(document.createTextNode(' — ' + (ROLE_HELP[role] || '')));
+  container.appendChild(pop);
+}
+function pickColor(btn){
+  const row = btn.closest('.swrow');
+  row.querySelectorAll('.sw').forEach(function(s){ s.classList.remove('on'); });
+  btn.classList.add('on');
+  const h = document.getElementById('rc_' + row.dataset.role);
+  if (h) h.value = btn.dataset.key;
+}
+function pickTheme(btn){
+  document.querySelectorAll('#themeRow .sw').forEach(function(s){ s.classList.remove('on'); });
+  btn.classList.add('on');
+}
+function bioCount(){
+  const t = document.getElementById('clanBio');
+  const n = document.getElementById('bioNow');
+  if (t && n) n.textContent = t.value.length;
+}
 function say(id, ok, text){
   const m = document.getElementById(id);
   if (!m) return;
@@ -412,18 +519,28 @@ async function deleteClan(){
   }catch(e){ say('deleteMsg', false, 'Server connection error.'); }
 }
 async function saveRoleNames(){
-  const labels = {
-    player: document.getElementById('rn_player').value,
-    moderator: document.getElementById('rn_moderator').value,
-    coleader: document.getElementById('rn_coleader').value
-  };
-  const rl = document.getElementById('rn_leader');   // leader-only field
-  if (rl) labels.leader = rl.value;
+  const roles = ['player', 'moderator', 'coleader'];
+  if (document.getElementById('rn_leader')) roles.push('leader');   // leader-only
+  const labels = {}, colors = {};
+  roles.forEach(function(r){
+    labels[r] = document.getElementById('rn_' + r).value;
+    colors[r] = (document.getElementById('rc_' + r) || {}).value || '';
+  });
   try{
-    const [r, d] = await post('/clan/rolenames', {clan: TAG, labels: labels});
+    const [r, d] = await post('/clan/rolenames', {clan: TAG, labels: labels, colors: colors});
     say('roleNamesMsg', d.ok, d.message);
     if (d.ok) reloadSoon();
   }catch(e){ say('roleNamesMsg', false, 'Server connection error.'); }
+}
+async function saveProfile(){
+  const bio = document.getElementById('clanBio').value;
+  const on = document.querySelector('#themeRow .sw.on');
+  const theme = on ? on.dataset.key : '';
+  try{
+    const [r, d] = await post('/clan/profile', {clan: TAG, bio: bio, theme: theme});
+    say('profileMsg', d.ok, d.message);
+    if (d.ok) reloadSoon();
+  }catch(e){ say('profileMsg', false, 'Server connection error.'); }
 }
 async function transferClan(){
   const name = document.getElementById('transferSel').value;
@@ -436,5 +553,6 @@ async function transferClan(){
     if (d.ok) reloadSoon();
   }catch(e){ say('transferMsg', false, 'Server connection error.'); }
 }
+bioCount();
 </script>
 {% endblock %}

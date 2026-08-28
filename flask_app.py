@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.6"
+APP_VERSION = "7.9.7"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -937,6 +937,74 @@ CLAN_ROLE_LABELS = {'leader': 'Leader', 'coleader': 'Co-leader',
 CUSTOMIZABLE_ROLES = ('player', 'moderator', 'coleader', 'leader')
 CLAN_ROLE_NAME_MAX = 24
 
+# --- Clan-profile customisation (7.9.7) ------------------------------------
+# Curated, dark-theme-readable colours a clan may choose from. Keys are what
+# gets stored; the hex is what renders. A short, tasteful set beats a free
+# hex picker (which lets clans pick unreadable colours).
+CLAN_PALETTE = {
+    "gold": "#e8c153", "sky": "#7fc4ff", "green": "#7ce0a0", "purple": "#c39bf0",
+    "red": "#ff6f7d", "amber": "#ffb454", "cyan": "#5fd6d6", "pink": "#ff8fc7",
+    "teal": "#57c9a8", "slate": "#9fb3c8", "lime": "#b6e36a", "coral": "#ff9e7a",
+}
+# Each role's DEFAULT colour key (matches the old hard-coded chip colours).
+CLAN_ROLE_DEFAULT_COLOR = {"leader": "gold", "coleader": "sky",
+                           "moderator": "green", "player": "slate"}
+# Page tints for the clan profile: a background wash + a matching accent.
+# Keys stored in clans.theme; "" / absent = the site's default (no tint).
+CLAN_THEMES = {
+    "red": "#ff5670", "green": "#66e6b8", "blue": "#9adcff", "purple": "#b98cff",
+    "amber": "#ffc757", "cyan": "#5fd6d6", "rose": "#ff8fb0", "slate": "#8aa0b8",
+}
+CLAN_BIO_MAX = 1500
+# What each role can do, shown when a member clicks a role chip. Keyed by the
+# internal role; "player" is the plain member with no admin powers.
+CLAN_ROLE_HELP = {
+    "leader": "Runs the clan. Can do everything: invite and remove members, "
+              "promote or demote anyone, rename roles, set colours and the "
+              "clan profile, and transfer or disband the clan.",
+    "coleader": "Trusted second. Can invite and remove members, promote or "
+                "demote up to moderator, and edit the clan profile — but "
+                "cannot touch other co-leaders or the leader, or disband.",
+    "moderator": "Helps manage the roster. Can invite members and review or "
+                 "accept applications. Cannot promote, remove, or change the "
+                 "profile.",
+    "player": "A regular member on the roster. No management powers — "
+              "just represents the clan and earns rating for it.",
+}
+
+
+def clan_bio_blocked(text):
+    """Screen a clan bio the same per-word way player bios are screened."""
+    return bio_blocked(text)
+
+
+def clan_role_colors(c, tag):
+    """role -> hex colour for a clan's chips: its custom pick, else default."""
+    out = {}
+    try:
+        for role, ckey in c.execute(
+                "SELECT role, color FROM clan_role_labels WHERE clan = ?", (tag,)):
+            if ckey and ckey in CLAN_PALETTE:
+                out[role] = CLAN_PALETTE[ckey]
+    except Exception:
+        pass
+    for role, dkey in CLAN_ROLE_DEFAULT_COLOR.items():
+        out.setdefault(role, CLAN_PALETTE[dkey])
+    return out
+
+
+def clan_role_color_keys(c, tag):
+    """role -> stored colour KEY (for the editor), default key if unset."""
+    out = dict(CLAN_ROLE_DEFAULT_COLOR)
+    try:
+        for role, ckey in c.execute(
+                "SELECT role, color FROM clan_role_labels WHERE clan = ?", (tag,)):
+            if ckey and ckey in CLAN_PALETTE:
+                out[role] = ckey
+    except Exception:
+        pass
+    return out
+
 
 def clan_rank(role):
     """How senior a role is. 0 means no role at all."""
@@ -1361,6 +1429,15 @@ def init_db():
         c.execute("ALTER TABLE clans ADD COLUMN display_tag TEXT")
     except sqlite3.OperationalError:
         pass
+    # Clan-profile customisation (7.9.7): a self-written bio and a page tint
+    # key (into CLAN_THEMES), both leader/co-leader editable, shown on the
+    # public clan page.
+    for _cc in ("ALTER TABLE clans ADD COLUMN bio TEXT",
+                "ALTER TABLE clans ADD COLUMN theme TEXT"):
+        try:
+            c.execute(_cc)
+        except sqlite3.OperationalError:
+            pass
     # A clan admin is a Google account trusted to decide who is in one clan.
     c.execute('''CREATE TABLE IF NOT EXISTS clan_admins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1385,6 +1462,12 @@ def init_db():
                     label TEXT,
                     PRIMARY KEY (clan, role)
                 )''')
+    # A clan can also recolour each role chip (7.9.7); the value is a key into
+    # CLAN_ROLE_PALETTE, blank/absent => the role's default colour.
+    try:
+        c.execute("ALTER TABLE clan_role_labels ADD COLUMN color TEXT")
+    except sqlite3.OperationalError:
+        pass
     # One-time codes are how admin is handed out. The site owner cannot see
     # anyone's Google account id, so there has to be something to pass along
     # out of band - a code sent on Discord is that something.
@@ -3952,6 +4035,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.7", "at": "2026-08-28T00:00:00Z", "changes": [
+        "Clans got a proper profile. Leaders and co-leaders can now write a clan bio, tint the clan page a colour of their choice, and recolour each role chip from a set palette — all shown on the public clan page. Tap any role to see exactly what it can do (and there's no limit on how many of each role you hand out; a member just needs an account to hold one). A small blue dot now marks members who have an account on the site, kept clear of the green protected-rating tick."
+    ]},
     {"version": "7.9.6", "at": "2026-08-27T21:30:00Z", "changes": [
         "Smoothed the live-matches radar again: the page now waits for each refresh to finish before starting the next (so a slow one can't make the dots jump), and the win-chance maths behind it was made lighter so it keeps up."
     ]},
@@ -7886,8 +7972,8 @@ def clan_page(tag):
 
     conn = db()
     c = conn.cursor()
-    c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at "
-              "FROM players WHERE clan = ?", (known,))
+    c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at, "
+              "COALESCE(strict_mode, 0) FROM players WHERE clan = ?", (known,))
     rows = c.fetchall()
     c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
               (known,))
@@ -7904,8 +7990,12 @@ def clan_page(tag):
               "FROM clan_results WHERE clan = ?", (known,))
     clan_wins, clan_losses = c.fetchone()
     apps = clan_applications(c, known)
-    c.execute("SELECT region FROM clans WHERE tag = ?", (known,))
-    region_key = (c.fetchone() or [None])[0] or ""
+    c.execute("SELECT region, bio, theme FROM clans WHERE tag = ?", (known,))
+    _cr = c.fetchone() or (None, None, None)
+    region_key = _cr[0] or ""
+    clan_bio = _cr[1] or ""
+    clan_theme = (_cr[2] or "") if (_cr[2] in CLAN_THEMES) else ""
+    role_colors = clan_role_colors(c, known)
     shown_tag = clan_display(c, known)
     conn.close()
 
@@ -7917,18 +8007,24 @@ def clan_page(tag):
 
     members = []
     total_wins = total_losses = total_elo = 0
-    for name, elo, wins, losses, owner_sub, joined in rows:
+    for name, elo, wins, losses, owner_sub, joined, protected in rows:
         wins = wins or 0
         losses = losses or 0
         played = wins + losses
         total_wins += wins
         total_losses += losses
         total_elo += elo
+        _role = roles.get(owner_sub, "")
         members.append({
             "name": name, "display": display_name(name, known, shown_tag),
             "admin": bool(owner_sub) and owner_sub in admin_subs,
-            "role": roles.get(owner_sub, ""),
-            "role_label": role_label_for(roles.get(owner_sub, ""), role_labels),
+            "role": _role,
+            "role_label": role_label_for(_role, role_labels),
+            "role_color": role_colors.get(_role or "player", role_colors["player"]),
+            # a blue dot for anyone with an account; the green protection tick
+            # is separate (they never share a spot on the row).
+            "has_account": bool(owner_sub),
+            "protected": bool(protected),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "rank": ranks[name],
@@ -7958,6 +8054,10 @@ def clan_page(tag):
     clan["region"] = region_key
     clan["region_label"] = REGION_LABELS.get(region_key, "")
     clan["regions"] = REGIONS
+    clan["bio"] = clan_bio
+    clan["theme"] = clan_theme
+    clan["theme_color"] = CLAN_THEMES.get(clan_theme, "")
+    clan["role_colors"] = role_colors
     # "run by" means the leader. Co-leaders and moderators are shown on
     # their own rows rather than in the heading, or a big clan's heading
     # would be a list of staff.
@@ -7971,7 +8071,7 @@ def clan_page(tag):
     conn2.close()
     return render_template('clan.html', clan=clan, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='clans',
-                           client_id=GOOGLE_CLIENT_ID)
+                           client_id=GOOGLE_CLIENT_ID, role_help=CLAN_ROLE_HELP)
 
 
 @app.route('/clan/leave', methods=['POST'])
@@ -10756,47 +10856,68 @@ def perform_clan_transfer(c, sub_id, raw_tag, name, trusted=False):
                             f"You are a co-leader."}
 
 
-def perform_clan_labels(c, sub_id, raw_tag, labels, trusted=False):
-    """Rename a clan's role titles (player / moderator / co-leader). An empty
-    or default value clears the override. Leader or co-leader. Does NOT commit."""
+def perform_clan_labels(c, sub_id, raw_tag, labels, colors=None, trusted=False):
+    """Rename AND recolour a clan's role chips. A blank/default name or colour
+    clears that override; the label and colour share one row, so each is
+    preserved when only the other changes. Leader or co-leader (the leader
+    role is leader-only). Does NOT commit."""
     known = canonical_clan_tag(raw_tag, all_clan_tags(c))
     if not known:
         return 404, {"ok": False, "message": "No clan with that tag."}
     if not trusted and not may_manage(c, sub_id, known):
         return 403, {"ok": False,
-                     "message": "Only the leader or a co-leader can rename roles."}
+                     "message": "Only the leader or a co-leader can restyle roles."}
     actor_leader = trusted or is_clan_leader(c, sub_id, known)
-    if not isinstance(labels, dict):
+    labels = labels if isinstance(labels, dict) else {}
+    colors = colors if isinstance(colors, dict) else {}
+    if not labels and not colors:
         return 400, {"ok": False, "message": "Nothing to change."}
+    stored = {role: (lab, col) for role, lab, col in c.execute(
+        "SELECT role, label, color FROM clan_role_labels WHERE clan = ?", (known,))}
     for role in CUSTOMIZABLE_ROLES:
-        if role not in labels:
+        if role not in labels and role not in colors:
             continue
-        # The leader title is the leader's alone to change.
         if role == 'leader' and not actor_leader:
             return 403, {"ok": False,
-                         "message": "Only the clan's leader can rename the leader role."}
-        val = " ".join(str(labels.get(role) or "").split())   # collapse whitespace
-        if len(val) > CLAN_ROLE_NAME_MAX:
-            return 400, {"ok": False,
-                         "message": f"A role name is at most {CLAN_ROLE_NAME_MAX} characters."}
-        if any(ord(ch) < 32 for ch in val):
-            return 400, {"ok": False, "message": "A role name has an invalid character."}
-        # Same moderation as a typed player name - no slurs or profanity.
-        if val and is_blocked_word(val):
-            return 400, {"ok": False,
-                         "message": "That role name isn't allowed. Pick another."}
-        if val and val.lower() != CLAN_ROLE_LABELS.get(role, '').lower():
-            c.execute("INSERT INTO clan_role_labels (clan, role, label) VALUES (?, ?, ?) "
-                      "ON CONFLICT(clan, role) DO UPDATE SET label = ?",
-                      (known, role, val, val))
-        else:      # blank or same-as-default -> back to the default
+                         "message": "Only the clan's leader can restyle the leader role."}
+        cur_label, cur_color = stored.get(role, (None, None))
+        # --- label ---
+        if role in labels:
+            val = " ".join(str(labels.get(role) or "").split())
+            if len(val) > CLAN_ROLE_NAME_MAX:
+                return 400, {"ok": False,
+                             "message": f"A role name is at most {CLAN_ROLE_NAME_MAX} characters."}
+            if any(ord(ch) < 32 for ch in val):
+                return 400, {"ok": False, "message": "A role name has an invalid character."}
+            if val and is_blocked_word(val):
+                return 400, {"ok": False,
+                             "message": "That role name isn't allowed. Pick another."}
+            new_label = (val if val and val.lower() != CLAN_ROLE_LABELS.get(role, '').lower()
+                         else None)
+        else:
+            new_label = cur_label
+        # --- colour ---
+        if role in colors:
+            ck = str(colors.get(role) or "").strip().lower()
+            if ck and ck not in CLAN_PALETTE:
+                return 400, {"ok": False, "message": "That colour isn't one of the choices."}
+            new_color = ck if (ck and ck != CLAN_ROLE_DEFAULT_COLOR.get(role)) else None
+        else:
+            new_color = cur_color
+        if not new_label and not new_color:
             c.execute("DELETE FROM clan_role_labels WHERE clan = ? AND role = ?",
                       (known, role))
+        else:
+            c.execute("INSERT INTO clan_role_labels (clan, role, label, color) "
+                      "VALUES (?, ?, ?, ?) ON CONFLICT(clan, role) DO UPDATE SET "
+                      "label = excluded.label, color = excluded.color",
+                      (known, role, new_label, new_color))
     custom = clan_custom_labels(c, known)
     return 200, {"ok": True, "clan": known,
                  "labels": {r: custom.get(r) or CLAN_ROLE_LABELS.get(r, "")
                             for r in CUSTOMIZABLE_ROLES},
-                 "message": "Role names saved."}
+                 "colors": clan_role_color_keys(c, known),
+                 "message": "Roles saved."}
 
 
 @app.route('/clan/role', methods=['POST'])
@@ -10837,7 +10958,7 @@ def clan_transfer():
 
 @app.route('/clan/rolenames', methods=['POST'])
 def clan_rolenames():
-    """Rename a clan's role titles (player / moderator / co-leader)."""
+    """Rename and recolour a clan's role chips."""
     sub_id = current_user()
     trusted = api_key_ok(request.headers.get('X-API-Key'))
     if not sub_id and not trusted:
@@ -10846,7 +10967,55 @@ def clan_rolenames():
     conn = db()
     c = conn.cursor()
     status, payload = perform_clan_labels(c, sub_id, data.get('clan'),
-                                          data.get('labels'), trusted=trusted)
+                                          data.get('labels'), data.get('colors'),
+                                          trusted=trusted)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+def perform_clan_profile(c, sub_id, raw_tag, bio=None, theme=None, trusted=False):
+    """Set a clan's profile bio and/or page tint. Leader or co-leader. Bio is
+    screened like a name; theme must be a known tint (or blank to clear).
+    None means 'leave unchanged'. Does NOT commit."""
+    known = canonical_clan_tag(raw_tag, all_clan_tags(c))
+    if not known:
+        return 404, {"ok": False, "message": "No clan with that tag."}
+    if not trusted and not may_manage(c, sub_id, known):
+        return 403, {"ok": False,
+                     "message": "Only the leader or a co-leader can edit the clan profile."}
+    if bio is not None:
+        text = str(bio).replace('\r\n', '\n').replace('\r', '\n')
+        text = ''.join(ch for ch in text if ch in '\n\t' or ord(ch) >= 32).strip()
+        if len(text) > CLAN_BIO_MAX:
+            return 400, {"ok": False,
+                         "message": f"A clan bio is at most {CLAN_BIO_MAX} characters."}
+        if clan_bio_blocked(text):
+            return 400, {"ok": False,
+                         "message": "That bio isn't allowed. Remove any slurs or profanity."}
+        c.execute("UPDATE clans SET bio = ? WHERE tag = ?", (text or None, known))
+    if theme is not None:
+        key = str(theme).strip().lower()
+        if key and key not in CLAN_THEMES:
+            return 400, {"ok": False, "message": "That tint isn't one of the choices."}
+        c.execute("UPDATE clans SET theme = ? WHERE tag = ?", (key or None, known))
+    return 200, {"ok": True, "clan": known, "message": "Clan profile saved."}
+
+
+@app.route('/clan/profile', methods=['POST'])
+def clan_profile_route():
+    """Save a clan's bio and/or page tint."""
+    sub_id = current_user()
+    trusted = api_key_ok(request.headers.get('X-API-Key'))
+    if not sub_id and not trusted:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_profile(c, sub_id, data.get('clan'),
+                                           bio=data.get('bio'), theme=data.get('theme'),
+                                           trusted=trusted)
     if status == 200:
         conn.commit()
     conn.close()
@@ -10950,45 +11119,60 @@ def my_clan_page():
         conn.close()
         return render_template('myclan.html', clan=None, signed_in=bool(sub_id),
                                version=APP_VERSION, contact=CONTACT_HANDLE,
-                               page='myclan', client_id=GOOGLE_CLIENT_ID)
+                               page='myclan', client_id=GOOGLE_CLIENT_ID,
+                               palette=CLAN_PALETTE, themes=CLAN_THEMES,
+                               role_help=CLAN_ROLE_HELP,
+                               role_default_color=CLAN_ROLE_DEFAULT_COLOR)
     # More than one clan is rare, so a chooser rather than a whole page of
     # tabs: ?clan= picks, the first one is the default.
     asked = canonical_clan_tag(request.args.get('clan'))
     tag = asked if asked in tags else tags[0]
     role = clan_role(c, sub_id, tag)
 
-    c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at "
-              "FROM players WHERE clan = ?", (tag,))
+    c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at, "
+              "COALESCE(strict_mode, 0) FROM players WHERE clan = ?", (tag,))
     rows = c.fetchall()
     c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
               (tag,))
     roles = {r[0]: r[1] for r in c.fetchall() if r[0]}
     role_labels = clan_custom_labels(c, tag)
+    role_colors = clan_role_colors(c, tag)
+    role_color_keys = clan_role_color_keys(c, tag)
+    _shown = clan_display(c, tag)
     rows.sort(key=leaderboard_sort_key)
     members = []
-    for name, elo, wins, losses, owner_sub, joined in rows:
+    for name, elo, wins, losses, owner_sub, joined, protected in rows:
         wins = wins or 0
         losses = losses or 0
         played = wins + losses
+        _role = roles.get(owner_sub, "")
         members.append({
-            "name": name, "display": display_name(name, tag, clan_display(c, tag)),
-            "role": roles.get(owner_sub, ""),
-            "role_label": role_label_for(roles.get(owner_sub, ""), role_labels),
+            "name": name, "display": display_name(name, tag, _shown),
+            "role": _role,
+            "role_label": role_label_for(_role, role_labels),
+            "role_color": role_colors.get(_role or "player", role_colors["player"]),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "joined": join_date(joined),
             "is_you": bool(owner_sub) and owner_sub == sub_id,
             # only an account-holder can be given a rank or made leader
             "has_account": bool(owner_sub),
+            "protected": bool(protected),
         })
 
-    c.execute("SELECT region FROM clans WHERE tag = ?", (tag,))
-    region = (c.fetchone() or [None])[0] or ""
+    c.execute("SELECT region, bio, theme FROM clans WHERE tag = ?", (tag,))
+    _cr = c.fetchone() or (None, None, None)
+    region = _cr[0] or ""
+    clan_bio = _cr[1] or ""
+    clan_theme = (_cr[2] or "") if (_cr[2] in CLAN_THEMES) else ""
     link_row = active_invite_link(c, tag)
     clan = {
-        "tag": tag, "display": clan_display(c, tag), "members": members,
+        "tag": tag, "display": _shown, "members": members,
         "size": len(members), "region": region,
         "region_label": REGION_LABELS.get(region, ""), "regions": REGIONS,
+        "bio": clan_bio, "bio_max": CLAN_BIO_MAX,
+        "theme": clan_theme, "theme_color": CLAN_THEMES.get(clan_theme, ""),
+        "role_colors": role_colors, "role_color_keys": role_color_keys,
         "applications": clan_applications(c, tag),
         "invited": [{"id": r[0], "name": r[1]} for r in c.execute(
             "SELECT id, name FROM clan_invites WHERE clan = ? "
@@ -11012,7 +11196,10 @@ def my_clan_page():
     conn.close()
     return render_template('myclan.html', clan=clan, signed_in=True,
                            version=APP_VERSION, contact=CONTACT_HANDLE,
-                           page='myclan', client_id=GOOGLE_CLIENT_ID)
+                           page='myclan', client_id=GOOGLE_CLIENT_ID,
+                           palette=CLAN_PALETTE, themes=CLAN_THEMES,
+                           role_help=CLAN_ROLE_HELP,
+                           role_default_color=CLAN_ROLE_DEFAULT_COLOR)
 
 
 @app.route('/clans')

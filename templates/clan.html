@@ -11,6 +11,7 @@
 {% endblock %}
 {% block body %}
 {% if clan %}
+{% if clan.theme_color %}<div class="clantint" style="--tint:{{ clan.theme_color }}"></div>{% endif %}
 <h1 class="ptitle">{{ clan.display or clan.tag }}</h1>
 <p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %}
   {%- if clan.admins %} &middot; run by {{ clan.admins|join(', ') }}{% endif %}
@@ -25,7 +26,11 @@
   <div class="stat"><div class="label">Win rate</div><div class="value" style="color:var(--green)">{{ clan.winrate }}</div></div>
 </div>
 <p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
-   added together. A match won by two clanmates therefore counts twice.</p></div>
+   added together. A match won by two clanmates therefore counts twice.</p>
+{%- if clan.bio %}
+<div class="clanbio clamp" id="clanBio">{{ clan.bio }}</div>
+<button class="biomore" id="bioMore" style="display:none" onclick="toggleBio()">Read more</button>
+{%- endif %}</div>
 
 <div class="card" id="applyCard" style="display:none">
   <h2>Join {{ clan.display or clan.tag }}</h2>
@@ -36,18 +41,42 @@
 </div>
 
 <style>
-.rolechip{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;
-  font-weight:700;letter-spacing:.02em;border:1px solid var(--line);color:var(--dim)}
-.role-leader{color:#e8c153;border-color:#6b5320}
-.role-coleader{color:#7fc4ff;border-color:#2d4a63}
-.role-moderator{color:#9adf9a;border-color:#2f5a34}
-.role-member{color:var(--dim)}
+/* Role chips carry the clan's chosen colour (--rc), and click to explain the
+   role in a box below the table. */
+.rolechip{display:inline-block;padding:1px 8px;border-radius:9px;font-size:11px;
+  font-weight:700;letter-spacing:.02em;cursor:pointer;font:inherit;line-height:1.5;
+  color:var(--rc,var(--dim));
+  border:1px solid color-mix(in srgb, var(--rc,var(--dim)) 45%, transparent);
+  background:color-mix(in srgb, var(--rc,var(--dim)) 12%, transparent)}
+.rolechip:focus-visible{outline:2px solid var(--rc,var(--blue));outline-offset:2px}
+/* Blue dot = has an account here ("logged in"); it sits BEFORE the name. The
+   green protection tick sits AFTER, so they never share a spot. */
+.logdot{display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:var(--blue);box-shadow:0 0 6px rgba(153,221,255,.6);
+  margin-right:6px;vertical-align:middle}
+.ptick{display:inline-block;margin-left:6px;color:var(--green);font-size:12px;
+  vertical-align:middle}
 .remb{display:inline-block;margin-right:6px;line-height:0;vertical-align:middle;
   filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
 .remb svg{vertical-align:middle}
 .rankchip{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:11px;
   font-size:10.5px;font-weight:700;letter-spacing:.02em;border:1px solid;
   vertical-align:middle;white-space:nowrap}
+.rolehelpbox{margin:10px 0 0;padding:11px 14px;border-radius:8px;font-size:12.5px;
+  line-height:1.6;color:var(--muted);background:var(--card,#161616);
+  border:1px solid var(--line);border-left:3px solid var(--rc,var(--blue))}
+.rolehelpbox b{color:var(--text)}
+/* A self-written bio, clamped to a few lines until "Read more" opens it. */
+.clanbio{margin:14px 0 0;font-size:14px;line-height:1.7;color:var(--muted);
+  white-space:pre-wrap;word-wrap:break-word}
+.clanbio.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+  overflow:hidden}
+.biomore{margin:6px 0 0;background:none;border:0;color:var(--blue);cursor:pointer;
+  font:inherit;font-size:12.5px;padding:0}
+/* The page tint: a soft wash of the clan's colour behind the whole page. */
+.clantint{position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(1100px 620px at 50% -10%,
+    color-mix(in srgb, var(--tint) 22%, transparent), transparent 70%)}
 </style>
 <div class="tablewrap">
 <table>
@@ -65,12 +94,13 @@
     {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
     {%- else %}{{ loop.index }}{% endif -%}
   </td>
-  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.division.ship, 16, m.division.color, m.division.name)|safe }}</span>{% endif %}<a class="pname" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}{% if m.division %}<span class="rankchip" style="color:{{ m.division.color }};border-color:color-mix(in srgb,{{ m.division.color }} 42%,transparent);background:color-mix(in srgb,{{ m.division.color }} 12%,transparent)">{{ m.division.name }}</span>{% endif %}</td>
+  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.division.ship, 16, m.division.color, m.division.name)|safe }}</span>{% endif %}{% if m.has_account %}<span class="logdot" role="img" aria-label="Has an account on the site" title="Has an account on the site"></span>{% endif %}<a class="pname" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.protected %}<span class="ptick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>{% endif %}{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}{% if m.division %}<span class="rankchip" style="color:{{ m.division.color }};border-color:color-mix(in srgb,{{ m.division.color }} 42%,transparent);background:color-mix(in srgb,{{ m.division.color }} 12%,transparent)">{{ m.division.name }}</span>{% endif %}</td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
   <td class="mid">{{ m.joined or '&mdash;'|safe }}</td>
-  <td class="mid"><span class="rolechip role-{{ m.role or 'member' }}">{{ m.role_label or t('Member') }}</span></td>
+  <td class="mid"><button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
+      onclick="roleHelp(this,'{{ m.role or 'player' }}')" title="What this role can do">{{ m.role_label or t('Member') }}</button></td>
 </tr>
 {% else %}
 <tr><td colspan="7" class="empty">Nobody is in {{ clan.display or clan.tag }} right now.</td></tr>
@@ -78,10 +108,13 @@
 </tbody>
 </table>
 </div>
+<div id="roleHelpBox"></div>
 
 <p class="legend"><span class="crown">&#9812;</span> Runs this clan &mdash; decides who is in it.
-  The # column is the member's place within {{ clan.tag }}; open a player to see their rank
-  on the whole leaderboard.</p>
+  <span class="logdot" style="margin:0 4px"></span> has an account on the site.
+  <span class="ptick" style="margin:0 2px 0 6px">&#10003;</span> protected rating.
+  Tap a role to see what it can do. The # column is the member's place within {{ clan.tag }};
+  open a player to see their rank on the whole leaderboard.</p>
 
 <div class="card" id="meCard" style="display:none;margin-top:18px">
   <h2>You</h2>
@@ -99,7 +132,39 @@ Remove clan tag, or ask {{ contact }} on Discord.</p>
 const TAG = {{ clan.tag|tojson }};
 // What to print. TAG is the key: it goes in requests, never on screen.
 const SHOWN = {{ (clan.display or clan.tag)|tojson }};
+const ROLE_HELP = {{ role_help|tojson }};
+const ROLE_COLORS = {{ clan.role_colors|tojson }};
 let amAdmin = false, myNames = [], MY_NAME = '';
+
+// Tap a role chip to explain it in the box below the table. Same chip again
+// closes it. Label via textContent so a custom role name can't inject markup.
+function roleHelp(btn, role){
+  const box = document.getElementById('roleHelpBox');
+  if (box.dataset.role === role){ box.innerHTML = ''; box.dataset.role = ''; return; }
+  box.dataset.role = role;
+  box.innerHTML = '';
+  const pop = document.createElement('div');
+  pop.className = 'rolehelpbox';
+  pop.style.setProperty('--rc', ROLE_COLORS[role] || '');
+  const b = document.createElement('b');
+  b.textContent = btn.textContent.trim();
+  pop.appendChild(b);
+  pop.appendChild(document.createTextNode(' — ' + (ROLE_HELP[role] || '')));
+  box.appendChild(pop);
+  box.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+function toggleBio(){
+  const bio = document.getElementById('clanBio');
+  const btn = document.getElementById('bioMore');
+  const clamped = bio.classList.toggle('clamp');
+  btn.textContent = clamped ? 'Read more' : 'Show less';
+}
+// Only offer "Read more" when the bio is actually taller than its clamp.
+(function(){
+  const bio = document.getElementById('clanBio');
+  const btn = document.getElementById('bioMore');
+  if (bio && btn && bio.scrollHeight - bio.clientHeight > 4) btn.style.display = '';
+})();
 async function post(u, b){
   const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
                             body: JSON.stringify(b || {})});
