@@ -49,13 +49,14 @@
   border:1px solid color-mix(in srgb, var(--rc,var(--dim)) 45%, transparent);
   background:color-mix(in srgb, var(--rc,var(--dim)) 12%, transparent)}
 .rolechip:focus-visible{outline:2px solid var(--rc,var(--blue));outline-offset:2px}
-/* Blue dot = has an account here ("logged in"); it sits BEFORE the name. The
-   green protection tick sits AFTER, so they never share a spot. */
-.logdot{display:inline-block;width:8px;height:8px;border-radius:50%;
-  background:var(--blue);box-shadow:0 0 6px rgba(153,221,255,.6);
-  margin-right:6px;vertical-align:middle}
-.ptick{display:inline-block;margin-left:6px;color:var(--green);font-size:12px;
-  vertical-align:middle}
+/* A green marker AFTER the name: a filled circle if the player has an account
+   ("logged in"), which turns into a check mark when their rating is protected.
+   Both are the same green and sit in the same spot, aligned to the name. */
+.logdot{display:inline-block;width:9px;height:9px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 6px rgba(124,224,160,.55);
+  margin-left:7px;vertical-align:middle;position:relative;top:-1px}
+.ptick{display:inline-block;margin-left:7px;color:var(--green);font-size:13px;
+  line-height:1;vertical-align:middle}
 .remb{display:inline-block;margin-right:6px;line-height:0;vertical-align:middle;
   filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
 .remb svg{vertical-align:middle}
@@ -94,7 +95,7 @@
     {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
     {%- else %}{{ loop.index }}{% endif -%}
   </td>
-  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.division.ship, 16, m.division.color, m.division.name)|safe }}</span>{% endif %}{% if m.has_account %}<span class="logdot" role="img" aria-label="Has an account on the site" title="Has an account on the site"></span>{% endif %}<a class="pname" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.protected %}<span class="ptick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>{% endif %}{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}{% if m.division %}<span class="rankchip" style="color:{{ m.division.color }};border-color:color-mix(in srgb,{{ m.division.color }} 42%,transparent);background:color-mix(in srgb,{{ m.division.color }} 12%,transparent)">{{ m.division.name }}</span>{% endif %}</td>
+  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.division.ship, 16, m.division.color, m.division.name)|safe }}</span>{% endif %}<a class="pname" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.protected %}<span class="ptick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>{% elif m.has_account %}<span class="logdot" role="img" aria-label="Has an account on the site" title="Has an account on the site"></span>{% endif %}{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}{% if m.division %}<span class="rankchip" style="color:{{ m.division.color }};border-color:color-mix(in srgb,{{ m.division.color }} 42%,transparent);background:color-mix(in srgb,{{ m.division.color }} 12%,transparent)">{{ m.division.name }}</span>{% endif %}</td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
@@ -111,8 +112,8 @@
 <div id="roleHelpBox"></div>
 
 <p class="legend"><span class="crown">&#9812;</span> Runs this clan &mdash; decides who is in it.
-  <span class="logdot" style="margin:0 4px"></span> has an account on the site.
-  <span class="ptick" style="margin:0 2px 0 6px">&#10003;</span> protected rating.
+  <span class="logdot" style="margin:0 3px"></span> has an account on the site &mdash; turns into a
+  <span class="ptick" style="margin:0 2px 0 5px">&#10003;</span> when their rating is protected.
   Tap a role to see what it can do. The # column is the member's place within {{ clan.tag }};
   open a player to see their rank on the whole leaderboard.</p>
 

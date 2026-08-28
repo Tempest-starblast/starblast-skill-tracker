@@ -39,12 +39,12 @@
   color:var(--rc,var(--dim));background:color-mix(in srgb, var(--rc,var(--dim)) 12%, transparent);
   margin-left:6px;cursor:pointer;font:inherit;line-height:1.5}
 .rolechip:focus-visible{outline:2px solid var(--rc,var(--blue));outline-offset:2px}
-/* A blue dot = this player has an account on the site ("logged in"). It sits
-   BEFORE the name; the green protection tick sits AFTER, so the two never
-   share a spot even when a player is both. */
-.logdot{display:inline-block;width:8px;height:8px;border-radius:50%;
-  background:var(--blue);box-shadow:0 0 6px rgba(153,221,255,.6);flex:0 0 auto}
-.tick{display:inline-block;color:var(--green);font-size:12px;vertical-align:middle}
+/* A green marker AFTER the name: a filled circle if the player has an account
+   ("logged in"), which turns into a check mark when their rating is protected.
+   Same green, same spot, aligned to the name. */
+.logdot{display:inline-block;width:9px;height:9px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 6px rgba(124,224,160,.55);flex:0 0 auto}
+.tick{display:inline-block;color:var(--green);font-size:13px;line-height:1;flex:0 0 auto}
 /* Swatch pickers for role colours and the page tint. */
 .swrow{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 2px}
 .sw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;
@@ -176,9 +176,9 @@
   <div class="mcrow">
     <div class="mcwho">
       <div class="mcname">
-        {%- if m.has_account %}<span class="logdot" title="Has an account on the site"></span>{% endif %}
         <a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
-        {%- if m.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>{% endif %}
+        {%- if m.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>
+        {%- elif m.has_account %}<span class="logdot" role="img" aria-label="Has an account on the site" title="Has an account on the site"></span>{% endif %}
         <button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
                 onclick="roleHelp(this,'{{ m.role or 'player' }}')"
                 title="What this role can do">{{ m.role_label or t('Member') }}</button>

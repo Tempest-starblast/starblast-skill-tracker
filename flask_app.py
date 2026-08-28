@@ -4036,7 +4036,7 @@ def game_end():
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
     {"version": "7.9.7", "at": "2026-08-28T00:00:00Z", "changes": [
-        "Clans got a proper profile. Leaders and co-leaders can now write a clan bio, tint the clan page a colour of their choice, and recolour each role chip from a set palette — all shown on the public clan page. Tap any role to see exactly what it can do (and there's no limit on how many of each role you hand out; a member just needs an account to hold one). A small blue dot now marks members who have an account on the site, kept clear of the green protected-rating tick."
+        "Clans got a proper profile. Leaders and co-leaders can now write a clan bio, tint the clan page a colour of their choice, and recolour each role chip from a set palette — all shown on the public clan page. Tap any role to see exactly what it can do (and there's no limit on how many of each role you hand out; a member just needs an account to hold one). A small green circle now sits after the name of any member who has an account, and turns into a green check mark when their rating is protected."
     ]},
     {"version": "7.9.6", "at": "2026-08-27T21:30:00Z", "changes": [
         "Smoothed the live-matches radar again: the page now waits for each refresh to finish before starting the next (so a slow one can't make the dots jump), and the win-chance maths behind it was made lighter so it keeps up."
