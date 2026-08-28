@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.9"
+APP_VERSION = "7.9.10"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4035,6 +4035,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "7.9.10", "at": "2026-08-28T03:00:00Z", "changes": [
+        "The green account marker now shows on the main leaderboard too, not just clan pages: a small green circle after the name means that player has an account here, and it becomes the green protected-rating check when they have protection on."
+    ]},
     {"version": "7.9.9", "at": "2026-08-28T02:00:00Z", "changes": [
         "You can now set your profile bio from Discord too: /bio writes the bio shown on your public profile (leave it blank to clear it), the same as the website's Your account page. No sign-in needed."
     ]},
@@ -11876,7 +11879,14 @@ def leaderboard():
     # shown form into the search key too means a pasted ₣ⱠⱤ⇝ finds the
     # clan's members even when their own names do not carry it.
     _shown = clan_display_map(c)
+    # Names owned by an account get a green login dot on the board; if that
+    # name also runs protection the dot becomes the green protected tick. One
+    # set lookup keeps this off the per-row query path.
+    c.execute("SELECT norm_name FROM players "
+              "WHERE google_sub IS NOT NULL AND norm_name IS NOT NULL")
+    _accounts = {r[0] for r in c.fetchall()}
     for _row in leaderboard_data:
+        _row["has_account"] = normalize_name(_row["name"]) in _accounts
         if _row.get("clan"):
             _disp = _shown.get(_row["clan"], _row["clan"])
             _row["clan_display"] = _disp
