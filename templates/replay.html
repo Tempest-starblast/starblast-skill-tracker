@@ -22,30 +22,29 @@
   vertical-align:1px}
 .rnote{color:var(--muted,#8aa0b0);font-size:12.5px;margin-top:8px}
 /* The in-game-style leaderboard: team standings that race as the replay plays. */
-.lbboard{display:flex;flex-direction:column;gap:7px;max-width:560px}
-.lbrow{display:flex;align-items:center;gap:10px;font-size:14px}
-.lbrank{width:16px;text-align:right;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
-.lbname{flex:0 0 148px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lbbarwrap{flex:1;height:15px;min-width:60px;background:rgba(255,255,255,.06);
-  border-radius:8px;overflow:hidden}
-.lbbar{display:block;height:100%;border-radius:8px;transition:width .12s linear}
-.lbscore{flex:0 0 72px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
-.lbrow.lbme{background:rgba(153,221,255,.13);border-radius:6px;margin:0 -6px;padding:2px 6px;
+/* Leaderboard split BY TEAM: three columns, each team's players ranked, all
+   racing together as you scrub. Everything is on screen at once. */
+#lbBoard{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+.lbteam{min-width:0}
+.lbteamhead{font-weight:800;font-size:13px;letter-spacing:.02em;margin-bottom:8px;
+  padding-bottom:5px;border-bottom:1px solid var(--line);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.lbrow{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:2px 0}
+.lbname{flex:1 1 auto;min-width:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lbbarwrap{flex:0 0 46px;height:11px;background:rgba(255,255,255,.06);border-radius:6px;overflow:hidden}
+.lbbar{display:block;height:100%;border-radius:6px;transition:width .14s linear}
+.lbscore{flex:0 0 58px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;font-size:12px}
+.lbrow.lbme{background:rgba(153,221,255,.14);border-radius:5px;margin:0 -5px;padding:2px 5px;
   box-shadow:inset 3px 0 0 var(--blue)}
-/* Tabbed replay: one panel visible at a time so the page never scrolls. */
-.rptabs{display:flex;gap:5px;margin:10px 0 12px;flex-wrap:wrap}
-.rptab{flex:0 0 auto;padding:8px 16px;border:1px solid var(--line);
-  background:rgba(0,0,0,.3);color:var(--muted,#8aa0b0);border-radius:7px;cursor:pointer;
-  font-weight:700;font-size:13px;letter-spacing:.02em}
-.rptab:hover{color:var(--text)}
-.rptab.on{background:rgba(153,221,255,.12);color:#dff4ff;border-color:rgba(153,221,255,.45)}
-.rppanel{display:none}
-.rppanel.on{display:block}
+@media (max-width:640px){ #lbBoard{grid-template-columns:1fr} }
+/* Everything visible at once - no tabs, cards laid out to fit. */
+.rptabs{display:none}
+.rppanel{display:block}
 .rppanel .card{margin-bottom:14px}
-/* The leaderboard can be long; it scrolls WITHIN its panel, so the page does not. */
-#lbBoard{max-height:58vh;overflow-y:auto;padding-right:4px}
-.lbrow{font-size:13.5px}
-.rppanel .chartwrap svg{max-height:34vh}
+.chartwrap svg{max-height:230px}
+/* Battlefield + charts side by side so more fits above the fold. */
+.rpgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+@media (max-width:820px){ .rpgrid{grid-template-columns:1fr} }
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Match replay</h1>
@@ -79,6 +78,7 @@
 </div>
 </div>
 
+<div class="rpgrid">
 <div class="rppanel" data-tab="charts">
 <div class="card" id="wpCard">
   <h2>Win probability</h2>
@@ -142,6 +142,7 @@
   </div>
   <input type="range" id="rpSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
   <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
+</div>
 </div>
 </div>
 
@@ -281,18 +282,28 @@ function initLbReplay(){
     frames.forEach(f => f[1].forEach(p => { if(p[1] > gmax) gmax = p[1]; }));
     function draw(i){
       const fr = frames[i];
-      const players = fr[1].slice().sort((a,b)=>b[1]-a[1]);
-      boardEl.innerHTML = players.map(function(p,r){
-        const col = COLS[p[2]] || '#8aa0b0';
-        const mine = MY_NAMES.has(jnorm(p[0]));
-        return '<div class="lbrow'+(mine?' lbme':'')+'">'
-          + '<span class="lbrank">'+(r+1)+'</span>'
-          + '<span class="lbname" style="color:'+col+'">'
-          + (mine?'<span class="youchip">YOU</span>':'') + esc(p[0]) + '</span>'
-          + '<span class="lbbarwrap"><span class="lbbar" style="width:'
-          + Math.max(0, Math.round(100*(p[1]||0)/gmax)) + '%;background:'+col+'"></span></span>'
-          + '<span class="lbscore">'+(p[1]||0).toLocaleString()+'</span></div>';
-      }).join('');
+      const byTeam = [[], [], []];
+      fr[1].forEach(function(p){ (byTeam[p[2]] || (byTeam[p[2]] = [])).push(p); });
+      let html = '';
+      [0, 1, 2].forEach(function(k){
+        const ps = (byTeam[k] || []).slice().sort((a,b) => b[1] - a[1]);
+        if(!ps.length) return;
+        const col = COLS[k] || '#8aa0b0';
+        const tot = ps.reduce((a,p) => a + (p[1] || 0), 0);
+        html += '<div class="lbteam"><div class="lbteamhead" style="color:' + col + '">'
+          + esc(LBL[k] || ('Team ' + (k+1))) + ' &middot; ' + tot.toLocaleString() + '</div>';
+        ps.forEach(function(p){
+          const mine = MY_NAMES.has(jnorm(p[0]));
+          html += '<div class="lbrow' + (mine?' lbme':'') + '">'
+            + '<span class="lbname" style="color:' + col + '">'
+            + (mine?'<span class="youchip">YOU</span>':'') + esc(p[0]) + '</span>'
+            + '<span class="lbbarwrap"><span class="lbbar" style="width:'
+            + Math.max(0, Math.round(100*(p[1]||0)/gmax)) + '%;background:' + col + '"></span></span>'
+            + '<span class="lbscore">' + (p[1]||0).toLocaleString() + '</span></div>';
+        });
+        html += '</div>';
+      });
+      boardEl.innerHTML = html;
       tEl.textContent = fmtT(fr[0]);
       seek.value = i;
     }
