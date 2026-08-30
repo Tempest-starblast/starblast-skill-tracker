@@ -260,9 +260,11 @@ a.pname:hover{color:#fff;text-shadow:var(--glow)}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
 summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   outline-offset:2px;border-radius:2px}
-/* The dropdown has to sit above the page, and both used to be z-index 1 -
-   with .page later in the document, it won. */
-.topbar{z-index:5}
+/* The dropdown has to sit above the page AND above the sticky tab bar
+   (.tabs is z-index:80). The language menu is absolutely positioned inside the
+   topbar, so it can't escape the topbar's stacking context - the topbar itself
+   must outrank the tabs, or the tabs paint over the open menu. */
+.topbar{z-index:90}
 
 /* The language picker. A details element, so it needs no JavaScript, takes
    keyboard focus on its own and closes on Escape like the other menus. */

@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.0.0"
+APP_VERSION = "8.0.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4046,6 +4046,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.0.1", "at": "2026-08-30T08:30:00Z", "changes": [
+        "Fixed the language menu: its lower options (Deutsch, Italiano, Русский, Tiếng Việt, 中文, فارسی) were being hidden behind the tab bar and couldn't be clicked."
+    ]},
     {"version": "8.0.0", "at": "2026-08-30T00:00:00Z", "changes": [
         "New TrueSkill board (beta) under the TrueSkill tab — an experimental rating we're trialling to replace the current one. It watches every game from the opening and learns your skill purely from who beats whom, starting everyone from zero. It runs alongside the normal leaderboard for now; if you think it's got you wrong, that feedback is exactly what the trial is for."
     ]},
