@@ -21,6 +21,15 @@
   font-size:10px;font-weight:700;letter-spacing:.5px;color:#0b0b0b;background:var(--blue);
   vertical-align:1px}
 .rnote{color:var(--muted,#8aa0b0);font-size:12.5px;margin-top:8px}
+/* The in-game-style leaderboard: team standings that race as the replay plays. */
+.lbboard{display:flex;flex-direction:column;gap:7px;max-width:560px}
+.lbrow{display:flex;align-items:center;gap:10px;font-size:14px}
+.lbrank{width:16px;text-align:right;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.lbname{flex:0 0 148px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lbbarwrap{flex:1;height:15px;min-width:60px;background:rgba(255,255,255,.06);
+  border-radius:8px;overflow:hidden}
+.lbbar{display:block;height:100%;border-radius:8px;transition:width .12s linear}
+.lbscore{flex:0 0 72px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Match replay</h1>
@@ -48,6 +57,11 @@
   <p class="rnote" style="margin-top:0">The stations and the battlefield at the same moment.
      Press play and both run together, or drag the bar to scrub through the match. Hover any
      module for its health across the whole game.</p>
+  <div id="lbBlock" style="display:none;margin-bottom:18px">
+    <div class="sub" style="margin-bottom:8px">Leaderboard
+      <span class="rnote" style="margin:0">&middot; team standings at this moment &mdash; drag or play to watch them change</span></div>
+    <div id="rpBoard" class="lbboard"></div>
+  </div>
   <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
     <div id="stBlock" style="flex:1 1 430px;min-width:290px;display:none">
       <div class="sub" style="margin-bottom:8px">Stations</div>
@@ -416,9 +430,35 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
     const btn = document.getElementById('rpPlay');
     seek.max = Math.max(0, master.length - 1);
     let shownSt = -1, shownRd = -1;
+    // In-game-style leaderboard: the teams ranked by their score at this exact
+    // moment, bars racing as you play/scrub. Each team is shown by its top
+    // player (from the live scoreboard) in that team's colour.
+    const lbBlk = document.getElementById('lbBlock');
+    if(lbBlk) lbBlk.style.display = '';
+    const board = document.getElementById('rpBoard');
+    function drawBoard(i){
+      const sc = (master[i] && master[i].sc) || [];
+      const items = [0,1,2].map(k => {
+        // A real faction name if the game gave one; otherwise the team's top
+        // player, so a row is never just a bland "Team 2".
+        const fac = (typeof LBL !== 'undefined' && LBL[k]) || '';
+        const nm = (fac && fac.indexOf('Team ') !== 0) ? fac
+                   : (tops[k] || fac || ('Team ' + (k+1)));
+        return {score: +sc[k] || 0, name: nm, color: COLS[k]};
+      });
+      items.sort((a,b) => b.score - a.score);
+      const mx = Math.max(1, ...items.map(t => t.score));
+      board.innerHTML = items.map((t,r) => '<div class="lbrow">'
+        + '<span class="lbrank">' + (r+1) + '</span>'
+        + '<span class="lbname" style="color:' + t.color + '">' + esc(t.name) + '</span>'
+        + '<span class="lbbarwrap"><span class="lbbar" style="width:'
+        + Math.round(100 * t.score / mx) + '%;background:' + t.color + '"></span></span>'
+        + '<span class="lbscore">' + t.score.toLocaleString() + '</span></div>').join('');
+    }
     function showAt(i){
       if(ST && stIdx[i] !== shownSt){ ST.draw(stIdx[i]); shownSt = stIdx[i]; }
       if(RD && rdIdx[i] !== shownRd){ RD.draw(rdIdx[i]); shownRd = rdIdx[i]; }
+      drawBoard(i);
       tEl.textContent = fmtT(master[i].t);
       seek.value = i;
     }
