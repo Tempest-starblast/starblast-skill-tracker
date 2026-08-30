@@ -74,8 +74,9 @@
 <div class="card" id="lbEmpty" style="display:none"><p class="rnote" style="margin:0">No leaderboard replay recorded for this match yet &mdash; a match is processed a few minutes after it ends.</p></div>
 <div class="card" id="lbCard" style="display:none">
   <h2>Leaderboard replay</h2>
-  <p class="rnote" style="margin-top:0">Every player's score, ranked, racing through the
-     whole match &mdash; press play or drag to any moment. Your own row is highlighted.</p>
+  <p class="rnote" style="margin-top:0">Every player's score racing through the whole match.
+     This play button runs the <b>whole</b> replay together &mdash; the board, the
+     win-probability, and the battlefield below. Your own row is highlighted.</p>
   <div id="lbBoard" class="lbboard"></div>
   <div style="display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap">
     <button id="lbPlay" class="primary" style="padding:6px 16px">&#9654; Play</button>
@@ -93,7 +94,8 @@
 
 <div class="rppanel" data-tab="wp">
 <div class="card" id="wpCard" style="display:none">
-  <h2>Win probability <span class="rnote" style="font-weight:normal;font-size:12px">&middot; raw tracker</span></h2>
+  <h2>Win probability <span class="rnote" style="font-weight:normal;font-size:12px">&middot; raw tracker</span>
+     <span id="wpNow" style="font-weight:normal;font-size:13px;float:right"></span></h2>
   <div class="legend" id="legend1"></div>
   <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
   <p class="rnote">The skill model&#39;s own call, frame by frame, from the full match the raw
@@ -117,9 +119,8 @@
 <div class="card" id="fieldEmpty" style="display:none"><p class="rnote" style="margin:0">No battlefield replay was recorded for this match.</p></div>
 <div class="card" id="rpCard" style="display:none">
   <h2>Match replay</h2>
-  <p class="rnote" style="margin-top:0">The stations and the battlefield at the same moment.
-     Press play and both run together, or drag the bar to scrub through the match. Hover any
-     module for its health across the whole game.</p>
+  <p class="rnote" style="margin-top:0">The stations and the battlefield, in step with the
+     play button up top. Hover any module for its health across the whole game.</p>
   <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
     <div id="stBlock" style="flex:1 1 430px;min-width:290px;display:none">
       <div class="sub" style="margin-bottom:8px">Stations</div>
@@ -282,51 +283,45 @@ function jnorm(s){
 }
 // Self-contained leaderboard replay: every player's score racing over the whole
 // match, from the raw feed (its own timeline, independent of the radar above).
-function initLbReplay(){
+// ONE master transport. The raw leaderboard timeline (t=0 -> end, the full
+// match) is the clock; a single play button advances the leaderboard, moves a
+// playhead along the win-probability, AND drives the battlefield (radar +
+// stations), which is end-aligned onto match time since both feeds end together.
+function buildReplay(ST, RD){
   function noLb(){ var e=document.getElementById('lbEmpty'); if(e) e.style.display=''; }
+  function fieldEmpty(){ var e=document.getElementById('fieldEmpty'); if(e) e.style.display=''; }
+  function nearest(src, t){ var lo=0, a=src.frames; for(var j=0;j<a.length;j++){ if(a[j].t<=t) lo=j; else break; } return lo; }
   fetch('/api/trueskill/replay?match_row='+MID).then(r=>r.json()).then(function(res){
-    let frames = res && res.frames;
-    if(!frames || frames.length < 2){ noLb(); return; }
-    // Drop the post-match reset tail, where the game collapses the whole roster
-    // into one team - it would show the leaderboard as a single column.
-    let _end = frames.length - 1;
-    while(_end > 1 && new Set(frames[_end][1].map(p => p[2])).size < 2) _end--;
-    frames = frames.slice(0, _end + 1);
-    if(frames.length < 2){ noLb(); return; }
-    document.getElementById('lbCard').style.display = '';
-    // Win probability from the raw tracker's full match - the TrueSkill model's
-    // own P(win), one series per team, on the same timeline as the leaderboard.
-    var wp = (res && res.wp) ? res.wp.slice(0, frames.length) : null;
-    if(wp && wp.length === frames.length && wp.some(function(r){ return r && (r[0]||r[1]||r[2]); })){
-      var wpPts = frames.map(function(f, i){ return {t: f[0], p: wp[i] || [0,0,0]}; });
-      legend(document.getElementById('legend1'), null);
-      lines(document.getElementById('chartP'), wpPts,
-            function(p,k){ return (p.p && p.p[k]) || 0; },
-            1, function(v){ return Math.round(v*100)+'%'; }, null, false, true);
-      document.getElementById('wpCard').style.display = '';
+    var frames = res && res.frames;
+    var haveLb = frames && frames.length >= 2;
+    if(haveLb){
+      // Drop the post-match reset tail (roster collapses into one team).
+      var _end = frames.length - 1;
+      while(_end > 1 && new Set(frames[_end][1].map(p => p[2])).size < 2) _end--;
+      frames = frames.slice(0, _end + 1);
+      haveLb = frames.length >= 2;
     }
-    const boardEl = document.getElementById('lbBoard');
-    const seek = document.getElementById('lbSeek');
-    const tEl = document.getElementById('lbTime');
-    const btn = document.getElementById('lbPlay');
-    const spd = document.getElementById('lbSpeed');
-    seek.max = frames.length - 1;
-    let gmax = 1;
+    // No leaderboard timeline: fall back to the battlefield's own transport.
+    if(!haveLb){ noLb(); if(ST||RD) fieldOnly(ST, RD); else fieldEmpty(); return; }
+
+    document.getElementById('lbCard').style.display = '';
+    var wp = res.wp ? res.wp.slice(0, frames.length) : null;
+    var boardEl = document.getElementById('lbBoard');
+    var gmax = 1;
     frames.forEach(f => f[1].forEach(p => { if(p[1] > gmax) gmax = p[1]; }));
-    function draw(i){
-      const fr = frames[i];
-      const byTeam = [[], [], []];
+    function drawLb(i){
+      var fr = frames[i], byTeam = [[], [], []];
       fr[1].forEach(function(p){ (byTeam[p[2]] || (byTeam[p[2]] = [])).push(p); });
-      let html = '';
+      var html = '';
       [0, 1, 2].forEach(function(k){
-        const ps = (byTeam[k] || []).slice().sort((a,b) => b[1] - a[1]);
+        var ps = (byTeam[k] || []).slice().sort((a,b) => b[1] - a[1]);
         if(!ps.length) return;
-        const col = COLS[k] || '#8aa0b0';
-        const tot = ps.reduce((a,p) => a + (p[1] || 0), 0);
+        var col = COLS[k] || '#8aa0b0';
+        var tot = ps.reduce((a,p) => a + (p[1] || 0), 0);
         html += '<div class="lbteam"><div class="lbteamhead" style="color:' + col + '">'
           + esc(LBL[k] || ('Team ' + (k+1))) + ' &middot; ' + tot.toLocaleString() + '</div>';
         ps.forEach(function(p){
-          const mine = MY_NAMES.has(jnorm(p[0]));
+          var mine = MY_NAMES.has(jnorm(p[0]));
           html += '<div class="lbrow' + (mine?' lbme':'') + '">'
             + '<span class="lbname" style="color:' + col + '">'
             + (mine?'<span class="youchip">YOU</span>':'') + esc(p[0]) + '</span>'
@@ -337,22 +332,127 @@ function initLbReplay(){
         html += '</div>';
       });
       boardEl.innerHTML = html;
-      tEl.textContent = fmtT(fr[0]);
+    }
+
+    // Win probability: the full curve, plus a playhead + live % that advance
+    // with the master transport (so the odds "keep going" as the game plays).
+    var markWp = null;
+    var haveWp = wp && wp.length === frames.length &&
+                 wp.some(function(r){ return r && (r[0]||r[1]||r[2]); });
+    if(haveWp){
+      var wpPts = frames.map(function(f, i){ return {t: f[0], p: wp[i] || [0,0,0]}; });
+      legend(document.getElementById('legend1'), null);
+      var svg = document.getElementById('chartP');
+      lines(svg, wpPts, function(p,k){ return (p.p && p.p[k]) || 0; },
+            1, function(v){ return Math.round(v*100)+'%'; }, null, false, true);
+      document.getElementById('wpCard').style.display = '';
+      var H = +svg.getAttribute('viewBox').split(' ')[3], W = 860, padL = 44, padB = 22;
+      var tmax = Math.max(1, wpPts[wpPts.length-1].t);
+      var X = t => Math.min(Math.max(padL+(W-padL-16)*(t/tmax), padL), W-8);
+      var NS = 'http://www.w3.org/2000/svg';
+      var head = document.createElementNS(NS, 'line');
+      head.setAttribute('stroke', 'rgba(233,242,255,.55)');
+      head.setAttribute('stroke-width', '1.3'); head.setAttribute('stroke-dasharray', '4 3');
+      head.setAttribute('y1', 12); head.setAttribute('y2', H-padB);
+      svg.appendChild(head);
+      var dots = [0,1,2].map(function(){ var c = document.createElementNS(NS, 'circle');
+        c.setAttribute('r', '3.4'); svg.appendChild(c); return c; });
+      var wpNow = document.getElementById('wpNow');
+      markWp = function(i){
+        var x = X(wpPts[i].t);
+        head.setAttribute('x1', x); head.setAttribute('x2', x);
+        var lab = [];
+        [0,1,2].forEach(function(k){
+          var v = wpPts[i].p[k] || 0;
+          if(v > 0.0005){
+            dots[k].setAttribute('cx', x);
+            dots[k].setAttribute('cy', (H-padB) - (H-padB-12)*Math.min(v,1));
+            dots[k].setAttribute('fill', COLS[k]); dots[k].style.display = '';
+            lab.push('<b style="color:'+COLS[k]+'">'+Math.round(v*100)+'%</b>');
+          } else dots[k].style.display = 'none';
+        });
+        if(wpNow) wpNow.innerHTML = lab.join(' &middot; ');
+      };
+    }
+
+    // Battlefield: follow the master clock, end-aligned onto match time.
+    var drawField = null;
+    if(ST || RD){
+      document.getElementById('rpCard').style.display = '';
+      // One master button now - hide the battlefield's own play/seek/speed/time.
+      ['rpPlay','rpSeek','rpTime'].forEach(function(id){ var e=document.getElementById(id); if(e) e.style.display='none'; });
+      var sp0 = document.getElementById('rpSpeed'); if(sp0 && sp0.closest('label')) sp0.closest('label').style.display='none';
+      var rawEnd = frames[frames.length-1][0], bMax = 0;
+      if(ST && ST.frames.length) bMax = Math.max(bMax, ST.frames[ST.frames.length-1].t);
+      if(RD && RD.frames.length) bMax = Math.max(bMax, RD.frames[RD.frames.length-1].t);
+      var offset = rawEnd - bMax;      // browser_t + offset = raw match time
+      var shownSt = -1, shownRd = -1;
+      drawField = function(T){
+        var bt = T - offset;
+        if(ST){ var si = nearest(ST, bt); if(si !== shownSt){ ST.draw(si); shownSt = si; } }
+        if(RD){ var ri = nearest(RD, bt); if(ri !== shownRd){ RD.draw(ri); shownRd = ri; } }
+      };
+    } else {
+      fieldEmpty();
+    }
+
+    // The one master transport = the leaderboard card's controls.
+    var seek = document.getElementById('lbSeek'), btn = document.getElementById('lbPlay'),
+        tEl = document.getElementById('lbTime'), spd = document.getElementById('lbSpeed');
+    seek.max = frames.length - 1;
+    function render(i){
+      drawLb(i);
+      var T = frames[i][0];
+      if(markWp) markWp(i);
+      if(drawField) drawField(T);
+      tEl.textContent = fmtT(T);
       seek.value = i;
     }
-    let timer = null;
+    var timer = null;
     function ms(){ return Math.max(60, Math.round(650/(+spd.value||1))); }
     function stop(){ if(timer){ clearInterval(timer); timer=null; btn.innerHTML='&#9654; Play'; } }
     function run(){
-      let i = +seek.value; if(i >= frames.length-1) i = 0;
+      var i = +seek.value; if(i >= frames.length-1) i = 0;
       btn.innerHTML='&#10074;&#10074; Pause';
-      timer = setInterval(function(){ i++; if(i >= frames.length) return stop(); draw(i); }, ms());
+      timer = setInterval(function(){ i++; if(i >= frames.length) return stop(); render(i); }, ms());
     }
     btn.onclick = function(){ if(timer) stop(); else run(); };
     spd.onchange = function(){ if(timer){ stop(); run(); } };
-    seek.oninput = function(){ stop(); draw(+seek.value); };
-    draw(frames.length - 1);
+    seek.oninput = function(){ stop(); render(+seek.value); };
+    render(frames.length - 1);
   }).catch(noLb);
+
+  // Matches with a battlefield but no raw leaderboard keep their own transport.
+  function fieldOnly(ST, RD){
+    document.getElementById('rpCard').style.display = '';
+    var pts = [];
+    if(ST) ST.frames.forEach(f => pts.push(f.t));
+    if(RD) RD.frames.forEach(f => pts.push(f.t));
+    pts = Array.from(new Set(pts)).sort((a,b) => a-b);
+    var seek = document.getElementById('rpSeek'), btn = document.getElementById('rpPlay'),
+        tEl = document.getElementById('rpTime');
+    seek.max = Math.max(0, pts.length - 1);
+    var shownSt = -1, shownRd = -1;
+    function showAt(i){
+      var t = pts[i];
+      if(ST){ var si = nearest(ST, t); if(si !== shownSt){ ST.draw(si); shownSt = si; } }
+      if(RD){ var ri = nearest(RD, t); if(ri !== shownRd){ RD.draw(ri); shownRd = ri; } }
+      tEl.textContent = fmtT(t); seek.value = i;
+    }
+    var timer = null;
+    function stop(){ if(timer){ clearInterval(timer); timer=null; btn.innerHTML='&#9654; Play'; } }
+    btn.onclick = function(){
+      if(timer) return stop();
+      if(pts.length < 2) return;
+      btn.innerHTML='&#10074;&#10074; Pause';
+      var i = +seek.value; if(i >= pts.length-1) i = 0;
+      var tick = function(){ i++; if(i >= pts.length) return stop(); showAt(i); };
+      timer = setInterval(tick, frameMs());
+      onSpeedChange(function(){ if(timer){ clearInterval(timer); timer = setInterval(tick, frameMs()); } });
+    };
+    seek.oninput = function(){ stop(); showAt(+seek.value); };
+    showAt(pts.length - 1);
+  }
 }
 fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   if(me && me.logged_in){
@@ -550,55 +650,9 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
     RD = {frames: frames, draw: draw};
   }
 
-  // ---- One transport for both. The stations and the radar are two views of
-  //      the same match, so they play and scrub together - matched on match
-  //      TIME, not frame number, because the two feeds are sampled
-  //      independently and do not always line up one for one.
-  if(ST || RD){
-    document.getElementById('rpCard').style.display = '';
-    const master = d.points.filter(p => (ST && p.st) || (RD && p.rd && p.rd.length));
-    // For every moment on the master bar, the latest frame each view has at
-    // or before it - so a view with a slower feed holds its last known state
-    // instead of jumping ahead.
-    const idxFor = src => {
-      if(!src) return null;
-      const out = []; let j = 0;
-      master.forEach(p => {
-        while(j + 1 < src.frames.length && src.frames[j + 1].t <= p.t) j++;
-        out.push(j);
-      });
-      return out;
-    };
-    const stIdx = idxFor(ST), rdIdx = idxFor(RD);
-    const seek = document.getElementById('rpSeek');
-    const tEl = document.getElementById('rpTime');
-    const btn = document.getElementById('rpPlay');
-    seek.max = Math.max(0, master.length - 1);
-    let shownSt = -1, shownRd = -1;
-    function showAt(i){
-      if(ST && stIdx[i] !== shownSt){ ST.draw(stIdx[i]); shownSt = stIdx[i]; }
-      if(RD && rdIdx[i] !== shownRd){ RD.draw(rdIdx[i]); shownRd = rdIdx[i]; }
-      tEl.textContent = fmtT(master[i].t);
-      seek.value = i;
-    }
-    let timer = null;
-    function stop(){ if(timer){ clearInterval(timer); timer = null; btn.innerHTML = '&#9654; Play'; } }
-    btn.onclick = function(){
-      if(timer) return stop();
-      if(master.length < 2) return;
-      btn.innerHTML = '&#10074;&#10074; Pause';
-      let i = +seek.value;
-      if(i >= master.length - 1) i = 0;
-      const tick = function(){ i++; if(i >= master.length) return stop(); showAt(i); };
-      timer = setInterval(tick, frameMs());
-      onSpeedChange(function(){ if(timer){ clearInterval(timer); timer = setInterval(tick, frameMs()); } });
-    };
-    seek.oninput = function(){ stop(); showAt(+seek.value); };
-    showAt(master.length - 1);
-  } else {
-    var _fe = document.getElementById('fieldEmpty'); if(_fe) _fe.style.display = '';
-  }
-  initLbReplay();
+  // One master transport: the leaderboard timeline drives the win-prob playhead
+  // and the battlefield (radar + stations) too - a single play button for all.
+  buildReplay(ST, RD);
 }).catch(()=>{document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
 </script>
 {% endblock %}
