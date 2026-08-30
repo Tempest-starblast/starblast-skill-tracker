@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.1.1"
+APP_VERSION = "8.1.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,7 +4081,7 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
-    {"version": "8.1.1", "at": "2026-08-30T19:45:00Z", "changes": [
+    {"version": "8.1.2", "at": "2026-08-30T19:55:00Z", "changes": [
         "The replay's live win-probability now comes from the raw tracker: it's the TrueSkill skill model's own P(win), computed frame by frame from the rating of whoever is on each team through the whole match (not the paused browser-journal model). Same model that sets the trial rating — the win % is just what it predicts."
     ]},
     {"version": "8.1.0", "at": "2026-08-30T19:20:00Z", "changes": [
@@ -6557,9 +6557,10 @@ def trueskill_winprob_series(c, frames):
                 "SELECT norm_name, mu, sigma FROM trueskill_players "
                 "WHERE norm_name IN (%s)" % qmarks, tuple(names)).fetchall():
             rat[nn] = (mu, sigma)
-    out = []
+    # Pass 1: per frame, team index -> [sum_mu, sum_var, n] (dedupe within frame).
+    per_frame = []
+    seen_count = {}
     for fr in frames:
-        # team index -> [sum_mu, sum_var, n], deduping a name within the frame.
         acc = {}
         seen = set()
         for p in (fr[1] or []):
@@ -6575,17 +6576,39 @@ def trueskill_winprob_series(c, frames):
             a[0] += mu
             a[1] += sigma * sigma + TS_BETA * TS_BETA
             a[2] += 1
-        present = [ti for ti in acc if acc[ti][2] > 0]
+        per_frame.append(acc)
+        for ti, a in acc.items():
+            if a[2] > 0:
+                seen_count[ti] = seen_count.get(ti, 0) + 1
+    nfr = len(frames) or 1
+    # The real contesting teams - present in a meaningful share of frames. This
+    # drops a stray one-frame mis-tag and, with the carry-forward below, stops
+    # the win % spiking to 0 whenever a team briefly falls out of the top-24 cap.
+    match_teams = [ti for ti, cnt in seen_count.items()
+                   if 0 <= ti < 3 and cnt >= max(2, 0.15 * nfr)]
+    if len(match_teams) < 2:
+        match_teams = sorted((ti for ti in seen_count if 0 <= ti < 3),
+                             key=lambda t: -seen_count[t])[:3]
+    # Pass 2: hold each team's last-known strength through momentary dropouts, so
+    # the curve moves only on real roster changes, and score P(win) every frame.
+    last = {}
+    out = []
+    for acc in per_frame:
+        for ti in match_teams:
+            a = acc.get(ti)
+            if a and a[2] > 0:
+                last[ti] = (a[0], a[1])
+        present = [ti for ti in match_teams if ti in last]
         row = [0.0, 0.0, 0.0]
         if len(present) >= 2:
             raw = {}
             for i in present:
-                mi, ci, _ = acc[i]
+                mi, ci = last[i]
                 prod = 1.0
                 for j in present:
                     if j == i:
                         continue
-                    mj, cj, _ = acc[j]
+                    mj, cj = last[j]
                     denom = math.sqrt(ci + cj) or 1.0
                     prod *= _phi((mi - mj) / denom)
                 raw[i] = prod
@@ -6593,7 +6616,17 @@ def trueskill_winprob_series(c, frames):
             for i in present:
                 if 0 <= i < 3:
                     row[i] = round(raw[i] / tot, 4)
+        elif out:
+            row = out[-1][:]        # a fully-degenerate frame holds the last read
         out.append(row)
+    # Backfill the leading frames before two teams had appeared with the first
+    # real reading, so the line starts at a probability instead of at zero.
+    first_good = next((r for r in out if any(r)), None)
+    if first_good:
+        for i, r in enumerate(out):
+            if any(r):
+                break
+            out[i] = first_good[:]
     return out
 
 
