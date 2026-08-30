@@ -30,6 +30,8 @@
   border-radius:8px;overflow:hidden}
 .lbbar{display:block;height:100%;border-radius:8px;transition:width .12s linear}
 .lbscore{flex:0 0 72px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.lbrow.lbme{background:rgba(153,221,255,.13);border-radius:6px;margin:0 -6px;padding:2px 6px;
+  box-shadow:inset 3px 0 0 var(--blue)}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Match replay</h1>
@@ -57,11 +59,6 @@
   <p class="rnote" style="margin-top:0">The stations and the battlefield at the same moment.
      Press play and both run together, or drag the bar to scrub through the match. Hover any
      module for its health across the whole game.</p>
-  <div id="lbBlock" style="display:none;margin-bottom:18px">
-    <div class="sub" style="margin-bottom:8px">Leaderboard
-      <span class="rnote" style="margin:0">&middot; team standings at this moment &mdash; drag or play to watch them change</span></div>
-    <div id="rpBoard" class="lbboard"></div>
-  </div>
   <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
     <div id="stBlock" style="flex:1 1 430px;min-width:290px;display:none">
       <div class="sub" style="margin-bottom:8px">Stations</div>
@@ -99,6 +96,24 @@
   </div>
   <input type="range" id="rpSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
   <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
+</div>
+
+<div class="card" id="lbCard" style="display:none">
+  <h2>Leaderboard replay</h2>
+  <p class="rnote" style="margin-top:0">Every player's score, ranked, racing through the
+     whole match &mdash; press play or drag to any moment. Your own row is highlighted.</p>
+  <div id="lbBoard" class="lbboard"></div>
+  <div style="display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap">
+    <button id="lbPlay" class="primary" style="padding:6px 16px">&#9654; Play</button>
+    <span id="lbTime" class="rnote" style="margin:0;font-variant-numeric:tabular-nums"></span>
+    <label class="rnote" style="margin:0 0 0 auto;display:flex;align-items:center;gap:6px">Speed
+      <select id="lbSpeed" style="padding:4px 6px">
+        <option value="0.5">0.5&times;</option><option value="1" selected>1&times;</option>
+        <option value="2">2&times;</option><option value="4">4&times;</option>
+        <option value="8">8&times;</option>
+      </select></label>
+  </div>
+  <input type="range" id="lbSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
 </div>
 
 <div class="card">
@@ -204,6 +219,52 @@ var MY_NAMES = new Set();
 function jnorm(s){
   return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
     .normalize('NFC').replace(/[^\p{L}\p{N}]/gu,'').toUpperCase();
+}
+// Self-contained leaderboard replay: every player's score racing over the whole
+// match, from the raw feed (its own timeline, independent of the radar above).
+function initLbReplay(){
+  fetch('/api/trueskill/replay?match_row='+MID).then(r=>r.json()).then(function(res){
+    const frames = res && res.frames;
+    if(!frames || frames.length < 2) return;
+    document.getElementById('lbCard').style.display = '';
+    const boardEl = document.getElementById('lbBoard');
+    const seek = document.getElementById('lbSeek');
+    const tEl = document.getElementById('lbTime');
+    const btn = document.getElementById('lbPlay');
+    const spd = document.getElementById('lbSpeed');
+    seek.max = frames.length - 1;
+    let gmax = 1;
+    frames.forEach(f => f[1].forEach(p => { if(p[1] > gmax) gmax = p[1]; }));
+    function draw(i){
+      const fr = frames[i];
+      const players = fr[1].slice().sort((a,b)=>b[1]-a[1]);
+      boardEl.innerHTML = players.map(function(p,r){
+        const col = COLS[p[2]] || '#8aa0b0';
+        const mine = MY_NAMES.has(jnorm(p[0]));
+        return '<div class="lbrow'+(mine?' lbme':'')+'">'
+          + '<span class="lbrank">'+(r+1)+'</span>'
+          + '<span class="lbname" style="color:'+col+'">'
+          + (mine?'<span class="youchip">YOU</span>':'') + esc(p[0]) + '</span>'
+          + '<span class="lbbarwrap"><span class="lbbar" style="width:'
+          + Math.max(0, Math.round(100*(p[1]||0)/gmax)) + '%;background:'+col+'"></span></span>'
+          + '<span class="lbscore">'+(p[1]||0).toLocaleString()+'</span></div>';
+      }).join('');
+      tEl.textContent = fmtT(fr[0]);
+      seek.value = i;
+    }
+    let timer = null;
+    function ms(){ return Math.max(60, Math.round(650/(+spd.value||1))); }
+    function stop(){ if(timer){ clearInterval(timer); timer=null; btn.innerHTML='&#9654; Play'; } }
+    function run(){
+      let i = +seek.value; if(i >= frames.length-1) i = 0;
+      btn.innerHTML='&#10074;&#10074; Pause';
+      timer = setInterval(function(){ i++; if(i >= frames.length) return stop(); draw(i); }, ms());
+    }
+    btn.onclick = function(){ if(timer) stop(); else run(); };
+    spd.onchange = function(){ if(timer){ stop(); run(); } };
+    seek.oninput = function(){ stop(); draw(+seek.value); };
+    draw(frames.length - 1);
+  }).catch(()=>{});
 }
 fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   if(me && me.logged_in){
@@ -430,35 +491,9 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
     const btn = document.getElementById('rpPlay');
     seek.max = Math.max(0, master.length - 1);
     let shownSt = -1, shownRd = -1;
-    // In-game-style leaderboard: the teams ranked by their score at this exact
-    // moment, bars racing as you play/scrub. Each team is shown by its top
-    // player (from the live scoreboard) in that team's colour.
-    const lbBlk = document.getElementById('lbBlock');
-    if(lbBlk) lbBlk.style.display = '';
-    const board = document.getElementById('rpBoard');
-    function drawBoard(i){
-      const sc = (master[i] && master[i].sc) || [];
-      const items = [0,1,2].map(k => {
-        // A real faction name if the game gave one; otherwise the team's top
-        // player, so a row is never just a bland "Team 2".
-        const fac = (typeof LBL !== 'undefined' && LBL[k]) || '';
-        const nm = (fac && fac.indexOf('Team ') !== 0) ? fac
-                   : (tops[k] || fac || ('Team ' + (k+1)));
-        return {score: +sc[k] || 0, name: nm, color: COLS[k]};
-      });
-      items.sort((a,b) => b.score - a.score);
-      const mx = Math.max(1, ...items.map(t => t.score));
-      board.innerHTML = items.map((t,r) => '<div class="lbrow">'
-        + '<span class="lbrank">' + (r+1) + '</span>'
-        + '<span class="lbname" style="color:' + t.color + '">' + esc(t.name) + '</span>'
-        + '<span class="lbbarwrap"><span class="lbbar" style="width:'
-        + Math.round(100 * t.score / mx) + '%;background:' + t.color + '"></span></span>'
-        + '<span class="lbscore">' + t.score.toLocaleString() + '</span></div>').join('');
-    }
     function showAt(i){
       if(ST && stIdx[i] !== shownSt){ ST.draw(stIdx[i]); shownSt = stIdx[i]; }
       if(RD && rdIdx[i] !== shownRd){ RD.draw(rdIdx[i]); shownRd = rdIdx[i]; }
-      drawBoard(i);
       tEl.textContent = fmtT(master[i].t);
       seek.value = i;
     }
@@ -477,6 +512,7 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
     seek.oninput = function(){ stop(); showAt(+seek.value); };
     showAt(master.length - 1);
   }
+  initLbReplay();
 }).catch(()=>{document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
 </script>
 {% endblock %}

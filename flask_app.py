@@ -12,6 +12,7 @@ import secrets
 import hmac
 import hashlib
 import zlib
+import calendar
 import threading
 from datetime import timedelta
 import i18n
@@ -22,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.0.4"
+APP_VERSION = "8.0.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1394,6 +1395,18 @@ def init_db():
                     PRIMARY KEY (match_key, norm_name))''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_tsmp_norm "
               "ON trueskill_match_players(norm_name, at DESC)")
+    # Per-match, per-player score trajectory (the in-game leaderboard replay).
+    # data = zlib(json) of [[elapsed_s, [[name, score, team], ...]], ...]; keyed
+    # to sys_id + first_ts so a live match's replay can look up its raw feed.
+    c.execute('''CREATE TABLE IF NOT EXISTS trueskill_replay (
+                    match_key TEXT PRIMARY KEY,
+                    sys_id INTEGER,
+                    at TEXT,
+                    region TEXT,
+                    first_ts REAL,
+                    data BLOB)''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tsreplay_sys "
+              "ON trueskill_replay(sys_id, first_ts)")
 
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4061,6 +4074,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.0.5", "at": "2026-08-30T12:30:00Z", "changes": [
+        "Match replays now have a Leaderboard replay: every player's score, ranked, racing through the whole match — press play or drag to any moment, with your own row highlighted. It reconstructs the full-match scoreboard from the from-the-opening feed."
+    ]},
     {"version": "8.0.4", "at": "2026-08-30T11:30:00Z", "changes": [
         "Match replays now have an in-game-style leaderboard: the teams ranked by score, with bars that race as you play or scrub through the match — a replay of the standings changing over the game."
     ]},
@@ -6405,6 +6421,77 @@ def trueskill_match_push():
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "count": n}), 200
+
+
+@app.route('/api/shadow/trueskill_replay', methods=['POST'])
+def trueskill_replay_push():
+    """The scorer pushes a match's per-player score trajectory (leaderboard
+    replay). Stored zlib-compressed, keyed to sys_id + first_ts."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    n = 0
+    for m in ((request.json or {}).get('matches') or []):
+        mk = (m.get('match_key') or '').strip()
+        frames = m.get('frames')
+        if not mk or not isinstance(frames, list) or not frames:
+            continue
+        try:
+            blob = zlib.compress(json.dumps(frames).encode('utf-8'))
+        except (TypeError, ValueError):
+            continue
+        c.execute("INSERT OR REPLACE INTO trueskill_replay "
+                  "(match_key, sys_id, at, region, first_ts, data) "
+                  "VALUES (?,?,?,?,?,?)",
+                  (mk, m.get('sys_id'), m.get('at'), m.get('region'),
+                   m.get('first_ts'), blob))
+        n += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": n}), 200
+
+
+@app.route('/api/trueskill/replay')
+def trueskill_replay_read():
+    """Public: the per-player score trajectory for a live match's replay. The
+    live match_row gives a sys_id + played_at; we return the raw-feed trajectory
+    for that lobby whose end lines up with played_at."""
+    try:
+        mid = int(request.args.get('match_row') or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad match_row"}), 400
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT sys_id, played_at FROM matches WHERE id = ?", (mid,)).fetchone()
+    if not row or row[0] is None:
+        conn.close()
+        return jsonify({"frames": None}), 200
+    sys_id, played_at = row[0], row[1]
+    try:
+        pend = calendar.timegm(time.strptime(played_at, '%Y-%m-%d %H:%M:%S'))
+    except (ValueError, TypeError):
+        pend = None
+    cands = c.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
+                      (sys_id,)).fetchall()
+    conn.close()
+    best, best_gap = None, None
+    for data, first_ts in cands:
+        try:
+            frames = json.loads(zlib.decompress(data).decode('utf-8'))
+        except Exception:
+            continue
+        if not frames:
+            continue
+        # played_at is ~match end; the raw match ends at first_ts + last elapsed.
+        raw_end = (first_ts or 0) + (frames[-1][0] or 0)
+        gap = abs(raw_end - pend) if pend else 0
+        if best is None or gap < best_gap:
+            best, best_gap = frames, gap
+    # A stray sys_id reuse is possible; only trust a match within ~1 hour.
+    if best is not None and (best_gap is None or best_gap <= 3600):
+        return jsonify({"frames": best}), 200
+    return jsonify({"frames": None}), 200
 
 
 @app.route('/api/trueskill/board')
