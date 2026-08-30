@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.0.2"
+APP_VERSION = "8.0.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1379,6 +1379,21 @@ def init_db():
                     sigma REAL DEFAULT 8.3333,
                     games INTEGER DEFAULT 0,
                     updated_at TEXT)''')
+    # One row per (match, player): how that match moved their TrueSkill rating,
+    # for the profile's TrueSkill history. mu_before/after are the skill estimate
+    # either side of the match; the display impact is derived from them.
+    c.execute('''CREATE TABLE IF NOT EXISTS trueskill_match_players (
+                    match_key TEXT,
+                    norm_name TEXT,
+                    name TEXT,
+                    at TEXT,
+                    region TEXT,
+                    sys_id INTEGER,
+                    mu_before REAL, sigma_before REAL,
+                    mu_after REAL, sigma_after REAL,
+                    PRIMARY KEY (match_key, norm_name))''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tsmp_norm "
+              "ON trueskill_match_players(norm_name, at DESC)")
 
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4046,6 +4061,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.0.3", "at": "2026-08-30T10:30:00Z", "changes": [
+        "Profiles now have a TrueSkill history: each match a player was in and how much it moved their (experimental) TrueSkill rating — up if the match raised their skill estimate, down if it lowered it. No wins or losses, just the rating. It fills in as new matches are played."
+    ]},
     {"version": "8.0.2", "at": "2026-08-30T09:30:00Z", "changes": [
         "In a match replay, your own name is now highlighted (with a YOU tag) so you can spot yourself at a glance — when you're signed in and were in that match. Every player's name in a replay is also a link to their profile."
     ]},
@@ -5825,6 +5843,23 @@ def player_profile(name):
                 "played_as": (r[5] if len(r) > 5 and r[5] and r[5] != stored_name else "")}
                for r in c.fetchall()]
 
+    # TrueSkill history: how each match moved the trial rating. Impact is the
+    # skill-estimate change in display points; no win/loss - just the rating.
+    ts_history = []
+    try:
+        for _r in c.execute(
+                "SELECT at, region, sys_id, mu_before, mu_after, sigma_after "
+                "FROM trueskill_match_players WHERE norm_name = ? "
+                "ORDER BY at DESC LIMIT 20", (normalize_name(name),)):
+            ts_history.append({
+                "at": (_r[0] or '')[5:16].replace('-', '/'),
+                "at_utc": ((_r[0] or '').replace(' ', 'T') + 'Z') if _r[0] else '',
+                "region": (_r[1] or '').title(),
+                "impact": round(40 * ((_r[4] or 0) - (_r[3] or 0))),
+                "rating": ts_display(_r[4] or 25, _r[5] or 8.3333)})
+    except sqlite3.Error:
+        ts_history = []
+
     c.execute("SELECT COALESCE(m.region, 'america'), "
               "SUM(CASE WHEN mp.won = 1 THEN 1 ELSE 0 END), "
               "SUM(CASE WHEN mp.won = 1 THEN 0 ELSE 1 END), "
@@ -5895,6 +5930,7 @@ def player_profile(name):
     return render_template('player.html', player=player,
                            region_ranks=region_ranks, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='players', history=history,
+                           ts_history=ts_history,
                            by_region=by_region, primary=primary, bio_max=BIO_MAX)
 
 
@@ -6329,6 +6365,40 @@ def trueskill_push():
             n += 1
         except (TypeError, ValueError):
             continue
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": n}), 200
+
+
+@app.route('/api/shadow/trueskill_match', methods=['POST'])
+def trueskill_match_push():
+    """The scorer pushes per-match rating changes for the profile history."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    n = 0
+    for m in ((request.json or {}).get('matches') or []):
+        mk = (m.get('match_key') or '').strip()
+        if not mk:
+            continue
+        at, region, sysid = m.get('at'), m.get('region'), m.get('sys_id')
+        for p in (m.get('players') or []):
+            nn = (p.get('norm_name') or '').strip()
+            if not nn:
+                continue
+            try:
+                c.execute(
+                    "INSERT OR IGNORE INTO trueskill_match_players "
+                    "(match_key,norm_name,name,at,region,sys_id,"
+                    "mu_before,sigma_before,mu_after,sigma_after) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (mk, nn, p.get('name') or nn, at, region, sysid,
+                     float(p.get('mb', 25)), float(p.get('sb', 8.3333)),
+                     float(p.get('ma', 25)), float(p.get('sa', 8.3333))))
+                n += c.rowcount
+            except (TypeError, ValueError):
+                continue
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "count": n}), 200
