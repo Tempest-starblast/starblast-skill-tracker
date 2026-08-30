@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.1.4"
+APP_VERSION = "8.2.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.2.0", "at": "2026-08-30T22:30:00Z", "changes": [
+        "The replay's win-probability is now a full multi-factor model, retrained on the raw tracker's whole-match history: it weighs score margin, ship count, station level and health, ship class, roster skill, and how far the game has run — not skill alone. Computed frame by frame over each match and shown as the win-% curve."
+    ]},
     {"version": "8.1.4", "at": "2026-08-30T21:05:00Z", "changes": [
         "The replay now has ONE play button that runs everything together on the match clock: the leaderboard, the battlefield (radar + stations), and a playhead that walks along the win-probability with the live % as it goes. Scrub once and the whole match moves together."
     ]},
@@ -6468,8 +6471,14 @@ def trueskill_replay_push():
         frames = m.get('frames')
         if not mk or not isinstance(frames, list) or not frames:
             continue
+        # Newer pushes carry an aligned win-probability series from the raw
+        # multi-factor model; store it beside the frames as {"f":..,"wp":..}.
+        # Old pushes (frames only) stay a bare list - the reader handles both.
+        wp = m.get('wp')
+        payload = ({"f": frames, "wp": wp}
+                   if isinstance(wp, list) and len(wp) == len(frames) else frames)
         try:
-            blob = zlib.compress(json.dumps(frames).encode('utf-8'))
+            blob = zlib.compress(json.dumps(payload).encode('utf-8'))
         except (TypeError, ValueError):
             continue
         c.execute("INSERT OR REPLACE INTO trueskill_replay "
@@ -6505,22 +6514,31 @@ def trueskill_replay_read():
         pend = None
     cands = c.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
                       (sys_id,)).fetchall()
-    best, best_gap = None, None
+    best, best_gap, best_wp = None, None, None
     for data, first_ts in cands:
         try:
-            frames = json.loads(zlib.decompress(data).decode('utf-8'))
+            obj = json.loads(zlib.decompress(data).decode('utf-8'))
         except Exception:
             continue
+        # A newer row is {"f": frames, "wp": model_series}; an older one is a
+        # bare frames list. Either way, pull the frames out to line it up.
+        if isinstance(obj, dict):
+            frames, mwp = obj.get("f"), obj.get("wp")
+        else:
+            frames, mwp = obj, None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
         raw_end = (first_ts or 0) + (frames[-1][0] or 0)
         gap = abs(raw_end - pend) if pend else 0
         if best is None or gap < best_gap:
-            best, best_gap = frames, gap
+            best, best_gap, best_wp = frames, gap, mwp
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
-        wp = trueskill_winprob_series(c, best)
+        # Prefer the raw multi-factor model's own win-prob; fall back to the
+        # read-time skill-only series for replays not yet reprocessed.
+        wp = (best_wp if (isinstance(best_wp, list) and len(best_wp) == len(best))
+              else trueskill_winprob_series(c, best))
         conn.close()
         return jsonify({"frames": best, "wp": wp}), 200
     conn.close()
