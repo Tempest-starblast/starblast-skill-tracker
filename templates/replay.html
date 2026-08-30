@@ -32,11 +32,34 @@
 .lbscore{flex:0 0 72px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 .lbrow.lbme{background:rgba(153,221,255,.13);border-radius:6px;margin:0 -6px;padding:2px 6px;
   box-shadow:inset 3px 0 0 var(--blue)}
+/* Tabbed replay: one panel visible at a time so the page never scrolls. */
+.rptabs{display:flex;gap:5px;margin:10px 0 12px;flex-wrap:wrap}
+.rptab{flex:0 0 auto;padding:8px 16px;border:1px solid var(--line);
+  background:rgba(0,0,0,.3);color:var(--muted,#8aa0b0);border-radius:7px;cursor:pointer;
+  font-weight:700;font-size:13px;letter-spacing:.02em}
+.rptab:hover{color:var(--text)}
+.rptab.on{background:rgba(153,221,255,.12);color:#dff4ff;border-color:rgba(153,221,255,.45)}
+.rppanel{display:none}
+.rppanel.on{display:block}
+.rppanel .card{margin-bottom:14px}
+/* The leaderboard can be long; it scrolls WITHIN its panel, so the page does not. */
+#lbBoard{max-height:58vh;overflow-y:auto;padding-right:4px}
+.lbrow{font-size:13.5px}
+.rppanel .chartwrap svg{max-height:34vh}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Match replay</h1>
 <div class="rphead" id="rpHead"><span class="sub">Loading&hellip;</span></div>
 
+<div class="rptabs" id="rptabs">
+  <button type="button" class="rptab on" data-tab="lb">Leaderboard</button>
+  <button type="button" class="rptab" data-tab="field">Battlefield</button>
+  <button type="button" class="rptab" data-tab="charts">Charts</button>
+  <button type="button" class="rptab" data-tab="result">Result</button>
+</div>
+
+<div class="rppanel on" data-tab="lb">
+<div class="card" id="lbEmpty" style="display:none"><p class="rnote" style="margin:0">No leaderboard replay recorded for this match yet &mdash; a match is processed a few minutes after it ends.</p></div>
 <div class="card" id="lbCard" style="display:none">
   <h2>Leaderboard replay</h2>
   <p class="rnote" style="margin-top:0">Every player's score, ranked, racing through the
@@ -54,7 +77,9 @@
   </div>
   <input type="range" id="lbSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
 </div>
+</div>
 
+<div class="rppanel" data-tab="charts">
 <div class="card" id="wpCard">
   <h2>Win probability</h2>
   <div class="legend" id="legend1"></div>
@@ -67,11 +92,14 @@
   <div class="legend" id="legend2"></div>
   <div class="chartwrap"><svg id="chartS" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
 </div>
+</div>
 
 <style>
   .stkey{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;
          vertical-align:middle}
 </style>
+<div class="rppanel" data-tab="field">
+<div class="card" id="fieldEmpty" style="display:none"><p class="rnote" style="margin:0">No battlefield replay was recorded for this match.</p></div>
 <div class="card" id="rpCard" style="display:none">
   <h2>Match replay</h2>
   <p class="rnote" style="margin-top:0">The stations and the battlefield at the same moment.
@@ -115,9 +143,11 @@
   <input type="range" id="rpSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
   <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
 </div>
+</div>
 
+<div class="rppanel" data-tab="result">
 <div class="card">
-  <h2>Players</h2>
+  <h2 style="margin-top:0">Ships &amp; final standings</h2>
   <div class="legend" id="legend3"></div>
   <div class="chartwrap"><svg id="chartC" viewBox="0 0 860 170" preserveAspectRatio="xMidYMid meet"></svg></div>
   <p class="rnote">Every ship in the lobby, from the game&#39;s full ship list &mdash; a team
@@ -125,11 +155,24 @@
      every scoring ship on the team.</p>
   <div id="result"></div>
 </div>
+</div>
 
 <script>
 const MID = {{ mid|tojson }};
 const COLS = ['#6ec1ff', '#ff8a7a', '#8dff9e'];
 let LBL = ['Team 1', 'Team 2', 'Team 3'];
+// Tabs: one panel visible at a time, so the whole replay fits with no page scroll.
+(function(){
+  const tabs = document.querySelectorAll('.rptab');
+  const panels = document.querySelectorAll('.rppanel');
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){
+      const key = t.getAttribute('data-tab');
+      tabs.forEach(x => x.classList.toggle('on', x === t));
+      panels.forEach(p => p.classList.toggle('on', p.getAttribute('data-tab') === key));
+    });
+  });
+})();
   // The lobby's own faction names, when the match recorded its welcome
   // frame (7.3.0) - 'Rebel Alliance' reads better than 'Team 3'.
   function applyWelcome(d){
@@ -223,9 +266,10 @@ function jnorm(s){
 // Self-contained leaderboard replay: every player's score racing over the whole
 // match, from the raw feed (its own timeline, independent of the radar above).
 function initLbReplay(){
+  function noLb(){ var e=document.getElementById('lbEmpty'); if(e) e.style.display=''; }
   fetch('/api/trueskill/replay?match_row='+MID).then(r=>r.json()).then(function(res){
     const frames = res && res.frames;
-    if(!frames || frames.length < 2) return;
+    if(!frames || frames.length < 2){ noLb(); return; }
     document.getElementById('lbCard').style.display = '';
     const boardEl = document.getElementById('lbBoard');
     const seek = document.getElementById('lbSeek');
@@ -264,7 +308,7 @@ function initLbReplay(){
     spd.onchange = function(){ if(timer){ stop(); run(); } };
     seek.oninput = function(){ stop(); draw(+seek.value); };
     draw(frames.length - 1);
-  }).catch(()=>{});
+  }).catch(noLb);
 }
 fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   if(me && me.logged_in){
@@ -511,6 +555,8 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
     };
     seek.oninput = function(){ stop(); showAt(+seek.value); };
     showAt(master.length - 1);
+  } else {
+    var _fe = document.getElementById('fieldEmpty'); if(_fe) _fe.style.display = '';
   }
   initLbReplay();
 }).catch(()=>{document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
