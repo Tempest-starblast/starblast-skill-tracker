@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.1.2"
+APP_VERSION = "8.1.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.1.3", "at": "2026-08-30T20:25:00Z", "changes": [
+        "Replay is far more compact: leaderboard and live win-probability sit side by side, the battlefield (stations + radar) spans full width so the stations lay out in a row instead of a tall stack, and the standings/charts pack below. Much less scrolling."
+    ]},
     {"version": "8.1.2", "at": "2026-08-30T19:55:00Z", "changes": [
         "The replay's live win-probability now comes from the raw tracker: it's the TrueSkill skill model's own P(win), computed frame by frame from the rating of whoever is on each team through the whole match (not the paused browser-journal model). Same model that sets the trial rating — the win % is just what it predicts."
     ]},

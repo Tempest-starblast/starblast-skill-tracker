@@ -41,15 +41,18 @@
 .rptabs{display:none}
 .rppanel{display:block}
 .rppanel .card{margin-bottom:14px}
-.chartwrap svg{max-height:230px}
+.chartwrap svg{max-height:200px}
+.rppanel .card h2{font-size:16px}
+.rppanel .card{padding:14px}
 /* Like the game HUD: the LIVE view (leaderboard + radar) sits together up top;
    the POST-GAME stuff (charts, final standings) is below - scroll for it. */
-.rplayout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
-  gap:14px;align-items:start}
-.rplayout > [data-tab="lb"]{order:1;min-width:0}
-.rplayout > [data-tab="field"]{order:2;min-width:0}
-.rplayout > [data-tab="charts"]{order:3;grid-column:1 / -1}
-.rplayout > [data-tab="result"]{order:4;grid-column:1 / -1}
+.rplayout{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.rplayout > .rppanel{min-width:0}
+.rplayout > [data-tab="lb"]{order:1}
+.rplayout > [data-tab="wp"]{order:2}
+.rplayout > [data-tab="field"]{order:3;grid-column:1 / -1}
+.rplayout > [data-tab="charts"]{order:4}
+.rplayout > [data-tab="result"]{order:5}
 @media (max-width:900px){
   .rplayout{grid-template-columns:1fr}
   .rplayout > [data-tab]{grid-column:1}
@@ -88,6 +91,16 @@
 </div>
 </div>
 
+<div class="rppanel" data-tab="wp">
+<div class="card" id="wpCard" style="display:none">
+  <h2>Win probability <span class="rnote" style="font-weight:normal;font-size:12px">&middot; raw tracker</span></h2>
+  <div class="legend" id="legend1"></div>
+  <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <p class="rnote">The skill model&#39;s own call, frame by frame, from the full match the raw
+     tracker watched. Same model that sets the TrueSkill rating; P(win) is what it predicts.</p>
+</div>
+</div>
+
 <div class="rppanel" data-tab="charts">
 <div class="card">
   <h2>Scores over time</h2>
@@ -122,7 +135,7 @@
     </div>
     <div id="rdBlock" style="flex:0 0 auto;display:none">
       <div class="sub" style="margin-bottom:8px">Radar</div>
-      <svg id="radarMap" viewBox="-40 -40 80 80" style="width:260px;height:260px;display:block;
+      <svg id="radarMap" viewBox="-40 -40 80 80" style="width:200px;height:200px;display:block;
         background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px"></svg>
     </div>
   </div>
@@ -144,14 +157,6 @@
   </div>
   <input type="range" id="rpSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
   <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
-</div>
-<div class="card" id="wpCard" style="display:none">
-  <h2>Win probability <span class="rnote" style="font-weight:normal;font-size:12px">&middot; raw tracker</span></h2>
-  <div class="legend" id="legend1"></div>
-  <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
-  <p class="rnote">The skill model&#39;s own call, frame by frame, from the full match the raw
-     tracker watched &mdash; each team&#39;s chances from the rating of whoever was on it at that
-     moment. Same model that sets the TrueSkill rating; P(win) is simply what it predicts.</p>
 </div>
 </div>
 
@@ -463,13 +468,13 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
             + ' style="cursor:pointer"/>';
         });
         const lvl = s ? s[0] : null, gems = s ? s[1] : null;
-        html += '<div style="flex:1 1 190px;min-width:170px">'
+        html += '<div style="flex:1 1 150px;min-width:138px">'
           + '<div class="sub" style="display:flex;gap:8px;align-items:center">'
           + '<span style="width:10px;height:10px;border-radius:3px;background:'+COLS[team]+'"></span>'
           + LBL[team] + (lvl != null ? ' &middot; Lv ' + (lvl + 1) : '')
           + (gems != null ? ' &middot; ' + gems.toLocaleString() + ' &#128142;' : '') + '</div>'
           + '<svg viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'" '
-          + 'style="width:100%;height:150px;display:block">' + g + '</svg></div>';
+          + 'style="width:100%;height:104px;display:block">' + g + '</svg></div>';
       }
       document.getElementById('stWrap').innerHTML = html;
       // Every module grey at once means the feed stalled here, not that
