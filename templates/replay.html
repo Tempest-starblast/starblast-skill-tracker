@@ -13,6 +13,13 @@
 .rrow:last-child{border-bottom:none}
 .rrow .d{font-variant-numeric:tabular-nums}
 .up{color:#66e6b8}.down{color:#ff7a7a}
+/* The viewer's own row, so you can find yourself in a match at a glance. Only
+   applied when you're signed in and your name is in this match. */
+.rrow.me{background:rgba(153,221,255,.13);border-radius:5px;margin:0 -8px;
+  padding-left:8px;padding-right:8px;box-shadow:inset 3px 0 0 var(--blue)}
+.youchip{display:inline-block;margin-right:7px;padding:0 6px;border-radius:8px;
+  font-size:10px;font-weight:700;letter-spacing:.5px;color:#0b0b0b;background:var(--blue);
+  vertical-align:1px}
 .rnote{color:var(--muted,#8aa0b0);font-size:12.5px;margin-top:8px}
 {% endblock %}
 {% block body %}
@@ -177,7 +184,20 @@ function legend(el, tops){
   el.innerHTML=[0,1,2].map(k=>`<span><span class="sw" style="background:${COLS[k]}"></span>${LBL[k]}${tops&&tops[k]?' &middot; '+esc(tops[k]):''}</span>`).join('');
 }
 
-fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
+// Who is viewing - so we can highlight their own name in the match. Nothing
+// highlights if they're signed out or have no name (no profile => no one).
+var MY_NAMES = new Set();
+function jnorm(s){
+  return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .normalize('NFC').replace(/[^\p{L}\p{N}]/gu,'').toUpperCase();
+}
+fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
+  if(me && me.logged_in){
+    (me.names||[]).forEach(n=>MY_NAMES.add(jnorm(n)));
+    if(me.account_name) MY_NAMES.add(jnorm(me.account_name));
+  }
+  return fetch('/api/replay/'+MID).then(r=>r.json());
+}).then(d=>{
   applyWelcome(d);
   const head=document.getElementById('rpHead');
   if(d.error){head.innerHTML='<span class="sub">'+esc(d.error)+'</span>';return;}
@@ -225,7 +245,9 @@ fetch('/api/replay/'+MID).then(r=>r.json()).then(d=>{
       +(tot?' &middot; '+tot.toLocaleString()+' pts':'')+'</span></div>';
     rows.forEach(p=>{
       const cls=p.won?'up':'down', sign=p.delta>=0?'+':'';
-      html+='<div class="rrow"><span>'
+      const mine=MY_NAMES.has(jnorm(p.name));
+      html+='<div class="rrow'+(mine?' me':'')+'"><span>'
+        +(mine?'<span class="youchip">YOU</span>':'')
         +'<a href="/player/'+encodeURIComponent(p.name)+'" '
         +'style="color:inherit;text-decoration:none" '
         +'onmouseover="this.style.textDecoration=\'underline\'" '

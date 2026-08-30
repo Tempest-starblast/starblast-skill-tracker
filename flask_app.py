@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.0.1"
+APP_VERSION = "8.0.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4046,6 +4046,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.0.2", "at": "2026-08-30T09:30:00Z", "changes": [
+        "In a match replay, your own name is now highlighted (with a YOU tag) so you can spot yourself at a glance — when you're signed in and were in that match. Every player's name in a replay is also a link to their profile."
+    ]},
     {"version": "8.0.1", "at": "2026-08-30T08:30:00Z", "changes": [
         "Fixed the language menu: its lower options (Deutsch, Italiano, Русский, Tiếng Việt, 中文, فارسی) were being hidden behind the tab bar and couldn't be clicked."
     ]},
