@@ -24,7 +24,7 @@
 /* The in-game-style leaderboard: team standings that race as the replay plays. */
 /* Leaderboard split BY TEAM: three columns, each team's players ranked, all
    racing together as you scrub. Everything is on screen at once. */
-#lbBoard{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+#lbBoard{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:12px;align-items:start}
 .lbteam{min-width:0}
 .lbteamhead{font-weight:800;font-size:13px;letter-spacing:.02em;margin-bottom:8px;
   padding-bottom:5px;border-bottom:1px solid var(--line);white-space:nowrap;
@@ -42,9 +42,18 @@
 .rppanel{display:block}
 .rppanel .card{margin-bottom:14px}
 .chartwrap svg{max-height:230px}
-/* Battlefield + charts side by side so more fits above the fold. */
-.rpgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
-@media (max-width:820px){ .rpgrid{grid-template-columns:1fr} }
+/* Like the game HUD: the LIVE view (leaderboard + radar) sits together up top;
+   the POST-GAME stuff (charts, final standings) is below - scroll for it. */
+.rplayout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
+  gap:14px;align-items:start}
+.rplayout > [data-tab="lb"]{order:1;min-width:0}
+.rplayout > [data-tab="field"]{order:2;min-width:0}
+.rplayout > [data-tab="charts"]{order:3;grid-column:1 / -1}
+.rplayout > [data-tab="result"]{order:4;grid-column:1 / -1}
+@media (max-width:900px){
+  .rplayout{grid-template-columns:1fr}
+  .rplayout > [data-tab]{grid-column:1}
+}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Match replay</h1>
@@ -57,6 +66,7 @@
   <button type="button" class="rptab" data-tab="result">Result</button>
 </div>
 
+<div class="rplayout">
 <div class="rppanel on" data-tab="lb">
 <div class="card" id="lbEmpty" style="display:none"><p class="rnote" style="margin:0">No leaderboard replay recorded for this match yet &mdash; a match is processed a few minutes after it ends.</p></div>
 <div class="card" id="lbCard" style="display:none">
@@ -78,17 +88,9 @@
 </div>
 </div>
 
-<div class="rpgrid">
 <div class="rppanel" data-tab="charts">
-<div class="card" id="wpCard">
-  <h2>Win probability</h2>
-  <div class="legend" id="legend1"></div>
-  <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
-  <p class="rnote">Computed read by read with the same model the live view uses &mdash; what each team&#39;s chances looked like at that moment.</p>
-</div>
-
 <div class="card">
-  <h2>Scores</h2>
+  <h2>Scores over time</h2>
   <div class="legend" id="legend2"></div>
   <div class="chartwrap"><svg id="chartS" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
 </div>
@@ -143,6 +145,11 @@
   <input type="range" id="rpSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
   <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
 </div>
+<div class="card" id="wpCard">
+  <h2>Win probability <span class="rnote" style="font-weight:normal;font-size:12px">&middot; live model</span></h2>
+  <div class="legend" id="legend1"></div>
+  <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <p class="rnote">Computed read by read with the same model the live view uses &mdash; what each team&#39;s chances looked like at that moment.</p>
 </div>
 </div>
 
@@ -155,6 +162,7 @@
      holding far more than its players is being flooded. Team scores above are the sum of
      every scoring ship on the team.</p>
   <div id="result"></div>
+</div>
 </div>
 </div>
 
