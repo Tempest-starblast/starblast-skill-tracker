@@ -6337,8 +6337,8 @@ def trueskill_board_api():
     c = conn.cursor()
     q = (request.args.get('q') or '').strip()
     base = ("SELECT t.norm_name, t.name, t.mu, t.sigma, t.games, p.elo, p.clan "
-            "FROM trueskill_players t JOIN players p ON p.norm_name = t.norm_name "
-            "WHERE t.games >= 5 AND p.google_sub IS NOT NULL ")
+            "FROM trueskill_players t LEFT JOIN players p ON p.norm_name = t.norm_name "
+            "WHERE t.games >= 5 ")
     if q:
         nq = normalize_name(q)
         rows = c.execute(base + "AND (t.norm_name LIKE ? OR UPPER(t.name) LIKE ?) "
@@ -6346,15 +6346,13 @@ def trueskill_board_api():
                          ('%' + nq + '%', '%' + q.upper() + '%')).fetchall()
     else:
         rows = c.execute(base + "ORDER BY (t.mu - 3*t.sigma) DESC LIMIT 100").fetchall()
-    npl = c.execute("SELECT COUNT(*) FROM trueskill_players t JOIN players p "
-                    "ON p.norm_name = t.norm_name WHERE t.games >= 5 "
-                    "AND p.google_sub IS NOT NULL").fetchone()[0]
+    npl = c.execute("SELECT COUNT(*) FROM trueskill_players "
+                    "WHERE games >= 5").fetchone()[0]
     shown = clan_display_map(c)
     board = []
     for i, (nn, nm, mu, sigma, g, live_elo, clan) in enumerate(rows, 1):
-        rank = (c.execute("SELECT COUNT(*)+1 FROM trueskill_players t JOIN players p "
-                          "ON p.norm_name = t.norm_name WHERE t.games >= 5 "
-                          "AND p.google_sub IS NOT NULL AND (t.mu-3*t.sigma) > ?",
+        rank = (c.execute("SELECT COUNT(*)+1 FROM trueskill_players "
+                          "WHERE games >= 5 AND (mu-3*sigma) > ?",
                           (mu - 3 * sigma,)).fetchone()[0] if q else i)
         board.append({
             "rank": rank, "name": nm,
