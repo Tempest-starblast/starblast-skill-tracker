@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}TrueSkill rating (beta) - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.beta{display:inline-block;margin-left:9px;padding:2px 9px;border-radius:10px;font-size:11px;
+  font-weight:700;letter-spacing:.5px;color:#0b0b0b;background:var(--blue);vertical-align:middle}
+.tsnote{margin:12px 0 4px;padding:12px 15px;border-radius:6px;font-size:13.5px;line-height:1.7;
+  color:var(--muted);background:var(--panel);border:1px solid var(--line);
+  border-left:3px solid var(--blue)}
+.tsnote b{color:var(--text)}
+.tswrap{margin-top:16px}
+table.ts{width:100%;border-collapse:collapse}
+table.ts th,table.ts td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
+table.ts th{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);font-weight:700}
+table.ts td.num,table.ts th.num{text-align:right;font-variant-numeric:tabular-nums}
+table.ts td.rank{width:44px;color:var(--dim);font-variant-numeric:tabular-nums}
+.ts-rating{color:var(--blue);font-weight:700;font-variant-numeric:tabular-nums}
+.ts-sig{color:var(--dim);font-size:12px}
+.ts-live{color:var(--muted);font-variant-numeric:tabular-nums}
+.settling{display:inline-block;margin-left:6px;padding:0 6px;border-radius:8px;font-size:10px;
+  font-weight:700;color:var(--amber,#d8a02a);border:1px solid rgba(216,160,42,.5)}
+.pname{color:var(--text);text-decoration:none}
+.pname:hover{color:var(--blue)}
+.badge{display:inline-block;margin-right:6px;padding:0 6px;border-radius:8px;font-size:11px;
+  color:var(--dim);border:1px solid var(--line);text-decoration:none}
+.searchrow{display:flex;gap:8px;margin-top:14px}
+.searchrow input{flex:1}
+.empty{color:var(--dim);text-align:center;padding:26px}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">TrueSkill rating<span class="beta">BETA</span></h1>
+<p class="psub" id="sub">An experimental rating being trialled to replace the current one.</p>
+
+<div class="tsnote">
+  This board is scored a different way. Instead of a late snapshot of a match, it watches
+  <b>every game from the opening</b> and learns each player's skill purely from <b>who beats whom</b> —
+  the rating is the same model that predicts who wins. It starts <b>everyone from zero</b> and runs
+  <b>alongside</b> the normal leaderboard while we test it. <b>Rating</b> is a conservative estimate
+  (it rises as the system grows more sure of you); <b>±</b> is how unsure it still is; a
+  <span class="settling">SETTLING</span> tag means fewer than 10 games so far.
+  Think it's got you wrong? Tell {{ contact }} on Discord — that feedback is exactly what this trial is for.
+</div>
+
+<div class="searchrow">
+  <input type="text" id="q" placeholder="Find a player..." autocomplete="off">
+  <button class="primary" onclick="load()">{{ t('Search') }}</button>
+</div>
+
+<div class="tswrap">
+<table class="ts">
+  <thead><tr>
+    <th class="rank">#</th><th>{{ t('Player') }}</th>
+    <th class="num">Rating</th><th class="num">±</th>
+    <th class="num">{{ t('Games') if t('Games')!='Games' else 'Games' }}</th>
+    <th class="num">Live</th>
+  </tr></thead>
+  <tbody id="rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+</table>
+</div>
+
+<p class="foot" style="margin-top:16px">Questions or think your rating is off? Ask {{ contact }} on Discord.</p>
+
+<script>
+async function load(){
+  const q = document.getElementById('q').value.trim();
+  const rows = document.getElementById('rows');
+  try{
+    const r = await fetch('/api/trueskill/board' + (q ? ('?q=' + encodeURIComponent(q)) : ''));
+    const d = await r.json();
+    document.getElementById('sub').textContent =
+      d.players + ' players rated so far - an experimental rating being trialled to replace the current one.';
+    if (!d.board || !d.board.length){
+      rows.innerHTML = '<tr><td colspan="6" class="empty">' +
+        (q ? 'No rated player matches that.' : 'No ratings yet - come back once some games are in.') + '</td></tr>';
+      return;
+    }
+    rows.innerHTML = d.board.map(function(p){
+      var clan = p.clan ? ('<a class="badge" href="/clan/' + encodeURIComponent(p.clan) + '">' +
+                           esc(p.clan_display || p.clan) + '</a>') : '';
+      var settle = p.settling ? '<span class="settling">SETTLING</span>' : '';
+      return '<tr>' +
+        '<td class="rank">' + p.rank + '</td>' +
+        '<td>' + clan + '<a class="pname" href="/player/' + encodeURIComponent(p.name) + '">' +
+          esc(p.display || p.name) + '</a>' + settle + '</td>' +
+        '<td class="num"><span class="ts-rating">' + p.rating + '</span></td>' +
+        '<td class="num ts-sig">&plusmn;' + p.sigma + '</td>' +
+        '<td class="num">' + p.games + '</td>' +
+        '<td class="num ts-live">' + (p.live_elo != null ? p.live_elo : '-') + '</td>' +
+        '</tr>';
+    }).join('');
+  }catch(e){
+    rows.innerHTML = '<tr><td colspan="6" class="empty">Could not load the board.</td></tr>';
+  }
+}
+function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+document.getElementById('q').addEventListener('keydown', function(e){ if(e.key==='Enter') load(); });
+load();
+</script>
+{% endblock %}

@@ -22,7 +22,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "7.9.10"
+APP_VERSION = "8.0.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1368,6 +1368,17 @@ def init_db():
             c.execute("ALTER TABLE shadow_players ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
             pass      # already added
+
+    # TrueSkill backbone (phased trial to replace the live board): mu/sigma per
+    # player, fit from-zero by the incremental droplet scorer off raw_reads.
+    # Public review board at /trueskill; nothing here touches the live elo.
+    c.execute('''CREATE TABLE IF NOT EXISTS trueskill_players (
+                    norm_name TEXT PRIMARY KEY,
+                    name TEXT,
+                    mu REAL DEFAULT 25,
+                    sigma REAL DEFAULT 8.3333,
+                    games INTEGER DEFAULT 0,
+                    updated_at TEXT)''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4035,6 +4046,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.0.0", "at": "2026-08-30T00:00:00Z", "changes": [
+        "New TrueSkill board (beta) under the TrueSkill tab — an experimental rating we're trialling to replace the current one. It watches every game from the opening and learns your skill purely from who beats whom, starting everyone from zero. It runs alongside the normal leaderboard for now; if you think it's got you wrong, that feedback is exactly what the trial is for."
+    ]},
     {"version": "7.9.10", "at": "2026-08-28T03:00:00Z", "changes": [
         "The green account marker now shows on the main leaderboard too, not just clan pages: a small green circle after the name means that player has an account here, and it becomes the green protected-rating check when they have protection on."
     ]},
@@ -6276,6 +6290,89 @@ def shadow_board_api():
     conn.close()
     return jsonify({"matches_total": tot[0], "matches_rated": tot[1],
                     "players": nplayers, "q": q, "board": board})
+
+
+def ts_display(mu, sigma):
+    """Conservative TrueSkill rating on a familiar ~500-1600 scale for display.
+    Ranks the same as mu-3sigma; the scale is cosmetic and tunable."""
+    return max(0, round((mu - 3.0 * sigma) * 40 + 500))
+
+
+@app.route('/api/shadow/trueskill', methods=['POST'])
+def trueskill_push():
+    """The droplet scorer pushes a batch of {norm_name,name,mu,sigma,games}."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    rows = (request.json or {}).get('players') or []
+    conn = db()
+    c = conn.cursor()
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    n = 0
+    for r in rows:
+        nn = (r.get('norm_name') or '').strip()
+        if not nn:
+            continue
+        try:
+            c.execute(
+                "INSERT INTO trueskill_players (norm_name,name,mu,sigma,games,updated_at) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(norm_name) DO UPDATE SET "
+                "name=excluded.name, mu=excluded.mu, sigma=excluded.sigma, "
+                "games=excluded.games, updated_at=excluded.updated_at",
+                (nn, r.get('name') or nn, float(r.get('mu', 25)),
+                 float(r.get('sigma', 8.3333)), int(r.get('games', 0)), now))
+            n += 1
+        except (TypeError, ValueError):
+            continue
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": n}), 200
+
+
+@app.route('/api/trueskill/board')
+def trueskill_board_api():
+    """Public: the TrueSkill trial board, ranked by conservative rating. Shows
+    the live elo alongside for comparison. Only players with an account and a
+    few games appear, so it's people who can actually complain about it."""
+    conn = db()
+    c = conn.cursor()
+    q = (request.args.get('q') or '').strip()
+    base = ("SELECT t.norm_name, t.name, t.mu, t.sigma, t.games, p.elo, p.clan "
+            "FROM trueskill_players t JOIN players p ON p.norm_name = t.norm_name "
+            "WHERE t.games >= 5 AND p.google_sub IS NOT NULL ")
+    if q:
+        nq = normalize_name(q)
+        rows = c.execute(base + "AND (t.norm_name LIKE ? OR UPPER(t.name) LIKE ?) "
+                         "ORDER BY (t.mu - 3*t.sigma) DESC LIMIT 60",
+                         ('%' + nq + '%', '%' + q.upper() + '%')).fetchall()
+    else:
+        rows = c.execute(base + "ORDER BY (t.mu - 3*t.sigma) DESC LIMIT 100").fetchall()
+    npl = c.execute("SELECT COUNT(*) FROM trueskill_players t JOIN players p "
+                    "ON p.norm_name = t.norm_name WHERE t.games >= 5 "
+                    "AND p.google_sub IS NOT NULL").fetchone()[0]
+    shown = clan_display_map(c)
+    board = []
+    for i, (nn, nm, mu, sigma, g, live_elo, clan) in enumerate(rows, 1):
+        rank = (c.execute("SELECT COUNT(*)+1 FROM trueskill_players t JOIN players p "
+                          "ON p.norm_name = t.norm_name WHERE t.games >= 5 "
+                          "AND p.google_sub IS NOT NULL AND (t.mu-3*t.sigma) > ?",
+                          (mu - 3 * sigma,)).fetchone()[0] if q else i)
+        board.append({
+            "rank": rank, "name": nm,
+            "display": display_name(nm, clan, shown.get(clan, clan)) if clan else nm,
+            "rating": ts_display(mu, sigma), "sigma": round(sigma, 2),
+            "games": g, "settling": g < 10,
+            "live_elo": round(live_elo, 1) if live_elo is not None else None,
+            "clan": clan, "clan_display": shown.get(clan, clan) if clan else None})
+    conn.close()
+    return jsonify({"players": npl, "q": q, "board": board})
+
+
+@app.route('/trueskill')
+def trueskill_page():
+    """Public trial board - people can see it and complain, which is the point."""
+    return render_template('trueskill.html', version=APP_VERSION,
+                           contact=CONTACT_HANDLE, page='trueskill',
+                           client_id=GOOGLE_CLIENT_ID)
 
 
 @app.route('/api/shadow/matches')
