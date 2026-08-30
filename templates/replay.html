@@ -269,8 +269,14 @@ function jnorm(s){
 function initLbReplay(){
   function noLb(){ var e=document.getElementById('lbEmpty'); if(e) e.style.display=''; }
   fetch('/api/trueskill/replay?match_row='+MID).then(r=>r.json()).then(function(res){
-    const frames = res && res.frames;
+    let frames = res && res.frames;
     if(!frames || frames.length < 2){ noLb(); return; }
+    // Drop the post-match reset tail, where the game collapses the whole roster
+    // into one team - it would show the leaderboard as a single column.
+    let _end = frames.length - 1;
+    while(_end > 1 && new Set(frames[_end][1].map(p => p[2])).size < 2) _end--;
+    frames = frames.slice(0, _end + 1);
+    if(frames.length < 2){ noLb(); return; }
     document.getElementById('lbCard').style.display = '';
     const boardEl = document.getElementById('lbBoard');
     const seek = document.getElementById('lbSeek');
