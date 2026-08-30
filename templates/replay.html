@@ -145,11 +145,13 @@
   <input type="range" id="rpSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
   <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
 </div>
-<div class="card" id="wpCard">
-  <h2>Win probability <span class="rnote" style="font-weight:normal;font-size:12px">&middot; live model</span></h2>
+<div class="card" id="wpCard" style="display:none">
+  <h2>Win probability <span class="rnote" style="font-weight:normal;font-size:12px">&middot; raw tracker</span></h2>
   <div class="legend" id="legend1"></div>
   <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
-  <p class="rnote">Computed read by read with the same model the live view uses &mdash; what each team&#39;s chances looked like at that moment.</p>
+  <p class="rnote">The skill model&#39;s own call, frame by frame, from the full match the raw
+     tracker watched &mdash; each team&#39;s chances from the rating of whoever was on it at that
+     moment. Same model that sets the TrueSkill rating; P(win) is simply what it predicts.</p>
 </div>
 </div>
 
@@ -227,7 +229,7 @@ function axis(svg, W, H, padL, padB, tmax, ymax, yfmt){
   return g;
 }
 
-function lines(svg, pts, get, ymax, yfmt, gaps, dodge){
+function lines(svg, pts, get, ymax, yfmt, gaps, dodge, skipZero){
   const W=860, H=+svg.getAttribute('viewBox').split(' ')[3], padL=44, padB=22;
   const tmax=Math.max(1, pts[pts.length-1].t);
   const X=t=>Math.min(Math.max(padL+(W-padL-16)*(t/tmax),padL),W-8);
@@ -242,6 +244,7 @@ function lines(svg, pts, get, ymax, yfmt, gaps, dodge){
   // through a hole in the data.
   const crosses=(a,b)=>(gaps||[]).some(gp=>a<gp[1]&&b>gp[0]);
   for(let k=0;k<3;k++){
+    if(skipZero && !pts.some(p=>get(p,k)>0)) continue;
     let run=[];
     const flush=()=>{ if(run.length>1)
       g+=`<polyline points="${run.join(' ')}" fill="none" stroke="${COLS[k]}" stroke-width="2" stroke-linejoin="round"/>`;
@@ -286,6 +289,17 @@ function initLbReplay(){
     frames = frames.slice(0, _end + 1);
     if(frames.length < 2){ noLb(); return; }
     document.getElementById('lbCard').style.display = '';
+    // Win probability from the raw tracker's full match - the TrueSkill model's
+    // own P(win), one series per team, on the same timeline as the leaderboard.
+    var wp = (res && res.wp) ? res.wp.slice(0, frames.length) : null;
+    if(wp && wp.length === frames.length && wp.some(function(r){ return r && (r[0]||r[1]||r[2]); })){
+      var wpPts = frames.map(function(f, i){ return {t: f[0], p: wp[i] || [0,0,0]}; });
+      legend(document.getElementById('legend1'), null);
+      lines(document.getElementById('chartP'), wpPts,
+            function(p,k){ return (p.p && p.p[k]) || 0; },
+            1, function(v){ return Math.round(v*100)+'%'; }, null, false, true);
+      document.getElementById('wpCard').style.display = '';
+    }
     const boardEl = document.getElementById('lbBoard');
     const seek = document.getElementById('lbSeek');
     const tEl = document.getElementById('lbTime');
@@ -355,15 +369,11 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   head.innerHTML='<h2 style="margin:0">'+esc(d.name||('#'+d.sys_id))+'</h2>'
     +'<span class="sub">'+esc(d.region)+' &middot; '+esc(d.played_at)+' &middot; '+durLbl+'</span>';
   const tops=[1,2,3].map(i=>(d.top||{})['team_'+i]||'');
-  if(d.prob_enabled===false){
-    var _wp=document.getElementById('wpCard'); if(_wp) _wp.style.display='none';
-  } else {
-    legend(document.getElementById('legend1'),tops);
-  }
+  // Win probability is drawn by initLbReplay from the raw tracker's full-match
+  // trajectory (the TrueSkill model's own P(win)), not this browser feed.
   legend(document.getElementById('legend2'),tops);
   legend(document.getElementById('legend3'),tops);
   const smax=Math.max(1,...d.points.map(p=>Math.max(...p.sc)));
-  if(d.prob_enabled!==false) lines(document.getElementById('chartP'), d.points, (p,k)=>p.p[k], 1, v=>Math.round(v*100)+'%', d.gaps);
   lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v), d.gaps);
   // ALL ships, from the game's full ship cache when recorded (older
   // replays fall back to the visible-panel counts, capped at 8). The

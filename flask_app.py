@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.1.0"
+APP_VERSION = "8.1.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.1.1", "at": "2026-08-30T19:45:00Z", "changes": [
+        "The replay's live win-probability now comes from the raw tracker: it's the TrueSkill skill model's own P(win), computed frame by frame from the rating of whoever is on each team through the whole match (not the paused browser-journal model). Same model that sets the trial rating — the win % is just what it predicts."
+    ]},
     {"version": "8.1.0", "at": "2026-08-30T19:20:00Z", "changes": [
         "Match replay is now grouped like the in-game HUD: the live view — leaderboard, radar/stations, and the live win-probability — sits together up top, and the post-game charts and final standings are below. Scroll down for the after-the-fact stuff."
     ]},
@@ -6496,7 +6499,6 @@ def trueskill_replay_read():
         pend = None
     cands = c.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
                       (sys_id,)).fetchall()
-    conn.close()
     best, best_gap = None, None
     for data, first_ts in cands:
         try:
@@ -6512,8 +6514,87 @@ def trueskill_replay_read():
             best, best_gap = frames, gap
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
-        return jsonify({"frames": best}), 200
+        wp = trueskill_winprob_series(c, best)
+        conn.close()
+        return jsonify({"frames": best, "wp": wp}), 200
+    conn.close()
     return jsonify({"frames": None}), 200
+
+
+# TrueSkill parameters - must match the raw scorer (trueskill_scorer.py) so the
+# win-probability shown here is the SAME model that sets the trial ratings.
+TS_MU0 = 25.0
+TS_SIGMA0 = 25.0 / 3.0
+TS_BETA = 25.0 / 3.0
+
+
+def _phi(x):
+    """Standard normal CDF."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def trueskill_winprob_series(c, frames):
+    """P(win) per team for every frame of a leaderboard-replay trajectory, from
+    the TrueSkill ratings of whoever is on each team at that moment. This is the
+    live win probability derived from the raw tracker - the elo model's own
+    output (rating is the parameter, P(win) is what it predicts), not the paused
+    browser-journal model. Team performance ~ N(sum mu, sum sigma^2 + n*beta^2);
+    P(team i wins) is the normalised product of its pairwise Phi over the field.
+
+    Returns a list aligned to `frames`, each entry [p0, p1, p2] (0.0 for a team
+    with no players in that frame)."""
+    # One ratings lookup for every name that appears anywhere in the match.
+    names = set()
+    for fr in frames:
+        for p in (fr[1] or []):
+            if p and p[0]:
+                names.add(normalize_name(p[0]))
+    names.discard("")
+    rat = {}
+    if names:
+        qmarks = ",".join("?" * len(names))
+        for nn, mu, sigma in c.execute(
+                "SELECT norm_name, mu, sigma FROM trueskill_players "
+                "WHERE norm_name IN (%s)" % qmarks, tuple(names)).fetchall():
+            rat[nn] = (mu, sigma)
+    out = []
+    for fr in frames:
+        # team index -> [sum_mu, sum_var, n], deduping a name within the frame.
+        acc = {}
+        seen = set()
+        for p in (fr[1] or []):
+            if not p or not p[0]:
+                continue
+            ti = p[2]
+            key = (ti, p[0])
+            if key in seen:
+                continue
+            seen.add(key)
+            mu, sigma = rat.get(normalize_name(p[0]), (TS_MU0, TS_SIGMA0))
+            a = acc.setdefault(ti, [0.0, 0.0, 0])
+            a[0] += mu
+            a[1] += sigma * sigma + TS_BETA * TS_BETA
+            a[2] += 1
+        present = [ti for ti in acc if acc[ti][2] > 0]
+        row = [0.0, 0.0, 0.0]
+        if len(present) >= 2:
+            raw = {}
+            for i in present:
+                mi, ci, _ = acc[i]
+                prod = 1.0
+                for j in present:
+                    if j == i:
+                        continue
+                    mj, cj, _ = acc[j]
+                    denom = math.sqrt(ci + cj) or 1.0
+                    prod *= _phi((mi - mj) / denom)
+                raw[i] = prod
+            tot = sum(raw.values()) or 1.0
+            for i in present:
+                if 0 <= i < 3:
+                    row[i] = round(raw[i] / tot, 4)
+        out.append(row)
+    return out
 
 
 @app.route('/api/trueskill/board')
