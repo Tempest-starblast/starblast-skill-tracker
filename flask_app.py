@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.0.5"
+APP_VERSION = "8.0.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2061,7 +2061,14 @@ def inject_auth():
             "is_owner": current_user() in OWNER_SUBS,
             "dev_testing": bool(session.get("dev_real_owner")),
             "rank_emblem": ranks.emblem_svg,
-            "ship_name": ship_shapes.ship_name}
+            "ship_name": ship_shapes.ship_name,
+            # A green padlock for a protected rating (accounts get a green check).
+            "lock_icon": (lambda size=11:
+                          '<svg viewBox="0 0 24 24" width="%d" height="%d" '
+                          'fill="var(--green)" role="img" aria-label="Protected rating">'
+                          '<path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12'
+                          'a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm3 8H9V6a3 3 0 '
+                          '0 1 6 0v3z"/></svg>' % (size, size))}
 
 
 @app.route('/register', methods=['POST'])
@@ -4074,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.0.6", "at": "2026-08-30T13:30:00Z", "changes": [
+        "Account markers refreshed: a player with an account now has their name underlined in green with a check; a lock shows when their rating is protected. And the Leaderboard replay moved to the top of the replay page so the per-player score race is the first thing you see."
+    ]},
     {"version": "8.0.5", "at": "2026-08-30T12:30:00Z", "changes": [
         "Match replays now have a Leaderboard replay: every player's score, ranked, racing through the whole match — press play or drag to any moment, with your own row highlighted. It reconstructs the full-match scoreboard from the from-the-opening feed."
     ]},

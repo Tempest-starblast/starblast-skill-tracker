@@ -57,6 +57,10 @@
   margin-left:7px;vertical-align:middle;position:relative;top:-1px}
 .ptick{display:inline-block;margin-left:7px;color:var(--green);font-size:13px;
   line-height:1;vertical-align:middle}
+.pname.acct{text-decoration:underline;text-decoration-color:var(--green);
+  text-decoration-thickness:2px;text-underline-offset:3px}
+.lockm{display:inline-block;margin-left:7px;line-height:0;vertical-align:middle}
+.lockm svg{vertical-align:middle}
 .remb{display:inline-block;margin-right:6px;line-height:0;vertical-align:middle;
   filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
 .remb svg{vertical-align:middle}
@@ -100,7 +104,7 @@
     {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
     {%- else %}{{ loop.index }}{% endif -%}
   </td>
-  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.division.ship, 16, m.division.color, m.division.name)|safe }}</span>{% endif %}<a class="pname" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.protected %}<span class="ptick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>{% elif m.has_account %}<span class="logdot" role="img" aria-label="Has an account on the site" title="Has an account on the site"></span>{% endif %}{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}{% if m.division %}<span class="rankchip" style="color:{{ m.division.color }};border-color:color-mix(in srgb,{{ m.division.color }} 42%,transparent);background:color-mix(in srgb,{{ m.division.color }} 12%,transparent)">{{ m.division.name }}</span>{% endif %}</td>
+  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.division.ship, 16, m.division.color, m.division.name)|safe }}</span>{% endif %}<a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.protected %}<span class="lockm" title="Protected - only matches this player checked into count toward the rating">{{ lock_icon()|safe }}</span>{% elif m.has_account %}<span class="ptick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}</td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
@@ -117,8 +121,9 @@
 <div id="roleHelpBox"></div>
 
 <p class="legend"><span class="crown">&#9812;</span> Runs this clan &mdash; decides who is in it.
-  <span class="logdot" style="margin:0 3px"></span> has an account on the site &mdash; turns into a
-  <span class="ptick" style="margin:0 2px 0 5px">&#10003;</span> when their rating is protected.
+  a <b style="text-decoration:underline;text-decoration-color:var(--green);text-underline-offset:2px">green
+  underline</b> and a <span class="ptick" style="margin:0 2px">&#10003;</span> mean they have an account;
+  a <span class="lockm" style="margin:0 2px">{{ lock_icon(11)|safe }}</span> means their rating is protected.
   Tap a role to see what it can do. The # column is the member's place within {{ clan.tag }};
   open a player to see their rank on the whole leaderboard.</p>
 

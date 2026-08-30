@@ -45,6 +45,9 @@
 .logdot{display:inline-block;width:9px;height:9px;border-radius:50%;
   background:var(--green);box-shadow:0 0 6px rgba(124,224,160,.55);flex:0 0 auto}
 .tick{display:inline-block;color:var(--green);font-size:13px;line-height:1;flex:0 0 auto}
+.pname.acct{text-decoration:underline;text-decoration-color:var(--green);
+  text-decoration-thickness:2px;text-underline-offset:3px}
+.lockm{display:inline-flex;line-height:0;flex:0 0 auto;align-items:center}
 /* Swatch pickers for role colours and the page tint. */
 .swrow{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 2px}
 .sw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;
@@ -176,9 +179,9 @@
   <div class="mcrow">
     <div class="mcwho">
       <div class="mcname">
-        <a class="pname" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
-        {%- if m.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into count toward the rating">&#10003;</span>
-        {%- elif m.has_account %}<span class="logdot" role="img" aria-label="Has an account on the site" title="Has an account on the site"></span>{% endif %}
+        <a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
+        {%- if m.protected %}<span class="lockm" title="Protected - only matches this player checked into count toward the rating">{{ lock_icon()|safe }}</span>
+        {%- elif m.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}
         <button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
                 onclick="roleHelp(this,'{{ m.role or 'player' }}')"
                 title="What this role can do">{{ m.role_label or t('Member') }}</button>

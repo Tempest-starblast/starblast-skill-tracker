@@ -37,6 +37,24 @@
 <h1 class="ptitle">Match replay</h1>
 <div class="rphead" id="rpHead"><span class="sub">Loading&hellip;</span></div>
 
+<div class="card" id="lbCard" style="display:none">
+  <h2>Leaderboard replay</h2>
+  <p class="rnote" style="margin-top:0">Every player's score, ranked, racing through the
+     whole match &mdash; press play or drag to any moment. Your own row is highlighted.</p>
+  <div id="lbBoard" class="lbboard"></div>
+  <div style="display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap">
+    <button id="lbPlay" class="primary" style="padding:6px 16px">&#9654; Play</button>
+    <span id="lbTime" class="rnote" style="margin:0;font-variant-numeric:tabular-nums"></span>
+    <label class="rnote" style="margin:0 0 0 auto;display:flex;align-items:center;gap:6px">Speed
+      <select id="lbSpeed" style="padding:4px 6px">
+        <option value="0.5">0.5&times;</option><option value="1" selected>1&times;</option>
+        <option value="2">2&times;</option><option value="4">4&times;</option>
+        <option value="8">8&times;</option>
+      </select></label>
+  </div>
+  <input type="range" id="lbSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
+</div>
+
 <div class="card" id="wpCard">
   <h2>Win probability</h2>
   <div class="legend" id="legend1"></div>
@@ -96,24 +114,6 @@
   </div>
   <input type="range" id="rpSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
   <div id="stTip" class="rnote" style="min-height:2.6em;margin-top:8px"></div>
-</div>
-
-<div class="card" id="lbCard" style="display:none">
-  <h2>Leaderboard replay</h2>
-  <p class="rnote" style="margin-top:0">Every player's score, ranked, racing through the
-     whole match &mdash; press play or drag to any moment. Your own row is highlighted.</p>
-  <div id="lbBoard" class="lbboard"></div>
-  <div style="display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap">
-    <button id="lbPlay" class="primary" style="padding:6px 16px">&#9654; Play</button>
-    <span id="lbTime" class="rnote" style="margin:0;font-variant-numeric:tabular-nums"></span>
-    <label class="rnote" style="margin:0 0 0 auto;display:flex;align-items:center;gap:6px">Speed
-      <select id="lbSpeed" style="padding:4px 6px">
-        <option value="0.5">0.5&times;</option><option value="1" selected>1&times;</option>
-        <option value="2">2&times;</option><option value="4">4&times;</option>
-        <option value="8">8&times;</option>
-      </select></label>
-  </div>
-  <input type="range" id="lbSeek" min="0" max="0" value="0" style="width:100%;margin-top:8px">
 </div>
 
 <div class="card">

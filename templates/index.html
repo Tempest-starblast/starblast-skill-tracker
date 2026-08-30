@@ -38,11 +38,12 @@
 .ddsub{display:block;font-size:11.5px;font-weight:400;color:var(--dim);margin-top:1px}
 @media (max-width:760px){.ddmenu{right:auto;left:0}}
 .tick{display:inline-block;margin-left:7px;color:var(--green);font-size:12px;vertical-align:middle}
-/* Green login dot for an account-holder; it becomes the tick above when that
-   name also runs protection, so a row shows one marker, never both. */
-.logdot{display:inline-block;margin-left:7px;width:9px;height:9px;border-radius:50%;
-  background:var(--green);box-shadow:0 0 6px rgba(124,224,160,.55);vertical-align:middle;
-  position:relative;top:-1px}
+/* An account-holder's name is underlined green. The after-name marker is a
+   green check for an account, or a green lock once the rating is protected. */
+.pname.acct{text-decoration:underline;text-decoration-color:var(--green);
+  text-decoration-thickness:2px;text-underline-offset:3px}
+.lockm{display:inline-block;margin-left:7px;line-height:0;vertical-align:middle}
+.lockm svg{vertical-align:middle}
 .rlink{color:var(--muted);text-decoration:none;white-space:nowrap;border-bottom:1px dotted #3f3f3f}
 .rlink:hover{color:var(--green);border-bottom-color:var(--green)}
 /* Arriving from another board's region link. The row has to be findable
@@ -271,7 +272,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% for p in leaderboard %}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}"{% if p.mine %} class="mine"{% endif %}>
   <td class="rank">{{ p.rank }}</td>
-  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}{% if p.division %}<span class="remb" title="{{ p.division.name }} {{ t('rank') }}">{{ rank_emblem(p.division.ship, 16, p.division.color, p.division.name)|safe }}</span>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.protected %}<span class="tick" role="img" aria-label="Protected rating" title="Protected - only matches this player checked into are counted, so the rating is backed by games they confirmed">&#10003;</span>{% elif p.has_account %}<span class="logdot" role="img" aria-label="Has an account on the site" title="Has an account on the site"></span>{% endif %}</td>
+  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}{% if p.division %}<span class="remb" title="{{ p.division.name }} {{ t('rank') }}">{{ rank_emblem(p.division.ship, 16, p.division.color, p.division.name)|safe }}</span>{% endif %}<a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.protected %}<span class="lockm" title="Protected - only matches this player checked into are counted">{{ lock_icon()|safe }}</span>{% elif p.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
     href="/?period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
