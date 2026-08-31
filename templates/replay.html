@@ -455,15 +455,16 @@ function buildReplay(ST, RD){
     render(frames.length - 1);
   }).catch(noLb);
 
-  // Matches with a battlefield but no raw leaderboard keep their own transport.
+  // Matches with a battlefield but no raw leaderboard: the one master transport
+  // (bottom bar) drives the battlefield alone.
   function fieldOnly(ST, RD){
     document.getElementById('rpCard').style.display = '';
     var pts = [];
     if(ST) ST.frames.forEach(f => pts.push(f.t));
     if(RD) RD.frames.forEach(f => pts.push(f.t));
     pts = Array.from(new Set(pts)).sort((a,b) => a-b);
-    var seek = document.getElementById('rpSeek'), btn = document.getElementById('rpPlay'),
-        tEl = document.getElementById('rpTime');
+    var seek = document.getElementById('lbSeek'), btn = document.getElementById('lbPlay'),
+        tEl = document.getElementById('lbTime'), spd = document.getElementById('lbSpeed');
     seek.max = Math.max(0, pts.length - 1);
     var shownSt = -1, shownRd = -1;
     function showAt(i){
@@ -473,16 +474,16 @@ function buildReplay(ST, RD){
       tEl.textContent = fmtT(t); seek.value = i;
     }
     var timer = null;
+    function ms(){ return Math.max(60, Math.round(650/(+spd.value||1))); }
     function stop(){ if(timer){ clearInterval(timer); timer=null; btn.innerHTML='&#9654; Play'; } }
-    btn.onclick = function(){
-      if(timer) return stop();
+    function run(){
       if(pts.length < 2) return;
       btn.innerHTML='&#10074;&#10074; Pause';
       var i = +seek.value; if(i >= pts.length-1) i = 0;
-      var tick = function(){ i++; if(i >= pts.length) return stop(); showAt(i); };
-      timer = setInterval(tick, frameMs());
-      onSpeedChange(function(){ if(timer){ clearInterval(timer); timer = setInterval(tick, frameMs()); } });
-    };
+      timer = setInterval(function(){ i++; if(i >= pts.length) return stop(); showAt(i); }, ms());
+    }
+    btn.onclick = function(){ if(timer) stop(); else run(); };
+    spd.onchange = function(){ if(timer){ stop(); run(); } };
     seek.oninput = function(){ stop(); showAt(+seek.value); };
     showAt(pts.length - 1);
   }
