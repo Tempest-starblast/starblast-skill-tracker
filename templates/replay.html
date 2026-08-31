@@ -42,7 +42,7 @@
 .t-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .t-wp{margin-left:auto;font-family:var(--data,monospace);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .t-wpbar{height:6px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;margin:5px 0 8px}
-.t-wpbar i{display:block;height:100%;border-radius:4px;transition:width .55s linear}
+.t-wpbar i{display:block;height:100%;border-radius:4px}
 .t-mid{display:flex;gap:10px;align-items:center;margin-bottom:7px}
 .t-mid .stsvg{flex:0 0 auto;width:58px;height:58px;display:block}
 .t-st{font-family:var(--data,monospace);font-size:10.5px;color:var(--muted,#8aa0b0);line-height:1.55}
@@ -52,7 +52,7 @@
 .prow{display:grid;grid-template-columns:1fr 32px auto;align-items:center;gap:7px}
 .prow .pn{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .prow .pb{height:8px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
-.prow .pb i{display:block;height:100%;border-radius:3px;transition:width .55s linear}
+.prow .pb i{display:block;height:100%;border-radius:3px}
 .prow .ps{font-family:var(--data,monospace);font-size:11px;color:var(--muted,#8aa0b0);text-align:right;font-variant-numeric:tabular-nums}
 .prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
 .youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
@@ -424,22 +424,34 @@ function buildReplay(ST, RD){
     // leaderboard frames) so it plays the WHOLE match. The browser feed only saw
     // the late portion, which is why the radar looked frozen through the early game.
     var rdSeries = (res.rd && res.rd.length === frames.length) ? res.rd : null;
-    var drawRawRadar = null;
+    var drawRadarAt = null;
     if(rdSeries){
       var RMX = 132, RANG = [28,148,268], RBR = 90, rIcons = '';
-      for(var ii=0; ii<3; ii++){ var a = RANG[ii]*Math.PI/180, cx = Math.cos(a)*RBR, cy = -Math.sin(a)*RBR, s = RMX/12;
-        rIcons += '<rect x="'+(cx-s)+'" y="'+(cy-s)+'" width="'+(2*s)+'" height="'+(2*s)+'" rx="'+(s*0.3)+'" fill="'+COLS[ii]+'" opacity="0.85"/>'; }
-      drawRawRadar = function(i){
+      for(var ii=0; ii<3; ii++){ var a0 = RANG[ii]*Math.PI/180, cx0 = Math.cos(a0)*RBR, cy0 = -Math.sin(a0)*RBR, s0 = RMX/12;
+        rIcons += '<rect x="'+(cx0-s0)+'" y="'+(cy0-s0)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+COLS[ii]+'" opacity="0.85"/>'; }
+      // A ship row is [team, code, x, y] (older rows [team, x, y]). The code lets
+      // us MATCH a ship in the next frame and glide it there, so ships flow
+      // instead of teleporting across the ~13s gap between reads.
+      var has4 = function(e){ return e.length >= 4; };
+      var sKey = function(e){ return e[0] + '|' + (has4(e) ? e[1] : ''); };
+      var sX = function(e){ return has4(e) ? e[2] : e[1]; };
+      var sY = function(e){ return has4(e) ? e[3] : e[2]; };
+      drawRadarAt = function(i, j, a){
         var map = document.getElementById('radarMap'); if(!map) return;
         map.setAttribute('viewBox', (-RMX)+' '+(-RMX)+' '+(2*RMX)+' '+(2*RMX));
-        var f = rdSeries[i] || [];
+        var A = rdSeries[i] || [], B = rdSeries[j] || [], mapB = {}, pts = [];
+        B.forEach(function(e){ mapB[sKey(e)] = e; });
+        A.forEach(function(e){
+          var k = sKey(e), b = mapB[k];
+          if(b && has4(e)){ pts.push([e[0], sX(e)+(sX(b)-sX(e))*a, sY(e)+(sY(b)-sY(e))*a]); delete mapB[k]; }
+          else pts.push([e[0], sX(e), sY(e)]);
+        });
+        Object.keys(mapB).forEach(function(kk){ var b = mapB[kk]; pts.push([b[0], sX(b), sY(b)]); });
         var g = '<rect x="'+(-RMX)+'" y="'+(-RMX)+'" width="'+(2*RMX)+'" height="'+(2*RMX)+'" rx="'+(RMX/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)"/>'
           + '<line x1="'+(-RMX)+'" y1="0" x2="'+RMX+'" y2="0" stroke="rgba(153,221,255,.05)"/>'
           + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>' + rIcons;
-        for(var b=3; b>=1; b--){ var pf = rdSeries[i-b]; if(!pf) continue;
-          pf.forEach(function(e){ g += '<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(RMX/48)+'" fill="'+(COLS[e[0]]||'#888')+'" opacity="'+(0.09*(4-b))+'"/>'; }); }
-        f.forEach(function(e){ var x = e[1], y = -e[2], r = RMX/38, c = COLS[e[0]] || '#888';
-          g += '<g stroke="'+c+'" stroke-width="'+(r*0.55)+'" stroke-linecap="round"><line x1="'+(x-r)+'" y1="'+(y-r)+'" x2="'+(x+r)+'" y2="'+(y+r)+'"/><line x1="'+(x-r)+'" y1="'+(y+r)+'" x2="'+(x+r)+'" y2="'+(y-r)+'"/></g>'; });
+        pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
+          g += '<g stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round"><line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/></g>'; });
         map.innerHTML = g;
       };
     }
@@ -508,41 +520,57 @@ function buildReplay(ST, RD){
     var seek = document.getElementById('lbSeek'), btn = document.getElementById('lbPlay'),
         tEl = document.getElementById('lbTime'), spd = document.getElementById('lbSpeed');
     seek.max = frames.length - 1;
-    function render(i){
-      var T = frames[i][0];
+    // Smooth playback: a continuous playhead (pos, a fractional frame) advances
+    // via requestAnimationFrame and everything is INTERPOLATED between the two
+    // bracketing frames - scores, win%, and (matched by ship code) the radar -
+    // so it glides instead of jumping every ~read.
+    var lerp = function(x, y, t){ return x + (y - x) * t; };
+    var shownStRaw = -1;
+    function renderAt(pos){
+      var n = frames.length;
+      if(pos < 0) pos = 0; if(pos > n-1) pos = n-1;
+      var i = Math.floor(pos), j = Math.min(n-1, i+1), a = pos - i;
       Object.keys(rowRef).forEach(function(key){
-        var s = (timeline[key] && timeline[key][i]) || 0, ref = rowRef[key];
+        var tl = timeline[key], s = tl ? lerp(tl[i], tl[j], a) : 0, ref = rowRef[key];
         ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
-        ref.sc.textContent = s.toLocaleString();
+        ref.sc.textContent = Math.round(s).toLocaleString();
       });
       if(haveWp){
-        var row = wp[i] || [0,0,0];
-        var use = row.some(function(v){ return v > 0.005; }) ? row : (wp[lastGoodIdx] || row);
+        var rI = wp[i] || [0,0,0], rJ = wp[j] || [0,0,0];
+        var sI = rI.some(function(v){ return v>0.005; }) ? rI : (wp[lastGoodIdx]||rI);
+        var sJ = rJ.some(function(v){ return v>0.005; }) ? rJ : (wp[lastGoodIdx]||rJ);
         teams.forEach(function(k){
-          var pc = Math.round((use[k]||0)*100);
+          var pc = Math.round(lerp(sI[k]||0, sJ[k]||0, a) * 100);
           if(wpEl[k]) wpEl[k].textContent = pc + '%';
           if(wpBar[k]) wpBar[k].style.width = pc + '%';
         });
       }
-      if(markWp) markWp(i);
-      if(drawRawRadar) drawRawRadar(i);
-      if(drawRawStations) drawRawStations(i);
-      if(drawField) drawField(T);
-      tEl.textContent = fmtT(T);
-      seek.value = i;
+      if(markWp) markWp(Math.round(pos));
+      if(drawRadarAt) drawRadarAt(i, j, a);
+      if(drawRawStations){ var si = Math.round(pos); if(si !== shownStRaw){ drawRawStations(si); shownStRaw = si; } }
+      if(drawField) drawField(lerp(frames[i][0], frames[j][0], a));
+      tEl.textContent = fmtT(lerp(frames[i][0], frames[j][0], a));
+      seek.value = Math.round(pos);
     }
-    var timer = null;
-    function ms(){ return Math.max(60, Math.round(650/(+spd.value||1))); }
-    function stop(){ if(timer){ clearInterval(timer); timer=null; btn.innerHTML='&#9654; Play'; } }
+    var raf = null, pos = frames.length - 1, lastT = 0;
+    var POS_PER_MS = 1 / 640;      // ~1 frame per 640ms at 1x
+    function stop(){ if(raf){ cancelAnimationFrame(raf); raf = null; btn.innerHTML = '&#9654; Play'; } }
+    function tick(now){
+      var dt = Math.min(100, now - lastT); lastT = now;
+      pos += dt * POS_PER_MS * (+spd.value || 1);
+      if(pos >= frames.length - 1){ pos = frames.length - 1; renderAt(pos); stop(); return; }
+      renderAt(pos);
+      raf = requestAnimationFrame(tick);
+    }
     function run(){
-      var i = +seek.value; if(i >= frames.length-1) i = 0;
-      btn.innerHTML='&#10074;&#10074; Pause';
-      timer = setInterval(function(){ i++; if(i >= frames.length) return stop(); render(i); }, ms());
+      if(pos >= frames.length - 1) pos = 0;
+      btn.innerHTML = '&#10074;&#10074; Pause';
+      lastT = performance.now();
+      raf = requestAnimationFrame(tick);
     }
-    btn.onclick = function(){ if(timer) stop(); else run(); };
-    spd.onchange = function(){ if(timer){ stop(); run(); } };
-    seek.oninput = function(){ stop(); render(+seek.value); };
-    render(frames.length - 1);
+    btn.onclick = function(){ if(raf) stop(); else run(); };
+    seek.oninput = function(){ stop(); pos = +seek.value; renderAt(pos); };
+    renderAt(frames.length - 1);
   }).catch(function(){ arenaMsg('Could not load this replay.'); });
 
   // Match with a battlefield but no raw leaderboard: radar + stations only.
