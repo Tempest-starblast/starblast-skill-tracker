@@ -420,17 +420,42 @@ function buildReplay(ST, RD){
       };
     }
 
-    // Battlefield on the master clock: radar (centre) + each team's station.
+    // Radar: prefer the RAW full-match ship positions (res.rd, aligned to the
+    // leaderboard frames) so it plays the WHOLE match. The browser feed only saw
+    // the late portion, which is why the radar looked frozen through the early game.
+    var rdSeries = (res.rd && res.rd.length === frames.length) ? res.rd : null;
+    var drawRawRadar = null;
+    if(rdSeries){
+      var RMX = 132, RANG = [28,148,268], RBR = 90, rIcons = '';
+      for(var ii=0; ii<3; ii++){ var a = RANG[ii]*Math.PI/180, cx = Math.cos(a)*RBR, cy = -Math.sin(a)*RBR, s = RMX/12;
+        rIcons += '<rect x="'+(cx-s)+'" y="'+(cy-s)+'" width="'+(2*s)+'" height="'+(2*s)+'" rx="'+(s*0.3)+'" fill="'+COLS[ii]+'" opacity="0.85"/>'; }
+      drawRawRadar = function(i){
+        var map = document.getElementById('radarMap'); if(!map) return;
+        map.setAttribute('viewBox', (-RMX)+' '+(-RMX)+' '+(2*RMX)+' '+(2*RMX));
+        var f = rdSeries[i] || [];
+        var g = '<rect x="'+(-RMX)+'" y="'+(-RMX)+'" width="'+(2*RMX)+'" height="'+(2*RMX)+'" rx="'+(RMX/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)"/>'
+          + '<line x1="'+(-RMX)+'" y1="0" x2="'+RMX+'" y2="0" stroke="rgba(153,221,255,.05)"/>'
+          + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>' + rIcons;
+        for(var b=3; b>=1; b--){ var pf = rdSeries[i-b]; if(!pf) continue;
+          pf.forEach(function(e){ g += '<circle cx="'+e[1]+'" cy="'+(-e[2])+'" r="'+(RMX/48)+'" fill="'+(COLS[e[0]]||'#888')+'" opacity="'+(0.09*(4-b))+'"/>'; }); }
+        f.forEach(function(e){ var x = e[1], y = -e[2], r = RMX/38, c = COLS[e[0]] || '#888';
+          g += '<g stroke="'+c+'" stroke-width="'+(r*0.55)+'" stroke-linecap="round"><line x1="'+(x-r)+'" y1="'+(y-r)+'" x2="'+(x+r)+'" y2="'+(y+r)+'"/><line x1="'+(x-r)+'" y1="'+(y+r)+'" x2="'+(x+r)+'" y2="'+(y-r)+'"/></g>'; });
+        map.innerHTML = g;
+      };
+    }
+
+    // Stations (+ the browser radar only when there's no raw radar): end-aligned
+    // onto match time.
     var drawField = null;
     if(ST || RD){
       var rawEnd = frames[frames.length-1][0], bMax = 0;
       if(ST && ST.frames.length) bMax = Math.max(bMax, ST.frames[ST.frames.length-1].t);
       if(RD && RD.frames.length) bMax = Math.max(bMax, RD.frames[RD.frames.length-1].t);
-      var offset = rawEnd - bMax;      // browser_t + offset = raw match time
+      var offset = rawEnd - bMax;
       var shownSt = -1, shownRd = -1;
       drawField = function(T){
         var bt = T - offset;
-        if(RD){ var ri = nearest(RD, bt); if(ri !== shownRd){ RD.draw(ri); shownRd = ri; } }
+        if(RD && !rdSeries){ var ri = nearest(RD, bt); if(ri !== shownRd){ RD.draw(ri); shownRd = ri; } }
         if(ST){ var si = nearest(ST, bt); if(si !== shownSt){ shownSt = si;
           teams.forEach(function(k){ var st = ST.oneStation(k, si);
             if(stEl[k]) stEl[k].innerHTML = st.svg; if(stMeta[k]) stMeta[k].innerHTML = st.meta; }); } }
@@ -458,6 +483,7 @@ function buildReplay(ST, RD){
         });
       }
       if(markWp) markWp(i);
+      if(drawRawRadar) drawRawRadar(i);
       if(drawField) drawField(T);
       tEl.textContent = fmtT(T);
       seek.value = i;

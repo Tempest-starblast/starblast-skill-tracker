@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.4.0"
+APP_VERSION = "8.4.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6480,12 +6480,18 @@ def trueskill_replay_push():
         frames = m.get('frames')
         if not mk or not isinstance(frames, list) or not frames:
             continue
-        # Newer pushes carry an aligned win-probability series from the raw
-        # multi-factor model; store it beside the frames as {"f":..,"wp":..}.
-        # Old pushes (frames only) stay a bare list - the reader handles both.
+        # Newer pushes carry an aligned win-probability series (from the raw
+        # multi-factor model) and full-match radar positions; store them beside
+        # the frames as {"f":..,"wp":..,"rd":..}. Old pushes (frames only) stay a
+        # bare list - the reader handles both.
         wp = m.get('wp')
-        payload = ({"f": frames, "wp": wp}
-                   if isinstance(wp, list) and len(wp) == len(frames) else frames)
+        rd = m.get('rd')
+        obj = {"f": frames}
+        if isinstance(wp, list) and len(wp) == len(frames):
+            obj["wp"] = wp
+        if isinstance(rd, list) and len(rd) == len(frames):
+            obj["rd"] = rd
+        payload = obj if len(obj) > 1 else frames
         try:
             blob = zlib.compress(json.dumps(payload).encode('utf-8'))
         except (TypeError, ValueError):
@@ -6523,33 +6529,34 @@ def trueskill_replay_read():
         pend = None
     cands = c.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
                       (sys_id,)).fetchall()
-    best, best_gap, best_wp = None, None, None
+    best, best_gap, best_wp, best_rd = None, None, None, None
     for data, first_ts in cands:
         try:
             obj = json.loads(zlib.decompress(data).decode('utf-8'))
         except Exception:
             continue
-        # A newer row is {"f": frames, "wp": model_series}; an older one is a
-        # bare frames list. Either way, pull the frames out to line it up.
+        # A newer row is {"f":frames,"wp":..,"rd":..}; an older one is a bare
+        # frames list. Either way, pull the frames out to line it up.
         if isinstance(obj, dict):
-            frames, mwp = obj.get("f"), obj.get("wp")
+            frames, mwp, mrd = obj.get("f"), obj.get("wp"), obj.get("rd")
         else:
-            frames, mwp = obj, None
+            frames, mwp, mrd = obj, None, None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
         raw_end = (first_ts or 0) + (frames[-1][0] or 0)
         gap = abs(raw_end - pend) if pend else 0
         if best is None or gap < best_gap:
-            best, best_gap, best_wp = frames, gap, mwp
+            best, best_gap, best_wp, best_rd = frames, gap, mwp, mrd
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
         # Prefer the raw multi-factor model's own win-prob; fall back to the
         # read-time skill-only series for replays not yet reprocessed.
         wp = (best_wp if (isinstance(best_wp, list) and len(best_wp) == len(best))
               else trueskill_winprob_series(c, best))
+        rd = best_rd if (isinstance(best_rd, list) and len(best_rd) == len(best)) else None
         conn.close()
-        return jsonify({"frames": best, "wp": wp}), 200
+        return jsonify({"frames": best, "wp": wp, "rd": rd}), 200
     conn.close()
     return jsonify({"frames": None}), 200
 
