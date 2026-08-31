@@ -373,23 +373,29 @@ function buildReplay(ST, RD){
       var dots = [0,1,2].map(function(){ var c = document.createElementNS(NS, 'circle');
         c.setAttribute('r', '3.4'); svg.appendChild(c); return c; });
       var wpNow = document.getElementById('wpNow');
+      // The last frame with a real call - used so the header meter + readout
+      // never blank out on a degenerate final (match-end reset) frame.
+      var lastGood = wpPts.length - 1;
+      while(lastGood > 0 && !wpPts[lastGood].p.some(function(v){ return v > 0.005; })) lastGood--;
       markWp = function(i){
         var x = X(wpPts[i].t);
         head.setAttribute('x1', x); head.setAttribute('x2', x);
-        var lab = [];
+        var actual = wpPts[i].p;
         [0,1,2].forEach(function(k){
-          var v = wpPts[i].p[k] || 0;
+          var v = actual[k] || 0;
           if(v > 0.0005){
             dots[k].setAttribute('cx', x);
             dots[k].setAttribute('cy', (H-padB) - (H-padB-12)*Math.min(v,1));
             dots[k].setAttribute('fill', COLS[k]); dots[k].style.display = '';
-            lab.push('<b style="color:'+COLS[k]+'">'+Math.round(v*100)+'%</b>');
           } else dots[k].style.display = 'none';
         });
-        if(wpNow) wpNow.innerHTML = lab.join(' &middot; ');
-        if(oddsEl) oddsEl.innerHTML = [0,1,2].filter(function(k){ return wpPts[i].p[k] > 0.005; })
-          .map(function(k){ var pc = Math.round(wpPts[i].p[k]*100);
-            return '<span style="background:'+COLS[k]+';width:'+pc+'%">'+pc+'%</span>'; }).join('');
+        var src = actual.some(function(v){ return v > 0.005; }) ? actual : wpPts[lastGood].p;
+        var seg = [0,1,2].filter(function(k){ return src[k] > 0.005; })
+          .map(function(k){ return {k: k, pc: Math.round(src[k]*100)}; });
+        if(wpNow) wpNow.innerHTML = seg.map(function(o){
+          return '<b style="color:'+COLS[o.k]+'">'+o.pc+'%</b>'; }).join(' &middot; ');
+        if(oddsEl) oddsEl.innerHTML = seg.map(function(o){
+          return '<span style="background:'+COLS[o.k]+';width:'+o.pc+'%">'+o.pc+'%</span>'; }).join('');
       };
     }
 
