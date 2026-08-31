@@ -308,9 +308,18 @@ function buildReplay(ST, RD){
     var frames = res && res.frames;
     var haveLb = frames && frames.length >= 2;
     if(haveLb){
-      // Drop the post-match reset tail (roster collapses into one team).
+      // Drop the post-match reset tail: at match end the game collapses the
+      // roster into one team AND wipes scores to ~0. Trim trailing frames that
+      // show either, so the replay ENDS on the real final standings.
+      var maxTot = 0;
+      frames.forEach(function(f){ var t = 0; f[1].forEach(function(p){ t += p[1] || 0; });
+        if(t > maxTot) maxTot = t; });
       var _end = frames.length - 1;
-      while(_end > 1 && new Set(frames[_end][1].map(p => p[2])).size < 2) _end--;
+      while(_end > 1){
+        var teams = new Set(frames[_end][1].map(function(p){ return p[2]; })).size;
+        var tot = 0; frames[_end][1].forEach(function(p){ tot += p[1] || 0; });
+        if(teams < 2 || tot < 0.35 * maxTot) _end--; else break;
+      }
       frames = frames.slice(0, _end + 1);
       haveLb = frames.length >= 2;
     }
