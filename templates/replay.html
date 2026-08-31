@@ -552,23 +552,22 @@ function buildReplay(ST, RD){
       tEl.textContent = fmtT(lerp(frames[i][0], frames[j][0], a));
       seek.value = Math.round(pos);
     }
-    var raf = null, pos = frames.length - 1, lastT = 0;
+    var timer = null, pos = frames.length - 1, lastT = 0;
     var POS_PER_MS = 1 / 640;      // ~1 frame per 640ms at 1x
-    function stop(){ if(raf){ cancelAnimationFrame(raf); raf = null; btn.innerHTML = '&#9654; Play'; } }
-    function tick(now){
-      var dt = Math.min(100, now - lastT); lastT = now;
+    function stop(){ if(timer){ clearInterval(timer); timer = null; btn.innerHTML = '&#9654; Play'; } }
+    function tick(){
+      var now = performance.now(), dt = Math.min(250, now - lastT); lastT = now;
       pos += dt * POS_PER_MS * (+spd.value || 1);
       if(pos >= frames.length - 1){ pos = frames.length - 1; renderAt(pos); stop(); return; }
       renderAt(pos);
-      raf = requestAnimationFrame(tick);
     }
     function run(){
       if(pos >= frames.length - 1) pos = 0;
       btn.innerHTML = '&#10074;&#10074; Pause';
       lastT = performance.now();
-      raf = requestAnimationFrame(tick);
+      timer = setInterval(tick, 33);      // ~30fps; dt-based so it stays time-accurate
     }
-    btn.onclick = function(){ if(raf) stop(); else run(); };
+    btn.onclick = function(){ if(timer) stop(); else run(); };
     seek.oninput = function(){ stop(); pos = +seek.value; renderAt(pos); };
     renderAt(frames.length - 1);
   }).catch(function(){ arenaMsg('Could not load this replay.'); });
