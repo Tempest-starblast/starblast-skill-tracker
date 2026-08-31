@@ -39,6 +39,16 @@
 .arena.a3 > .team[data-slot="left"]{grid-column:1;grid-row:1 / span 2;border-right:1px solid var(--line)}
 .arena.a3 > .team[data-slot="middle"]{grid-column:2;grid-row:1;border-bottom:1px solid var(--line)}
 .arena.a3 > .team[data-slot="right"]{grid-column:3;grid-row:1 / span 2;border-left:1px solid var(--line)}
+/* Full-height side panels (underdog left / favorite right) fill their column:
+   the roster spreads down the tall space instead of leaving a void by the radar. */
+.arena.a3 > .team[data-slot="left"] .prow,
+.arena.a3 > .team[data-slot="right"] .prow,
+.arena.a2 > .team[data-slot="left"] .prow,
+.arena.a2 > .team[data-slot="right"] .prow{flex:1 1 auto;max-height:54px}
+.arena.a3 > .team[data-slot="left"] .prow + .prow,
+.arena.a3 > .team[data-slot="right"] .prow + .prow,
+.arena.a2 > .team[data-slot="left"] .prow + .prow,
+.arena.a2 > .team[data-slot="right"] .prow + .prow{border-top:1px solid rgba(255,255,255,.05)}
 
 .team{display:flex;flex-direction:column;min-height:0;padding:10px 13px}
 .t-head{display:flex;align-items:baseline;gap:8px}

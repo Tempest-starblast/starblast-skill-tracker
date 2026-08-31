@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.5.1"
+APP_VERSION = "8.5.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.5.2", "at": "2026-08-31T20:45:00Z", "changes": [
+        "Replay layout: the full-height side panels (underdog on the left, favorite on the right) now spread their roster down the whole column so it fills the space beside the radar, instead of bunching the players at the top and leaving a big empty gap below."
+    ]},
     {"version": "8.5.1", "at": "2026-08-31T20:20:00Z", "changes": [
         "Replay endgame fix: when two of three teams were eliminated, both were being sent to the middle slot (overlapping, with the left panel empty). The winner now takes the right, and the two eliminated teams fill the left and middle."
     ]},
