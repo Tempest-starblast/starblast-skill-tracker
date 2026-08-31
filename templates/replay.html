@@ -25,48 +25,52 @@
 .oddsbar span{display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;
   color:#04121f;min-width:0;overflow:hidden;font-variant-numeric:tabular-nums}
 
-.cbody{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);
-  grid-template-rows:minmax(0,0.72fr) minmax(0,1.28fr);min-height:0}
-.ccap{font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--muted,#8aa0b0);opacity:.72;margin:0 0 7px}
-.cleft{grid-column:1;grid-row:1;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;padding:11px 14px 8px}
-.cscroll{overflow-y:auto;min-height:0;flex:1}
-.cempty{color:var(--muted,#8aa0b0);font-size:13px;padding:8px 0}
-.cwp{grid-column:2;grid-row:1;display:flex;flex-direction:column;min-height:0;padding:11px 14px}
-.cwp .chartwrap{flex:1;min-height:0;display:flex;align-items:center}
-.cwp .chartwrap svg{width:100%;height:auto;max-height:100%}
-.cwp .wpnow{float:right;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
-.cwp .dim{color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0}
-.cfield{grid-column:1 / -1;grid-row:2;min-height:0;padding:10px 14px;overflow:hidden;
-  display:flex;flex-direction:column;border-top:1px solid var(--line)}
-.cfield #rpCard{display:flex;flex-direction:column;flex:1;min-height:0}
-.fieldgrid{display:grid;grid-template-columns:minmax(128px,186px) minmax(0,1fr);gap:16px;min-height:0;flex:1}
-.radarcell{display:flex;flex-direction:column;min-height:0}
-.radarcell #rdBlock{min-height:0}
-#radarMap{width:100%;height:auto;max-height:100%;aspect-ratio:1;background:rgba(0,0,0,.3);
-  border:1px solid var(--line);border-radius:10px}
-.stcell{display:flex;flex-direction:column;min-height:0;overflow:hidden}
-.stcell #stBlock{overflow-y:auto;min-height:0}
-.stwrap{display:flex;gap:12px;flex-wrap:wrap}
-.stTip{min-height:1.3em;margin-top:4px}
+/* The arena: radar in the middle, a team panel (win% + station + top players)
+   on each side. 2 teams flank the radar; 3 teams sit across the top with the
+   radar below (grid mode set by JS via a2/a3). */
+.arena{display:grid;min-height:0;overflow:hidden}
+.arena.a2{grid-template-columns:minmax(0,1fr) minmax(300px,1.5fr) minmax(0,1fr)}
+.arena.a3{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+.teamsrow{grid-column:1 / -1;display:grid;grid-template-columns:repeat(var(--tn,3),1fr);min-height:0}
+.arena.a2 > .team:first-child{border-right:1px solid var(--line)}
+.arena.a2 > .team:last-child{border-left:1px solid var(--line)}
+.teamsrow > .team + .team{border-left:1px solid var(--line)}
+.arena.a3 > .radarwrap{border-top:1px solid var(--line)}
+
+.team{display:flex;flex-direction:column;min-height:0;padding:10px 13px}
+.t-head{display:flex;align-items:baseline;gap:8px}
+.t-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-wp{margin-left:auto;font-family:var(--data,monospace);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.t-wpbar{height:6px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;margin:5px 0 8px}
+.t-wpbar i{display:block;height:100%;border-radius:4px;transition:width .55s linear}
+.t-mid{display:flex;gap:10px;align-items:center;margin-bottom:7px}
+.t-mid .stsvg{flex:0 0 auto;width:58px;height:58px;display:block}
+.t-st{font-family:var(--data,monospace);font-size:10.5px;color:var(--muted,#8aa0b0);line-height:1.55}
+.t-roster{min-height:0;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:1px}
+.t-roster::-webkit-scrollbar{width:6px}
+.t-roster::-webkit-scrollbar-thumb{background:var(--line2,rgba(153,221,235,.24));border-radius:3px}
+.prow{display:grid;grid-template-columns:1fr 32px auto;align-items:center;gap:7px}
+.prow .pn{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .pb{height:8px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
+.prow .pb i{display:block;height:100%;border-radius:3px;transition:width .55s linear}
+.prow .ps{font-family:var(--data,monospace);font-size:11px;color:var(--muted,#8aa0b0);text-align:right;font-variant-numeric:tabular-nums}
+.prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
+.youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
+
+.radarwrap{display:flex;flex-direction:column;min-height:0;min-width:0;padding:12px}
+.radarcap{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted,#8aa0b0);opacity:.72;text-align:center;margin-bottom:8px}
+#radarMap{flex:1;min-height:0;display:block;margin:0 auto;aspect-ratio:1;max-width:100%;max-height:100%;
+  border-radius:12px;background:rgba(3,10,22,.55);border:1px solid var(--line)}
+.cempty{color:var(--muted,#8aa0b0);font-size:13px;padding:16px}
 
 .ctransport{display:flex;align-items:center;gap:13px;padding:10px 16px;border-top:1px solid var(--line);
   background:rgba(8,16,28,.35)}
 .ctransport .ctrack{flex:1;margin:0}
 .ctransport .ctime{font-size:13px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;white-space:nowrap}
 .ctransport .cspd{font-size:12px;color:var(--muted,#8aa0b0);display:flex;align-items:center;gap:6px;white-space:nowrap}
-
-#lbBoard{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px 16px;align-items:start}
-.lbteam{min-width:0}
-.lbteamhead{font-weight:800;font-size:12.5px;margin-bottom:7px;padding-bottom:4px;
-  border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lbrow{display:flex;align-items:center;gap:8px;font-size:12px;padding:2px 0}
-.lbname{flex:1 1 auto;min-width:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lbbarwrap{flex:0 0 40px;height:10px;background:rgba(255,255,255,.06);border-radius:6px;overflow:hidden}
-.lbbar{display:block;height:100%;border-radius:6px;transition:width .55s linear}
-.lbscore{flex:0 0 54px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;font-size:11.5px}
-.lbrow.lbme{background:rgba(153,221,255,.14);border-radius:5px;margin:0 -5px;padding:2px 5px;
-  box-shadow:inset 3px 0 0 var(--blue)}
+.cwp .dim{color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0}
+.cwp .wpnow{float:right;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
 
 /* Post-game analytics live below the screen - scroll for them. */
 .postgame{margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -84,18 +88,15 @@
 
 @media (max-width:820px){
   .console{height:auto;min-height:0}
-  .cbody{grid-template-columns:1fr;grid-template-rows:none}
-  .cleft,.cwp,.cfield{grid-column:1;grid-row:auto}
-  .cleft{border-right:none;border-bottom:1px solid var(--line)}
-  .cscroll{max-height:240px}
-  .cwp{min-height:210px;border-bottom:1px solid var(--line)}
-  .cfield{border-top:none}
-  .fieldgrid{grid-template-columns:1fr}
-  #radarMap{width:100%;height:auto;max-height:220px;aspect-ratio:1}
+  .arena.a2,.arena.a3{grid-template-columns:1fr;grid-template-rows:none}
+  .arena.a2 > .team{border-right:none !important;border-left:none !important;border-bottom:1px solid var(--line)}
+  .teamsrow{grid-template-columns:1fr}
+  .teamsrow > .team + .team{border-left:none;border-top:1px solid var(--line)}
+  .arena > .radarwrap{border-top:1px solid var(--line)}
+  .t-roster{max-height:180px}
+  #radarMap{max-height:320px}
   .postgame{grid-template-columns:1fr}
-  #lbBoard{grid-template-columns:1fr 1fr}
 }
-@media (max-width:520px){ #lbBoard{grid-template-columns:1fr} }
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Match replay</h1>
@@ -103,61 +104,10 @@
 <div class="console">
   <div class="chead">
     <div class="rphead" id="rpHead"><span class="sub">Loading&hellip;</span></div>
-    <div class="odds" id="oddsWrap" style="display:none">
-      <span class="oddslbl">win chance</span>
-      <div class="oddsbar" id="oddsbar"></div>
-    </div>
   </div>
-
-  <div class="cbody">
-    <div class="cleft">
-      <div class="ccap">Leaderboard</div>
-      <div id="lbEmpty" class="cempty" style="display:none">No leaderboard replay recorded for this
-        match yet &mdash; a match is processed a few minutes after it ends.</div>
-      <div id="lbCard" class="cscroll" style="display:none"><div id="lbBoard" class="lbboard"></div></div>
-    </div>
-
-    <div class="cwp" id="wpCard" style="display:none">
-        <div class="ccap">Win probability <span class="dim">&middot; model</span>
-          <span id="wpNow" class="wpnow"></span></div>
-        <div class="legend" id="legend1"></div>
-        <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
-      </div>
-
-      <div class="cfield">
-        <div id="fieldEmpty" class="cempty" style="display:none">No battlefield replay was recorded for this match.</div>
-        <div id="rpCard" style="display:none">
-          <div class="fieldgrid">
-            <div class="radarcell">
-              <div class="ccap">Radar</div>
-              <div id="rdBlock" style="display:none">
-                <svg id="radarMap" viewBox="-40 -40 80 80"></svg>
-              </div>
-            </div>
-            <div class="stcell">
-              <div class="ccap">Stations</div>
-              <div id="stBlock" style="display:none">
-                <div class="rnote" id="stKey" style="margin:0 0 6px;display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px">
-                  <span><i class="stkey" style="background:#66e6b8"></i>Intact</span>
-                  <span><i class="stkey" style="background:#f0c04a"></i>Damaged</span>
-                  <span><i class="stkey" style="background:#ff7a7a"></i>Heavy</span>
-                  <span><i class="stkey" style="background:#63263a"></i>Down</span>
-                </div>
-                <div id="stWrap" class="stwrap"></div>
-                <div id="stGap" class="rnote" style="margin:6px 0 0;min-height:1em"></div>
-              </div>
-            </div>
-          </div>
-          <div id="stTip" class="rnote stTip"></div>
-          <div style="display:none">
-            <button id="rpPlay"></button><span id="rpTime"></span><span id="rpShips"></span>
-            <label><select id="rpSpeed"><option value="1" selected>1&times;</option></select></label>
-            <input type="range" id="rpSeek" min="0" max="0" value="0">
-          </div>
-        </div>
-      </div>
+  <div class="arena a2" id="arena">
+    <div class="cempty" id="arenaEmpty">Loading the replay&hellip;</div>
   </div>
-
   <div class="ctransport">
     <button id="lbPlay" class="primary" style="padding:7px 18px">&#9654; Play</button>
     <input type="range" id="lbSeek" min="0" max="0" value="0" class="ctrack">
@@ -171,7 +121,25 @@
   </div>
 </div>
 
+<!-- Legacy ids the replay JS still references - the arena drives everything now,
+     so these stay hidden (battlefield-only fallback controls + ship counter). -->
+<div style="display:none">
+  <button id="rpPlay"></button><span id="rpTime"></span><span id="rpShips"></span>
+  <label><select id="rpSpeed"><option value="1" selected>1&times;</option></select></label>
+  <input type="range" id="rpSeek" min="0" max="0" value="0">
+  <span id="stTip"></span><span id="fieldEmpty"></span>
+</div>
+
 <div class="postgame">
+  <div class="card" id="wpCard" style="grid-column:1 / -1;display:none">
+    <h2>Win probability <span class="dim" style="font-size:12px;font-weight:400">&middot; the model, over the whole match</span>
+      <span id="wpNow" class="wpnow"></span></h2>
+    <div class="legend" id="legend1"></div>
+    <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <p class="rnote">Each team's chance frame by frame &mdash; weighing scores, ship count, station
+       level and health, ship class, roster skill, and how far the game has run. The live number
+       for each team is shown in its panel above.</p>
+  </div>
   <div class="card">
     <h2>Scores over time</h2>
     <div class="legend" id="legend2"></div>
@@ -301,9 +269,35 @@ function jnorm(s){
 // playhead along the win-probability, AND drives the battlefield (radar +
 // stations), which is end-aligned onto match time since both feeds end together.
 function buildReplay(ST, RD){
-  function noLb(){ var e=document.getElementById('lbEmpty'); if(e) e.style.display=''; }
-  function fieldEmpty(){ var e=document.getElementById('fieldEmpty'); if(e) e.style.display=''; }
+  var arenaEl = document.getElementById('arena');
+  function arenaMsg(m){ arenaEl.className = 'arena'; arenaEl.innerHTML = '<div class="cempty">'+m+'</div>'; }
   function nearest(src, t){ var lo=0, a=src.frames; for(var j=0;j<a.length;j++){ if(a[j].t<=t) lo=j; else break; } return lo; }
+  function radarHtml(){ return '<div class="radarwrap"><div class="radarcap">Radar</div>'
+    + '<svg id="radarMap" viewBox="-132 -132 264 264"></svg></div>'; }
+  function teamHtml(k, withRoster){
+    var col = COLS[k] || '#8aa0b0';
+    return '<div class="team" data-team="'+k+'">'
+      + '<div class="t-head"><span class="t-name" style="color:'+col+'">'+esc(LBL[k]||('Team '+(k+1)))+'</span>'
+      + '<span class="t-wp" data-wp="'+k+'" style="color:'+col+'"></span></div>'
+      + '<div class="t-wpbar"><i data-wpbar="'+k+'" style="background:'+col+'"></i></div>'
+      + '<div class="t-mid"><span data-stsvg="'+k+'"></span><div class="t-st" data-stmeta="'+k+'"></div></div>'
+      + (withRoster ? '<div class="t-roster" data-roster="'+k+'"></div>' : '') + '</div>';
+  }
+  // Lay teams around the radar: 2 flank it (team | radar | team); 3+ across the
+  // top with the radar below (owner's call for 3-team matches).
+  function buildArena(teams, withRoster){
+    var n = teams.length;
+    if(n <= 2){
+      arenaEl.className = 'arena a2';
+      arenaEl.innerHTML = (n >= 1 ? teamHtml(teams[0], withRoster) : '')
+        + radarHtml() + (n >= 2 ? teamHtml(teams[1], withRoster) : '');
+    } else {
+      arenaEl.className = 'arena a3';
+      arenaEl.innerHTML = '<div class="teamsrow" style="--tn:'+n+'">'
+        + teams.map(function(k){ return teamHtml(k, withRoster); }).join('') + '</div>' + radarHtml();
+    }
+  }
+
   fetch('/api/trueskill/replay?match_row='+MID).then(r=>r.json()).then(function(res){
     var frames = res && res.frames;
     var haveLb = frames && frames.length >= 2;
@@ -316,19 +310,18 @@ function buildReplay(ST, RD){
         if(t > maxTot) maxTot = t; });
       var _end = frames.length - 1;
       while(_end > 1){
-        var teams = new Set(frames[_end][1].map(function(p){ return p[2]; })).size;
+        var teamsN = new Set(frames[_end][1].map(function(p){ return p[2]; })).size;
         var tot = 0; frames[_end][1].forEach(function(p){ tot += p[1] || 0; });
-        if(teams < 2 || tot < 0.35 * maxTot) _end--; else break;
+        if(teamsN < 2 || tot < 0.35 * maxTot) _end--; else break;
       }
       frames = frames.slice(0, _end + 1);
       haveLb = frames.length >= 2;
     }
-    // No leaderboard timeline: fall back to the battlefield's own transport.
-    if(!haveLb){ noLb(); if(ST||RD) fieldOnly(ST, RD); else fieldEmpty(); return; }
+    if(!haveLb){ if(ST||RD) fieldOnly(ST, RD);
+      else arenaMsg('No replay recorded for this match yet &mdash; a match is processed a few minutes after it ends.');
+      return; }
 
-    document.getElementById('lbCard').style.display = '';
     var wp = res.wp ? res.wp.slice(0, frames.length) : null;
-    var boardEl = document.getElementById('lbBoard');
     // Each player's score at every frame, carried forward (monotonic) so a bar
     // never drops when someone briefly leaves the roster - and so scrubbing
     // backward is exact. gmax scales the bars; `order` ranks by final score.
@@ -350,63 +343,56 @@ function buildReplay(ST, RD){
       var a = timeline[key], last = 0;
       for(var j = 0; j < a.length; j++){ if(a[j] > last) last = a[j]; a[j] = last; }
     });
-    // Build the board ONCE (top 8 per team by final score), then only UPDATE
-    // bar widths + scores per frame so the bars GLIDE (a fresh innerHTML every
-    // frame would reset them and look choppy). Stable order = smooth race.
-    var teamRost = [[], [], []], rowRef = {}, totRef = {}, html = '';
-    Object.keys(order).forEach(function(key){
-      var t = +key.split('|')[0];
-      (teamRost[t] || (teamRost[t] = [])).push(key);
-    });
-    [0, 1, 2].forEach(function(k){
-      var t = (teamRost[k] || []).sort(function(a,b){ return order[b] - order[a]; }).slice(0, 8);
-      if(!t.length) return;
-      var col = COLS[k] || '#8aa0b0';
-      html += '<div class="lbteam"><div class="lbteamhead" style="color:' + col + '">'
-        + esc(LBL[k] || ('Team ' + (k+1))) + ' &middot; <span data-tot="' + k + '">0</span></div>';
-      t.forEach(function(key){
-        var nm = key.slice(key.indexOf('|') + 1), mine = MY_NAMES.has(jnorm(nm));
-        html += '<div class="lbrow' + (mine?' lbme':'') + '" data-key="' + esc(key) + '">'
-          + '<span class="lbname" style="color:' + col + '">'
-          + (mine?'<span class="youchip">YOU</span>':'') + esc(nm) + '</span>'
-          + '<span class="lbbarwrap"><span class="lbbar" style="background:' + col + '"></span></span>'
-          + '<span class="lbscore">0</span></div>';
-      });
-      html += '</div>';
-    });
-    boardEl.innerHTML = html;
-    boardEl.querySelectorAll('.lbrow').forEach(function(r){
-      rowRef[r.getAttribute('data-key')] = {bar: r.querySelector('.lbbar'), sc: r.querySelector('.lbscore')};
-    });
-    boardEl.querySelectorAll('[data-tot]').forEach(function(e){ totRef[e.getAttribute('data-tot')] = e; });
-    function drawLb(i){
-      var tot = [0, 0, 0];
-      (frames[i][1] || []).forEach(function(p){ tot[p[2]] = (tot[p[2]] || 0) + (p[1] || 0); });
-      Object.keys(rowRef).forEach(function(key){
-        var s = (timeline[key] && timeline[key][i]) || 0, ref = rowRef[key];
-        ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
-        ref.sc.textContent = s.toLocaleString();
-      });
-      [0,1,2].forEach(function(k){ if(totRef[k]) totRef[k].textContent = (tot[k]||0).toLocaleString(); });
-    }
 
-    // Win probability: the full curve, plus a playhead + live % that advance
-    // with the master transport (so the odds "keep going" as the game plays).
-    var markWp = null;
+    // Which teams are in this match, ranked by final total (strongest first).
+    var teamTot = {};
+    Object.keys(order).forEach(function(key){ var t = +key.split('|')[0];
+      teamTot[t] = (teamTot[t] || 0) + order[key]; });
+    var teams = Object.keys(teamTot).map(Number).sort(function(a,b){ return teamTot[b] - teamTot[a]; });
+
+    buildArena(teams, true);
+
+    // Per-team panel refs + roster rows (top 8 per team by final score). Rows
+    // are built once; only their bar widths + scores update per frame (glide).
+    var rowRef = {}, wpEl = {}, wpBar = {}, stEl = {}, stMeta = {};
+    teams.forEach(function(k){
+      wpEl[k] = arenaEl.querySelector('[data-wp="'+k+'"]');
+      wpBar[k] = arenaEl.querySelector('[data-wpbar="'+k+'"]');
+      stEl[k] = arenaEl.querySelector('[data-stsvg="'+k+'"]');
+      stMeta[k] = arenaEl.querySelector('[data-stmeta="'+k+'"]');
+      var col = COLS[k] || '#8aa0b0', rhtml = '';
+      Object.keys(order).filter(function(key){ return +key.split('|')[0] === k; })
+        .sort(function(a,b){ return order[b] - order[a]; }).slice(0, 8)
+        .forEach(function(key){
+          var nm = key.slice(key.indexOf('|')+1), mine = MY_NAMES.has(jnorm(nm));
+          rhtml += '<div class="prow'+(mine?' me':'')+'" data-key="'+esc(key)+'">'
+            + '<span class="pn" style="color:'+col+'">'+(mine?'<span class="youchip2">YOU</span>':'')+esc(nm)+'</span>'
+            + '<span class="pb"><i style="background:'+col+'"></i></span>'
+            + '<span class="ps">0</span></div>';
+        });
+      var rel = arenaEl.querySelector('[data-roster="'+k+'"]');
+      if(rel){ rel.innerHTML = rhtml;
+        rel.querySelectorAll('.prow').forEach(function(rw){
+          rowRef[rw.getAttribute('data-key')] = {bar: rw.querySelector('.pb i'), sc: rw.querySelector('.ps')}; });
+      }
+    });
+
+    // Win probability: the full model curve lives in the post-game panel with a
+    // playhead; the LIVE per-team % (below) fills each team's meter.
+    var markWp = null, lastGoodIdx = frames.length - 1;
     var haveWp = wp && wp.length === frames.length &&
                  wp.some(function(r){ return r && (r[0]||r[1]||r[2]); });
     if(haveWp){
+      while(lastGoodIdx > 0 && !(wp[lastGoodIdx] && wp[lastGoodIdx].some(function(v){ return v > 0.005; }))) lastGoodIdx--;
       var wpPts = frames.map(function(f, i){ return {t: f[0], p: wp[i] || [0,0,0]}; });
       legend(document.getElementById('legend1'), null);
       var svg = document.getElementById('chartP');
       lines(svg, wpPts, function(p,k){ return (p.p && p.p[k]) || 0; },
             1, function(v){ return Math.round(v*100)+'%'; }, null, false, true);
       document.getElementById('wpCard').style.display = '';
-      var oddsEl = document.getElementById('oddsbar');
-      var _ow = document.getElementById('oddsWrap'); if(_ow) _ow.style.display = '';
       var H = +svg.getAttribute('viewBox').split(' ')[3], W = 860, padL = 44, padB = 22;
       var tmax = Math.max(1, wpPts[wpPts.length-1].t);
-      var X = t => Math.min(Math.max(padL+(W-padL-16)*(t/tmax), padL), W-8);
+      var X = function(t){ return Math.min(Math.max(padL+(W-padL-16)*(t/tmax), padL), W-8); };
       var NS = 'http://www.w3.org/2000/svg';
       var head = document.createElementNS(NS, 'line');
       head.setAttribute('stroke', 'rgba(233,242,255,.55)');
@@ -416,10 +402,6 @@ function buildReplay(ST, RD){
       var dots = [0,1,2].map(function(){ var c = document.createElementNS(NS, 'circle');
         c.setAttribute('r', '3.4'); svg.appendChild(c); return c; });
       var wpNow = document.getElementById('wpNow');
-      // The last frame with a real call - used so the header meter + readout
-      // never blank out on a degenerate final (match-end reset) frame.
-      var lastGood = wpPts.length - 1;
-      while(lastGood > 0 && !wpPts[lastGood].p.some(function(v){ return v > 0.005; })) lastGood--;
       markWp = function(i){
         var x = X(wpPts[i].t);
         head.setAttribute('x1', x); head.setAttribute('x2', x);
@@ -432,23 +414,15 @@ function buildReplay(ST, RD){
             dots[k].setAttribute('fill', COLS[k]); dots[k].style.display = '';
           } else dots[k].style.display = 'none';
         });
-        var src = actual.some(function(v){ return v > 0.005; }) ? actual : wpPts[lastGood].p;
-        var seg = [0,1,2].filter(function(k){ return src[k] > 0.005; })
-          .map(function(k){ return {k: k, pc: Math.round(src[k]*100)}; });
-        if(wpNow) wpNow.innerHTML = seg.map(function(o){
-          return '<b style="color:'+COLS[o.k]+'">'+o.pc+'%</b>'; }).join(' &middot; ');
-        if(oddsEl) oddsEl.innerHTML = seg.map(function(o){
-          return '<span style="background:'+COLS[o.k]+';width:'+o.pc+'%">'+o.pc+'%</span>'; }).join('');
+        var src = actual.some(function(v){ return v > 0.005; }) ? actual : wpPts[lastGoodIdx].p;
+        if(wpNow) wpNow.innerHTML = [0,1,2].filter(function(k){ return src[k] > 0.005; })
+          .map(function(k){ return '<b style="color:'+COLS[k]+'">'+Math.round(src[k]*100)+'%</b>'; }).join(' &middot; ');
       };
     }
 
-    // Battlefield: follow the master clock, end-aligned onto match time.
+    // Battlefield on the master clock: radar (centre) + each team's station.
     var drawField = null;
     if(ST || RD){
-      document.getElementById('rpCard').style.display = '';
-      // One master button now - hide the battlefield's own play/seek/speed/time.
-      ['rpPlay','rpSeek','rpTime'].forEach(function(id){ var e=document.getElementById(id); if(e) e.style.display='none'; });
-      var sp0 = document.getElementById('rpSpeed'); if(sp0 && sp0.closest('label')) sp0.closest('label').style.display='none';
       var rawEnd = frames[frames.length-1][0], bMax = 0;
       if(ST && ST.frames.length) bMax = Math.max(bMax, ST.frames[ST.frames.length-1].t);
       if(RD && RD.frames.length) bMax = Math.max(bMax, RD.frames[RD.frames.length-1].t);
@@ -456,20 +430,33 @@ function buildReplay(ST, RD){
       var shownSt = -1, shownRd = -1;
       drawField = function(T){
         var bt = T - offset;
-        if(ST){ var si = nearest(ST, bt); if(si !== shownSt){ ST.draw(si); shownSt = si; } }
         if(RD){ var ri = nearest(RD, bt); if(ri !== shownRd){ RD.draw(ri); shownRd = ri; } }
+        if(ST){ var si = nearest(ST, bt); if(si !== shownSt){ shownSt = si;
+          teams.forEach(function(k){ var st = ST.oneStation(k, si);
+            if(stEl[k]) stEl[k].innerHTML = st.svg; if(stMeta[k]) stMeta[k].innerHTML = st.meta; }); } }
       };
-    } else {
-      fieldEmpty();
     }
 
-    // The one master transport = the leaderboard card's controls.
+    // The one master transport (bottom bar) runs everything.
     var seek = document.getElementById('lbSeek'), btn = document.getElementById('lbPlay'),
         tEl = document.getElementById('lbTime'), spd = document.getElementById('lbSpeed');
     seek.max = frames.length - 1;
     function render(i){
-      drawLb(i);
       var T = frames[i][0];
+      Object.keys(rowRef).forEach(function(key){
+        var s = (timeline[key] && timeline[key][i]) || 0, ref = rowRef[key];
+        ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
+        ref.sc.textContent = s.toLocaleString();
+      });
+      if(haveWp){
+        var row = wp[i] || [0,0,0];
+        var use = row.some(function(v){ return v > 0.005; }) ? row : (wp[lastGoodIdx] || row);
+        teams.forEach(function(k){
+          var pc = Math.round((use[k]||0)*100);
+          if(wpEl[k]) wpEl[k].textContent = pc + '%';
+          if(wpBar[k]) wpBar[k].style.width = pc + '%';
+        });
+      }
       if(markWp) markWp(i);
       if(drawField) drawField(T);
       tEl.textContent = fmtT(T);
@@ -487,12 +474,16 @@ function buildReplay(ST, RD){
     spd.onchange = function(){ if(timer){ stop(); run(); } };
     seek.oninput = function(){ stop(); render(+seek.value); };
     render(frames.length - 1);
-  }).catch(noLb);
+  }).catch(function(){ arenaMsg('Could not load this replay.'); });
 
-  // Matches with a battlefield but no raw leaderboard: the one master transport
-  // (bottom bar) drives the battlefield alone.
+  // Match with a battlefield but no raw leaderboard: radar + stations only.
   function fieldOnly(ST, RD){
-    document.getElementById('rpCard').style.display = '';
+    var present = [];
+    if(ST) [0,1,2].forEach(function(k){ if(ST.oneStation(k, 0).svg) present.push(k); });
+    buildArena(present, false);
+    var stEl = {}, stMeta = {};
+    present.forEach(function(k){ stEl[k] = arenaEl.querySelector('[data-stsvg="'+k+'"]');
+      stMeta[k] = arenaEl.querySelector('[data-stmeta="'+k+'"]'); });
     var pts = [];
     if(ST) ST.frames.forEach(f => pts.push(f.t));
     if(RD) RD.frames.forEach(f => pts.push(f.t));
@@ -503,8 +494,10 @@ function buildReplay(ST, RD){
     var shownSt = -1, shownRd = -1;
     function showAt(i){
       var t = pts[i];
-      if(ST){ var si = nearest(ST, t); if(si !== shownSt){ ST.draw(si); shownSt = si; } }
       if(RD){ var ri = nearest(RD, t); if(ri !== shownRd){ RD.draw(ri); shownRd = ri; } }
+      if(ST){ var si = nearest(ST, t); if(si !== shownSt){ shownSt = si;
+        present.forEach(function(k){ var st = ST.oneStation(k, si);
+          if(stEl[k]) stEl[k].innerHTML = st.svg; if(stMeta[k]) stMeta[k].innerHTML = st.meta; }); } }
       tEl.textContent = fmtT(t); seek.value = i;
     }
     var timer = null;
@@ -593,91 +586,47 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   //      at the scrubbed moment, with that module's whole history on hover.
   const stFrames = d.points.filter(p => p.st);
   if(stFrames.length >= 2 && d.stlay && d.stlay.length){
-    document.getElementById('stBlock').style.display = '';
-    const tip = document.getElementById('stTip');
     const modColor = hp => hp === null || hp === undefined ? '#3a4655'
       : hp === 0 ? '#63263a' : hp >= 252 ? '#66e6b8'
       : hp >= 140 ? '#f0c04a' : '#ff7a7a';
-    function hist(team, modId){
-      // Every recorded reading for one module, oldest first.
-      return stFrames.map(f => {
-        const s = f.st[team];
-        return {t: f.t, hp: (s && s[2] && s[2].length > modId) ? s[2][modId] : null};
+    // One team's station blueprint (coloured by module health) + its meta line,
+    // for the team panel. i indexes stFrames (a browser-feed moment).
+    function oneStation(team, i){
+      const f = stFrames[i], lay = d.stlay[team], s = f && f.st[team];
+      if(!lay || !lay.length) return {svg: '', meta: ''};
+      let ext = 1.2;
+      lay.forEach(m => { if(m[2] != null) ext = Math.max(ext, Math.abs(m[2]), Math.abs(m[3])); });
+      ext += 0.9;
+      let g = '';
+      lay.forEach(a => lay.forEach(b => {
+        if(a[0] >= b[0] || a[2] == null || b[2] == null) return;
+        if(Math.hypot(a[2]-b[2], a[3]-b[3]) <= 1.3)
+          g += '<line x1="'+a[2]+'" y1="'+(-a[3])+'" x2="'+b[2]+'" y2="'+(-b[3])
+            +'" stroke="'+COLS[team]+'" stroke-width="0.06" opacity="0.35"/>';
+      }));
+      lay.forEach(m => {
+        if(m[2] == null) return;
+        const hp = (s && s[2] && s[2].length > m[0]) ? s[2][m[0]] : null;
+        const c = modColor(hp), ty = String(m[1] || ''), x = +m[2], y = -m[3];
+        const r = ty[0] === 'd' ? 0.44 : ty.slice(0,2) === 'sp' ? 0.36 : 0.3;
+        const shape = ty.slice(0,2) === 'sp'
+          ? '<circle cx="'+x+'" cy="'+y+'" r="'+r+'"'
+          : '<rect x="'+(x-r)+'" y="'+(y-r)+'" width="'+(2*r)+'" height="'+(2*r)+'" rx="0.08"';
+        g += shape + ' fill="'+c+'" fill-opacity="0.2" stroke="'+c+'" stroke-width="0.09"/>';
       });
+      const lvl = s ? s[0] : null, gems = s ? s[1] : null;
+      const meta = (lvl != null ? 'Lv ' + (lvl + 1) : 'Lv&nbsp;?')
+        + '<br>' + (gems != null ? gems.toLocaleString() + ' &#9670;' : '&mdash;');
+      return {svg: '<svg class="stsvg" viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'">' + g + '</svg>',
+              meta: meta};
     }
-    function drawStations(i){
-      const f = stFrames[i];
-      let html = '';
-      for(let team = 0; team < 3; team++){
-        const lay = d.stlay[team];
-        const s = f.st[team];
-        if(!lay || !lay.length) continue;
-        let ext = 1.2;
-        lay.forEach(m => { if(m[2] != null) ext = Math.max(ext, Math.abs(m[2]), Math.abs(m[3])); });
-        ext += 0.9;
-        let g = '';
-        lay.forEach(a => lay.forEach(b => {
-          if(a[0] >= b[0] || a[2] == null || b[2] == null) return;
-          const dx = a[2] - b[2], dy = a[3] - b[3];
-          if(Math.hypot(dx, dy) <= 1.3)
-            g += '<line x1="'+a[2]+'" y1="'+(-a[3])+'" x2="'+b[2]+'" y2="'+(-b[3])
-              +'" stroke="'+COLS[team]+'" stroke-width="0.06" opacity="0.35"/>';
-        }));
-        lay.forEach(m => {
-          if(m[2] == null) return;
-          const hp = (s && s[2] && s[2].length > m[0]) ? s[2][m[0]] : null;
-          const c = modColor(hp), ty = String(m[1] || ''), x = +m[2], y = -m[3];
-          const r = ty[0] === 'd' ? 0.44 : ty.slice(0,2) === 'sp' ? 0.36 : 0.3;
-          const shape = ty.slice(0,2) === 'sp'
-            ? '<circle cx="'+x+'" cy="'+y+'" r="'+r+'"'
-            : '<rect x="'+(x-r)+'" y="'+(y-r)+'" width="'+(2*r)+'" height="'+(2*r)+'" rx="0.08"';
-          g += shape + ' fill="'+c+'" fill-opacity="0.2" stroke="'+c+'" stroke-width="0.09"'
-            + ' class="stmod" data-team="'+team+'" data-mod="'+m[0]+'" data-ty="'+ty+'"'
-            + ' style="cursor:pointer"/>';
-        });
-        const lvl = s ? s[0] : null, gems = s ? s[1] : null;
-        html += '<div style="flex:1 1 150px;min-width:138px">'
-          + '<div class="sub" style="display:flex;gap:8px;align-items:center">'
-          + '<span style="width:10px;height:10px;border-radius:3px;background:'+COLS[team]+'"></span>'
-          + LBL[team] + (lvl != null ? ' &middot; Lv ' + (lvl + 1) : '')
-          + (gems != null ? ' &middot; ' + gems.toLocaleString() + ' &#128142;' : '') + '</div>'
-          + '<svg viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'" '
-          + 'style="width:100%;height:104px;display:block">' + g + '</svg></div>';
-      }
-      document.getElementById('stWrap').innerHTML = html;
-      // Every module grey at once means the feed stalled here, not that
-      // nothing was happening. Say which, or the panel reads as "all fine".
-      const blind = [0, 1, 2].every(t => !(f.st[t] && f.st[t][2]));
-      document.getElementById('stGap').innerHTML = blind
-        ? '<span style="color:#f0c04a">No station reading at this moment &mdash; the tracker '
-          + 'briefly lost the lobby feed. The stations are unknown here, not undamaged.</span>'
-        : '';
-      document.querySelectorAll('.stmod').forEach(el => {
-        el.addEventListener('mouseenter', () => {
-          const team = +el.dataset.team, mod = +el.dataset.mod;
-          const h = hist(team, mod).filter(x => x.hp !== null);
-          if(!h.length){ tip.textContent = el.dataset.ty + ' - nothing recorded'; return; }
-          const now = h.filter(x => x.t <= f.t).slice(-1)[0];
-          const died = h.find(x => x.hp === 0);
-          const lowest = h.reduce((a, b) => b.hp < a.hp ? b : a);
-          tip.innerHTML = '<b>' + esc(el.dataset.ty) + '</b> on ' + LBL[team]
-            + ' &mdash; now <b>' + (now ? Math.round(100 * now.hp / 255) + '%' : '?') + '</b>'
-            + ' &middot; lowest ' + Math.round(100 * lowest.hp / 255) + '% at ' + fmtT(lowest.t)
-            + (died ? ' &middot; <span style="color:#ff7a7a">destroyed at ' + fmtT(died.t) + '</span>'
-                    : ' &middot; survived');
-        });
-      });
-    }
-    ST = {frames: stFrames, draw: drawStations};
+    ST = {frames: stFrames, oneStation: oneStation};
   }
 
   // ---- Radar replay: play back the recorded ship positions. ----
   const frames=d.points.filter(p=>p.rd&&p.rd.length);
   if(frames.length>=3){
-    document.getElementById('rdBlock').style.display='';
     const mx=132, BASE_ANG=[28,148,268], BASE_R=90;
-    const map=document.getElementById('radarMap');
-    map.setAttribute('viewBox',(-mx)+' '+(-mx)+' '+(2*mx)+' '+(2*mx));
     function stationIcons(){
       let g='';
       for(let i=0;i<3;i++){
@@ -693,6 +642,8 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
       return g;
     }
     function draw(i){
+      const map=document.getElementById('radarMap'); if(!map) return;
+      map.setAttribute('viewBox',(-mx)+' '+(-mx)+' '+(2*mx)+' '+(2*mx));
       const f=frames[i];
       let g='<rect x="'+(-mx)+'" y="'+(-mx)+'" width="'+(2*mx)+'" height="'+(2*mx)+'" rx="'+(mx/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)" stroke-width="'+(mx/170)+'"/>';
       g+='<line x1="'+(-mx)+'" y1="0" x2="'+mx+'" y2="0" stroke="rgba(153,221,255,.05)" stroke-width="'+(mx/240)+'"/>';
@@ -713,7 +664,7 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
           +'<line x1="'+(x-r)+'" y1="'+(y+r)+'" x2="'+(x+r)+'" y2="'+(y-r)+'"/></g>';
       });
       map.innerHTML=g;
-      document.getElementById('rpShips').textContent=f.rd.length+' ships';
+      var _sh=document.getElementById('rpShips'); if(_sh) _sh.textContent=f.rd.length+' ships';
     }
     RD = {frames: frames, draw: draw};
   }
