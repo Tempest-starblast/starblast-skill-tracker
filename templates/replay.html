@@ -25,17 +25,20 @@
 .oddsbar span{display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;
   color:#04121f;min-width:0;overflow:hidden;font-variant-numeric:tabular-nums}
 
-/* The arena: radar in the middle, a team panel (win% + station + top players)
-   on each side. 2 teams flank the radar; 3 teams sit across the top with the
-   radar below (grid mode set by JS via a2/a3). */
+/* The arena: radar as the centrepiece, a team panel (win% + station + players)
+   placed by win-probability. Lowest prob LEFT and highest prob RIGHT both run
+   full height (down beside the radar); the middle-prob team sits above the radar.
+   Panels are positioned by their data-slot (left/middle/right), set live by JS. */
 .arena{display:grid;min-height:0;overflow:hidden}
 .arena.a2{grid-template-columns:minmax(0,1fr) minmax(300px,1.5fr) minmax(0,1fr)}
-.arena.a3{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
-.teamsrow{grid-column:1 / -1;display:grid;grid-template-columns:repeat(var(--tn,3),1fr);min-height:0}
-.arena.a2 > .team:first-child{border-right:1px solid var(--line)}
-.arena.a2 > .team:last-child{border-left:1px solid var(--line)}
-.teamsrow > .team + .team{border-left:1px solid var(--line)}
-.arena.a3 > .radarwrap{border-top:1px solid var(--line)}
+.arena.a2 > .radarwrap{grid-column:2}
+.arena.a2 > .team[data-slot="left"]{grid-column:1;border-right:1px solid var(--line)}
+.arena.a2 > .team[data-slot="right"]{grid-column:3;border-left:1px solid var(--line)}
+.arena.a3{grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto minmax(0,1fr)}
+.arena.a3 > .radarwrap{grid-column:2;grid-row:2;border-top:1px solid var(--line)}
+.arena.a3 > .team[data-slot="left"]{grid-column:1;grid-row:1 / span 2;border-right:1px solid var(--line)}
+.arena.a3 > .team[data-slot="middle"]{grid-column:2;grid-row:1;border-bottom:1px solid var(--line)}
+.arena.a3 > .team[data-slot="right"]{grid-column:3;grid-row:1 / span 2;border-left:1px solid var(--line)}
 
 .team{display:flex;flex-direction:column;min-height:0;padding:10px 13px}
 .t-head{display:flex;align-items:baseline;gap:8px}
@@ -89,10 +92,9 @@
 @media (max-width:820px){
   .console{height:auto;min-height:0}
   .arena.a2,.arena.a3{grid-template-columns:1fr;grid-template-rows:none}
-  .arena.a2 > .team{border-right:none !important;border-left:none !important;border-bottom:1px solid var(--line)}
-  .teamsrow{grid-template-columns:1fr}
-  .teamsrow > .team + .team{border-left:none;border-top:1px solid var(--line)}
-  .arena > .radarwrap{border-top:1px solid var(--line)}
+  .arena.a2 > .team,.arena.a3 > .team{grid-column:1 !important;grid-row:auto !important;
+    border-right:none !important;border-left:none !important;border-bottom:1px solid var(--line)}
+  .arena > .radarwrap{grid-column:1 !important;grid-row:auto !important;border-top:1px solid var(--line)}
   .t-roster{max-height:180px}
   #radarMap{max-height:320px}
   .postgame{grid-template-columns:1fr}
@@ -283,19 +285,19 @@ function buildReplay(ST, RD){
       + '<div class="t-mid"><span data-stsvg="'+k+'"></span><div class="t-st" data-stmeta="'+k+'"></div></div>'
       + (withRoster ? '<div class="t-roster" data-roster="'+k+'"></div>' : '') + '</div>';
   }
-  // Lay teams around the radar: 2 flank it (team | radar | team); 3+ across the
-  // top with the radar below (owner's call for 3-team matches).
+  // Team panels + radar are all direct grid children; each panel is positioned
+  // by its data-slot (left / middle / right), which JS sets live from win-prob.
   function buildArena(teams, withRoster){
     var n = teams.length;
-    if(n <= 2){
-      arenaEl.className = 'arena a2';
-      arenaEl.innerHTML = (n >= 1 ? teamHtml(teams[0], withRoster) : '')
-        + radarHtml() + (n >= 2 ? teamHtml(teams[1], withRoster) : '');
-    } else {
-      arenaEl.className = 'arena a3';
-      arenaEl.innerHTML = '<div class="teamsrow" style="--tn:'+n+'">'
-        + teams.map(function(k){ return teamHtml(k, withRoster); }).join('') + '</div>' + radarHtml();
-    }
+    arenaEl.className = 'arena ' + (n >= 3 ? 'a3' : 'a2');
+    arenaEl.innerHTML = teams.map(function(k){ return teamHtml(k, withRoster); }).join('') + radarHtml();
+    // `teams` arrives strongest-first; seed slots so nothing is unplaced before
+    // the first render (which then orders by live probability).
+    var init = (n >= 3) ? ['right', 'middle', 'left'] : ['right', 'left'];
+    teams.forEach(function(k, idx){
+      var p = arenaEl.querySelector('.team[data-team="'+k+'"]');
+      if(p) p.setAttribute('data-slot', init[idx] || 'middle');
+    });
   }
 
   fetch('/api/trueskill/replay?match_row='+MID).then(r=>r.json()).then(function(res){
@@ -354,8 +356,9 @@ function buildReplay(ST, RD){
 
     // Per-team panel refs + roster rows (top 8 per team by final score). Rows
     // are built once; only their bar widths + scores update per frame (glide).
-    var rowRef = {}, wpEl = {}, wpBar = {}, stEl = {}, stMeta = {};
+    var rowRef = {}, wpEl = {}, wpBar = {}, stEl = {}, stMeta = {}, teamPanel = {};
     teams.forEach(function(k){
+      teamPanel[k] = arenaEl.querySelector('.team[data-team="'+k+'"]');
       wpEl[k] = arenaEl.querySelector('[data-wp="'+k+'"]');
       wpBar[k] = arenaEl.querySelector('[data-wpbar="'+k+'"]');
       stEl[k] = arenaEl.querySelector('[data-stsvg="'+k+'"]');
@@ -525,7 +528,29 @@ function buildReplay(ST, RD){
     // bracketing frames - scores, win%, and (matched by ship code) the radar -
     // so it glides instead of jumping every ~read.
     var lerp = function(x, y, t){ return x + (y - x) * t; };
-    var shownStRaw = -1;
+    var shownStRaw = -1, lastSlotFrame = -1;
+    // Position the team panels by win-probability: lowest -> left, highest ->
+    // right (both full height, down beside the radar); middle-prob -> the middle
+    // slot above the radar. A team eliminated (win-prob ~0 while others survive)
+    // is sent to the middle.
+    function assignSlots(wr){
+      if(teams.length < 2 || !wr) return;
+      var live = teams.filter(function(k){ return (wr[k]||0) > 0.003; });
+      var order;
+      if(teams.length < 3 || live.length >= teams.length){
+        order = teams.slice().sort(function(a,b){ return (wr[a]||0) - (wr[b]||0); });
+      } else {
+        var dead = teams.filter(function(k){ return (wr[k]||0) <= 0.003; });
+        var al = live.slice().sort(function(a,b){ return (wr[a]||0) - (wr[b]||0); });
+        order = [al[0], dead[0], al[al.length-1]];
+        teams.forEach(function(k){ if(order.indexOf(k) < 0) order.push(k); });
+      }
+      var slots = teams.length >= 3 ? ['left','middle','right'] : ['left','right'];
+      order.forEach(function(k, idx){
+        var p = teamPanel[k], slot = slots[idx] || 'middle';
+        if(p && p.getAttribute('data-slot') !== slot) p.setAttribute('data-slot', slot);
+      });
+    }
     function renderAt(pos){
       var n = frames.length;
       if(pos < 0) pos = 0; if(pos > n-1) pos = n-1;
@@ -544,6 +569,11 @@ function buildReplay(ST, RD){
           if(wpEl[k]) wpEl[k].textContent = pc + '%';
           if(wpBar[k]) wpBar[k].style.width = pc + '%';
         });
+      }
+      if(haveWp){
+        var fi = Math.round(pos);
+        if(fi !== lastSlotFrame){ lastSlotFrame = fi;
+          assignSlots((wp[fi] && wp[fi].some(function(v){ return v > 0.003; })) ? wp[fi] : wp[lastGoodIdx]); }
       }
       if(markWp) markWp(Math.round(pos));
       if(drawRadarAt) drawRadarAt(i, j, a);
