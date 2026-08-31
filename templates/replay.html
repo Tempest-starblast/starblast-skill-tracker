@@ -455,6 +455,13 @@ function buildReplay(ST, RD){
       var sKey = function(e){ return e[0] + '|' + (has4(e) ? e[1] : ''); };
       var sX = function(e){ return has4(e) ? e[2] : e[1]; };
       var sY = function(e){ return has4(e) ? e[3] : e[2]; };
+      // The arena is a torus: it wraps at the edges (radar coords span ~[-128,128],
+      // period 256). A ship leaving one edge reappears on the opposite one, so its
+      // coordinate jumps by nearly a full period between frames. Interpolate along
+      // the SHORT path through the border instead of flying it across the whole map.
+      var WRAP = 256, HALF = WRAP / 2;
+      var wDelta = function(x0, x1){ var d = x1 - x0; if(d > HALF) d -= WRAP; else if(d < -HALF) d += WRAP; return d; };
+      var wWrap = function(v){ if(v > HALF) v -= WRAP; else if(v < -HALF) v += WRAP; return v; };
       drawRadarAt = function(i, j, a){
         var map = document.getElementById('radarMap'); if(!map) return;
         map.setAttribute('viewBox', (-RMX)+' '+(-RMX)+' '+(2*RMX)+' '+(2*RMX));
@@ -462,7 +469,8 @@ function buildReplay(ST, RD){
         B.forEach(function(e){ mapB[sKey(e)] = e; });
         A.forEach(function(e){
           var k = sKey(e), b = mapB[k];
-          if(b && has4(e)){ pts.push([e[0], sX(e)+(sX(b)-sX(e))*a, sY(e)+(sY(b)-sY(e))*a]); delete mapB[k]; }
+          if(b && has4(e)){ pts.push([e[0], wWrap(sX(e) + wDelta(sX(e), sX(b)) * a),
+                                            wWrap(sY(e) + wDelta(sY(e), sY(b)) * a)]); delete mapB[k]; }
           else pts.push([e[0], sX(e), sY(e)]);
         });
         Object.keys(mapB).forEach(function(kk){ var b = mapB[kk]; pts.push([b[0], sX(b), sY(b)]); });
