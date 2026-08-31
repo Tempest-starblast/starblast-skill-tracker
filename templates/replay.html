@@ -334,6 +334,12 @@ function buildReplay(ST, RD){
       return; }
 
     var wp = res.wp ? res.wp.slice(0, frames.length) : null;
+    // The radar (res.rd) and stations (res.st) are built 1:1 aligned to the full
+    // frame list; the reset-tail trim above shortened `frames`, so slice them to
+    // match or their `length === frames.length` guard fails and the radar/stations
+    // freeze (they render once and never advance with the playhead).
+    if(res.rd) res.rd = res.rd.slice(0, frames.length);
+    if(res.st) res.st = res.st.slice(0, frames.length);
     // Each player's score at every frame, carried forward (monotonic) so a bar
     // never drops when someone briefly leaves the roster - and so scrubbing
     // backward is exact. gmax scales the bars; `order` ranks by final score.

@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.5.2"
+APP_VERSION = "8.5.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.5.3", "at": "2026-08-31T21:05:00Z", "changes": [
+        "Fixed the replay radar (and stations) freezing on matches that had a post-game reset tail: the trim that ends the replay on the real final standings was shortening the frame list without shortening the radar/station tracks, so they failed their alignment check and never advanced with the playhead. They now play through the whole match."
+    ]},
     {"version": "8.5.2", "at": "2026-08-31T20:45:00Z", "changes": [
         "Replay layout: the full-height side panels (underdog on the left, favorite on the right) now spread their roster down the whole column so it fills the space beside the radar, instead of bunching the players at the top and leaving a big empty gap below."
     ]},
