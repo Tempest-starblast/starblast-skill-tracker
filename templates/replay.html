@@ -535,15 +535,25 @@ function buildReplay(ST, RD){
     // is sent to the middle.
     function assignSlots(wr){
       if(teams.length < 2 || !wr) return;
-      var live = teams.filter(function(k){ return (wr[k]||0) > 0.003; });
+      var asc = function(a,b){ return (wr[a]||0) - (wr[b]||0); };
       var order;
-      if(teams.length < 3 || live.length >= teams.length){
-        order = teams.slice().sort(function(a,b){ return (wr[a]||0) - (wr[b]||0); });
+      if(teams.length < 3){
+        order = teams.slice().sort(asc);                 // 2 teams: low->left, high->right
       } else {
-        var dead = teams.filter(function(k){ return (wr[k]||0) <= 0.003; });
-        var al = live.slice().sort(function(a,b){ return (wr[a]||0) - (wr[b]||0); });
-        order = [al[0], dead[0], al[al.length-1]];
+        var live = teams.filter(function(k){ return (wr[k]||0) > 0.003; }).sort(asc);
+        var dead = teams.filter(function(k){ return (wr[k]||0) <= 0.003; }).sort(asc);
+        if(live.length >= 3){
+          order = live.slice();                          // all alive: low/mid/high -> left/middle/right
+        } else if(live.length === 2){
+          order = [live[0], dead[0], live[1]];            // one out -> middle; survivors flank
+        } else if(live.length === 1){
+          order = [dead[dead.length-1], dead[0], live[0]];// winner -> right; the two out fill left+middle
+        } else {
+          order = dead.slice();                          // all out: sort asc
+        }
+        // guarantee a bijection onto the slots (never double up a slot)
         teams.forEach(function(k){ if(order.indexOf(k) < 0) order.push(k); });
+        order = order.filter(function(k, i){ return order.indexOf(k) === i; }).slice(0, teams.length);
       }
       var slots = teams.length >= 3 ? ['left','middle','right'] : ['left','right'];
       order.forEach(function(k, idx){
