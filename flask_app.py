@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.5.6"
+APP_VERSION = "8.5.7"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2512,6 +2512,9 @@ def asteroids_ingest():
         c.execute("INSERT INTO asteroids (seed, data, baked) VALUES (?,?,?) "
                   "ON CONFLICT(seed) DO UPDATE SET data=excluded.data, baked=excluded.baked",
                   (d["seed"], json.dumps(ast), time.time()))
+        # Seeds accumulate as lobbies cycle; a month-old field nobody revisits
+        # is dead weight on the same quota the live table filled.
+        c.execute("DELETE FROM asteroids WHERE baked < ?", (time.time() - 30 * 86400,))
         conn.commit(); conn.close()
     except Exception as e:
         return jsonify({"error": str(e)[:120]}), 500
@@ -2998,6 +3001,12 @@ def live_state_ingest():
               "updated=excluded.updated, elapsed=excluded.elapsed, "
               "region=excluded.region, name=excluded.name, payload=excluded.payload",
               (sys_id, now, elapsed, region, name, json.dumps(payload)))
+    # Rows are upserted by sys_id and sys_ids only ever grow, so dead lobbies
+    # used to accumulate forever - live.db reached 162MB of long-over matches
+    # and filled the disk quota (1 Sep). A day-old row is a match long over;
+    # prune on every push (a few hundred rows, the sweep costs nothing).
+    c.execute("DELETE FROM live WHERE updated < ?", (now - 86400.0,))
+    c.execute("DELETE FROM live_prev WHERE saved < ?", (now - 86400.0,))
     conn.commit()
     conn.close()
     return jsonify({"ok": True}), 200
@@ -4081,6 +4090,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.5.7", "at": "2026-09-01T07:05:00Z", "changes": [
+        "Housekeeping: the live-match store now prunes lobbies that ended over a day ago and asteroid fields older than a month, instead of keeping them forever. Old dead-lobby data had quietly grown to fill the site's entire disk quota."
+    ]},
     {"version": "8.5.6", "at": "2026-09-01T06:50:00Z", "changes": [
         "Fixed a long-standing account bug: changing your account name silently orphaned your match history - the record stayed but the profile's match list went empty, because the history stayed keyed to the old name. A rename now carries every match with it."
     ]},
