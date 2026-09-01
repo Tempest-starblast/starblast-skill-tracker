@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.6.0"
+APP_VERSION = "8.6.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4090,6 +4090,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.6.1", "at": "2026-09-01T15:05:00Z", "changes": [
+        "The true base markers only draw when the fit is confident (validated on held-out match halves); a shaky fit falls back to the old ring rather than showing a confidently wrong base."
+    ]},
     {"version": "8.6.0", "at": "2026-09-01T08:05:00Z", "changes": [
         "The replay radar now shows each team's base where it REALLY is. Team stations sit on a ring that slowly revolves around the sun (once an hour) - the radar's base icons used to sit at fixed decorative positions, and now they ride the real ring and revolve as the match plays. Worked out from the game's own base-warp formula plus a fit over 1,100 archived matches; new matches get true bases from now on, older replays keep the old markers.",
         "Behind the scenes: the daily win-probability retrain no longer reports 'failed' after finishing its work (its service timeout was shorter than the job)."

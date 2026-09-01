@@ -453,7 +453,10 @@ function buildReplay(ST, RD){
       // angular velocity, per-team angle at t0), so the icons sit where the
       // bases really are and revolve as the match plays. Older replays keep the
       // fixed decorative ring above.
-      var bsFit = (res.bs && res.bs.a) ? res.bs : null;
+      // Gate on the fit's own confidence (q = fraction of ships nearest their
+      // own base): a shaky fit could draw a base on the wrong vertex, and a
+      // decorative ring is better than a confidently wrong marker.
+      var bsFit = (res.bs && res.bs.a && (res.bs.q || 0) >= 0.55) ? res.bs : null;
       var baseIcons = function(el){
         if(!bsFit) return rIcons;
         var out = '', s0 = RMX/12;
