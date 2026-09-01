@@ -501,7 +501,9 @@ async function devRestore(){
   <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
   <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
   <a href="/replays"   class="{% if page=='replays'     %}on{% endif %}">{{ t('Replays') }}</a>
-  <a href="/trueskill" class="{% if page=='trueskill'   %}on{% endif %}">TrueSkill</a>
+  {# TrueSkill tab retired 8.7.0 - the trial ratings are abandoned; the raw
+     engine now feeds the MAIN board instead of a parallel one. The /trueskill
+     page still answers direct links. #}
   <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
   <a href="/account"   class="metab {% if page=='account' %}on{% endif %}">{{ t('Your account') }}</a>
   <div class="tabmore" id="tabmore">

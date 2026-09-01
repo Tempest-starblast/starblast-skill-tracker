@@ -475,36 +475,9 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
   {% endif %}
 </div>
 
-<div class="card">
-  <h2>TrueSkill history <span class="tsbeta">BETA</span></h2>
-  {% if ts_history %}
-  <div class="tablewrap">
-  <table>
-    <thead><tr><th>When</th><th>Region</th>
-      <th class="num">Impact</th><th class="num">Rating after</th></tr></thead>
-    <tbody>
-    {% for h in ts_history %}
-      <tr>
-        <td><time class="lt" datetime="{{ h.at_utc }}">{{ h.at }}</time></td>
-        <td style="color:var(--muted)">{{ h.region or '&mdash;'|safe }}</td>
-        <td class="num" style="color:{{ 'var(--green)' if h.impact >= 0 else 'var(--red)' }};font-weight:600">
-          {{ '+' if h.impact >= 0 else '' }}{{ h.impact }}</td>
-        <td class="num" style="color:var(--blue)">{{ h.rating }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="sub" style="margin:10px 0 0">How each match moved this player's
-     <a href="/trueskill" style="color:var(--blue)">TrueSkill</a> rating &mdash; the
-     experimental rating being trialled. A positive impact means the match raised
-     their skill estimate; negative lowered it. No wins or losses, just the rating.</p>
-  {% else %}
-  <p class="empty">No TrueSkill-scored matches yet &mdash; this fills in as they play
-     (it's the new rating being trialled, alongside the board above).</p>
-  {% endif %}
-</div>
-
+{# The TrueSkill trial card was retired 8.7.0 (owner decision, 1 Sep): the
+   trial numbers are abandoned - the board keeps its elo, and the raw engine
+   takes over UNDER it rather than beside it. #}
 {% if not player.pending_claim %}
 <div class="card">
   <h2>Is this you?</h2>

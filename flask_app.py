@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.6.1"
+APP_VERSION = "8.7.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4090,6 +4090,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.7.0", "at": "2026-09-01T19:30:00Z", "changes": [
+        "The TrueSkill trial is over and its numbers are retired - the tab and the profile card are gone. The plan changed for the better: instead of replacing the board with a new rating, the NEW engine (the raw observer, which sees every lobby instead of a handful) will take over feeding the existing elo board, continuing from everyone's current rating. It is running silently alongside the old tracker right now for comparison; the switch happens once it has proven itself for a few days."
+    ]},
     {"version": "8.6.1", "at": "2026-09-01T15:05:00Z", "changes": [
         "The true base markers only draw when the fit is confident (validated on held-out match halves); a shaky fit falls back to the old ring rather than showing a confidently wrong base."
     ]},
