@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.5.5"
+APP_VERSION = "8.5.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.5.6", "at": "2026-09-01T06:50:00Z", "changes": [
+        "Fixed a long-standing account bug: changing your account name silently orphaned your match history - the record stayed but the profile's match list went empty, because the history stayed keyed to the old name. A rename now carries every match with it."
+    ]},
     {"version": "8.5.5", "at": "2026-09-01T06:20:00Z", "changes": [
         "The red exclamation mark by the leaderboard title is gone. In its place, every page now carries one slim testing notice: the board is trialling its replacement rating engine (the shadow model) and live win-probability, and ratings may shift while the trial runs."
     ]},
@@ -8136,6 +8139,16 @@ def set_account_name():
         c.execute("UPDATE players SET name = ?, norm_name = ?, "
                   "name_changes = COALESCE(name_changes, 0) + 1 WHERE name = ?",
                   (name, key, mine[0]))
+        # Match history is keyed by norm_name and does NOT follow the row on
+        # its own - a rename used to orphan every match the account had played
+        # (record intact, profile history empty; fafa lost 43 matches to this).
+        # Carry the history to the new identity in the same transaction.
+        old_key = normalize_name(mine[0])
+        if old_key != key:
+            c.execute("UPDATE match_players SET norm_name = ? WHERE norm_name = ?",
+                      (key, old_key))
+            c.execute("UPDATE held_results SET norm_name = ? WHERE norm_name = ?",
+                      (key, old_key))
         # The play name defaults to the account name, and follows it while
         # it has never been set to anything else - most people play under
         # the name they signed up with, and making them type it twice to
