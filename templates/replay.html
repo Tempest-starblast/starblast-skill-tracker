@@ -448,6 +448,22 @@ function buildReplay(ST, RD){
       var RMX = 132, RANG = [28,148,268], RBR = 90, rIcons = '';
       for(var ii=0; ii<3; ii++){ var a0 = RANG[ii]*Math.PI/180, cx0 = Math.cos(a0)*RBR, cy0 = -Math.sin(a0)*RBR, s0 = RMX/12;
         rIcons += '<rect x="'+(cx0-s0)+'" y="'+(cy0-s0)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+COLS[ii]+'" opacity="0.85"/>'; }
+      // TRUE base positions (8.6.0): stations sit on a ring that ORBITS the sun
+      // once an hour. Newer replays carry the fitted ring (res.bs = radius,
+      // angular velocity, per-team angle at t0), so the icons sit where the
+      // bases really are and revolve as the match plays. Older replays keep the
+      // fixed decorative ring above.
+      var bsFit = (res.bs && res.bs.a) ? res.bs : null;
+      var baseIcons = function(el){
+        if(!bsFit) return rIcons;
+        var out = '', s0 = RMX/12;
+        Object.keys(bsFit.a).forEach(function(k){
+          var ang = bsFit.a[k] + (bsFit.w || 0) * el;
+          var x = bsFit.r * Math.cos(ang), y = -(bsFit.r * Math.sin(ang));
+          out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[k]||'#888')+'" opacity="0.85"/>';
+        });
+        return out;
+      };
       // A ship row is [team, code, x, y] (older rows [team, x, y]). The code lets
       // us MATCH a ship in the next frame and glide it there, so ships flow
       // instead of teleporting across the ~13s gap between reads.
@@ -476,7 +492,8 @@ function buildReplay(ST, RD){
         Object.keys(mapB).forEach(function(kk){ var b = mapB[kk]; pts.push([b[0], sX(b), sY(b)]); });
         var g = '<rect x="'+(-RMX)+'" y="'+(-RMX)+'" width="'+(2*RMX)+'" height="'+(2*RMX)+'" rx="'+(RMX/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)"/>'
           + '<line x1="'+(-RMX)+'" y1="0" x2="'+RMX+'" y2="0" stroke="rgba(153,221,255,.05)"/>'
-          + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>' + rIcons;
+          + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>'
+          + baseIcons(lerp(frames[i][0], frames[j][0], a));
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
           g += '<g stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round"><line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/></g>'; });
         map.innerHTML = g;

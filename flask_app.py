@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.5.7"
+APP_VERSION = "8.6.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4090,6 +4090,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.6.0", "at": "2026-09-01T08:05:00Z", "changes": [
+        "The replay radar now shows each team's base where it REALLY is. Team stations sit on a ring that slowly revolves around the sun (once an hour) - the radar's base icons used to sit at fixed decorative positions, and now they ride the real ring and revolve as the match plays. Worked out from the game's own base-warp formula plus a fit over 1,100 archived matches; new matches get true bases from now on, older replays keep the old markers.",
+        "Behind the scenes: the daily win-probability retrain no longer reports 'failed' after finishing its work (its service timeout was shorter than the job)."
+    ]},
     {"version": "8.5.7", "at": "2026-09-01T07:05:00Z", "changes": [
         "Housekeeping: the live-match store now prunes lobbies that ended over a day ago and asteroid fields older than a month, instead of keeping them forever. Old dead-lobby data had quietly grown to fill the site's entire disk quota."
     ]},
@@ -6521,6 +6525,7 @@ def trueskill_replay_push():
         rd = m.get('rd')
         stl = m.get('stlay')
         sts = m.get('st')
+        bs = m.get('bs')
         obj = {"f": frames}
         if isinstance(wp, list) and len(wp) == len(frames):
             obj["wp"] = wp
@@ -6530,6 +6535,10 @@ def trueskill_replay_push():
             obj["stlay"] = stl
         if isinstance(sts, list) and len(sts) == len(frames):
             obj["st"] = sts
+        # The fitted orbiting-base ring (radius/angular velocity/per-team
+        # angle), so the replay radar can draw the REAL station positions.
+        if isinstance(bs, dict) and bs.get('a'):
+            obj["bs"] = bs
         payload = obj if len(obj) > 1 else frames
         try:
             blob = zlib.compress(json.dumps(payload).encode('utf-8'))
@@ -6568,26 +6577,27 @@ def trueskill_replay_read():
         pend = None
     cands = c.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
                       (sys_id,)).fetchall()
-    best, best_gap, best_wp, best_rd, best_stl, best_st = None, None, None, None, None, None
+    best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs = (None,) * 7
     for data, first_ts in cands:
         try:
             obj = json.loads(zlib.decompress(data).decode('utf-8'))
         except Exception:
             continue
-        # A newer row is {"f":frames,"wp":..,"rd":..,"stlay":..,"st":..}; an older
-        # one is a bare frames list. Either way, pull the frames out to line it up.
+        # A newer row is {"f":frames,"wp":..,"rd":..,"stlay":..,"st":..,"bs":..};
+        # an older one is a bare frames list. Either way, pull the frames out.
         if isinstance(obj, dict):
             frames = obj.get("f"); mwp = obj.get("wp"); mrd = obj.get("rd")
-            mstl = obj.get("stlay"); mst = obj.get("st")
+            mstl = obj.get("stlay"); mst = obj.get("st"); mbs = obj.get("bs")
         else:
-            frames, mwp, mrd, mstl, mst = obj, None, None, None, None
+            frames, mwp, mrd, mstl, mst, mbs = obj, None, None, None, None, None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
         raw_end = (first_ts or 0) + (frames[-1][0] or 0)
         gap = abs(raw_end - pend) if pend else 0
         if best is None or gap < best_gap:
-            best, best_gap, best_wp, best_rd, best_stl, best_st = frames, gap, mwp, mrd, mstl, mst
+            best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs = \
+                frames, gap, mwp, mrd, mstl, mst, mbs
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
         # Prefer the raw multi-factor model's own win-prob; fall back to the
@@ -6597,8 +6607,10 @@ def trueskill_replay_read():
         rd = best_rd if (isinstance(best_rd, list) and len(best_rd) == len(best)) else None
         st = best_st if (isinstance(best_st, list) and len(best_st) == len(best)) else None
         stlay = best_stl if isinstance(best_stl, list) else None
+        bs = best_bs if isinstance(best_bs, dict) else None
         conn.close()
-        return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay, "st": st}), 200
+        return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
+                        "st": st, "bs": bs}), 200
     conn.close()
     return jsonify({"frames": None}), 200
 
