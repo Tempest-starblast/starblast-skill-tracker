@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.5.4"
+APP_VERSION = "8.5.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4081,6 +4081,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.5.5", "at": "2026-09-01T06:20:00Z", "changes": [
+        "The red exclamation mark by the leaderboard title is gone. In its place, every page now carries one slim testing notice: the board is trialling its replacement rating engine (the shadow model) and live win-probability, and ratings may shift while the trial runs."
+    ]},
     {"version": "8.5.4", "at": "2026-08-31T21:25:00Z", "changes": [
         "Replay radar: ships that cross an edge of the map now wrap around to the other side the short way, instead of sliding all the way back across the screen. The arena wraps at its borders, and the radar animation now respects that."
     ]},
