@@ -40,9 +40,10 @@
   transition:width .8s ease}
 /* radar */
 .rl-radar{display:block;width:100%;aspect-ratio:1/1;height:auto;margin:2px 0 12px}
-.rl-radar .ship{transition-property:transform;transition-timing-function:linear;transition-duration:4s;will-change:transform}
-.rl-shipnm{font-size:7px;text-anchor:middle;pointer-events:none;font-weight:700;
+.rl-radar .ship{transition-property:transform;transition-timing-function:linear;transition-duration:4s;will-change:transform;cursor:pointer}
+.rl-shipnm{font-size:7px;text-anchor:middle;font-weight:700;
   paint-order:stroke;stroke:rgba(3,8,16,.85);stroke-width:.55px}
+.rl-prow.rl-hl{background:rgba(255,255,255,.12);border-radius:3px;box-shadow:inset 2px 0 0 var(--amber,#ffc757)}
 /* rosters */
 .rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
 .rl-tname{font-weight:600;color:var(--text)}
@@ -247,6 +248,11 @@
           +'<span class="rl-tmeta">'+fmt(t.score)+' &middot; '+t.count+'p</span></div>'
           +'<div class="rl-plist">'+rows+'</div>';
       }).join('');
+      // name -> current roster row, rebuilt with the roster so a ship hover can
+      // find the row to spotlight even after the panel is redrawn.
+      c.nameRow={};
+      c.rosEl.querySelectorAll('.rl-prow').forEach(function(row){
+        var n=row.querySelector('.rn'); if(n) c.nameRow[n.textContent]=row; });
     }
     // radar ships: glide each dot over the REAL time since it last moved, so
     // there is no stop-then-jump. Only positions that changed are touched.
@@ -266,6 +272,10 @@
         g.style.transitionDuration='0ms';
         g.style.transform='translate('+x+'px,'+y+'px)';
         c.shipLayer.appendChild(g);
+        // Hover the ship (or its name) to spotlight that pilot's roster row.
+        g.addEventListener('mouseenter', function(){ var row=c.nameRow&&c.nameRow[(c.ships[id]||{}).nm];
+          if(c._hl&&c._hl!==row) c._hl.classList.remove('rl-hl'); c._hl=row; if(row) row.classList.add('rl-hl'); });
+        g.addEventListener('mouseleave', function(){ if(c._hl) c._hl.classList.remove('rl-hl'); c._hl=null; });
         c.ships[id]={el:g,ti:ti,x:x,y:y,last:now,nm:nm};
         return;
       }

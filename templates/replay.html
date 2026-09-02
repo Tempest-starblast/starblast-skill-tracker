@@ -68,6 +68,8 @@
 .prow .pb i{display:block;height:100%;border-radius:3px}
 .prow .ps{font-family:var(--data,monospace);font-size:11px;color:var(--muted,#8aa0b0);text-align:right;font-variant-numeric:tabular-nums}
 .prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
+.prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
+#radarMap .rship{cursor:pointer}
 .youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
 
 .radarwrap{display:flex;flex-direction:column;min-height:0;min-width:0;padding:12px}
@@ -386,7 +388,7 @@ function buildReplay(ST, RD){
       var rel = arenaEl.querySelector('[data-roster="'+k+'"]');
       if(rel){ rel.innerHTML = rhtml;
         rel.querySelectorAll('.prow').forEach(function(rw){
-          rowRef[rw.getAttribute('data-key')] = {bar: rw.querySelector('.pb i'), sc: rw.querySelector('.ps')}; });
+          rowRef[rw.getAttribute('data-key')] = {bar: rw.querySelector('.pb i'), sc: rw.querySelector('.ps'), row: rw}; });
       }
     });
 
@@ -494,14 +496,27 @@ function buildReplay(ST, RD){
         var NM = res.nm || {};
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
           var nm = (p[3] != null) ? NM[p[3]] : null;
-          g += '<g stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
+          // data-key = team|name matches the roster row's data-key, so hovering a
+          // ship (or its label) spotlights that player in the panel and back.
+          var dk = nm ? esc(p[0] + '|' + nm) : null;
+          g += '<g class="rship"'+(dk ? ' data-key="'+dk+'"' : '')+' stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
             + (nm ? '<title>'+esc(nm)+'</title>' : '')
-            + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/></g>';
-          if(nm){ var lbl = nm.length > 9 ? nm.slice(0,8)+'…' : nm;
-            g += '<text x="'+x.toFixed(1)+'" y="'+(y - r*1.9).toFixed(1)+'" fill="'+c+'" font-size="'+(RMX/24).toFixed(1)+'" text-anchor="middle" opacity="0.9" style="pointer-events:none;paint-order:stroke" stroke="rgba(3,8,16,.85)" stroke-width="'+(RMX/150).toFixed(2)+'">'+esc(lbl)+'</text>'; }
+            + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/>'
+            + (nm ? '<text x="'+x.toFixed(1)+'" y="'+(y - r*1.9).toFixed(1)+'" fill="'+c+'" font-size="'+(RMX/24).toFixed(1)+'" text-anchor="middle" opacity="0.9" stroke="rgba(3,8,16,.85)" stroke-width="'+(RMX/150).toFixed(2)+'" style="paint-order:stroke">'+esc(nm.length > 9 ? nm.slice(0,8)+'…' : nm)+'</text>' : '')
+            + '</g>';
         });
         map.innerHTML = g;
       };
+      // Spotlight: hovering a ship (or its name label) highlights that player's
+      // row in the panel. Delegated on the radar element, which persists across
+      // the per-frame innerHTML rebuild; the row keeps the class until mouse-out.
+      (function(){ var rmap = document.getElementById('radarMap'); if(!rmap) return;
+        var cur = null;
+        var set = function(row){ if(cur === row) return; if(cur) cur.classList.remove('hl'); cur = row; if(cur) cur.classList.add('hl'); };
+        rmap.onmouseover = function(ev){ var t = ev.target.closest && ev.target.closest('[data-key]');
+          var ref = t && rowRef[t.getAttribute('data-key')]; set(ref && ref.row ? ref.row : null); };
+        rmap.onmouseleave = function(){ set(null); };
+      })();
     }
 
     // Stations (+ the browser radar only when there's no raw radar): end-aligned
