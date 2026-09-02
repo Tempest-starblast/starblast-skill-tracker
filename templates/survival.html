@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Survival - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}Recent Starblast survival rounds — who outlasted the field to be the last ship standing, and who has the most wins.{% endblock %}
+{% block css %}
+.svnote{color:var(--muted);font-size:13px;margin:-4px 0 18px;max-width:60ch}
+.svwrap{display:grid;grid-template-columns:1fr;gap:16px}
+@media(min-width:820px){.svwrap{grid-template-columns:250px 1fr;align-items:start}}
+.svcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 16px;backdrop-filter:var(--blur)}
+.svcard h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:700}
+.svtop{display:flex;flex-direction:column}
+.svtoprow{display:grid;grid-template-columns:18px 1fr auto;gap:9px;align-items:center;padding:5px 0;font-size:13.5px;border-top:1px solid var(--line)}
+.svtoprow:first-child{border-top:none}
+.svtoprow .r{color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
+.svtoprow a{color:var(--text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.svtoprow a:hover{color:var(--blue)}
+.svtoprow .w{color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums}
+.svround{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:11px 2px;border-top:1px solid var(--line)}
+.svround:first-of-type{border-top:none}
+.svtrophy{font-size:17px;line-height:1}
+.svwin a{font-weight:700;color:var(--text);text-decoration:none}
+.svwin a:hover{color:var(--blue)}
+.svsub{color:var(--muted);font-size:12px;margin-top:2px}
+.svsub a{color:var(--muted);text-decoration:none}
+.svsub a:hover{color:var(--text)}
+.svfield{color:var(--green);font-weight:700}
+.svmeta{text-align:right;color:var(--dim);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.5}
+.svempty{color:var(--muted);padding:26px 0;text-align:center;font-size:13px}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Survival</h1>
+<p class="svnote">Last ship standing. A passive observer follows each round into its elimination phase and records who outlasted the field. Experimental &mdash; a record of results, not a rating.</p>
+<div class="svwrap">
+  <div class="svcard">
+    <h2>Most wins</h2>
+    <div class="svtop">
+      {% for t in top %}
+      <div class="svtoprow"><span class="r">{{ loop.index }}</span>
+        <a href="/player/{{ t.name|urlencode }}">{{ t.name }}</a>
+        <span class="w">{{ t.wins }}</span></div>
+      {% else %}<div class="svempty">No rounds recorded yet.</div>{% endfor %}
+    </div>
+  </div>
+  <div class="svcard">
+    <h2>Recent rounds</h2>
+    {% for r in rounds %}
+    <div class="svround">
+      <span class="svtrophy">&#127942;</span>
+      <div>
+        <div class="svwin"><a href="/player/{{ r.winner|urlencode }}">{{ r.winner }}</a></div>
+        <div class="svsub">last of {{ r.field }}{% if r.runner_up %} &middot; runner-up <a href="/player/{{ r.runner_up|urlencode }}">{{ r.runner_up }}</a>{% endif %}</div>
+      </div>
+      <div class="svmeta">{{ r.region }}<br><time class="lt" datetime="{{ r.when_utc }}">{{ r.when }}</time> &middot; {{ r.dur_min }}m</div>
+    </div>
+    {% else %}<div class="svempty">No rounds recorded yet.</div>{% endfor %}
+  </div>
+</div>
+{% endblock %}

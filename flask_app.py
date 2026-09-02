@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.10.1"
+APP_VERSION = "8.11.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1407,6 +1407,19 @@ def init_db():
                     data BLOB)''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_tsreplay_sys "
               "ON trueskill_replay(sys_id, first_ts)")
+
+    # Survival rounds pushed from the droplet observer (last-player-standing).
+    # `data` is the full JSON record; the columns are just for listing/ranking.
+    c.execute('''CREATE TABLE IF NOT EXISTS survival_results (
+                    key TEXT PRIMARY KEY,
+                    ended_at TEXT,
+                    region TEXT,
+                    lobby TEXT,
+                    winner TEXT,
+                    elim_field_size INTEGER,
+                    data TEXT)''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_survival_ended "
+              "ON survival_results(ended_at)")
 
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4099,6 +4112,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.11.0", "at": "2026-09-02T10:00:00Z", "changes": [
+        "Survival has its own page now (More → Survival). A passive observer follows survival lobbies into their elimination phase and records who outlasted the field to be the last ship standing — the page shows recent rounds and a most-wins tally. It's experimental and separate from the team-mode board: a record of results, not a rating (yet)."
+    ]},
     {"version": "8.10.0", "at": "2026-09-02T09:30:00Z", "changes": [
         "Replays (and the live view) now follow you around. Leave the page mid-watch — to open a player's profile, say — and it keeps playing in a small window in the bottom-right corner, like a video mini-player. Click that window to jump back to the full screen where you left off, or the × to close it."
     ]},
@@ -6647,6 +6663,90 @@ def trueskill_replay_read():
                         "st": st, "bs": bs, "nm": nm}), 200
     conn.close()
     return jsonify({"frames": None}), 200
+
+
+SURVIVAL_OBSERVERS = {"seeyou", "homiiswatching", "elobot", "elotracker",
+                      "replaysystem"}
+
+
+def survival_is_observer(name):
+    """A spectator/system entity that must never be recorded as a winner
+    (mirrors the droplet observer's blocklist; a server-side safety net)."""
+    low = (name or "").lower()
+    if any(b in low for b in ("homi is watching", "replay system",
+                              "elo bot", "elo tracker")):
+        return True
+    return "".join(ch for ch in low if ch.isalnum()) in SURVIVAL_OBSERVERS
+
+
+@app.route('/api/survival/push', methods=['POST'])
+def survival_push():
+    """The droplet survival observer posts finished rounds here (last-player-
+    standing). Upsert by key = sid|ended_at. Bot-auth; review-only data, kept
+    apart from the rated team board."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    n = 0
+    for r in ((request.json or {}).get('rounds') or []):
+        if not isinstance(r, dict) or r.get('sid') is None or not r.get('ended_at'):
+            continue
+        if not r.get('reached_elimination'):
+            continue                       # only real elimination rounds
+        w = r.get('winner') or ''
+        if not w or survival_is_observer(w):
+            continue                       # never store a bot/observer winner
+        key = "%s|%s" % (r.get('sid'), r.get('ended_at'))
+        try:
+            c.execute("INSERT OR REPLACE INTO survival_results "
+                      "(key, ended_at, region, lobby, winner, elim_field_size, data) "
+                      "VALUES (?,?,?,?,?,?,?)",
+                      (key, r.get('ended_at'), r.get('region'), r.get('lobby'),
+                       w, int(r.get('elim_field_size') or 0),
+                       json.dumps(r, ensure_ascii=False)))
+            n += 1
+        except (sqlite3.Error, TypeError, ValueError):
+            continue
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": n}), 200
+
+
+@app.route('/survival')
+def survival_page():
+    """Public read-only view of recorded survival rounds: who outlasted the
+    field to be the last ship standing, plus a most-wins tally."""
+    conn = db()
+    c = conn.cursor()
+    try:
+        data_rows = c.execute("SELECT data FROM survival_results "
+                              "ORDER BY ended_at DESC LIMIT 80").fetchall()
+        win_rows = c.execute("SELECT winner, COUNT(*) FROM survival_results "
+                             "GROUP BY winner ORDER BY COUNT(*) DESC, winner LIMIT 12").fetchall()
+    except sqlite3.Error:
+        data_rows, win_rows = [], []
+    rounds = []
+    for (data,) in data_rows:
+        try:
+            r = json.loads(data)
+        except Exception:
+            continue
+        ea = r.get('ended_at') or ''
+        rounds.append({
+            "winner": r.get('winner') or '',
+            "runner_up": r.get('runner_up') or '',
+            "field": r.get('elim_field_size') or 0,
+            "region": (r.get('region') or '').title(),
+            "lobby": r.get('lobby') or '',
+            "when": ea[:16],
+            "when_utc": (ea.replace(' ', 'T') + 'Z') if ea else '',
+            "dur_min": round((r.get('duration_s') or 0) / 60),
+        })
+    top = [{"name": w, "wins": n} for w, n in win_rows if w]
+    conn.close()
+    return render_template('survival.html', page='survival', version=APP_VERSION,
+                           rounds=rounds, top=top)
 
 
 # TrueSkill parameters - must match the raw scorer (trueskill_scorer.py) so the
