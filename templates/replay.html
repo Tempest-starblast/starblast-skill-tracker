@@ -144,13 +144,9 @@
 
 <div class="postgame">
   <div class="card" id="wpCard" style="grid-column:1 / -1;display:none">
-    <h2>Win probability <span class="dim" style="font-size:12px;font-weight:400">&middot; the model, over the whole match</span>
-      <span id="wpNow" class="wpnow"></span></h2>
+    <h2>Win probability <span id="wpNow" class="wpnow"></span></h2>
     <div class="legend" id="legend1"></div>
     <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
-    <p class="rnote">Each team's chance frame by frame &mdash; weighing scores, ship count, station
-       level and health, ship class, roster skill, and how far the game has run. The live number
-       for each team is shown in its panel above.</p>
   </div>
   <div class="card">
     <h2>Scores over time</h2>
@@ -161,8 +157,6 @@
     <h2>Ships &amp; final standings</h2>
     <div class="legend" id="legend3"></div>
     <div class="chartwrap"><svg id="chartC" viewBox="0 0 860 170" preserveAspectRatio="xMidYMid meet"></svg></div>
-    <p class="rnote">Every ship in the lobby, from the game&#39;s full ship list &mdash; a team
-       holding far more than its players is being flooded.</p>
     <div id="result"></div>
   </div>
 </div>
@@ -487,18 +481,25 @@ function buildReplay(ST, RD){
         var A = rdSeries[i] || [], B = rdSeries[j] || [], mapB = {}, pts = [];
         B.forEach(function(e){ mapB[sKey(e)] = e; });
         A.forEach(function(e){
-          var k = sKey(e), b = mapB[k];
+          var k = sKey(e), b = mapB[k], id = has4(e) ? e[1] : null;
           if(b && has4(e)){ pts.push([e[0], wWrap(sX(e) + wDelta(sX(e), sX(b)) * a),
-                                            wWrap(sY(e) + wDelta(sY(e), sY(b)) * a)]); delete mapB[k]; }
-          else pts.push([e[0], sX(e), sY(e)]);
+                                            wWrap(sY(e) + wDelta(sY(e), sY(b)) * a), id]); delete mapB[k]; }
+          else pts.push([e[0], sX(e), sY(e), id]);
         });
-        Object.keys(mapB).forEach(function(kk){ var b = mapB[kk]; pts.push([b[0], sX(b), sY(b)]); });
+        Object.keys(mapB).forEach(function(kk){ var b = mapB[kk]; pts.push([b[0], sX(b), sY(b), has4(b) ? b[1] : null]); });
         var g = '<rect x="'+(-RMX)+'" y="'+(-RMX)+'" width="'+(2*RMX)+'" height="'+(2*RMX)+'" rx="'+(RMX/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)"/>'
           + '<line x1="'+(-RMX)+'" y1="0" x2="'+RMX+'" y2="0" stroke="rgba(153,221,255,.05)"/>'
           + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>'
           + baseIcons(lerp(frames[i][0], frames[j][0], a));
+        var NM = res.nm || {};
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
-          g += '<g stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round"><line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/></g>'; });
+          var nm = (p[3] != null) ? NM[p[3]] : null;
+          g += '<g stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
+            + (nm ? '<title>'+esc(nm)+'</title>' : '')
+            + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/></g>';
+          if(nm){ var lbl = nm.length > 9 ? nm.slice(0,8)+'…' : nm;
+            g += '<text x="'+x.toFixed(1)+'" y="'+(y - r*1.9).toFixed(1)+'" fill="'+c+'" font-size="'+(RMX/24).toFixed(1)+'" text-anchor="middle" opacity="0.9" style="pointer-events:none;paint-order:stroke" stroke="rgba(3,8,16,.85)" stroke-width="'+(RMX/150).toFixed(2)+'">'+esc(lbl)+'</text>'; }
+        });
         map.innerHTML = g;
       };
     }

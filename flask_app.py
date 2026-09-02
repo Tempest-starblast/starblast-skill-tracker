@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.8.0"
+APP_VERSION = "8.9.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4090,6 +4090,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.9.0", "at": "2026-09-02T08:00:00Z", "changes": [
+        "Replay radar now names the ships. Each dot on the battlefield shows the player flying it — a label above the ship, and the full name on hover. The names come from the full-match raw feed, so any match recorded since the raw tracker started gets them; older replays stay as plain team-coloured dots."
+    ]},
     {"version": "8.8.0", "at": "2026-09-02T07:00:00Z", "changes": [
         "Your profile bio now shows up when people — or AI assistants — look you up. Every profile page now carries structured data (a machine-readable card of your name, clan and bio), so search engines and chatbots that read it can answer “who is <you>” with your own story, not just your rank and record. The Discord bot's /rank and /profile show your bio too now. Nothing here is new information — it's all already public on your profile — it's just readable by the tools people use to look players up."
     ]},
@@ -6535,6 +6538,7 @@ def trueskill_replay_push():
         stl = m.get('stlay')
         sts = m.get('st')
         bs = m.get('bs')
+        nm = m.get('nm')
         obj = {"f": frames}
         if isinstance(wp, list) and len(wp) == len(frames):
             obj["wp"] = wp
@@ -6548,6 +6552,9 @@ def trueskill_replay_push():
         # angle), so the replay radar can draw the REAL station positions.
         if isinstance(bs, dict) and bs.get('a'):
             obj["bs"] = bs
+        # id -> player name, so the replay radar can label each ship dot.
+        if isinstance(nm, dict) and nm:
+            obj["nm"] = nm
         payload = obj if len(obj) > 1 else frames
         try:
             blob = zlib.compress(json.dumps(payload).encode('utf-8'))
@@ -6586,7 +6593,7 @@ def trueskill_replay_read():
         pend = None
     cands = c.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
                       (sys_id,)).fetchall()
-    best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs = (None,) * 7
+    best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = (None,) * 8
     for data, first_ts in cands:
         try:
             obj = json.loads(zlib.decompress(data).decode('utf-8'))
@@ -6597,16 +6604,18 @@ def trueskill_replay_read():
         if isinstance(obj, dict):
             frames = obj.get("f"); mwp = obj.get("wp"); mrd = obj.get("rd")
             mstl = obj.get("stlay"); mst = obj.get("st"); mbs = obj.get("bs")
+            mnm = obj.get("nm")
         else:
             frames, mwp, mrd, mstl, mst, mbs = obj, None, None, None, None, None
+            mnm = None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
         raw_end = (first_ts or 0) + (frames[-1][0] or 0)
         gap = abs(raw_end - pend) if pend else 0
         if best is None or gap < best_gap:
-            best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs = \
-                frames, gap, mwp, mrd, mstl, mst, mbs
+            best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = \
+                frames, gap, mwp, mrd, mstl, mst, mbs, mnm
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
         # Prefer the raw multi-factor model's own win-prob; fall back to the
@@ -6617,9 +6626,10 @@ def trueskill_replay_read():
         st = best_st if (isinstance(best_st, list) and len(best_st) == len(best)) else None
         stlay = best_stl if isinstance(best_stl, list) else None
         bs = best_bs if isinstance(best_bs, dict) else None
+        nm = best_nm if isinstance(best_nm, dict) else None
         conn.close()
         return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
-                        "st": st, "bs": bs}), 200
+                        "st": st, "bs": bs, "nm": nm}), 200
     conn.close()
     return jsonify({"frames": None}), 200
 

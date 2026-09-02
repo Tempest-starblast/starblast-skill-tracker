@@ -16,9 +16,6 @@
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">{{ t('Replays') }}</h1>
-<p class="pdesc" style="color:var(--muted,#8aa0b0);margin-top:-6px">Every tracked match,
-  newest first &mdash; open one to see its whole story: win probability, scores and
-  players over time.</p>
 
 <div class="card">
   <form class="rpfilters" method="get" action="/replays">
@@ -57,8 +54,7 @@
        href="/replays?page={{ pg + 1 }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}">&rarr;</a>
   </div>
   {% else %}
-  <p class="empty">No replays match that search. Replays exist for matches finished
-     since 21 August 2026 and are kept for 90 days.</p>
+  <p class="empty">No replays match that search.</p>
   {% endif %}
 </div>
 {% endblock %}
