@@ -69,6 +69,7 @@
 .prow .ps{font-family:var(--data,monospace);font-size:11px;color:var(--muted,#8aa0b0);text-align:right;font-variant-numeric:tabular-nums}
 .prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
 .prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
+.prow[data-key]{cursor:pointer}
 #radarMap .rship{cursor:pointer}
 .youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
 
@@ -477,8 +478,10 @@ function buildReplay(ST, RD){
       var WRAP = 256, HALF = WRAP / 2;
       var wDelta = function(x0, x1){ var d = x1 - x0; if(d > HALF) d -= WRAP; else if(d < -HALF) d += WRAP; return d; };
       var wWrap = function(v){ if(v > HALF) v -= WRAP; else if(v < -HALF) v += WRAP; return v; };
+      var hlKey = null, lastRadar = null;   // roster-hover -> ship spotlight state
       drawRadarAt = function(i, j, a){
         var map = document.getElementById('radarMap'); if(!map) return;
+        lastRadar = [i, j, a];
         map.setAttribute('viewBox', (-RMX)+' '+(-RMX)+' '+(2*RMX)+' '+(2*RMX));
         var A = rdSeries[i] || [], B = rdSeries[j] || [], mapB = {}, pts = [];
         B.forEach(function(e){ mapB[sKey(e)] = e; });
@@ -496,10 +499,13 @@ function buildReplay(ST, RD){
         var NM = res.nm || {};
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
           var nm = (p[3] != null) ? NM[p[3]] : null;
-          // data-key = team|name matches the roster row's data-key, so hovering a
-          // ship (or its label) spotlights that player in the panel and back.
-          var dk = nm ? esc(p[0] + '|' + nm) : null;
-          g += '<g class="rship"'+(dk ? ' data-key="'+dk+'"' : '')+' stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
+          // data-key = team|name matches the roster row's data-key, so a hover on
+          // either the ship (or its label) or the row spotlights the other.
+          var rawKey = nm ? (p[0] + '|' + nm) : null;
+          var dk = rawKey ? esc(rawKey) : null;
+          var hl = (rawKey && rawKey === hlKey);
+          g += '<g class="rship'+(hl ? ' hl' : '')+'"'+(dk ? ' data-key="'+dk+'"' : '')+' stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
+            + (hl ? '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+(r*2.6).toFixed(1)+'" fill="'+c+'" opacity="0.30" stroke="none"/>' : '')
             + (nm ? '<title>'+esc(nm)+'</title>' : '')
             + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/>'
             + (nm ? '<text x="'+x.toFixed(1)+'" y="'+(y - r*1.9).toFixed(1)+'" fill="'+c+'" font-size="'+(RMX/24).toFixed(1)+'" text-anchor="middle" opacity="0.9" stroke="rgba(3,8,16,.85)" stroke-width="'+(RMX/150).toFixed(2)+'" style="paint-order:stroke">'+esc(nm.length > 9 ? nm.slice(0,8)+'…' : nm)+'</text>' : '')
@@ -516,6 +522,20 @@ function buildReplay(ST, RD){
         rmap.onmouseover = function(ev){ var t = ev.target.closest && ev.target.closest('[data-key]');
           var ref = t && rowRef[t.getAttribute('data-key')]; set(ref && ref.row ? ref.row : null); };
         rmap.onmouseleave = function(){ set(null); };
+      })();
+      // Reverse: hovering a roster row spotlights that player's ship. The radar
+      // rebuilds each frame, so track the hovered key and redraw the current frame
+      // (shows even when paused; playback keeps re-applying it).
+      (function(){ if(!arenaEl) return;
+        var setKey = function(k){ if(k === hlKey) return; hlKey = k; if(lastRadar) drawRadarAt(lastRadar[0], lastRadar[1], lastRadar[2]); };
+        arenaEl.addEventListener('mouseover', function(ev){ var row = ev.target.closest && ev.target.closest('.prow[data-key]');
+          if(row) setKey(row.getAttribute('data-key')); });
+        arenaEl.addEventListener('mouseout', function(ev){ var row = ev.target.closest && ev.target.closest('.prow[data-key]');
+          if(row) setKey(null); });
+        arenaEl.addEventListener('mouseleave', function(){ setKey(null); });
+        // Click a roster row -> that player's profile.
+        arenaEl.addEventListener('click', function(ev){ var row = ev.target.closest && ev.target.closest('.prow[data-key]');
+          if(row){ var k = row.getAttribute('data-key'); location.href = '/player/'+encodeURIComponent(k.slice(k.indexOf('|')+1)); } });
       })();
     }
 

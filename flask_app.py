@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.9.2"
+APP_VERSION = "8.9.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4099,8 +4099,8 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
-    {"version": "8.9.2", "at": "2026-09-02T08:30:00Z", "changes": [
-        "In a replay, hovering a ship on the radar (or its name) now spotlights that player's row in the team panel, so you can tell at a glance which dot is who."
+    {"version": "8.9.3", "at": "2026-09-02T09:00:00Z", "changes": [
+        "The replay radar and the team panel now cross-highlight both ways: hover a ship to light up its player's row, or hover a row to light up its ship — so you can tell at a glance which dot is who. Clicking a player in the panel opens their profile."
     ]},
     {"version": "8.9.0", "at": "2026-09-02T08:00:00Z", "changes": [
         "Replay radar now names the ships. Each dot on the battlefield shows the player flying it — a label above the ship, and the full name on hover. The names come from the full-match raw feed, so any match recorded since the raw tracker started gets them; older replays stay as plain team-coloured dots."

@@ -44,6 +44,7 @@
 .rl-shipnm{font-size:7px;text-anchor:middle;font-weight:700;
   paint-order:stroke;stroke:rgba(3,8,16,.85);stroke-width:.55px}
 .rl-prow.rl-hl{background:rgba(255,255,255,.12);border-radius:3px;box-shadow:inset 2px 0 0 var(--amber,#ffc757)}
+.rl-prow{cursor:pointer}
 /* rosters */
 .rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
 .rl-tname{font-weight:600;color:var(--text)}
@@ -202,6 +203,19 @@
   var cards={};   // sid -> {el, stEl, rosEl, radarSvg, shipLayer, ships:{id:{ti,x,y,tx,ty,el}}}
   var order=[];   // sid order, stable
 
+  // Reverse spotlight: put a halo on the ship whose pilot matches `name`
+  // (clearing any previous). Ships are persistent, so the halo rides along.
+  function rlShipHl(c, name){
+    if(c._shl && c._shl.nm !== name){ var pc=c._shl.el.querySelector('.rl-hlc'); if(pc) pc.remove(); c._shl=null; }
+    if(!name) return;
+    for(var id in c.ships){ if(c.ships[id].nm === name){ var sh=c.ships[id];
+      if(!sh.el.querySelector('.rl-hlc')){ var cc=document.createElementNS('http://www.w3.org/2000/svg','circle');
+        cc.setAttribute('class','rl-hlc'); cc.setAttribute('cx','0'); cc.setAttribute('cy','0'); cc.setAttribute('r','7');
+        cc.setAttribute('fill',COL[sh.ti]||'#888'); cc.setAttribute('opacity','0.32'); cc.setAttribute('stroke','none');
+        sh.el.insertBefore(cc, sh.el.firstChild); }
+      c._shl=sh; return; } }
+  }
+
   function buildCard(sid){
     var el=document.createElement('div'); el.className='rl-card';
     el.innerHTML='<div class="rl-ctop"></div><div class="rl-stwrap"></div>'
@@ -210,6 +224,13 @@
     var c={el:el, top:el.querySelector('.rl-ctop'), stEl:el.querySelector('.rl-stwrap'),
            rosEl:el.querySelector('.rl-ros'), rbase:el.querySelector('.rl-rbase'),
            shipLayer:el.querySelector('.rl-rships'), ships:{}};
+    // hover a roster row -> halo that pilot's ship on the radar
+    c.rosEl.addEventListener('mouseover', function(ev){ var row=ev.target.closest&&ev.target.closest('.rl-prow');
+      if(row){ var n=row.querySelector('.rn'); rlShipHl(c, n?n.textContent:null); } });
+    c.rosEl.addEventListener('mouseleave', function(){ rlShipHl(c, null); });
+    // click a roster row -> that player's profile
+    c.rosEl.addEventListener('click', function(ev){ var row=ev.target.closest&&ev.target.closest('.rl-prow');
+      if(row){ var n=row.querySelector('.rn'); if(n) location.href='/player/'+encodeURIComponent(n.textContent); } });
     cards[sid]=c; return c;
   }
 
