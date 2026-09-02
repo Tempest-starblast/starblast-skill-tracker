@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.7.0"
+APP_VERSION = "8.8.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4090,6 +4090,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.8.0", "at": "2026-09-02T07:00:00Z", "changes": [
+        "Your profile bio now shows up when people — or AI assistants — look you up. Every profile page now carries structured data (a machine-readable card of your name, clan and bio), so search engines and chatbots that read it can answer “who is <you>” with your own story, not just your rank and record. The Discord bot's /rank and /profile show your bio too now. Nothing here is new information — it's all already public on your profile — it's just readable by the tools people use to look players up."
+    ]},
     {"version": "8.7.0", "at": "2026-09-01T19:30:00Z", "changes": [
         "The TrueSkill trial is over and its numbers are retired - the tab and the profile card are gone. The plan changed for the better: instead of replacing the board with a new rating, the NEW engine (the raw observer, which sees every lobby instead of a handful) will take over feeding the existing elo board, continuing from everyone's current rating. It is running silently alongside the old tracker right now for comparison; the switch happens once it has proven itself for a few days."
     ]},
@@ -9305,8 +9308,14 @@ def bot_player(c, row, history=0, regions=0):
     # "#4" means nothing without the size of the field it is out of.
     c.execute("SELECT COUNT(*) FROM players")
     rank_of = c.fetchone()[0]
+    # The player's self-written bio, so the bot's /profile can tell you who
+    # they are, not just their numbers (same text as the public profile page).
+    c.execute("SELECT bio FROM players WHERE norm_name = ?",
+              (normalize_name(stored_name),))
+    _brow = c.fetchone()
     out = {
         "name": stored_name,
+        "bio": (_brow[0] if _brow and _brow[0] else ""),
         "display": display_name(stored_name, clan),
         "elo": round(elo, 2),
         "wins": wins,
