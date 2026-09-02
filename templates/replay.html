@@ -929,11 +929,12 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   // Full page: if returning from the mini (?t), seek there; then keep the pin fresh.
   whenReady(function(seek){ var t=parseInt(params.get('t')||'',10);
     if(!isNaN(t)){ seek.value=Math.min(Math.max(0,t),+seek.max); seek.dispatchEvent(new Event('input')); } });
-  function save(on){ var t=curFrame();
-    try{ sessionStorage.setItem('sbmini', JSON.stringify({full:full,t:t,url:full+'?mini=1&t='+t,on:on})); }catch(e){} }
-  save(false);
-  setInterval(function(){ save(false); }, 2000);
-  window.addEventListener('pagehide', function(){ save(true); });
+  // Pin stays ON; base.html hides it on the replay's own page (pathname match),
+  // and shows the still-playing mini on every other page until it is dismissed.
+  function save(){ var t=curFrame();
+    try{ sessionStorage.setItem('sbmini', JSON.stringify({full:full,t:t,url:full+'?mini=1&t='+t,on:true})); }catch(e){} }
+  save();
+  setInterval(save, 2000);
 })();
 </script>
 {% endblock %}

@@ -45,6 +45,16 @@
   paint-order:stroke;stroke:rgba(3,8,16,.85);stroke-width:.55px}
 .rl-prow.rl-hl{background:rgba(255,255,255,.12);border-radius:3px;box-shadow:inset 2px 0 0 var(--amber,#ffc757)}
 .rl-prow{cursor:pointer}
+/* Mini-player mode (?mini=1): show ONLY the live radars, in a compact grid, and
+   hide all chrome so the live view can ride along in the corner mini-player. */
+body.mini{overflow:hidden;margin:0;background:#04070d}
+body.mini > *{display:none!important}
+body.mini > .page{display:block!important;margin:0;padding:0;max-width:none;width:100%;height:100vh}
+body.mini .page > *{display:none!important}
+body.mini .page > #rlWrap{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:3px;height:100vh;padding:3px;margin:0;overflow:hidden;align-content:start}
+body.mini .rl-card{display:block!important;margin:0;padding:0;background:transparent;border:none;box-shadow:none;min-width:0}
+body.mini .rl-card > *{display:none!important}
+body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;margin:0}
 /* rosters */
 .rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
 .rl-tname{font-weight:600;color:var(--text)}
@@ -359,6 +369,16 @@
   // updates out of order (that was the stutter). Fixed gap = steady cadence,
   // which is what the ship-glide timing depends on.
   (function loop(){ tick().finally(function(){ setTimeout(loop, 1400); }); })();
+})();
+</script>
+<script>
+// Mini-player: in ?mini=1 strip to just the live radars; otherwise drop a
+// sessionStorage pin so leaving the live view keeps a still-updating mini in
+// the corner of the next page (see base.html). Pin stays on until dismissed.
+(function(){
+  if(new URLSearchParams(location.search).get('mini')){ document.body.classList.add('mini'); return; }
+  try{ sessionStorage.setItem('sbmini', JSON.stringify({
+    full: location.pathname, url: location.pathname + '?mini=1', on: true })); }catch(e){}
 })();
 </script>
 {% endblock %}
