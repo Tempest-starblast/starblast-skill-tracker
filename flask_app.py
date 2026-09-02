@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.9.0"
+APP_VERSION = "8.9.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2435,6 +2435,14 @@ def rawlive_matches():
                          else None),
                 "players": players,
             })
+        # Owner-only: full ship id -> name map (uncapped, unlike the top-12
+        # roster) so every dot on the radar can be labelled with its pilot.
+        _names = {}
+        if _owner:
+            for k in ("team_1", "team_2", "team_3"):
+                for r in (d.get("teams", {}).get(k) or []):
+                    if r and len(r) > 4 and r[0] and r[0] != "?":
+                        _names[str(r[4])] = r[0]
         out.append({
             "sys_id": sys_id, "name": d.get("name") or ("Lobby %d" % sys_id),
             "region": d.get("region") or "america",
@@ -2442,6 +2450,7 @@ def rawlive_matches():
             "cap": d.get("cap"), "age": round(now - updated, 1),
             "seed": d.get("seed"),
             "radar": d.get("radar") or [],
+            "names": _names,
             "prog": round(prog, 3),
             "wp": bool(probs),
             "teams": teams,

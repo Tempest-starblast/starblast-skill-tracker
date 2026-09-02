@@ -41,6 +41,8 @@
 /* radar */
 .rl-radar{display:block;width:100%;aspect-ratio:1/1;height:auto;margin:2px 0 12px}
 .rl-radar .ship{transition-property:transform;transition-timing-function:linear;transition-duration:4s;will-change:transform}
+.rl-shipnm{font-size:7px;text-anchor:middle;pointer-events:none;font-weight:700;
+  paint-order:stroke;stroke:rgba(3,8,16,.85);stroke-width:.55px}
 /* rosters */
 .rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
 .rl-tname{font-weight:600;color:var(--text)}
@@ -249,20 +251,31 @@
     // radar ships: glide each dot over the REAL time since it last moved, so
     // there is no stop-then-jump. Only positions that changed are touched.
     var now=performance.now(), seen={};
+    var idName=m.names||{};   // owner-only: ship id -> pilot name
     (m.radar||[]).forEach(function(e){
       var ti=e[0],id=e[1],x=e[2],y=-e[3]; seen[id]=1;
+      var nm=idName[id];
       var sh=c.ships[id];
       if(!sh){
         var g=document.createElementNS('http://www.w3.org/2000/svg','g');
         g.setAttribute('class','ship');
         g.innerHTML='<line x1="-3.6" y1="-3.6" x2="3.6" y2="3.6" stroke="'+(COL[ti]||'#888')
           +'" stroke-width="2" stroke-linecap="round"/><line x1="-3.6" y1="3.6" x2="3.6" y2="-3.6" stroke="'
-          +(COL[ti]||'#888')+'" stroke-width="2" stroke-linecap="round"/>';
+          +(COL[ti]||'#888')+'" stroke-width="2" stroke-linecap="round"/>'
+          +(nm?'<text class="rl-shipnm" x="0" y="-6" fill="'+(COL[ti]||'#888')+'">'+esc(nm)+'</text>':'');
         g.style.transitionDuration='0ms';
         g.style.transform='translate('+x+'px,'+y+'px)';
         c.shipLayer.appendChild(g);
-        c.ships[id]={el:g,ti:ti,x:x,y:y,last:now};
+        c.ships[id]={el:g,ti:ti,x:x,y:y,last:now,nm:nm};
         return;
+      }
+      if(sh.nm!==nm){   // pilot name resolved or changed - update the label
+        sh.nm=nm; var tx=sh.el.querySelector('.rl-shipnm');
+        if(nm){ if(!tx){ tx=document.createElementNS('http://www.w3.org/2000/svg','text');
+            tx.setAttribute('class','rl-shipnm'); tx.setAttribute('x','0'); tx.setAttribute('y','-6');
+            tx.setAttribute('fill',COL[sh.ti]||'#888'); sh.el.appendChild(tx); }
+          tx.textContent=nm; }
+        else if(tx){ tx.remove(); }
       }
       if(sh.x!==x||sh.y!==y){
         // The map wraps (a torus): crossing an edge flips a coordinate from
