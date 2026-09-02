@@ -574,6 +574,46 @@ async function devRestore(){
 <p class="foot">{{ version }} &middot; <a href="/info">How it all works</a></p>
 </div>
 
+{# YouTube-style mini-player: a compact, still-playing replay pinned bottom-right
+   after you leave a replay page. Its state lives in sessionStorage (written by
+   the replay page). Click it to return to full; the x dismisses it. It is never
+   shown inside a mini iframe itself (?mini=1) so it can't nest. #}
+<div id="sbMini" hidden>
+  <button id="sbMiniX" type="button" aria-label="Close mini player">&times;</button>
+  <iframe id="sbMiniFrame" title="Mini replay" scrolling="no"></iframe>
+  <div id="sbMiniHit" title="Back to full screen"></div>
+</div>
+<style>
+#sbMini{position:fixed;right:16px;bottom:16px;width:280px;height:186px;z-index:9000;
+  border-radius:10px;overflow:hidden;background:#04070d;
+  border:1px solid rgba(153,221,255,.28);box-shadow:0 10px 30px rgba(0,0,0,.55)}
+#sbMiniFrame{width:100%;height:100%;border:0;display:block;background:#04070d}
+#sbMiniHit{position:absolute;inset:0;cursor:pointer}
+#sbMiniHit:hover{background:rgba(153,221,255,.06)}
+#sbMiniX{position:absolute;top:5px;right:5px;z-index:2;width:22px;height:22px;border:none;
+  border-radius:50%;background:rgba(3,8,16,.72);color:#dff4ff;font-size:15px;line-height:20px;
+  cursor:pointer;padding:0}
+#sbMiniX:hover{background:rgba(255,86,112,.85);color:#fff}
+@media (max-width:560px){ #sbMini{width:190px;height:128px;right:10px;bottom:10px} }
+</style>
+<script>
+(function(){
+  // Never render the mini INSIDE a mini iframe (it would nest infinitely).
+  try{ if(new URLSearchParams(location.search).get('mini')) return; }catch(e){ return; }
+  var box=document.getElementById('sbMini'); if(!box) return;
+  var m=null; try{ m=JSON.parse(sessionStorage.getItem('sbmini')||'null'); }catch(e){}
+  if(!m || !m.on || !m.url || !m.full || location.pathname===m.full) return;
+  document.getElementById('sbMiniFrame').src=m.url;
+  box.hidden=false;
+  document.getElementById('sbMiniHit').onclick=function(){
+    var mm=m; try{ mm=JSON.parse(sessionStorage.getItem('sbmini')||'null')||m; }catch(e){}
+    location.href=(mm.full||m.full)+'?t='+(mm.t||0);   // return to full at the live spot
+  };
+  document.getElementById('sbMiniX').onclick=function(ev){ ev.stopPropagation();
+    try{ sessionStorage.removeItem('sbmini'); }catch(e){} box.hidden=true; };
+})();
+</script>
+
 <script>
 // Sign-in lives in the header so it is reachable from every page, and so
 // there is exactly one Google button on the site - the library does not

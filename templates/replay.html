@@ -71,6 +71,19 @@
 .prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
 .prow[data-key]{cursor:pointer}
 #radarMap .rship{cursor:pointer}
+/* Mini-player mode (?mini=1): show ONLY the radar, filling the frame, and hide
+   every bit of page chrome so the replay can ride along in the corner player. */
+body.mini{overflow:hidden;margin:0;background:#04070d}
+body.mini > *{display:none!important}
+body.mini > .page{display:block!important;margin:0;padding:0;max-width:none;width:100%}
+body.mini .page > *{display:none!important}
+body.mini .page > .console{display:block!important;margin:0;padding:0;border:none;background:transparent;box-shadow:none}
+body.mini .console > *{display:none!important}
+body.mini .console > .arena{display:block!important;height:100vh;margin:0;padding:0}
+body.mini .arena > .team{display:none!important}
+body.mini .arena > .radarwrap{display:flex!important;grid-column:auto!important;grid-row:auto!important;height:100vh;padding:5px;border:none}
+body.mini .radarcap{display:none!important}
+body.mini #radarMap{max-height:100vh;max-width:100vw}
 .youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
 
 .radarwrap{display:flex;flex-direction:column;min-height:0;min-width:0;padding:12px}
@@ -889,5 +902,38 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   // and the battlefield (radar + stations) too - a single play button for all.
   buildReplay(ST, RD);
 }).catch(()=>{document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
+</script>
+<script>
+// Mini-player: in ?mini=1 this page strips to the radar and autoplays from ?t;
+// otherwise it keeps a sessionStorage pin so leaving here drops a still-playing
+// mini in the corner of the next page (see base.html).
+(function(){
+  var params = new URLSearchParams(location.search);
+  var MINI = !!params.get('mini');
+  var full = location.pathname;                       // /replay/<id>
+  function curFrame(){ var s=document.getElementById('lbSeek'); return s?Math.round(+s.value||0):0; }
+  function whenReady(cb){ var n=0; var iv=setInterval(function(){ var s=document.getElementById('lbSeek');
+    if(s && +s.max>0){ clearInterval(iv); cb(s); } else if(++n>90){ clearInterval(iv); } }, 100); }
+  if(MINI){
+    document.body.classList.add('mini');
+    var t0 = parseInt(params.get('t')||'0',10)||0;
+    whenReady(function(seek){
+      seek.value = Math.min(Math.max(0,t0), +seek.max); seek.dispatchEvent(new Event('input'));
+      var play=document.getElementById('lbPlay'); if(play) play.click();     // autoplay
+      // report the live position up to the pin so a click returns near here
+      setInterval(function(){ try{ var m=JSON.parse(sessionStorage.getItem('sbmini')||'null');
+        if(m){ m.t=curFrame(); m.url=full+'?mini=1&t='+m.t; sessionStorage.setItem('sbmini',JSON.stringify(m)); } }catch(e){} }, 1500);
+    });
+    return;
+  }
+  // Full page: if returning from the mini (?t), seek there; then keep the pin fresh.
+  whenReady(function(seek){ var t=parseInt(params.get('t')||'',10);
+    if(!isNaN(t)){ seek.value=Math.min(Math.max(0,t),+seek.max); seek.dispatchEvent(new Event('input')); } });
+  function save(on){ var t=curFrame();
+    try{ sessionStorage.setItem('sbmini', JSON.stringify({full:full,t:t,url:full+'?mini=1&t='+t,on:on})); }catch(e){} }
+  save(false);
+  setInterval(function(){ save(false); }, 2000);
+  window.addEventListener('pagehide', function(){ save(true); });
+})();
 </script>
 {% endblock %}
