@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.12.0"
+APP_VERSION = "8.12.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4132,7 +4132,7 @@ def game_end():
 CHANGELOG = [
     {"version": "8.12.0", "at": "2026-09-04T20:00:00Z", "changes": [
         "When a match you're watching ends, the Play page now keeps it visible as “Scoring…” with a progress bar until the result lands, instead of the lobby just vanishing into a gap. You can't join a match that's being scored.",
-        "The site finally has its own icon — a star in the browser tab and in search results, instead of a blank globe."
+        "The site finally has its own icon in the browser tab and in search results, instead of a blank globe."
     ]},
     {"version": "8.11.0", "at": "2026-09-02T10:00:00Z", "changes": [
         "Survival has its own page now (More → Survival). A passive observer follows survival lobbies into their elimination phase and records who outlasted the field to be the last ship standing — the page shows recent rounds and a most-wins tally. It's experimental and separate from the team-mode board: a record of results, not a rating (yet)."
@@ -12432,22 +12432,38 @@ def inject_seo():
             "site_root": SITE_ROOT}
 
 
-# A simple site icon (a cyan Starblast star on a dark rounded tile), so the
-# browser tab and search results show a mark instead of a blank globe. Served
-# as SVG (crisp at any size; modern browsers and Google both accept it); the
-# /favicon.ico path returns the same so nothing 404s asking for it.
-FAVICON_SVG = (
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
-    "<rect width='32' height='32' rx='7' fill='#0a1622'/>"
-    "<polygon points='16,4.5 18.7,12 26.7,12.2 20.3,17.1 22.6,24.8 16,20.2 "
-    "9.4,24.8 11.7,17.1 5.3,12.2 13.3,12' fill='#99ddff'/></svg>")
+# The site icon (the Discord bot's avatar), so the browser tab and search
+# results show a real mark instead of a blank globe. A real multi-size .ico is
+# what Google and Edge reliably pick up (an SVG-only favicon does not). The
+# image files ship under templates/static/ because the deploy copies .py files
+# and templates/ but nothing else.
+_ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         'templates', 'static')
 
 
-@app.route('/favicon.svg')
-@app.route('/favicon.ico')
-def favicon():
-    return app.response_class(FAVICON_SVG, mimetype='image/svg+xml',
+def _serve_icon(fn, mime):
+    try:
+        with open(os.path.join(_ICON_DIR, fn), 'rb') as f:
+            data = f.read()
+    except OSError:
+        return ('', 404)
+    return app.response_class(data, mimetype=mime,
                               headers={'Cache-Control': 'public, max-age=604800'})
+
+
+@app.route('/favicon.ico')
+def favicon_ico():
+    return _serve_icon('favicon.ico', 'image/x-icon')
+
+
+@app.route('/favicon-32.png')
+def favicon_png():
+    return _serve_icon('favicon-32.png', 'image/png')
+
+
+@app.route('/apple-touch-icon.png')
+def apple_touch_icon():
+    return _serve_icon('apple-touch-icon.png', 'image/png')
 
 
 @app.route('/robots.txt')
