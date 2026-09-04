@@ -17,7 +17,16 @@
 .dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
 .dot.soon{background:#d6b656}
 .dot.off{background:#4a4a4a}
+.dot.scoring{background:var(--amber,#ffc757);box-shadow:0 0 7px var(--amber,#ffc757)}
 .mrow button{padding:9px 16px;font-size:13px}
+/* A match that just ended and is being scored - kept visible with a moving bar
+   so the result doesn't seem to vanish while the tracker finalises it. */
+.scorebar{height:5px;max-width:230px;margin-top:6px;border-radius:3px;
+  background:rgba(153,221,255,.12);overflow:hidden}
+.scorebar i{display:block;height:100%;width:38%;border-radius:3px;
+  background:var(--amber,#ffc757);animation:scoreslide 1.15s ease-in-out infinite}
+@keyframes scoreslide{0%{margin-left:-38%}100%{margin-left:100%}}
+@media (prefers-reduced-motion:reduce){.scorebar i{animation:none;width:100%;opacity:.6}}
 .rgroup{margin-bottom:0}
 .rtabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px}
 .rtab{padding:8px 15px;font-size:13px;font-weight:600;border-radius:20px;
@@ -73,16 +82,24 @@
           in {{ g.label }}</span>
       </div>
       {% for l in g.lobbies %}
-      <div class="mrow">
+      <div class="mrow{% if l.scoring %} scoring{% endif %}">
         <div>
           <div class="mname"><span class="dot {{ l.tone }}"></span>{{ l.name }}</div>
+          {% if l.scoring %}
+          <div class="msub">Match ended &middot; <b>scoring&hellip;</b> counting the result</div>
+          <div class="scorebar" title="This match has ended and is being scored - the result will appear shortly."><i></i></div>
+          {% else %}
           <div class="msub">{{ l.players }} players &middot; {{ l.mins }} min in &middot; {{ l.status }}{% if l.watching %}
             <span class="halfnote" title="Already being watched. You can still join and press Play - it counts for half, because you were not in it when the watch started.">half elo</span>
           {% elif l.can_checkin %}
             <span class="fullnote" title="Not being watched yet. Press Play and join before a watcher picks it up and the match counts in full.">full elo</span>{% endif %}</div>
+          {% endif %}
         </div>
         <div>
-          {% if l.can_checkin %}
+          {% if l.scoring %}
+            <button disabled data-lobby="{{ l.id }}"
+                    title="This match has ended and is being scored - you cannot join it.">Scoring&hellip;</button>
+          {% elif l.can_checkin %}
             <button class="primary" data-lobby="{{ l.id }}"
                     onclick="checkIn({{ l.id }}, this)">Play</button>
           {% else %}
@@ -219,17 +236,41 @@ async function checkIn(sysId, btn){
 
 // Lobbies turn over every minute or two, but this page is rendered once.
 // Left alone it slowly starts describing matches that have already ended.
+function applyLobbyState(b, state){
+  var row = b.closest('.mrow'), sub = row && row.querySelector('.msub');
+  if(state === 'scoring'){
+    if(row) row.classList.add('scoring');
+    b.disabled = true; b.classList.remove('primary'); b.textContent = 'Scoring…';
+    b.title = 'This match has ended and is being scored - you cannot join it.';
+    if(sub){
+      sub.innerHTML = 'Match ended &middot; <b>scoring&hellip;</b> counting the result';
+      if(row && !row.querySelector('.scorebar')){
+        var bar = document.createElement('div'); bar.className = 'scorebar';
+        bar.innerHTML = '<i></i>'; sub.parentNode.insertBefore(bar, sub.nextSibling);
+      }
+    }
+  } else if(state === 'ended'){
+    b.disabled = true; b.classList.remove('primary'); b.textContent = 'Ended';
+    if(row){
+      var wasScoring = row.classList.contains('scoring');
+      row.classList.remove('scoring');
+      var oldbar = row.querySelector('.scorebar'); if(oldbar) oldbar.remove();
+      if(wasScoring && sub) sub.innerHTML = 'Match over &middot; result recorded';
+    }
+  }
+}
 setInterval(function(){
   fetch('/api/live_lobbies').then(function(r){ return r.json(); }).then(function(d){
-    const live = (d.lobbies||[]).map(function(l){ return String(l.id); });
+    var scoring = {}, live = {};
+    (d.lobbies || []).forEach(function(l){ (l.scoring ? scoring : live)[String(l.id)] = 1; });
     document.querySelectorAll('button[data-lobby]').forEach(function(b){
       if(b.dataset.wasChecked) return;
-      if(live.indexOf(b.dataset.lobby) === -1){
-        b.disabled=true; b.classList.remove('primary'); b.textContent='Ended';
-      }
+      var id = b.dataset.lobby;
+      if(scoring[id]) applyLobbyState(b, 'scoring');
+      else if(!live[id]) applyLobbyState(b, 'ended');
     });
   }).catch(function(){});
-}, 60000);
+}, 15000);
 
 // One region visible at a time, North America first because that is
 // where most matches are. Everything is already in the page, so this is

@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.11.0"
+APP_VERSION = "8.12.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1434,6 +1434,17 @@ def init_db():
                     players INTEGER,
                     age INTEGER,
                     updated_at TEXT
+                )''')
+    # A watched lobby that vanished from the tracker's push - i.e. its match
+    # just ended and is being finalised. Kept here so /play can show a
+    # "Scoring" state during the gap before the result lands, instead of the
+    # lobby just disappearing. Cleared when game_end arrives or on timeout.
+    c.execute('''CREATE TABLE IF NOT EXISTS scoring_lobbies (
+                    sys_id INTEGER PRIMARY KEY,
+                    name TEXT,
+                    region TEXT,
+                    players INTEGER,
+                    since TEXT
                 )''')
     # Whatever the tracker last told us about itself. Kept as a tiny
     # key/value table so the site never has to keep its own copy of the
@@ -3410,6 +3421,13 @@ def game_end():
         if isinstance(_pr, dict):
             data['presence'] = {_to_account(str(k)): v for k, v in _pr.items()}
         data['played_as_map'] = _played_as
+        # The result has landed - stop showing this lobby as "Scoring" on /play.
+        if _sys is not None:
+            try:
+                _c.execute("DELETE FROM scoring_lobbies WHERE sys_id = ?", (_sys,))
+                _conn.commit()
+            except sqlite3.Error:
+                pass
         _conn.close()
     except sqlite3.Error:
         pass
@@ -4112,6 +4130,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.12.0", "at": "2026-09-04T20:00:00Z", "changes": [
+        "When a match you're watching ends, the Play page now keeps it visible as “Scoring…” with a progress bar until the result lands, instead of the lobby just vanishing into a gap. You can't join a match that's being scored.",
+        "The site finally has its own icon — a star in the browser tab and in search results, instead of a blank globe."
+    ]},
     {"version": "8.11.0", "at": "2026-09-02T10:00:00Z", "changes": [
         "Survival has its own page now (More → Survival). A passive observer follows survival lobbies into their elimination phase and records who outlasted the field to be the last ship standing — the page shows recent rounds and a most-wins tally. It's experimental and separate from the team-mode board: a record of results, not a rating (yet)."
     ]},
@@ -7045,6 +7067,16 @@ def push_lobbies():
                   "seen = seen + 1, last_seen = excluded.last_seen",
                   (ocr_name, real_name, now_ts, now_ts))
 
+    # A watched lobby that vanishes this cycle = a match that just ended and is
+    # being scored. Capture the previous watched set before the swap; any not in
+    # the new push go into scoring_lobbies (shown as "Scoring" on /play until the
+    # result lands or it times out); any that reappear are cleared (a transient
+    # push gap, not a real end). game_end also clears them when the result posts.
+    prev_watch = c.execute(
+        "SELECT sys_id, name, players, region FROM live_lobbies WHERE watching = 1"
+    ).fetchall()
+    new_ids = {lobby.get('id') for lobby in lobbies[:40] if lobby.get('id') is not None}
+
     c.execute("DELETE FROM live_lobbies")
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     for lobby in lobbies[:40]:
@@ -7053,6 +7085,15 @@ def push_lobbies():
                   (lobby.get('id'), lobby.get('name'), lobby.get('players'), lobby.get('time'),
                    now, 1 if lobby.get('watching') else 0,
                    lobby.get('region') or 'america'))
+    for sid, lname, lplayers, lregion in prev_watch:
+        if sid not in new_ids:
+            c.execute("INSERT OR IGNORE INTO scoring_lobbies "
+                      "(sys_id, name, region, players, since) VALUES (?,?,?,?,?)",
+                      (sid, lname, lregion or 'america', lplayers, now))
+    if new_ids:
+        c.execute("DELETE FROM scoring_lobbies WHERE sys_id IN (%s)"
+                  % ",".join("?" * len(new_ids)), tuple(new_ids))
+    c.execute("DELETE FROM scoring_lobbies WHERE since < datetime('now', '-100 seconds')")
 
     # Sightings of a ship id under a name. Kept for a short window - just
     # long enough for a check-in to be matched against one - then pruned.
@@ -7096,6 +7137,9 @@ def live_lobbies():
               "FROM live_lobbies WHERE updated_at > datetime('now', '-5 minutes') "
               "ORDER BY watching DESC, age DESC")
     rows = c.fetchall()
+    scoring_rows = c.execute(
+        "SELECT sys_id, name, region, players FROM scoring_lobbies "
+        "WHERE since > datetime('now', '-100 seconds') ORDER BY since DESC").fetchall()
     conn.close()
     described, watched_now = describe_lobbies([(r[1], r[2], r[3], r[4]) for r in rows],
                                               capacity, min_age, max_age, min_players)
@@ -7107,6 +7151,15 @@ def live_lobbies():
         # watched at once.
         lobby["region"] = raw[5]
         lobby["region_label"] = REGION_LABELS.get(raw[5], raw[5])
+    live_ids = {r[0] for r in rows}
+    for sid, sname, sregion, splayers in scoring_rows:
+        if sid in live_ids:
+            continue
+        described.append({"id": sid, "region": sregion or "america",
+                          "region_label": REGION_LABELS.get(sregion, sregion or "america"),
+                          "name": sname or ("Lobby %d" % sid), "players": splayers or 0,
+                          "age": 0, "mins": 0, "watching": False, "status": "Scoring",
+                          "tone": "scoring", "can_checkin": False, "scoring": True})
     return jsonify({"lobbies": described, "minutes_to_check_in": min_age // 60,
                     "capacity": capacity, "watching": watched_now,
                     "regions": [{"key": k, "label": l} for k, l in REGIONS]}), 200
@@ -12170,12 +12223,30 @@ def play_page():
               "COALESCE(region, 'america') FROM live_lobbies "
               "WHERE updated_at > datetime('now', '-5 minutes') ORDER BY watching DESC, age DESC")
     raw = c.fetchall()
+    # Matches that just ended and are being scored - their lobby has dropped out
+    # of the live push, so keep them visible as "Scoring" until the result lands
+    # (game_end clears them) instead of vanishing into a blank gap.
+    scoring_rows = c.execute(
+        "SELECT sys_id, name, region, players, "
+        "CAST((julianday('now') - julianday(since)) * 86400 AS INTEGER) "
+        "FROM scoring_lobbies WHERE since > datetime('now', '-100 seconds') "
+        "ORDER BY since DESC").fetchall()
     conn.close()
     lobbies, watched_now = describe_lobbies([(r[1], r[2], r[3], r[4]) for r in raw],
                                             capacity, min_age, max_age, min_players)
     for lobby, row in zip(lobbies, raw):
         lobby["id"] = row[0]
         lobby["region"] = row[5]
+    live_ids = {r[0] for r in raw}
+    for sid, sname, sregion, splayers, since_s in scoring_rows:
+        if sid in live_ids:
+            continue
+        lobbies.append({"id": sid, "region": sregion or "america",
+                        "name": sname or ("Lobby %d" % sid),
+                        "players": splayers or 0, "mins": 0, "watching": False,
+                        "status": "Scoring", "tone": "scoring",
+                        "can_checkin": False, "scoring": True,
+                        "since_s": max(0, since_s or 0)})
 
     # Grouped by region rather than one flat list. Three continents of
     # lobbies in one column is unreadable, and a player only ever cares
@@ -12359,6 +12430,24 @@ def inject_seo():
     """Make the search-engine bits available to every template's <head>."""
     return {"google_site_verification": GOOGLE_SITE_VERIFICATION,
             "site_root": SITE_ROOT}
+
+
+# A simple site icon (a cyan Starblast star on a dark rounded tile), so the
+# browser tab and search results show a mark instead of a blank globe. Served
+# as SVG (crisp at any size; modern browsers and Google both accept it); the
+# /favicon.ico path returns the same so nothing 404s asking for it.
+FAVICON_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+    "<rect width='32' height='32' rx='7' fill='#0a1622'/>"
+    "<polygon points='16,4.5 18.7,12 26.7,12.2 20.3,17.1 22.6,24.8 16,20.2 "
+    "9.4,24.8 11.7,17.1 5.3,12.2 13.3,12' fill='#99ddff'/></svg>")
+
+
+@app.route('/favicon.svg')
+@app.route('/favicon.ico')
+def favicon():
+    return app.response_class(FAVICON_SVG, mimetype='image/svg+xml',
+                              headers={'Cache-Control': 'public, max-age=604800'})
 
 
 @app.route('/robots.txt')
