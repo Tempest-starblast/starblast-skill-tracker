@@ -36,7 +36,7 @@
     <tbody>
     {% for r in rows %}
       <tr class="rprow" onclick="location.href='/replay/{{ r.id }}'" style="cursor:pointer">
-        <td><time class="lt" datetime="{{ r.at_utc }}">{{ r.at }}</time></td>
+        <td><time class="rel" datetime="{{ r.at_utc }}">{{ r.at }}</time></td>
         <td>{{ r.name }} <span style="color:var(--muted,#8aa0b0)">#{{ r.sys }}</span></td>
         <td>{{ r.region }}</td>
         <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>

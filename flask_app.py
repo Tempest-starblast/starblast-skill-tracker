@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.13.0"
+APP_VERSION = "8.14.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -639,6 +639,57 @@ def normalize_name(name):
     stripped = ''.join(ch for ch in decomposed if not unicodedata.combining(ch))
     recomposed = unicodedata.normalize('NFKC', stripped)
     return ''.join(ch for ch in recomposed if ch.isalnum()).upper()
+
+
+# Look-alike letters that NFKC leaves alone but a human reads as a Latin
+# letter: Cyrillic and Greek glyphs used to "draw" a Latin name. Grouped by
+# the Latin letter they resemble; both cases where they differ.
+_CONFUSE = {}
+for _chars, _base in (
+    ("АΑΛΔаα", "A"), ("ВΒвᏴ", "B"), ("СϹсⅭ", "C"), ("ДД", "D"),
+    ("ЕΕЁЭЄеε", "E"), ("НΗн", "H"), ("ІΙіІ", "I"), ("Јјⅉ", "J"),
+    ("КΚкⱩ", "K"), ("МΜм", "M"), ("ΝПИпи", "N"), ("ОΟОоοΘΦΩ", "O"),
+    ("РΡрρ", "P"), ("ЯƦ", "R"), ("ЅƧΣѕ", "S"), ("ТΤт", "T"),
+    ("УΥуυΨ", "Y"), ("ХΧхχ", "X"), ("Ζз", "Z"), ("Ц", "U"),
+    ("ГгΓ", "R"),
+):
+    for _c in _chars:
+        _CONFUSE[_c] = _base
+
+
+def skeleton(name):
+    """A DELIBERATELY aggressive identity key for CHECK-IN BINDING ONLY.
+
+    On top of normalize_name, it folds look-alike letters (Latin small-caps
+    by their Unicode name, plus a Cyrillic/Greek confusable map) to their base
+    Latin letter, so a name written one way in the settings form and another
+    in-game still matches the ship the player checks into. This is SAFE here
+    and only here, because binding is an explicit "this ship is me" claim tied
+    to one account - it can never merge two strangers. It is NEVER used for
+    global identity (normalize_name stays per-script) precisely because folding
+    Cyrillic->Latin globally would wrongly merge real Russian players."""
+    s = unicodedata.normalize('NFKC', name or '')
+    out = []
+    for ch in s:
+        if ch in _CONFUSE:
+            out.append(_CONFUSE[ch])
+            continue
+        if not ch.isascii():
+            try:
+                nm = unicodedata.name(ch)
+            except ValueError:
+                nm = ''
+            # Latin small-capital / letter-variant whose name ends in a single
+            # Latin letter ("LATIN LETTER SMALL CAPITAL A", "LATIN SMALL LETTER
+            # A") -> that letter. Cyrillic/Greek are handled by _CONFUSE above.
+            if nm.startswith('LATIN '):
+                tail = nm.rsplit(' ', 1)[-1]
+                if len(tail) == 1 and tail.isascii() and tail.isalpha():
+                    out.append(tail)
+                    continue
+        out.append(ch)
+    folded = unicodedata.normalize('NFKC', ''.join(out))
+    return ''.join(c for c in folded if c.isalnum()).upper()
 
 
 # The 44 names Starblast hands out to anyone who joins without typing
@@ -4159,6 +4210,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.14.0", "at": "2026-09-06T08:30:00Z", "changes": [
+        "If you check in, your result now binds to your account even when your in-game name is written in a different font or style than the name on your account — small-caps, fancy Unicode, and look-alike letters all match up. (This only applies at check-in, where you've told us which ship is yours, so it can never mix two different people up.)",
+        "Replays now show how long ago each match was — “3h ago”, “2d ago” — with the exact local time still on hover."
+    ]},
     {"version": "8.13.0", "at": "2026-09-06T00:30:00Z", "changes": [
         "Stylised names now count as one player. A name written in fancy Unicode — full-width, math-script, or tiny sub/super-script letters — used to scatter your results across separate look-alike rows; those are now folded to a single identity, and existing duplicates were merged into one record.",
         "You keep credit for a win based on the highest score you reached in the match, not your score at the final buzzer. Defending the base to the death and getting killed back down no longer costs you the win, and drive-by late joiners who never really scored still don't count."
@@ -7696,7 +7751,9 @@ def bind_appearances_to_checkins(c):
                   "ORDER BY (COALESCE(wins, 0) + COALESCE(losses, 0)) DESC, name LIMIT 1",
                   (sub_id,))
         _row = c.fetchone()
-        expect = normalize_name((_row[0] or _row[1]) if _row else '')
+        _claim = (_row[0] or _row[1]) if _row else ''
+        expect = normalize_name(_claim)
+        expect_skel = skeleton(_claim)
         if not expect:
             continue
         c.execute("SELECT name, ship_id, region FROM appearances "
@@ -7706,7 +7763,11 @@ def bind_appearances_to_checkins(c):
         for cand in c.fetchall():
             if (sys_id, cand[1]) in taken:
                 continue
-            if normalize_name(cand[0]) == expect:
+            # Exact identity match first; then the confusable-tolerant
+            # skeleton, so a stylised in-game name still binds to the ship the
+            # player checked in as (safe - this is their own explicit claim).
+            if (normalize_name(cand[0]) == expect
+                    or (expect_skel and skeleton(cand[0]) == expect_skel)):
                 hit = cand
                 break
         if not hit:
