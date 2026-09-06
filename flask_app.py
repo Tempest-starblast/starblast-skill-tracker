@@ -7989,6 +7989,19 @@ def linked_discord_for(c, account_sub):
     return {"id": row[0], "username": row[1], "display": row[2]}
 
 
+def discord_id_for_owner(c, owner_sub):
+    """The Discord snowflake to @mention for an account, or None if it has no
+    reachable Discord. Covers both ways an account can be on Discord: signed
+    in with Discord directly (the sub itself is 'discord:<id>'), or a Google
+    account that linked one (discord_links)."""
+    if not owner_sub:
+        return None
+    if owner_sub.startswith("discord:"):
+        return owner_sub.split(":", 1)[1]
+    link = linked_discord_for(c, owner_sub)
+    return link["id"] if link else None
+
+
 @app.route('/auth/discord')
 def auth_discord_start():
     """Send the player to Discord to approve a sign-in - or, with ?mode=link
@@ -10333,13 +10346,27 @@ def bot_matches_undelivered():
               "ORDER BY id LIMIT 15")
     rows = c.fetchall()
     out = []
+    _MISS = object()
+    did_cache = {}   # norm_name -> discord snowflake (or None), reused across matches
     for mid, match_id, region, played_at, lobby_name, treads, sysid in rows:
-        c.execute("SELECT name, won, COALESCE(delta, 0), COALESCE(team, '') "
+        c.execute("SELECT name, norm_name, won, COALESCE(delta, 0), COALESCE(team, '') "
                   "FROM match_players WHERE match_row = ? "
                   "ORDER BY won DESC, delta DESC", (mid,))
+        mp_rows = c.fetchall()
         winners, lose1, lose2 = [], [], []
-        for name, won, delta, team in c.fetchall():
+        for name, nn, won, delta, team in mp_rows:
             e = {"name": name, "delta": round(delta, 2)}
+            # If this name's account is reachable on Discord, hand the bot the
+            # snowflake so it can @mention them in the feed instead of printing
+            # a plain name. Cached per norm_name across the whole batch.
+            did = did_cache.get(nn, _MISS)
+            if did is _MISS:
+                orow = c.execute("SELECT owner_sub FROM players WHERE norm_name = ?",
+                                 (nn,)).fetchone()
+                did = discord_id_for_owner(c, orow[0] if orow else None)
+                did_cache[nn] = did
+            if did:
+                e["discord_id"] = did
             if won:
                 winners.append(e)
             elif team == 'lose2':
