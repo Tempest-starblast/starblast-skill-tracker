@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.0.0"
+APP_VERSION = "9.1.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2304,23 +2304,21 @@ def k_factor(games):
 
 @app.route('/live')
 def live_view():
-    """Every match being tracked right now, with live win probabilities.
-
-    Public since 7.0.0 - it is the most interesting thing the site has
-    and there was no reason only one person could see it. The owner's
-    own tools (flood alerts, model internals) stay owner-only inside."""
-    return render_template('live.html', page='live', version=APP_VERSION,
+    """The live-matches page. Since the shadow-engine switch (9.1.0) this IS
+    the browserless raw_observer feed - every vanilla team lobby watched from
+    minute zero, full rosters, radar and shadow win-probabilities. The old
+    chromium-fed win-prob view (live.html) went dark when the browser tracker
+    was retired, so /live now serves the raw view that replaced it. Public;
+    the owner's live/named extras stay gated inside the template."""
+    return render_template('rawlive.html', page='live', version=APP_VERSION,
                            is_owner=1 if is_site_owner() else 0)
 
 
 @app.route('/rawlive')
 def rawlive_view():
-    """Every match the browserless raw_observer is watching from minute zero.
-    A test view alongside /live: same idea, but sourced from the resident
-    raw-socket recorder (up to 10 lobbies, full rosters from the opening),
-    and with no probability - it is pure observed state (7.5.0)."""
-    return render_template('rawlive.html', page='rawlive', version=APP_VERSION,
-                           is_owner=1 if is_site_owner() else 0)
+    """Folded into /live at the shadow switch (9.1.0). Kept as a permanent
+    redirect so older links and the bot's 'watch it live' still resolve."""
+    return redirect('/live', code=301)
 
 
 @app.route('/api/rawlive/state', methods=['POST'])
@@ -2510,10 +2508,14 @@ def rawlive_matches():
             layout = _lay[idx] if idx < len(_lay) else []
             players = []
             if _owner:
+                # Drop our own resident watcher ('homi is watching' etc.): it
+                # joins a team to observe and would otherwise sit in the roster
+                # as a phantom 0-score player.
                 players = sorted(
                     [{"name": r[0], "score": r[1], "tier": r[2],
                       "dead": (r[3] == 0), "impact": impacts.get((idx, ri))}
-                     for ri, r in enumerate(roster) if r and r[0]],
+                     for ri, r in enumerate(roster)
+                     if r and r[0] and not is_observer_name(r[0])],
                     key=lambda q: -q["score"])[:12]
             teams.append({
                 "key": k,
@@ -2532,7 +2534,8 @@ def rawlive_matches():
         if _owner:
             for k in ("team_1", "team_2", "team_3"):
                 for r in (d.get("teams", {}).get(k) or []):
-                    if r and len(r) > 4 and r[0] and r[0] != "?":
+                    if (r and len(r) > 4 and r[0] and r[0] != "?"
+                            and not is_observer_name(r[0])):
                         _names[str(r[4])] = r[0]
         out.append({
             "sys_id": sys_id, "name": d.get("name") or ("Lobby %d" % sys_id),
@@ -4210,6 +4213,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.1.0", "at": "2026-09-06T22:30:00Z", "changes": [
+        "The Live matches page now IS the from-the-start watcher — the “Live from minute 0” view and the old “Live matches” view have been folded into one. Every vanilla team lobby, watched from the opening, with the live radar, station health and win chances, all in one place. The old browser-fed live view (which went dark when the browser tracker was retired) is gone.",
+        "Retired the separate “Shadow rating” review page. It was a preview of the new engine while it ran beside the old board; now that engine IS the live board, so the standalone page has nothing left to show.",
+        "Our own watcher no longer shows up as a phantom 0-score player in the live rosters."
+    ]},
     {"version": "9.0.0", "at": "2026-09-06T09:00:00Z", "changes": [
         "The board has moved to its new engine — the shadow model. Instead of a browser watching a handful of lobbies late, a browserless watcher now follows EVERY live team match from the moment it starts. So every game can count, in every region, not just five at a time — and a match is picked up within seconds of appearing.",
         "Because the watcher sees every match from the start, whether you get full or half elo is now judged on when your ship actually joined the game — not on when you press Play. Play from early on and you get full credit even if you check in late.",
@@ -6540,11 +6548,10 @@ def shadow_match():
 
 @app.route('/shadow')
 def shadow_view():
-    """Owner-only review of the shadow (participation-weighted, from-zero)
-    rating that runs beside the live board, with match-by-match analytics."""
-    if not is_site_owner():
-        return redirect('/')
-    return render_template('shadow.html', page='shadow', version=APP_VERSION)
+    """Retired at the shadow-engine switch (9.1.0). The shadow rating was a
+    review-only trial of the raw-observer engine; now that engine IS the live
+    board, so the standalone page is gone. Kept as a redirect for old links."""
+    return redirect('/')
 
 
 @app.route('/api/shadow/board')
@@ -6784,14 +6791,19 @@ SURVIVAL_OBSERVERS = {"seeyou", "homiiswatching", "elobot", "elotracker",
                       "replaysystem"}
 
 
-def survival_is_observer(name):
-    """A spectator/system entity that must never be recorded as a winner
-    (mirrors the droplet observer's blocklist; a server-side safety net)."""
+def is_observer_name(name):
+    """A spectator/system entity - our own resident watchers ('homi is
+    watching', 'elo bot', ...) - that must never be recorded as a winner
+    OR shown in a live roster (mirrors the droplet observer's blocklist)."""
     low = (name or "").lower()
     if any(b in low for b in ("homi is watching", "replay system",
                               "elo bot", "elo tracker")):
         return True
     return "".join(ch for ch in low if ch.isalnum()) in SURVIVAL_OBSERVERS
+
+
+# The survival code predates the general name; keep the old spelling working.
+survival_is_observer = is_observer_name
 
 
 @app.route('/api/survival/push', methods=['POST'])
