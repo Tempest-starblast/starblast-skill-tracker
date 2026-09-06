@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.12.1"
+APP_VERSION = "8.13.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -142,7 +142,15 @@ LATE_JOIN_FLOOR = 0.15
 # under it on purpose. The assembled losing team takes the loss, full
 # stop; spectator bodies are already stripped upstream. A player with NO
 # recorded score is still rated - missing evidence never drops anyone.
-MIN_RATED_SCORE = 1000        # to collect a win
+MIN_RATED_SCORE = 1000        # to collect a win (legacy: on FINAL score)
+# Owner's rule (5 Sep 2026): eligibility is judged on the PEAK score a player
+# ever reached, not their final one. A defender killed repeatedly to a low
+# final score still fought (they peaked high); a late-joining idler never
+# climbed. When the payload carries peak_scores, a winner needs this peak to
+# collect - which fixes wins lost to end-game score collapse and still filters
+# drive-by joiners. Falls back to MIN_RATED_SCORE on the final score for any
+# payload without peak_scores.
+MIN_RATED_PEAK = 2000
 
 # Anchored to this file's own directory rather than a bare relative path,
 # since different hosts (PythonAnywhere vs the droplet) run this with
@@ -619,9 +627,17 @@ def normalize_name(name):
     Accents are folded away first, because OCR is not reliable about them:
     JOSE and JOSE with an accent are one player, not two. Decomposing and
     recomposing leaves Hangul and Chinese untouched."""
-    decomposed = unicodedata.normalize('NFD', name or '')
+    # NFKC (compatibility) folding, 5 Sep 2026: stylised names are the same
+    # person written fancy. Fullwidth ＳＰＩＲＩＴ, math 𝕊𝕡𝕚𝕣𝕚𝕥, circled, super-
+    # script and half-width katakana all fold to their plain letters here, so
+    # a player who types their name one way in settings and plays it another
+    # binds to ONE identity instead of scattering across duplicate rows.
+    # (Plain, accented, Cyrillic, Chinese, Arabic and Korean names are
+    # untouched - NFKC does not cross scripts, so real non-Latin names keep
+    # their characters and are never merged into a Latin look-alike.)
+    decomposed = unicodedata.normalize('NFKD', name or '')
     stripped = ''.join(ch for ch in decomposed if not unicodedata.combining(ch))
-    recomposed = unicodedata.normalize('NFC', stripped)
+    recomposed = unicodedata.normalize('NFKC', stripped)
     return ''.join(ch for ch in recomposed if ch.isalnum()).upper()
 
 
@@ -3642,6 +3658,9 @@ def game_end():
     # Rewritten to account names at the door along with the rosters, so
     # the keys here match the names skip() will be asked about.
     final_scores = data.get('scores') if isinstance(data.get('scores'), dict) else {}
+    # Peak score per player (highest the game ever showed them), when the
+    # engine reports it - eligibility is judged on this, see MIN_RATED_PEAK.
+    peak_scores = data.get('peak_scores') if isinstance(data.get('peak_scores'), dict) else {}
 
     # The tracker flags a name it saw more than once in the same lobby.
     # Two identical names means one is an impersonator and there is no way
@@ -3660,9 +3679,14 @@ def game_end():
             return 'unreadable-name'
         if is_default_name(player_name):
             return 'default-name'
-        _sc = final_scores.get(player_name)
-        if not losing and _sc is not None and _sc < MIN_RATED_SCORE:
-            return 'low-score'
+        _peak = peak_scores.get(player_name)
+        if _peak is not None:
+            if not losing and _peak < MIN_RATED_PEAK:
+                return 'low-score'
+        else:
+            _sc = final_scores.get(player_name)
+            if not losing and _sc is not None and _sc < MIN_RATED_SCORE:
+                return 'low-score'
         if (normalize_name(player_name) in ambiguous
                 and normalize_name(player_name) not in checked_in):
             return 'duplicate-name'
@@ -3687,9 +3711,14 @@ def game_end():
         # rating them hands wins to idlers. Losers have no floor: the
         # assembled losing team takes the loss whatever the panel says,
         # or dying on purpose becomes a way out of it.
-        _sc = final_scores.get(player_name)
-        if not losing and _sc is not None and _sc < MIN_RATED_SCORE:
-            return True
+        _peak = peak_scores.get(player_name)
+        if _peak is not None:
+            if not losing and _peak < MIN_RATED_PEAK:
+                return True
+        else:
+            _sc = final_scores.get(player_name)
+            if not losing and _sc is not None and _sc < MIN_RATED_SCORE:
+                return True
         if normalize_name(player_name) in dominance_exempt:
             return True
         key = normalize_name(player_name)
@@ -4130,6 +4159,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "8.13.0", "at": "2026-09-06T00:30:00Z", "changes": [
+        "Stylised names now count as one player. A name written in fancy Unicode — full-width, math-script, or tiny sub/super-script letters — used to scatter your results across separate look-alike rows; those are now folded to a single identity, and existing duplicates were merged into one record.",
+        "You keep credit for a win based on the highest score you reached in the match, not your score at the final buzzer. Defending the base to the death and getting killed back down no longer costs you the win, and drive-by late joiners who never really scored still don't count."
+    ]},
     {"version": "8.12.0", "at": "2026-09-04T20:00:00Z", "changes": [
         "When a match you're watching ends, the Play page now keeps it visible as “Scoring…” with a progress bar until the result lands, instead of the lobby just vanishing into a gap. You can't join a match that's being scored.",
         "The site finally has its own icon in the browser tab and in search results, instead of a blank globe."
