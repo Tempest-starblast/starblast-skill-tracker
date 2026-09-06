@@ -10361,7 +10361,7 @@ def bot_matches_undelivered():
             # a plain name. Cached per norm_name across the whole batch.
             did = did_cache.get(nn, _MISS)
             if did is _MISS:
-                orow = c.execute("SELECT owner_sub FROM players WHERE norm_name = ?",
+                orow = c.execute("SELECT google_sub FROM players WHERE norm_name = ?",
                                  (nn,)).fetchone()
                 did = discord_id_for_owner(c, orow[0] if orow else None)
                 did_cache[nn] = did
