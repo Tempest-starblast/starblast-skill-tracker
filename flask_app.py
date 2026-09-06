@@ -12359,6 +12359,7 @@ def play_page():
     # quiet hour does not look like the tracker has stopped covering it.
     all_regions = [{"key": k, "label": lbl} for k, lbl in REGIONS]
     group_keys = [g["key"] for g in groups]
+    total_live = sum(1 for l in lobbies if not l.get("scoring"))
 
     conn = db()
     c = conn.cursor()
@@ -12368,7 +12369,7 @@ def play_page():
     return render_template('play.html', version=APP_VERSION, page='play',
                            lobbies=lobbies, groups=groups, all_regions=all_regions,
                            group_keys=group_keys, watched=watched_now,
-                           capacity=capacity, account_name=account_name,
+                           capacity=capacity, total=total_live, account_name=account_name,
                            min_age_mins=min_age // 60, contact=CONTACT_HANDLE,
                            wins_required=CLAIM_WINS_REQUIRED)
 

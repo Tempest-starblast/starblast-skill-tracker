@@ -67,7 +67,7 @@
 </div>
 
 <div class="card live">
-  <h2>Live matches &mdash; every one watched from the start, so every game can count</h2>
+  <h2>Live matches &mdash; {{ watched }}/{{ total }} tracked</h2>
   <div class="rtabs">
     {% for r in all_regions %}
     <button type="button" class="rtab{% if loop.first %} on{% endif %}"
