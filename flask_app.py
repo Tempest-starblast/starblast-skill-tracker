@@ -6828,17 +6828,26 @@ def trueskill_replay_read():
 
 SURVIVAL_OBSERVERS = {"seeyou", "homiiswatching", "elobot", "elotracker",
                       "replaysystem"}
+# Confirmed NON-player clients (not ours): resident/AFK ships that never
+# disconnect, so the "last ship standing" read falsely crowns them round after
+# round. Owner-confirmed and excluded from survival placement + winner. Keyed
+# by alphanumerics of the lowercased name, like the observer set.
+# - lukaskyle: 34 "wins" in 46 big-field rounds across all regions in 4 days,
+#   never plays team mode, always last-seen ~12s before the buzzer (6 Sep 2026).
+SURVIVAL_BLOCKED_BOTS = {"lukaskyle"}
 
 
 def is_observer_name(name):
     """A spectator/system entity - our own resident watchers ('homi is
-    watching', 'elo bot', ...) - that must never be recorded as a winner
-    OR shown in a live roster (mirrors the droplet observer's blocklist)."""
+    watching', 'elo bot', ...) or a confirmed foreign resident bot - that must
+    never be recorded as a winner OR shown in a live roster / rated (mirrors
+    the droplet observer's blocklist)."""
     low = (name or "").lower()
     if any(b in low for b in ("homi is watching", "replay system",
                               "elo bot", "elo tracker")):
         return True
-    return "".join(ch for ch in low if ch.isalnum()) in SURVIVAL_OBSERVERS
+    alnum = "".join(ch for ch in low if ch.isalnum())
+    return alnum in SURVIVAL_OBSERVERS or alnum in SURVIVAL_BLOCKED_BOTS
 
 
 # The survival code predates the general name; keep the old spelling working.
@@ -6864,6 +6873,21 @@ def _survival_ranked_field(data):
         seen.add(key)
         ranked.append((key, str(nm).strip()[:64]))
     return ranked
+
+
+def _survival_true_winner(data):
+    """(winner, runner_up) = the first two NON-observer names in leave_order
+    (which is winner-first). Salvages a round whose observed 'winner' is a
+    resident bot: the real winner is simply the next real ship down, not a
+    dropped round. ('', '') if no real player is left."""
+    reals = []
+    for entry in (data.get('leave_order') or []):
+        nm = entry[0] if isinstance(entry, (list, tuple)) else entry
+        if nm and not is_observer_name(nm):
+            reals.append(str(nm).strip()[:64])
+            if len(reals) >= 2:
+                break
+    return (reals[0] if reals else "", reals[1] if len(reals) > 1 else "")
 
 
 def apply_survival_round(c, round_key, ended_at, data):
@@ -6997,9 +7021,12 @@ def survival_push():
             continue
         if not r.get('reached_elimination'):
             continue                       # only real elimination rounds
-        w = r.get('winner') or ''
-        if not w or survival_is_observer(w):
-            continue                       # never store a bot/observer winner
+        # Crown the first REAL ship in the finish order, not whatever the
+        # observer reported - a resident bot at the very top would otherwise
+        # either be crowned or (once blocklisted) cost us the whole round.
+        w, ru = _survival_true_winner(r)
+        if not w:
+            continue                       # no real player left to credit
         key = "%s|%s" % (r.get('sid'), r.get('ended_at'))
         try:
             c.execute("INSERT OR REPLACE INTO survival_results "
@@ -7031,8 +7058,10 @@ def survival_page():
     try:
         data_rows = c.execute("SELECT data FROM survival_results "
                               "ORDER BY ended_at DESC LIMIT 80").fetchall()
-        win_rows = c.execute("SELECT winner, COUNT(*) FROM survival_results "
-                             "GROUP BY winner ORDER BY COUNT(*) DESC, winner LIMIT 12").fetchall()
+        # Most wins comes from the rated board, which already excludes blocked
+        # bots/observers - not a raw GROUP BY on the stored winner column.
+        win_rows = c.execute("SELECT name, wins FROM survival_players "
+                             "WHERE wins > 0 ORDER BY wins DESC, rounds LIMIT 12").fetchall()
     except sqlite3.Error:
         data_rows, win_rows = [], []
     rounds = []
@@ -7042,9 +7071,12 @@ def survival_page():
         except Exception:
             continue
         ea = r.get('ended_at') or ''
+        # Re-derive winner/runner-up past any resident bot, so a blocklisted
+        # ship never shows as the winner of a historical round.
+        w, ru = _survival_true_winner(r)
         rounds.append({
-            "winner": r.get('winner') or '',
-            "runner_up": r.get('runner_up') or '',
+            "winner": w or r.get('winner') or '',
+            "runner_up": ru,
             "field": r.get('elim_field_size') or 0,
             "region": (r.get('region') or '').title(),
             "lobby": r.get('lobby') or '',
