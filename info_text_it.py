@@ -22,12 +22,12 @@ CARDS = [
   '<p>Non serve altro. Accedere è facoltativo e serve solo per gli extra qui sotto.</p>'),
 
  ("Quali partite contano",
-  '<p>Possiamo osservare solo poche partite alla volta, quindi non contano tutte. Una'
-  ' partita è osservabile quando ha <b>20 minuti</b>, fino ai 90 minuti, e le servono'
-  ' almeno quattro giocatori.</p>'
-  '<p>La scheda <a href="/play">Gioca</a> mostra esattamente quali lobby sono osservate in'
-  ' questo momento. Se una partita non è in quell&#39;elenco, non ne viene registrato'
-  ' nulla &mdash; e non arriva dopo.</p>'),
+  '<p>Ora ogni partita a squadre dal vivo viene osservata, dal momento in cui inizia'
+  ' &mdash; non c&#39;è più un limite di poche alla volta. A una partita bastano almeno'
+  ' <b>quattro giocatori</b>, e viene seguita fino alla fine.</p>'
+  '<p>La scheda <a href="/play">Gioca</a> elenca ogni partita dal vivo e se'
+  ' l&#39;osservatore è già su di essa; una lobby appena creata viene rilevata in pochi'
+  ' secondi. Se una partita è dal vivo, conta.</p>'),
 
  ("Il tuo punteggio",
   '<p>Si parte tutti da <b>[[ELO]]</b>. Una partita ti sposta al massimo di <b>[[K]]</b>'
@@ -40,9 +40,11 @@ CARDS = [
   ' volta ben valutata. Conta anche chi hai accanto: la tua variazione fonde il tuo punteggio con la media della squadra &mdash; trascinare alleati deboli alla vittoria rende più della stessa vittoria in una squadra fortissima, e perdere con alleati deboli costa meno.</p>'),
 
  ("Piena e metà",
-  '<p>Se eri già nella partita quando abbiamo iniziato a osservarla, conta piena. Se entri'
-  ' in una partita già osservata conta lo stesso, a <b>metà</b> &mdash; per chi vince come'
-  ' per chi perde. La scheda Gioca dice qual è quale prima che tu entri.</p>'),
+  '<p>Poiché l&#39;osservatore segue ogni partita fin dall&#39;inizio, vede esattamente'
+  ' quando la tua nave è entrata. Gioca fin dall&#39;inizio e conti <b>piena</b>; entra in'
+  ' una partita già bene avviata e conta a <b>metà</b> &mdash; per chi vince come per chi'
+  ' perde. Si giudica in base a quando sei entrato davvero nella partita, non a quando premi'
+  ' Gioca.</p>'),
 
  ("Due regole da sapere",
   '<p><b>Andarsene in anticipo non evita la sconfitta.</b> Una squadra che perde viene'

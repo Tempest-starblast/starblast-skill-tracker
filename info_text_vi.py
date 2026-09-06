@@ -20,12 +20,12 @@ CARDS = [
   '<p>Chỉ cần vậy thôi. Đăng nhập là tuỳ bạn, và chỉ cần cho những phần thêm ở dưới.</p>'),
 
  ("Trận nào được tính",
-  '<p>Chúng tôi chỉ theo dõi được vài trận cùng lúc, nên không phải trận nào cũng tính.'
-  ' Một trận có thể được theo dõi khi đã <b>20 phút</b>, cho tới khi được 90 phút, và cần'
-  ' ít nhất bốn người chơi.</p>'
-  '<p>Thẻ <a href="/play">Chơi</a> cho biết chính xác những phòng nào đang được theo dõi'
-  ' ngay lúc này. Nếu một trận không có trong danh sách đó thì không ghi nhận gì cả'
-  ' &mdash; và cũng không có chuyện đến muộn.</p>'),
+  '<p>Giờ đây mọi trận đồng đội đang diễn ra đều được theo dõi, ngay từ khi bắt đầu &mdash;'
+  ' không còn giới hạn chỉ vài trận cùng lúc nữa. Một trận chỉ cần có ít nhất'
+  ' <b>bốn người chơi</b>, và nó được theo dõi cho tới hết.</p>'
+  '<p>Thẻ <a href="/play">Chơi</a> liệt kê mọi trận đang diễn ra và cho biết trình theo dõi'
+  ' đã vào trận đó chưa; một phòng vừa mới lập sẽ được bắt trong vài giây. Nếu một trận đang'
+  ' diễn ra, nó được tính.</p>'),
 
  ("Điểm của bạn",
   '<p>Ai cũng bắt đầu ở <b>[[ELO]]</b>. Một trận làm bạn thay đổi nhiều nhất <b>[[K]]</b>'
@@ -37,9 +37,10 @@ CARDS = [
   ' kéo bạn lên &mdash; muốn lên thì phải thắng những người có điểm cao. Đồng đội của bạn cũng được tính: mức thay đổi trộn điểm của bạn với trung bình của đội, nên gánh đồng đội yếu đến chiến thắng được nhiều hơn cùng chiến thắng đó trong đội toàn cao thủ &mdash; và thua cùng đồng đội yếu mất ít hơn.</p>'),
 
  ("Trọn vẹn và một nửa",
-  '<p>Nếu bạn đã ở trong trận từ trước khi chúng tôi bắt đầu theo dõi, trận đó tính trọn'
-  ' vẹn. Vào một trận đang được theo dõi thì vẫn tính, nhưng <b>một nửa</b> &mdash; cho cả'
-  ' bên thắng lẫn bên thua. Thẻ Chơi nói rõ trận nào là trận nào trước khi bạn vào.</p>'),
+  '<p>Vì trình theo dõi bám mỗi trận ngay từ đầu, nó thấy chính xác lúc tàu của bạn vào'
+  ' trận. Chơi từ sớm thì bạn được tính <b>trọn vẹn</b>; bước vào một trận đã diễn ra khá'
+  ' lâu thì chỉ tính <b>một nửa</b> &mdash; cho cả bên thắng lẫn bên thua. Việc này căn cứ'
+  ' vào lúc bạn thật sự vào trận, chứ không phải lúc bạn bấm Chơi.</p>'),
 
  ("Hai điều nên biết",
   '<p><b>Thoát sớm không tránh được trận thua.</b> Đội thua bị tính theo đội hình đông'

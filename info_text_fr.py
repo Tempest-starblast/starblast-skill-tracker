@@ -23,12 +23,13 @@ CARDS = [
   ' options ci-dessous.</p>'),
 
  ("Quelles parties comptent",
-  '<p>Nous ne pouvons suivre que quelques parties à la fois, donc toutes ne comptent pas.'
-  ' Une partie devient observable à <b>20 minutes</b>, jusqu&#39;à 90 minutes, et il lui'
-  ' faut au moins quatre joueurs.</p>'
-  '<p>L&#39;onglet <a href="/play">Jouer</a> montre exactement quels salons sont suivis en'
-  ' ce moment. Si une partie n&#39;y est pas, rien n&#39;en est enregistré &mdash; et cela'
-  ' n&#39;arrive pas plus tard.</p>'),
+  '<p>Désormais, chaque partie en équipe en cours est suivie, dès l&#39;instant où elle'
+  ' commence &mdash; il n&#39;y a plus de limite à quelques-unes seulement à la fois. Il'
+  ' suffit qu&#39;une partie compte au moins <b>quatre joueurs</b>, et elle est suivie'
+  ' jusqu&#39;au bout.</p>'
+  '<p>L&#39;onglet <a href="/play">Jouer</a> liste chaque partie en cours et indique si'
+  ' l&#39;observateur y est déjà ; un salon tout neuf est repéré en quelques secondes. Si'
+  ' une partie est en cours, elle compte.</p>'),
 
  ("Votre niveau",
   '<p>Tout le monde commence à <b>[[ELO]]</b>. Une partie vous déplace d&#39;au plus'
@@ -42,10 +43,11 @@ CARDS = [
   ' eux-mêmes bien classés. Vos coéquipiers comptent aussi : votre variation mélange votre score et la moyenne de votre équipe &mdash; porter des alliés faibles vers la victoire rapporte plus que la même victoire dans une équipe surpuissante, et perdre avec des alliés faibles coûte moins.</p>'),
 
  ("Pleine et demie",
-  '<p>Si vous étiez déjà dans la partie quand nous avons commencé à l&#39;observer, elle'
-  ' compte en entier. Rejoignez une partie déjà suivie et elle compte quand même, pour'
-  ' <b>moitié</b> &mdash; pour les gagnants comme pour les perdants. L&#39;onglet Jouer'
-  ' indique laquelle est laquelle avant que vous entriez.</p>'),
+  '<p>Comme l&#39;observateur suit chaque partie depuis son début, il voit exactement quand'
+  ' votre vaisseau est arrivé. Entrez tôt et vous comptez <b>pleinement</b> ; arrivez dans'
+  ' une partie déjà bien avancée et elle ne compte qu&#39;à <b>moitié</b> &mdash; pour les'
+  ' gagnants comme pour les perdants. Ce qui compte, c&#39;est le moment où vous avez'
+  ' vraiment rejoint la partie, pas celui où vous appuyez sur Jouer.</p>'),
 
  ("Deux règles à connaître",
   '<p><b>Partir tôt n&#39;évite pas la défaite.</b> Une équipe perdante est comptée avec'

@@ -23,12 +23,12 @@ CARDS = [
   ' extras de más abajo.</p>'),
 
  ("Qué partidas cuentan",
-  '<p>Solo podemos observar unas pocas partidas a la vez, así que no cuentan todas. Una'
-  ' partida se puede observar cuando tiene <b>20 minutos</b>, hasta que llega a los 90'
-  ' minutos, y necesita al menos cuatro jugadores.</p>'
-  '<p>La pestaña <a href="/play">Jugar</a> muestra exactamente qué salas se están'
-  ' observando en este momento. Si una partida no está en esa lista, no se registra nada de'
-  ' ella &mdash; y no llega más tarde.</p>'),
+  '<p>Ahora se observa cada partida por equipos en directo, desde el momento en que empieza'
+  ' &mdash; ya no hay un límite de solo unas pocas a la vez. A una partida solo le hacen'
+  ' falta al menos <b>cuatro jugadores</b>, y se sigue hasta el final.</p>'
+  '<p>La pestaña <a href="/play">Jugar</a> muestra cada partida en directo y si el'
+  ' observador ya está en ella; una sala recién creada se detecta en unos segundos. Si una'
+  ' partida está en directo, cuenta.</p>'),
 
  ("Tu puntuación",
   '<p>Todo el mundo empieza en <b>[[ELO]]</b>. Una partida te mueve como mucho <b>[[K]]</b>'
@@ -41,10 +41,11 @@ CARDS = [
   ' bien valorada. Quiénes te acompañan también cuentan: tu cambio mezcla tu puntuación con la media de tu equipo &mdash; ganar llevando aliados débiles da más que la misma victoria en un equipo repleto de cracks, y perder con aliados débiles cuesta menos.</p>'),
 
  ("Completa y media",
-  '<p>Si ya estabas en la partida cuando empezamos a observarla, cuenta completa. Si te'
-  ' unes a una partida que ya se está observando, también cuenta, pero a <b>la mitad</b>'
-  ' &mdash; tanto para ganadores como para perdedores. La pestaña Jugar dice cuál es cuál'
-  ' antes de que entres.</p>'),
+  '<p>Como el observador sigue cada partida desde su inicio, ve exactamente cuándo se unió'
+  ' tu nave. Juega desde el principio y cuentas <b>completa</b>; entra en una partida que ya'
+  ' está muy avanzada y cuenta a <b>la mitad</b> &mdash; tanto para ganadores como para'
+  ' perdedores. Se juzga por cuándo te uniste de verdad a la partida, no por cuándo pulsas'
+  ' Jugar.</p>'),
 
  ("Dos reglas que conviene saber",
   '<p><b>Irse antes de tiempo no libra de la derrota.</b> A un equipo perdedor se le cobra'

@@ -24,12 +24,12 @@ CARDS = [
   ' gedacht.</p>'),
 
  ("Welche Spiele zählen",
-  '<p>Wir können immer nur ein paar Spiele gleichzeitig beobachten, also zählt nicht jedes.'
-  ' Ein Spiel ist beobachtbar, sobald es <b>20 Minuten alt</b> ist, bis es 90 Minuten alt'
-  ' ist, und es braucht mindestens vier Spieler.</p>'
-  '<p>Der Reiter <a href="/play">Spielen</a> zeigt genau, welche Lobbys gerade beobachtet'
-  ' werden. Steht ein Spiel nicht auf der Liste, wird nichts davon erfasst &mdash; es kommt'
-  ' auch später nicht an.</p>'),
+  '<p>Jedes laufende Teamspiel wird jetzt beobachtet, vom Moment seines Beginns an &mdash;'
+  ' es gibt keine Begrenzung mehr auf nur ein paar gleichzeitig. Ein Spiel braucht nur'
+  ' mindestens <b>vier Spieler</b> und wird bis zum Schluss verfolgt.</p>'
+  '<p>Der Reiter <a href="/play">Spielen</a> listet jedes laufende Spiel auf und ob der'
+  ' Beobachter schon dran ist; eine brandneue Lobby wird innerhalb weniger Sekunden erfasst.'
+  ' Läuft ein Spiel, zählt es.</p>'),
 
  ("Deine Wertung",
   '<p>Alle starten bei <b>[[ELO]]</b>. Ein Spiel bewegt dich um höchstens <b>[[K]]</b>'
@@ -43,10 +43,11 @@ CARDS = [
   ' schlagen, die selbst hoch bewertet sind. Wer neben dir spielt, zählt mit: dein Ausschlag mischt deine Wertung mit dem Teamdurchschnitt &mdash; schwache Verbündete zum Sieg zu tragen bringt mehr als derselbe Sieg im Star-Team, und eine Niederlage mit schwachen Verbündeten kostet weniger.</p>'),
 
  ("Ganz und halb",
-  '<p>Warst du schon im Spiel, als wir angefangen haben zu beobachten, zählt es ganz.'
-  ' Steigst du in ein Spiel ein, das bereits beobachtet wird, zählt es trotzdem, nämlich'
-  ' <b>halb</b> &mdash; für Gewinner wie Verlierer gleichermaßen. Der Reiter Spielen sagt'
-  ' vorher, was was ist.</p>'),
+  '<p>Weil der Beobachter jedes Spiel von Beginn an verfolgt, sieht er genau, wann dein'
+  ' Schiff dazugekommen ist. Bist du von früh an dabei, zählst du <b>ganz</b>; steigst du in'
+  ' ein Spiel ein, das schon gut im Gange ist, zählt es <b>halb</b> &mdash; für Gewinner wie'
+  ' Verlierer gleichermaßen. Es kommt darauf an, wann du dem Spiel tatsächlich beigetreten'
+  ' bist, nicht darauf, wann du auf Spielen drückst.</p>'),
 
  ("Zwei Regeln, die man kennen sollte",
   '<p><b>Früh gehen erspart die Niederlage nicht.</b> Ein verlierendes Team wird mit seiner'
