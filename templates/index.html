@@ -132,14 +132,33 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 .tnote a{color:var(--blue);text-decoration:none}
 .tnote a:hover{text-decoration:underline}
 .hint{margin:10px 0 0;font-size:12.5px;line-height:1.6;color:var(--dim)}
+.modebar{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.modebar a{display:inline-flex;align-items:center;gap:6px;padding:7px 15px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--dim);text-decoration:none;font-weight:700;font-size:13.5px;backdrop-filter:var(--blur)}
+.modebar a:hover{color:var(--text)}
+.modebar a.on{color:var(--text);border-color:var(--accent,#66E6B8);box-shadow:inset 0 0 0 1px var(--accent,#66E6B8)}
+.betatag{font-size:9px;letter-spacing:.5px;color:#66E6B8;border:1px solid #66E6B855;border-radius:4px;padding:1px 4px;text-transform:uppercase;font-weight:700}
+.svbeta{margin:-4px 0 14px;font-size:12.5px;line-height:1.6;color:var(--dim);max-width:64ch}
 {% endblock %}
 {% block body %}
-{% macro board(p=1, per=none, reg=none, term=none) -%}
-/?period={{ per if per is not none else period }}&amp;region={{ reg if reg is not none else region }}{% if p and p > 1 %}&amp;page={{ p }}{% endif %}{% set qq = term if term is not none else q %}{% if qq %}&amp;q={{ qq|urlencode }}{% endif %}
+{% macro board(p=1, per=none, reg=none, term=none, md=none) -%}
+{% set mm = md if md is not none else mode -%}
+/?{% if mm and mm != 'team' %}mode={{ mm }}&amp;{% endif %}period={{ per if per is not none else period }}&amp;region={{ reg if reg is not none else region }}{% if p and p > 1 %}&amp;page={{ p }}{% endif %}{% set qq = term if term is not none else q %}{% if qq %}&amp;q={{ qq|urlencode }}{% endif %}
 {%- endmacro %}
 <h1 class="ptitle">{{ t('Leaderboard') }}</h1>
+<div class="modebar" role="tablist" aria-label="Board mode">
+  <a href="{{ board(1, md='team') }}" role="tab"
+     aria-selected="{{ 'true' if mode != 'survival' else 'false' }}"
+     class="{% if mode != 'survival' %}on{% endif %}">{{ t('Team mode') }}</a>
+  <a href="{{ board(1, md='survival') }}" role="tab"
+     aria-selected="{{ 'true' if mode == 'survival' else 'false' }}"
+     class="{% if mode == 'survival' %}on{% endif %}">Survival <span class="betatag">beta</span></a>
+</div>
 <p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.{% if pages > 1 %} {{ t('Page') }} {{ pnum }} / {{ pages }}.{% endif %}</p>
+{% if mode == 'survival' %}
+<p class="svbeta">A placement rating for last-ship-standing <b>survival</b>, from finish order only &mdash; no scores exist to a passive watcher. Winning a big lobby pays most, and outlasting strong players pays more than weak ones. Fields of 4+ count; the ~30-minute build phase is ignored. Experimental, and separate from the team-mode board.</p>
+{% endif %}
 
+{% if mode != 'survival' %}
 <div class="newhere" id="newhere" hidden>
   <span><b>New here?</b>
     <span class="step">1. Open <a href="/play">Play</a>.</span>
@@ -148,6 +167,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
   <button class="nhx" type="button" onclick="hideNew()"
           aria-label="Dismiss this tip" title="Dismiss">&times;</button>
 </div>
+{% endif %}
 <script>
 // Hidden in the markup and shown here, so somebody who dismissed it months
 // ago never sees it flash on the way past. Runs where it stands rather than
@@ -161,10 +181,12 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 
 {% if pnum == 1 and not q %}
 <div class="hero">
+  {% if mode != 'survival' %}
   <a class="playcta" href="/play">
     <span class="p1">&#9654; {{ t('Play') }}</span>
     <span class="p2">Join a tracked match and climb</span>
   </a>
+  {% endif %}
   {% if leaderboard|length >= 3 %}
   <div class="podium">
     <a class="pod p2nd" href="/player/{{ leaderboard[1].name|urlencode }}">
@@ -222,6 +244,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 
 <div class="card">
   <form class="row" method="get" action="/">
+    {% if mode == 'survival' %}<input type="hidden" name="mode" value="survival">{% endif %}
     <input type="hidden" name="period" value="{{ period }}">
     <input type="hidden" name="region" value="{{ region }}">
     <input type="text" id="q" name="q" value="{{ q }}"
@@ -233,7 +256,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
   {% if q %}<p class="msg">{{ found }} player{{ '' if found == 1 else 's' }} on the whole board match &quot;{{ q }}&quot;.</p>{% endif %}
 </div>
 
-<p class="tnote">Only matches <a href="/play">tracked on Play</a> count.</p>
+<p class="tnote">{% if mode == 'survival' %}Survival rounds are watched automatically &mdash; no check-in needed.{% else %}Only matches <a href="/play">tracked on Play</a> count.{% endif %}</p>
 <div class="tablewrap">
 <table>
 <thead><tr>
@@ -250,9 +273,9 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
   <td class="rank">{{ p.rank }}</td>
   <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}{% if p.division %}<span class="remb" title="{{ p.division.name }} {{ t('rank') }}">{{ rank_emblem(p.division.ship, 16, p.division.color, p.division.name)|safe }}</span>{% endif %}<a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.protected %}<span class="lockm" title="Protected - only matches this player checked into are counted">{{ lock_icon()|safe }}</span>{% elif p.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
-    href="/?period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
+    href="/?{% if mode == 'survival' %}mode=survival&amp;{% endif %}period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
-  <td class="mid">{{ p.wins }}-{{ p.losses }}</td>
+  <td class="mid">{{ p.record }}</td>
   <td class="mid">{{ p.winrate }}</td>
   <td class="skill">{{ p.skill }}</td>
 </tr>
@@ -272,7 +295,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
   <td class="rank">{{ p.rank }}</td>
   <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a><span class="youtag">you</span>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}</td>
   {% if region == 'all' %}<td class="mid">{% if p.region_label %}{{ p.region_label }}{% else %}-{% endif %}</td>{% endif %}
-  <td class="mid">{{ p.wins }}-{{ p.losses }}</td>
+  <td class="mid">{{ p.record }}</td>
   <td class="mid">{{ p.winrate }}</td>
   <td class="skill">{{ p.skill }}</td>
 </tr>

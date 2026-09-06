@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.1.0"
+APP_VERSION = "9.2.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4252,6 +4252,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.2.0", "at": "2026-09-06T23:55:00Z", "changes": [
+        "The leaderboard has a Survival board now — switch between Team mode and Survival (beta) at the top of the page. It ranks last-ship-standing survival, with the same region and time (all-time / month / week / day) filters as the team board, and you can search it the same way.",
+        "Survival is judged on finish order alone — a passive watcher can't see scores, so winning a big lobby is worth the most and outlasting strong players is worth more than outlasting weak ones. Only the real elimination fight counts (the ~30-minute build phase is ignored), and it's kept completely separate from the team-mode rating."
+    ]},
     {"version": "9.1.0", "at": "2026-09-06T22:30:00Z", "changes": [
         "The Live matches page now IS the from-the-start watcher — the “Live from minute 0” view and the old “Live matches” view have been folded into one. Every vanilla team lobby, watched from the opening, with the live radar, station health and win chances, all in one place. The old browser-fed live view (which went dark when the browser tracker was retired) is gone.",
         "Retired the separate “Shadow rating” review page. It was a preview of the new engine while it ran beside the old board; now that engine IS the live board, so the standalone page has nothing left to show.",
@@ -6369,6 +6373,49 @@ def board_rows(c, period="all", region="all"):
         + clause + " GROUP BY p.norm_name", args)
     return [(name, round(gained or 0, 2), wins or 0, losses or 0, clan, bool(prot))
             for name, gained, wins, losses, clan, prot in c.fetchall()]
+
+
+def survival_board_rows(c, period="all", region="all"):
+    """Survival placement board, SAME shape as board_rows: (name, elo, wins,
+    losses, clan, protected). Here 'losses' is rounds NOT won, so the shared
+    win-rate column reads as the survival win rate. all+all reads the absolute
+    rating off survival_players; a window/region view sums each round's delta
+    (and, like the team board, the caller adds SURV_START to make it a rating -
+    SURV_START == STARTING_ELO, so the same route code handles both). Survival
+    identity is norm_name and a survival player need not be registered, so
+    players is only LEFT joined to decorate a clan / protection tick."""
+    if period == "all" and region == "all":
+        c.execute(
+            "SELECT sp.name, sp.elo, sp.wins, sp.rounds, p.clan, "
+            "COALESCE(p.strict_mode, 0) FROM survival_players sp "
+            "LEFT JOIN players p ON p.norm_name = sp.norm_name "
+            "WHERE sp.rounds >= 1")
+        return [(name, elo, wins or 0, max(0, (rounds or 0) - (wins or 0)),
+                 clan, bool(prot))
+                for name, elo, wins, rounds, clan, prot in c.fetchall()]
+
+    where, args = [], []
+    if region != "all":
+        where.append("sr.region = ?")
+        args.append(region)
+    if period in PERIOD_SQL:
+        where.append("srp.ended_at >= datetime('now', ?)")
+        args.append(PERIOD_SQL[period])
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    # Grouped on norm_name (one identity), joined to survival_results for the
+    # round's region and to survival_players for the current display name.
+    c.execute(
+        "SELECT sp.name, SUM(COALESCE(srp.delta, 0)), "
+        "SUM(CASE WHEN srp.place = 1 THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN srp.place = 1 THEN 0 ELSE 1 END), "
+        "p.clan, COALESCE(p.strict_mode, 0) "
+        "FROM survival_round_players srp "
+        "JOIN survival_results sr ON sr.key = srp.round_key "
+        "JOIN survival_players sp ON sp.norm_name = srp.norm_name "
+        "LEFT JOIN players p ON p.norm_name = srp.norm_name "
+        + clause + " GROUP BY srp.norm_name", args)
+    return [(name, round(gained or 0, 2), wins or 0, nonwins or 0, clan, bool(prot))
+            for name, gained, wins, nonwins, clan, prot in c.fetchall()]
 
 
 # Skill-rank divisions are computed once from the canonical all-time board
@@ -12911,6 +12958,11 @@ def leaderboard():
     # North Americans - and the selector says which you are looking at.
     if region not in REGION_KEYS and region != ALL_REGIONS:
         region = ALL_REGIONS
+    # Team mode is the board; Survival (beta) is the same page over the
+    # placement ratings, with the same region/period selectors.
+    mode = request.args.get('mode', 'team')
+    if mode not in ('team', 'survival'):
+        mode = 'team'
     # Which slice to show, what to search the whole board for, and which
     # player to resolve to a page. `pnum`, not `page` - `page` is already
     # the template's name for which nav item is lit.
@@ -12933,7 +12985,8 @@ def leaderboard():
 
     conn = db()
     c = conn.cursor()
-    rows = board_rows(c, period, region)
+    rows = (survival_board_rows(c, period, region) if mode == 'survival'
+            else board_rows(c, period, region))
     conn.close()
 
     rows.sort(key=leaderboard_sort_key)
@@ -12949,8 +13002,14 @@ def leaderboard():
     if region == ALL_REGIONS:
         conn2 = db()
         c2 = conn2.cursor()
-        c2.execute("SELECT mp.norm_name, m.region, COUNT(*) FROM match_players mp "
-                   "JOIN matches m ON m.id = mp.match_row GROUP BY 1, 2")
+        if mode == 'survival':
+            c2.execute("SELECT srp.norm_name, sr.region, COUNT(*) "
+                       "FROM survival_round_players srp "
+                       "JOIN survival_results sr ON sr.key = srp.round_key "
+                       "GROUP BY 1, 2")
+        else:
+            c2.execute("SELECT mp.norm_name, m.region, COUNT(*) FROM match_players mp "
+                       "JOIN matches m ON m.id = mp.match_row GROUP BY 1, 2")
         best = {}
         for norm, reg, cnt in c2.fetchall():
             if cnt > best.get(norm, (0, None))[0]:
@@ -12977,14 +13036,19 @@ def leaderboard():
                       else (f"{STARTING_ELO + elo:.1f}" if relative else f"{elo:.1f}")),
             "search": search_key(name, clan),
             "wins": wins, "losses": losses, "winrate": winrate,
+            # The record cell reads per mode: team = won-lost, survival = wins
+            # out of rounds played (losses here is rounds-not-won).
+            "record": (f"{wins} / {played}" if mode == 'survival'
+                       else f"{wins}-{losses}"),
             "clan": clan, "protected": protected,
             # Under five matches the rating is still finding its level -
             # and moves faster to get there. Saying so is honest, and
             # stops a one-game number reading like a settled one.
             "provisional": played < PROVISIONAL_GAMES,
             "region": home, "region_label": REGION_LABELS.get(home),
-            # Skill division (top-X% ship rank). None while provisional.
-            "division": (None if played < PROVISIONAL_GAMES
+            # Skill division (top-X% ship rank). None while provisional, and
+            # not shown for survival (the divisions are the team-board ranks).
+            "division": (None if mode == 'survival' or played < PROVISIONAL_GAMES
                          else divmap.get(normalize_name(name))),
         })
     conn = db()
@@ -13021,8 +13085,9 @@ def leaderboard():
         fkey = normalize_name(find)
         for p in leaderboard_data:
             if normalize_name(p['name']) == fkey:
-                return redirect('/?period=%s&region=%s&page=%d#p-%s' % (
-                    period, region, (p['rank'] - 1) // PER_PAGE + 1,
+                _mq = 'mode=survival&' if mode == 'survival' else ''
+                return redirect('/?%speriod=%s&region=%s&page=%d#p-%s' % (
+                    _mq, period, region, (p['rank'] - 1) // PER_PAGE + 1,
                     quote(p['name'], safe='')))
         # Not ranked on this board at all - show page one rather than
         # a dead end.
@@ -13092,7 +13157,7 @@ def leaderboard():
                            version=APP_VERSION, page='leaderboard',
                            pnum=pnum, pages=pages, q=q, found=found,
                            me_rows=me_rows, per_page=PER_PAGE,
-                           total=total_ranked)
+                           total=total_ranked, mode=mode)
 
 
 init_db()  # runs on import too, since WSGI hosts never execute __main__
