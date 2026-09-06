@@ -67,7 +67,7 @@
 </div>
 
 <div class="card live">
-  <h2>Live matches &mdash; tracking {{ watched }} of {{ capacity }} at once</h2>
+  <h2>Live matches &mdash; every one watched from the start, so every game can count</h2>
   <div class="rtabs">
     {% for r in all_regions %}
     <button type="button" class="rtab{% if loop.first %} on{% endif %}"
@@ -90,9 +90,9 @@
           <div class="scorebar" title="This match has ended and is being scored - the result will appear shortly."><i></i></div>
           {% else %}
           <div class="msub">{{ l.players }} players &middot; {{ l.mins }} min in &middot; {{ l.status }}{% if l.watching %}
-            <span class="halfnote" title="Already being watched. You can still join and press Play - it counts for half, because you were not in it when the watch started.">half elo</span>
+            <span class="fullnote" title="Watched from the start. If you have been in this match since early on you get full elo; only a genuinely late join - well into the game - is halved. The watcher decides it from when your ship actually appeared, not when you check in.">full elo</span>
           {% elif l.can_checkin %}
-            <span class="fullnote" title="Not being watched yet. Press Play and join before a watcher picks it up and the match counts in full.">full elo</span>{% endif %}</div>
+            <span class="fullnote" title="Press Play and join - the watcher records this match from the start, so you get full elo.">full elo</span>{% endif %}</div>
           {% endif %}
         </div>
         <div>

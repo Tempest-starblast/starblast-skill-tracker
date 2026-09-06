@@ -22,12 +22,12 @@ CARDS = [
   ' below.</p>'),
 
  ("Which games count",
-  '<p>We can only watch a few matches at a time, so not every game counts. A match is'
-  ' watchable once it is <b>20 minutes old</b>, until it is 90 minutes old, and it needs'
-  ' at least four players.</p>'
-  '<p>The <a href="/play">Play</a> tab shows exactly which lobbies are being watched right'
-  ' now. If a game is not on that list, nothing from it is recorded &mdash; it does not'
-  ' arrive later.</p>'),
+  '<p>Every live team match is now watched, from the moment it starts &mdash; there is no'
+  ' longer a limit of only a few at a time. A match just needs at least <b>four players</b>,'
+  ' and it is followed all the way to the end.</p>'
+  '<p>The <a href="/play">Play</a> tab lists every live match and whether the watcher is on'
+  ' it yet; a brand-new lobby is picked up within a few seconds. If a match is live, it'
+  ' counts.</p>'),
 
  ("Your rating",
   '<p>Everyone starts at <b>[[ELO]]</b>. A match moves you by at most <b>[[K]]</b>'
@@ -40,9 +40,10 @@ CARDS = [
   ' themselves. Who stands beside you counts too: your swing blends your own rating with your team&#39;s average, so carrying weak allies to a win pays more than the same win inside a stacked team &mdash; and losing beside weak allies costs less.</p>'),
 
  ("Full and half",
-  '<p>If you were already in the match when we started watching, it counts in full. Join a'
-  ' match that is already being watched and it still counts, at <b>half</b> &mdash; for'
-  ' winners and losers alike. The Play tab says which is which before you join.</p>'),
+  '<p>Because the watcher follows every match from its start, it sees exactly when your ship'
+  ' joined. Play from early on and you count in <b>full</b>; walk into a game already well'
+  ' underway and it counts at <b>half</b> &mdash; for winners and losers alike. It is judged'
+  ' on when you actually joined the match, not on when you press Play.</p>'),
 
  ("Two rules worth knowing",
   '<p><b>Leaving early does not dodge a loss.</b> A losing team is charged as its fullest'

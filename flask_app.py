@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "8.14.0"
+APP_VERSION = "9.0.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4210,6 +4210,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.0.0", "at": "2026-09-06T09:00:00Z", "changes": [
+        "The board has moved to its new engine — the shadow model. Instead of a browser watching a handful of lobbies late, a browserless watcher now follows EVERY live team match from the moment it starts. So every game can count, in every region, not just five at a time — and a match is picked up within seconds of appearing.",
+        "Because the watcher sees every match from the start, whether you get full or half elo is now judged on when your ship actually joined the game — not on when you press Play. Play from early on and you get full credit even if you check in late.",
+        "The winner of a match is now read straight from which team's station was destroyed, rather than inferred — so results are more accurate, especially on late comebacks."
+    ]},
     {"version": "8.14.0", "at": "2026-09-06T08:30:00Z", "changes": [
         "If you check in, your result now binds to your account even when your in-game name is written in a different font or style than the name on your account — small-caps, fancy Unicode, and look-alike letters all match up. (This only applies at check-in, where you've told us which ship is yours, so it can never mix two different people up.)",
         "Replays now show how long ago each match was — “3h ago”, “2d ago” — with the exact local time still on hover."
