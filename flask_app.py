@@ -129,6 +129,19 @@ ESTABLISHED_K_MULT = 0.8
 # aboard rather than on how good the known players were.
 TEAM_PRIOR_WEIGHT = 3.0
 
+# --- Survival placement Elo (v1, review-only, 9.2.0) ---------------------
+# A passive observer sees only who is left and in what ORDER they fall - no
+# score, kills or deaths - so survival is a battle-royale PLACEMENT rating:
+# each round is decomposed into pairwise finish results, field-size-normalised
+# so a big lobby doesn't over-swing, from zero at 1000 and near zero-sum per
+# round. Kept apart from the team board - different skill, different number.
+SURV_START = 1000
+SURV_SCALE = 2000            # same rating-gap scale as the team board
+SURV_K = 64                 # max per-round swing; an even-field win is ~+K/2
+SURV_PROVISIONAL_ROUNDS = 5
+SURV_PROVISIONAL_K_MULT = 1.4
+SURV_MIN_FIELD = 4          # ignore rounds where fewer than this reached elimination
+
 # The least a late arrival's result can be worth. Turning up for the last
 # minute should count for very little - but never for nothing, or a real
 # player who genuinely fought at the end walks away with no record of it.
@@ -1487,6 +1500,32 @@ def init_db():
                     data TEXT)''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_survival_ended "
               "ON survival_results(ended_at)")
+
+    # Survival placement rating (9.2.0), keyed by the same norm_name identity
+    # as the team board so a player is one player. Review-only for now - built
+    # from the recorded rounds by the pairwise placement Elo, never touching
+    # the team-mode board.
+    c.execute('''CREATE TABLE IF NOT EXISTS survival_players (
+                    norm_name TEXT PRIMARY KEY,
+                    name TEXT,
+                    elo REAL DEFAULT 1000,
+                    rounds INTEGER DEFAULT 0,
+                    wins INTEGER DEFAULT 0,
+                    best_place INTEGER,
+                    last_at TEXT)''')
+    # One row per rated player per round: their placement, the field size and
+    # the rating change - the history a survival profile card will read.
+    c.execute('''CREATE TABLE IF NOT EXISTS survival_round_players (
+                    round_key TEXT NOT NULL,
+                    norm_name TEXT NOT NULL,
+                    name TEXT,
+                    place INTEGER,
+                    field INTEGER,
+                    delta REAL,
+                    ended_at TEXT,
+                    PRIMARY KEY (round_key, norm_name))''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_survpl_norm "
+              "ON survival_round_players(norm_name, ended_at)")
 
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6806,6 +6845,143 @@ def is_observer_name(name):
 survival_is_observer = is_observer_name
 
 
+def _survival_ranked_field(data):
+    """The eligible elimination field for a round, best placement FIRST, as
+    [(norm_name, display_name), ...]. Built from leave_order (already winner-
+    first: index 0 outlasted everyone), with our own resident watchers dropped
+    and a name seen twice collapsed to its best placement. Empty if the round
+    cannot be rated."""
+    if not data.get('reached_elimination'):
+        return []
+    ranked, seen = [], set()
+    for entry in (data.get('leave_order') or []):
+        nm = entry[0] if isinstance(entry, (list, tuple)) else entry
+        if not nm or is_observer_name(nm):
+            continue
+        key = normalize_name(nm)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        ranked.append((key, str(nm).strip()[:64]))
+    return ranked
+
+
+def apply_survival_round(c, round_key, ended_at, data):
+    """Rate ONE survival round into survival_players / survival_round_players
+    with the pairwise placement Elo. Returns the rated field size, or 0 if the
+    field was too small or the round is already rated. Caller owns the commit.
+
+    For every pair the higher finisher scores 1 and the lower 0 (0.5/0.5 for
+    the top two when the round was a photo-finish close_call); each player's
+    swing is K/(N-1) * sum(result - expected), so the winner gains most and
+    the first out loses most, scaled by who they actually outlasted."""
+    ranked = _survival_ranked_field(data)
+    n = len(ranked)
+    if n < SURV_MIN_FIELD:
+        return 0
+    if c.execute("SELECT 1 FROM survival_round_players WHERE round_key=? LIMIT 1",
+                 (round_key,)).fetchone():
+        return 0                       # already rated - keep it idempotent
+    close_call = bool(data.get('close_call'))
+    keys = [k for k, _ in ranked]
+    elos, games = {}, {}
+    ph = ",".join("?" for _ in keys)
+    for nn, el, rd in c.execute(
+            "SELECT norm_name, elo, rounds FROM survival_players "
+            "WHERE norm_name IN (%s)" % ph, keys):
+        elos[nn] = float(el)
+        games[nn] = int(rd or 0)
+    r = [elos.get(k, SURV_START) for k in keys]     # rating in placement order
+    deltas = []
+    for i in range(n):
+        s = 0.0
+        for j in range(n):
+            if i == j:
+                continue
+            e = 1.0 / (1.0 + 10 ** ((r[j] - r[i]) / SURV_SCALE))
+            res = 1.0 if i < j else 0.0            # i placed above j?
+            if close_call and i < 2 and j < 2:     # top-two tie on a close call
+                res = 0.5
+            s += res - e
+        kf = SURV_K * (SURV_PROVISIONAL_K_MULT
+                       if games.get(keys[i], 0) < SURV_PROVISIONAL_ROUNDS else 1.0)
+        deltas.append(kf / (n - 1) * s)
+    now = ended_at or time.strftime('%Y-%m-%d %H:%M:%S')
+    for i, (k, disp) in enumerate(ranked):
+        place = i + 1
+        new_elo = round(r[i] + deltas[i], 2)
+        won = 1 if i == 0 else 0
+        c.execute(
+            "INSERT INTO survival_players "
+            "(norm_name, name, elo, rounds, wins, best_place, last_at) "
+            "VALUES (?,?,?,1,?,?,?) "
+            "ON CONFLICT(norm_name) DO UPDATE SET name=excluded.name, elo=?, "
+            "rounds=rounds+1, wins=wins+?, "
+            "best_place=MIN(COALESCE(best_place, 1000000), ?), last_at=?",
+            (k, disp, new_elo, won, place, now, new_elo, won, place, now))
+        c.execute(
+            "INSERT OR REPLACE INTO survival_round_players "
+            "(round_key, norm_name, name, place, field, delta, ended_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (round_key, k, disp, place, n, round(deltas[i], 2), now))
+    return n
+
+
+def recompute_survival_elo(c):
+    """Rebuild the whole survival board from survival_results in time order
+    (wiping the derived tables first). Returns (rounds_rated, players)."""
+    c.execute("DELETE FROM survival_players")
+    c.execute("DELETE FROM survival_round_players")
+    rated = 0
+    for key, ended_at, data_json in c.execute(
+            "SELECT key, ended_at, data FROM survival_results "
+            "ORDER BY ended_at, key").fetchall():
+        try:
+            data = json.loads(data_json)
+        except Exception:
+            continue
+        if apply_survival_round(c, key, ended_at, data):
+            rated += 1
+    n_players = c.execute("SELECT COUNT(*) FROM survival_players").fetchone()[0]
+    return rated, n_players
+
+
+@app.route('/api/survival/recompute', methods=['POST'])
+def survival_recompute():
+    """Backfill / rebuild the survival board from every recorded round.
+    Owner or api-key only. Run once after a rule change or a blocklist edit."""
+    if not (is_site_owner() or api_key_ok(request.headers.get('X-API-Key'))):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    conn.execute("PRAGMA journal_mode=MEMORY")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    c = conn.cursor()
+    rated, nplayers = recompute_survival_elo(c)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "rounds_rated": rated, "players": nplayers}), 200
+
+
+@app.route('/api/survival/board')
+def survival_board():
+    """Survival placement ratings, best first. Owner-only while the rating is
+    under review - the public /survival page still shows results to everyone."""
+    if not is_site_owner():
+        return jsonify({"error": "not available"}), 403
+    conn = db()
+    c = conn.cursor()
+    rows = c.execute(
+        "SELECT norm_name, name, elo, rounds, wins, best_place FROM survival_players "
+        "WHERE rounds >= 1 ORDER BY elo DESC, rounds DESC LIMIT 200").fetchall()
+    conn.close()
+    out = [{"rank": i, "name": nm or nn, "elo": round(elo, 1), "rounds": rounds,
+            "wins": wins, "best_place": best,
+            "provisional": rounds < SURV_PROVISIONAL_ROUNDS}
+           for i, (nn, nm, elo, rounds, wins, best) in enumerate(rows, 1)]
+    return jsonify({"players": out, "count": len(out),
+                    "min_field": SURV_MIN_FIELD}), 200
+
+
 @app.route('/api/survival/push', methods=['POST'])
 def survival_push():
     """The droplet survival observer posts finished rounds here (last-player-
@@ -6833,6 +7009,12 @@ def survival_push():
                        w, int(r.get('elim_field_size') or 0),
                        json.dumps(r, ensure_ascii=False)))
             n += 1
+            # Rate it into the survival placement board straight away (no-op if
+            # the field is under SURV_MIN_FIELD or the round was already rated).
+            try:
+                apply_survival_round(c, key, r.get('ended_at'), r)
+            except Exception:
+                pass
         except (sqlite3.Error, TypeError, ValueError):
             continue
     conn.commit()
@@ -6871,9 +7053,25 @@ def survival_page():
             "dur_min": round((r.get('duration_s') or 0) / 60),
         })
     top = [{"name": w, "wins": n} for w, n in win_rows if w]
+    # Placement ratings are still under review, so only the owner sees the
+    # board for now (the results + most-wins above stay public).
+    ratings = []
+    if is_site_owner():
+        try:
+            for i, (nn, nm, elo, rounds_, wins_, best) in enumerate(c.execute(
+                    "SELECT norm_name, name, elo, rounds, wins, best_place "
+                    "FROM survival_players WHERE rounds >= 1 "
+                    "ORDER BY elo DESC, rounds DESC LIMIT 100").fetchall(), 1):
+                ratings.append({"rank": i, "name": nm or nn,
+                                "elo": round(elo, 1), "rounds": rounds_,
+                                "wins": wins_, "best": best,
+                                "prov": rounds_ < SURV_PROVISIONAL_ROUNDS})
+        except sqlite3.Error:
+            ratings = []
     conn.close()
     return render_template('survival.html', page='survival', version=APP_VERSION,
-                           rounds=rounds, top=top)
+                           rounds=rounds, top=top, ratings=ratings,
+                           is_owner=1 if is_site_owner() else 0)
 
 
 # TrueSkill parameters - must match the raw scorer (trueskill_scorer.py) so the
