@@ -3,11 +3,11 @@
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<title>{% block title %}Starblast Team Mode Skill Leaderboard{% endblock %}</title>
-<meta name="description" content="{% block meta_description %}Live skill ratings for Starblast.io team mode — Elo, win rates and match history for players across North America, Europe and Asia. Look up any player, compare two head-to-head, and follow clans.{% endblock %}">
+<title>{% block title %}Starblast Skill Leaderboard{% endblock %}</title>
+<meta name="description" content="{% block meta_description %}Live skill ratings for Starblast.io team mode and survival — Elo, win rates and match history for players across North America, Europe and Asia. Look up any player, compare two head-to-head, and follow clans.{% endblock %}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="{{ site_root }}{{ request.path }}">
-<meta property="og:site_name" content="Starblast Team Mode Skill Leaderboard">
+<meta property="og:site_name" content="Starblast Skill Leaderboard">
 <meta property="og:type" content="{% block og_type %}website{% endblock %}">
 <meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}">
 <meta property="og:description" content="{{ self.meta_description() }}">
@@ -470,7 +470,7 @@ async function devRestore(){
         {%- endfor %}
       </div>
     </details>
-    <div class="brand"><a href="/">Starblast Team Mode Skill Leaderboard</a></div>
+    <div class="brand"><a href="/">Starblast Skill Leaderboard</a></div>
     <div class="authbox">
       <div id="authOut">
         <div id="g_id_onload" data-client_id="{{ client_id }}" data-callback="onGoogleAuth"

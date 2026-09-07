@@ -14,7 +14,7 @@
     "name": {{ player.display | tojson }},
     "alternateName": {{ player.name | tojson }},
     "url": "{{ site_root }}{{ request.path }}",
-    "description": {% if player.bio %}{{ player.bio | tojson }}{% else %}{{ ("Ranked #" ~ player.rank ~ " of " ~ player.rank_of ~ " on the Starblast team-mode skill leaderboard, with a " ~ player.wins ~ "–" ~ player.losses ~ " record (" ~ player.winrate ~ " win rate).") | tojson }}{% endif %}{% if player.clan_display %},
+    "description": {% if player.bio %}{{ player.bio | tojson }}{% else %}{{ ("Ranked #" ~ player.rank ~ " of " ~ player.rank_of ~ " on the Starblast Skill Leaderboard, with a " ~ player.wins ~ "–" ~ player.losses ~ " record (" ~ player.winrate ~ " win rate).") | tojson }}{% endif %}{% if player.clan_display %},
     "memberOf": { "@type": "Organization", "name": {{ player.clan_display | tojson }} }{% endif %}
   }
 }

@@ -1,4 +1,4 @@
-# Starblast Team Mode Skill Tracker — website
+# Starblast Skill Leaderboard — website
 
 The full source of the site at https://starblastelo.pythonanywhere.com — the
 leaderboard, rating logic, check-ins, claims, Protection, and the API the
