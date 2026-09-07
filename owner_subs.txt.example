@@ -1,0 +1,9 @@
+# Account ids that get owner/admin powers (the owner-only sandbox switch,
+# admin moderation, owner-only views). One id per line; '#' comments and
+# blank lines are ignored.
+#
+# A Discord identity is prefixed "discord:", a bare number is a Google sub.
+# Copy this file to owner_subs.txt (which is gitignored) and fill in real ids.
+#
+# discord:123456789012345678
+# 111111111111111111111

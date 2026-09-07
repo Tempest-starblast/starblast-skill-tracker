@@ -48,11 +48,26 @@ WIN_PROB_ENABLED = False
 
 # Shown wherever a player needs to reach a human.
 CONTACT_HANDLE = "justtempest"
-# The site owner (the bot application owner id). Gates the owner-only
-# sandbox switch. A set so a second identity can be added if needed.
-OWNER_SUBS = {"discord:1078474542026076160",          # the owner
-              "111195004071643236751",                # PALADIN (admin)
-              "discord:973307675758690364"}           # PALADIN via Discord
+# The site owner + admins (bot-application-owner ids) that gate the owner-only
+# sandbox switch and admin powers. Kept OUT of the public repo: loaded from
+# owner_subs.txt (one sub per line; '#' comments and blank lines ignored),
+# gitignored like the other secrets. A missing file yields an empty set, so a
+# fresh clone still boots - with no owner until the file is provided.
+def _load_owner_subs():
+    _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "owner_subs.txt")
+    _subs = set()
+    try:
+        with open(_p, encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#"):
+                    _subs.add(_line)
+    except OSError:
+        pass
+    return _subs
+
+
+OWNER_SUBS = _load_owner_subs()
 # The throwaway account the owner impersonates for testing. Never a
 # real person; its rows are wiped on entry so each test starts blank.
 SANDBOX_SUB = "test:sandbox"
