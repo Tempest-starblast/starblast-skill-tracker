@@ -6640,50 +6640,6 @@ def shadow_view():
     return redirect('/')
 
 
-@app.route('/api/shadow/board')
-def shadow_board_api():
-    if not is_site_owner():
-        return jsonify({"error": "forbidden"}), 403
-    conn = db()
-    c = conn.cursor()
-    # summary + how it lines up with the live board
-    tot = c.execute("SELECT COUNT(*), COUNT(CASE WHEN rated THEN 1 END) "
-                    "FROM shadow_matches").fetchone()
-    nplayers = c.execute("SELECT COUNT(*) FROM shadow_players "
-                         "WHERE matches > 0").fetchone()[0]
-    base = ("SELECT s.norm_name, s.name, s.elo, s.wins, s.losses, s.matches, "
-            "s.weight_sum, s.kills, s.deaths, s.combat, p.elo FROM shadow_players s "
-            "LEFT JOIN players p ON p.norm_name = s.norm_name "
-            "WHERE s.matches > 0 ")
-    q = (request.args.get('q') or '').strip()
-    if q:
-        # lookup: find a player anywhere on the shadow board, not just the top 100
-        nq = normalize_name(q)
-        rows = c.execute(base + "AND (s.norm_name LIKE ? OR UPPER(s.name) LIKE ?) "
-                         "ORDER BY s.elo DESC LIMIT 50",
-                         ('%' + nq + '%', '%' + q.upper() + '%')).fetchall()
-    else:
-        rows = c.execute(base + "ORDER BY s.elo DESC LIMIT 100").fetchall()
-    board = []
-    for i, (nn, nm, elo, w, l, m, ws, kk, dd, cbt, live_elo) in enumerate(rows, 1):
-        # a searched player shows their TRUE board position, not the row index
-        rank = (c.execute("SELECT COUNT(*)+1 FROM shadow_players "
-                          "WHERE matches > 0 AND elo > ?", (elo,)).fetchone()[0]
-                if q else i)
-        board.append({
-            "rank": rank, "name": nm, "elo": round(elo, 1),
-            "wins": w, "losses": l, "matches": m,
-            "avg_part": round(ws / m, 2) if m else 0,
-            # combat facet (kill inference) - review only, NOT part of the elo
-            "kills": kk or 0, "deaths": dd or 0,
-            "kd": round((kk or 0) / dd, 2) if dd else (kk or 0),
-            "combat_pg": round((cbt or 0) / m) if m else 0,
-            "live_elo": round(live_elo, 1) if live_elo is not None else None})
-    conn.close()
-    return jsonify({"matches_total": tot[0], "matches_rated": tot[1],
-                    "players": nplayers, "q": q, "board": board})
-
-
 def ts_display(mu, sigma):
     """Conservative TrueSkill rating on a familiar ~500-1600 scale for display.
     Ranks the same as mu-3sigma; the scale is cosmetic and tunable."""
@@ -7132,25 +7088,11 @@ def survival_page():
             "dur_min": round((r.get('duration_s') or 0) / 60),
         })
     top = [{"name": w, "wins": n} for w, n in win_rows if w]
-    # Placement ratings are still under review, so only the owner sees the
-    # board for now (the results + most-wins above stay public).
-    ratings = []
-    if is_site_owner():
-        try:
-            for i, (nn, nm, elo, rounds_, wins_, best) in enumerate(c.execute(
-                    "SELECT norm_name, name, elo, rounds, wins, best_place "
-                    "FROM survival_players WHERE rounds >= 1 "
-                    "ORDER BY elo DESC, rounds DESC LIMIT 100").fetchall(), 1):
-                ratings.append({"rank": i, "name": nm or nn,
-                                "elo": round(elo, 1), "rounds": rounds_,
-                                "wins": wins_, "best": best,
-                                "prov": rounds_ < SURV_PROVISIONAL_ROUNDS})
-        except sqlite3.Error:
-            ratings = []
     conn.close()
+    # The full placement ratings now live on the leaderboard (Survival beta);
+    # this page is the round-by-round results feed + most-wins tally.
     return render_template('survival.html', page='survival', version=APP_VERSION,
-                           rounds=rounds, top=top, ratings=ratings,
-                           is_owner=1 if is_site_owner() else 0)
+                           rounds=rounds, top=top)
 
 
 # TrueSkill parameters - must match the raw scorer (trueskill_scorer.py) so the
@@ -7305,37 +7247,6 @@ def trueskill_page():
     return render_template('trueskill.html', version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='trueskill',
                            client_id=GOOGLE_CLIENT_ID)
-
-
-@app.route('/api/shadow/matches')
-def shadow_matches_api():
-    if not is_site_owner():
-        return jsonify({"error": "forbidden"}), 403
-    try:
-        off = max(0, int(request.args.get('offset', 0)))
-    except (TypeError, ValueError):
-        off = 0
-    conn = db()
-    c = conn.cursor()
-    rows = c.execute(
-        "SELECT at, region, lobby, winner, teams_json, analytics_json, rated "
-        "FROM shadow_matches ORDER BY id DESC LIMIT 30 OFFSET ?",
-        (off,)).fetchall()
-    out = []
-    for at, region, lobby, winner, tj, aj, rated in rows:
-        try:
-            teams = json.loads(tj) if tj else {}
-        except ValueError:
-            teams = {}
-        try:
-            an = json.loads(aj) if aj else {}
-        except ValueError:
-            an = {}
-        out.append({"at": at, "region": region, "lobby": lobby,
-                    "winner": winner, "teams": teams, "analytics": an,
-                    "rated": bool(rated)})
-    conn.close()
-    return jsonify({"matches": out})
 
 
 # You may only check in during the opening minutes of a match. Without
