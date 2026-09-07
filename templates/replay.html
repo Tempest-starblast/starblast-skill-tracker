@@ -174,13 +174,13 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
     <div class="legend" id="legend1"></div>
     <div class="chartwrap"><svg id="chartP" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
   </div>
-  <div class="card">
+  <div class="card" id="scoreCard">
     <h2>Scores over time</h2>
     <div class="legend" id="legend2"></div>
     <div class="chartwrap"><svg id="chartS" viewBox="0 0 860 300" preserveAspectRatio="xMidYMid meet"></svg></div>
   </div>
   <div class="card">
-    <h2>Ships &amp; final standings</h2>
+    <h2 id="shipsH">Ships &amp; final standings</h2>
     <div class="legend" id="legend3"></div>
     <div class="chartwrap"><svg id="chartC" viewBox="0 0 860 170" preserveAspectRatio="xMidYMid meet"></svg></div>
     <div id="result"></div>
@@ -800,29 +800,47 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
 }).then(d=>{
   applyWelcome(d);
   const head=document.getElementById('rpHead');
-  if(d.error){head.innerHTML='<span class="sub">'+esc(d.error)+'</span>';return;}
-  SHORT_SPAN=d.points.length&&d.points[d.points.length-1].t<1200;
-  const span=d.points.length?d.points[d.points.length-1].t:0;
-  const dur=d.points.length?fmtT(span):'?';
-  const partial=d.tracked_seconds&&span&&span<0.7*d.tracked_seconds;
-  const durLbl=partial
-    ?('covers the last '+dur+' of a ~'+Math.round(d.tracked_seconds/60)+'m match')
-    :(dur+' tracked');
+  // A hard error still lets the radar arena try (it loads its own trajectory),
+  // so the replay plays even when the score feed is missing entirely.
+  if(d.error){head.innerHTML='<span class="sub">'+esc(d.error)+'</span>';buildReplay(null,null);return;}
+  // Many matches the live watcher records have the radar/win-prob replay but no
+  // frozen score-over-time trajectory. When there are no points, skip the score
+  // charts (and don't touch lines(), which reads the last point) - the header,
+  // the rated result below and the radar arena all still render.
+  const hasPts = d.points && d.points.length;
+  SHORT_SPAN = hasPts && d.points[d.points.length-1].t<1200;
+  const span = hasPts ? d.points[d.points.length-1].t : 0;
+  const dur = hasPts ? fmtT(span) : null;
+  const partial = hasPts && d.tracked_seconds && span && span<0.7*d.tracked_seconds;
+  const durLbl = !hasPts
+    ? (d.tracked_seconds ? ('~'+Math.round(d.tracked_seconds/60)+'m match') : '')
+    : (partial
+        ? ('covers the last '+dur+' of a ~'+Math.round(d.tracked_seconds/60)+'m match')
+        : (dur+' tracked'));
   head.innerHTML='<h2 style="margin:0">'+esc(d.name||('#'+d.sys_id))+'</h2>'
-    +'<span class="sub">'+esc(d.region)+' &middot; '+esc(d.played_at)+' &middot; '+durLbl+'</span>';
+    +'<span class="sub">'+esc(d.region)+(d.played_at?' &middot; '+esc(d.played_at):'')
+    +(durLbl?' &middot; '+durLbl:'')+'</span>';
   const tops=[1,2,3].map(i=>(d.top||{})['team_'+i]||'');
   // Win probability is drawn by initLbReplay from the raw tracker's full-match
   // trajectory (the TrueSkill model's own P(win)), not this browser feed.
-  legend(document.getElementById('legend2'),tops);
-  legend(document.getElementById('legend3'),tops);
-  const smax=Math.max(1,...d.points.map(p=>Math.max(...p.sc)));
-  lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v), d.gaps);
-  // ALL ships, from the game's full ship cache when recorded (older
-  // replays fall back to the visible-panel counts, capped at 8). The
-  // scale grows to fit - a flooded team's 15+ ships shows as exactly that.
-  const getC=(p,k)=>(p.fc?p.fc[k]:p.ct[k]);
-  const cmax=Math.max(8,...d.points.map(p=>Math.max(getC(p,0),getC(p,1),getC(p,2))));
-  lines(document.getElementById('chartC'), d.points, getC, cmax, v=>Math.round(v), d.gaps, true);
+  if(hasPts){
+    legend(document.getElementById('legend2'),tops);
+    legend(document.getElementById('legend3'),tops);
+    const smax=Math.max(1,...d.points.map(p=>Math.max(...p.sc)));
+    lines(document.getElementById('chartS'), d.points, (p,k)=>p.sc[k], smax, v=>v>=1000?Math.round(v/1000)+'k':Math.round(v), d.gaps);
+    // ALL ships, from the game's full ship cache when recorded (older
+    // replays fall back to the visible-panel counts, capped at 8). The
+    // scale grows to fit - a flooded team's 15+ ships shows as exactly that.
+    const getC=(p,k)=>(p.fc?p.fc[k]:p.ct[k]);
+    const cmax=Math.max(8,...d.points.map(p=>Math.max(getC(p,0),getC(p,1),getC(p,2))));
+    lines(document.getElementById('chartC'), d.points, getC, cmax, v=>Math.round(v), d.gaps, true);
+  } else {
+    // No score trajectory: hide the two time-charts; keep the standings below.
+    var _scd=document.getElementById('scoreCard'); if(_scd) _scd.style.display='none';
+    var _cch=document.getElementById('chartC'); if(_cch) _cch.style.display='none';
+    var _l3=document.getElementById('legend3'); if(_l3) _l3.style.display='none';
+    var _shH=document.getElementById('shipsH'); if(_shH) _shH.textContent='Final standings';
+  }
   // Final result, grouped by team.
   // The two losing sides are different teams and read as one block if
   // they are both just labelled "Losers".

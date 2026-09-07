@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.6"
+APP_VERSION = "9.3.7"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2822,19 +2822,25 @@ def replay_data(mid):
     match end. Public: the result itself already is."""
     conn = db()
     c = conn.cursor()
-    try:
-        c.execute("SELECT mr.data, m.lobby_name, m.region, m.played_at, m.sys_id, "
-                  "COALESCE(m.tracked_reads, 0) "
-                  "FROM match_replays mr JOIN matches m ON m.id = mr.match_row "
-                  "WHERE mr.match_row = ?", (mid,))
-        row = c.fetchone()
-    except sqlite3.Error:
-        row = None
-    if not row:
+    # Match metadata first, independent of any frozen score trajectory. MOST
+    # matches the live watcher records have a rich radar/win-prob replay
+    # (trueskill_replay, which the page's arena draws) but never a match_replays
+    # score snapshot - so a missing snapshot is NOT "no replay", it just means
+    # the score-over-time charts are unavailable. The match, its rated players
+    # and the radar must still open.
+    c.execute("SELECT lobby_name, region, played_at, sys_id, "
+              "COALESCE(tracked_reads, 0) FROM matches WHERE id = ?", (mid,))
+    meta = c.fetchone()
+    if not meta:
         conn.close()
-        return jsonify({"error": "No replay recorded for that match."}), 404
-    c.execute("SELECT played_at FROM matches WHERE id = ?", (mid,))
-    _pat = (c.fetchone() or [''])[0] or ''
+        return jsonify({"error": "No such match."}), 404
+    m_name, m_region, m_played, m_sys, m_treads = meta
+    _pat = m_played or ''
+    try:
+        c.execute("SELECT data FROM match_replays WHERE match_row = ?", (mid,))
+        _blob = c.fetchone()
+    except sqlite3.Error:
+        _blob = None
     # Each player's elo AFTER this match, walked backwards from their
     # current rating minus every delta that came later - same
     # reconstruction the progress chart uses.
@@ -2851,8 +2857,20 @@ def replay_data(mid):
                 "delta": r[3], "half": r[4], "score": r[5],
                 "elo": (round(r[6], 1) if r[7] else None)} for r in c.fetchall()]
     conn.close()
+    if not _blob:
+        # No frozen score trajectory - serve the match, its rated players and
+        # the meta so the page still renders the header, the result and (from
+        # trueskill_replay) the radar replay. Just no score-over-time points.
+        return jsonify({
+            "name": m_name or ("#%s" % m_sys), "region": m_region or "",
+            "played_at": str(m_played or ""), "sys_id": m_sys,
+            "top": {}, "skill": {}, "tracked_seconds": int(m_treads or 0) * 10,
+            "gaps": [], "stlay": None, "welcome": None,
+            "prob_enabled": WIN_PROB_ENABLED,
+            "players": players, "points": [], "no_score_chart": True,
+        }), 200
     try:
-        p = json.loads(zlib.decompress(row[0]).decode('utf-8'))
+        p = json.loads(zlib.decompress(_blob[0]).decode('utf-8'))
     except Exception:
         return jsonify({"error": "Replay data unreadable."}), 500
     traj = [r for r in (p.get("traj") or []) if isinstance(r, list) and len(r) >= 3]
@@ -2962,12 +2980,12 @@ def replay_data(mid):
         else:
             _gaps.append([_s, _e])
     return jsonify({
-        "name": p.get("name") or row[1] or "", "region": row[2] or "",
-        "played_at": str(row[3] or ""), "sys_id": row[4],
+        "name": p.get("name") or m_name or "", "region": m_region or "",
+        "played_at": str(m_played or ""), "sys_id": m_sys,
         "top": p.get("top") or {}, "skill": pskill,
         # So the page can say "covers the last X of a ~Y-minute match"
         # when the recording is partial.
-        "tracked_seconds": int(row[5] or 0) * 10,
+        "tracked_seconds": int(m_treads or 0) * 10,
         "gaps": [[round(a), round(b)] for a, b in _gaps],
         "stlay": p.get("stlay") or None,
         "welcome": p.get("welcome") or None,
@@ -4327,6 +4345,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.3.7", "at": "2026-09-07T12:00:00Z", "changes": [
+        "Fixed replays showing “No replay recorded for that match” even though the match was watched. Most matches are recorded by the live watcher, which captures the full radar and win-probability replay but not the older score-over-time snapshot — the page was treating that missing snapshot as no replay at all. Now it plays the radar replay and shows the final standings; the score/ship charts only appear for matches that have them."
+    ]},
     {"version": "9.3.2", "at": "2026-09-07T10:30:00Z", "changes": [
         "The leaderboard loads much faster. With over 13,000 ranked players it was quietly building every single row on every visit just to show you fifty; now it only builds the page you're looking at, so the board, its search and the region/time filters all open quickly.",
         "The Replays archive opens quickly now too — it was scanning the whole match history on every visit, and no longer does."
