@@ -979,6 +979,11 @@ TAG_FOLD = {
     "Ⱥ": "A", "Ȼ": "C", "Ɍ": "R", "Ɖ": "D", "Ɗ": "D", "Ƒ": "F",
     "Ɠ": "G", "Ɫ": "L", "Ɱ": "M", "Ɲ": "N", "Ƥ": "P", "Ƭ": "T",
     "Ʋ": "V", "Ƴ": "Y", "Ƶ": "Z", "Ǝ": "E", "Ꝁ": "K", "Ꞣ": "K",
+    # Look-alike DIGITS people style tags with. Without these the fold drops
+    # the non-Latin glyph and the tag can't be matched: the S2F clan writes
+    # its tag "SᄅF" (Hangul ᄅ as a 2), which folded to "SF" and made every
+    # member unmatchable to /clan/add, search and the clan page (7 Sep 2026).
+    "ᄅ": "2", "Ꙅ": "2", "ƻ": "2",
 }
 
 
