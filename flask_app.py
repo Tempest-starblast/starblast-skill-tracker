@@ -9882,12 +9882,15 @@ def bot_top_route():
         offset = 0
     region = str(request.args.get('region', ALL_REGIONS)).strip().lower()
     period = str(request.args.get('period', 'all')).strip().lower()
+    mode = str(request.args.get('mode', 'team')).strip().lower()
+    if mode not in ('team', 'survival'):
+        mode = 'team'
     if region not in REGION_KEYS and region != ALL_REGIONS:
         region = ALL_REGIONS
     if period not in PERIOD_KEYS:
         period = 'all'
-    # Straight through board_rows, so the bot and the page can never show
-    # different boards for the same question.
+    # Straight through board_rows (or its survival twin), so the bot and the
+    # page can never show different boards for the same question.
     gain = period != 'all'
     # board_rows returns two different kinds of number. All-regions
     # all-time comes off the players table and is ALREADY an absolute
@@ -9898,7 +9901,8 @@ def bot_top_route():
 
     conn = db()
     c = conn.cursor()
-    rows = board_rows(c, period, region)
+    rows = (survival_board_rows(c, period, region) if mode == 'survival'
+            else board_rows(c, period, region))
     shown = clan_display_map(c)
     conn.close()
     rows.sort(key=leaderboard_sort_key)
@@ -9909,14 +9913,19 @@ def bot_top_route():
         out.append({"place": i, "name": name, "display": display_name(name, clan),
                     "clan_display": shown.get(clan, clan),
                     # Over a window this is rating gained, not a standing -
-                    # the bot labels the column from `gain`.
+                    # the bot labels the column from `gain`. Survival elo is
+                    # already absolute at 1000 like the team base, so the same
+                    # relative/gain handling applies.
                     "elo": round(elo if gain
                                  else (STARTING_ELO + elo if relative else elo), 2),
                     "wins": wins, "losses": losses,
+                    # For survival, losses is rounds-not-won, so played == rounds
+                    # and the bot renders "wins / rounds".
+                    "rounds": played if mode == 'survival' else None,
                     "winrate": (round(100 * wins / played) if played else None),
                     "clan": clan, "protected": protected})
     return jsonify({"players": out, "total": len(rows), "gain": gain,
-                    "offset": offset, "count": n,
+                    "offset": offset, "count": n, "mode": mode,
                     "region": region, "region_label": REGION_LABELS[region],
                     "period": period, "period_label": dict(PERIODS)[period]}), 200
 
