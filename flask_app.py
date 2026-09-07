@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.2"
+APP_VERSION = "9.3.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6398,36 +6398,63 @@ PERIOD_SQL = {"day": "-1 day", "week": "-7 days", "month": "-30 days"}
 PER_PAGE = 50
 
 
+# A player's most-played region barely moves, but computing it for the top of
+# the board means grouping every match the very best players have ever played -
+# tens of thousands of rows. Cache it per (mode, name) so a page's stable set of
+# names is only ever aggregated once every few minutes.
+_HOMEREG_CACHE = {}          # (mode, norm_name) -> (region_or_None, ts)
+_HOMEREG_TTL = 600           # 10 min - the badge is a tendency, not live state
+
+
 def _home_regions_for(norm_names, mode):
     """Most-played region per player, for a SMALL set of names only - a
     targeted lookup over the norm_name index rather than a group-by across the
-    whole match history. Only the ~50 rows a page actually draws need this, so
-    this stays off the O(all-players) path. Returns {norm_name: region} for the
-    regions the board badges."""
+    whole match history, and cached per player. Only the ~50 rows a page draws
+    need this, so it stays off the O(all-players) path. Returns {norm_name:
+    region} for the regions the board badges."""
     names = [n for n in norm_names if n]
     if not names:
         return {}
-    marks = ",".join("?" * len(names))
-    best = {}
-    try:
-        conn = db(timeout=4)
-        c = conn.cursor()
-        if mode == 'survival':
-            c.execute("SELECT srp.norm_name, sr.region, COUNT(*) "
-                      "FROM survival_round_players srp "
-                      "JOIN survival_results sr ON sr.key = srp.round_key "
-                      "WHERE srp.norm_name IN (%s) GROUP BY 1, 2" % marks, names)
+    now = time.time()
+    out, stale = {}, []
+    for n in names:
+        hit = _HOMEREG_CACHE.get((mode, n))
+        if hit and now - hit[1] < _HOMEREG_TTL:
+            if hit[0]:
+                out[n] = hit[0]
         else:
-            c.execute("SELECT mp.norm_name, m.region, COUNT(*) FROM match_players mp "
-                      "JOIN matches m ON m.id = mp.match_row "
-                      "WHERE mp.norm_name IN (%s) GROUP BY 1, 2" % marks, names)
-        for norm, reg, cnt in c.fetchall():
-            if cnt > best.get(norm, (0, None))[0]:
-                best[norm] = (cnt, reg)
-        conn.close()
-    except sqlite3.Error:
-        return {}
-    return {k: v[1] for k, v in best.items() if v[1] in REGION_KEYS}
+            stale.append(n)
+    if stale:
+        marks = ",".join("?" * len(stale))
+        best = {}
+        try:
+            conn = db(timeout=4)
+            c = conn.cursor()
+            if mode == 'survival':
+                c.execute("SELECT srp.norm_name, sr.region, COUNT(*) "
+                          "FROM survival_round_players srp "
+                          "JOIN survival_results sr ON sr.key = srp.round_key "
+                          "WHERE srp.norm_name IN (%s) GROUP BY 1, 2" % marks, stale)
+            else:
+                c.execute("SELECT mp.norm_name, m.region, COUNT(*) FROM match_players mp "
+                          "JOIN matches m ON m.id = mp.match_row "
+                          "WHERE mp.norm_name IN (%s) GROUP BY 1, 2" % marks, stale)
+            for norm, reg, cnt in c.fetchall():
+                if cnt > best.get(norm, (0, None))[0]:
+                    best[norm] = (cnt, reg)
+            conn.close()
+        except sqlite3.Error:
+            return out
+        # Keep the cache from growing without bound over a long-lived worker.
+        if len(_HOMEREG_CACHE) > 20000:
+            _HOMEREG_CACHE.clear()
+        for n in stale:
+            reg = best.get(n, (0, None))[1]
+            reg = reg if reg in REGION_KEYS else None
+            _HOMEREG_CACHE[(mode, n)] = (reg, now)
+            if reg:
+                out[n] = reg
+    return out
 
 
 def board_rows(c, period="all", region="all"):
