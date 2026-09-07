@@ -75,6 +75,29 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
 .rl-delaychip{margin-left:8px;font-size:11px;font-weight:600;color:#f0c04a;
   background:rgba(240,192,74,.13);border-radius:6px;padding:1px 7px}
 .rl-empty{max-width:1180px;margin:40px auto;text-align:center;color:var(--dim,#8aa0b0)}
+/* One match at a time, full-width, browsed with Back / Next. */
+.rlnav{max-width:1040px;margin:0 auto 12px;display:flex;align-items:center;gap:10px}
+.rlnav button{background:rgba(153,221,255,.06);border:1px solid rgba(153,221,255,.22);
+  color:var(--text);border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;
+  cursor:pointer;line-height:1;white-space:nowrap}
+.rlnav button:hover:not(.off){border-color:#66E6B8;color:#66E6B8}
+.rlnav button.off{opacity:.35;cursor:default}
+.rlnav .rlcount{flex:1;text-align:center;font-size:13px;color:var(--dim,#8aa0b0);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rlnav .rlcount b{color:var(--text)}
+.rl-wrap{max-width:1040px;margin:0 auto;display:block}
+.rl-card{display:none}
+.rl-card.rl-active{display:block}
+.rl-card.rl-active .rl-ctop{font-size:13.5px}
+@media(min-width:840px){
+  .rl-card.rl-active{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+    column-gap:24px;align-items:start}
+  .rl-card.rl-active > .rl-ctop{grid-column:1/-1}
+  .rl-card.rl-active > .rl-stwrap{grid-column:1;grid-row:2}
+  .rl-card.rl-active > .rl-radar{grid-column:1;grid-row:3;width:auto;height:min(56vh,520px);
+    max-width:100%;margin:4px auto 0}
+  .rl-card.rl-active > .rl-ros{grid-column:2;grid-row:2 / 4}
+}
 </style>
 
 <div class="rl-head">
@@ -89,6 +112,11 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
   <div class="rl-status"><span class="rl-dot"></span><span id="rlStatus">Connecting&hellip;</span><span id="rlDelay" class="rl-delaychip" style="display:none"></span></div>
 </div>
 
+<div class="rlnav" id="rlNav" style="display:none">
+  <button type="button" id="rlPrev" aria-label="Previous match">&lsaquo; Back</button>
+  <span class="rlcount" id="rlCount"></span>
+  <button type="button" id="rlNext" aria-label="Next match">Next &rsaquo;</button>
+</div>
 <div class="rl-wrap" id="rlWrap"></div>
 <div class="rl-empty" id="rlEmpty" style="display:none">No lobbies being watched right now.</div>
 
@@ -212,6 +240,31 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
   // refresh, and the radar ships GLIDE via requestAnimationFrame.
   var cards={};   // sid -> {el, stEl, rosEl, radarSvg, shipLayer, ships:{id:{ti,x,y,tx,ty,el}}}
   var order=[];   // sid order, stable
+  // Single-match browser: only ONE card is shown (.rl-active); Back / Next flip
+  // through the watched lobbies. Tracked by SID (not index) so the focused
+  // match stays put as other lobbies come and go.
+  var activeSid=null;
+  var navEl=document.getElementById('rlNav'),navPrev=document.getElementById('rlPrev'),
+      navNext=document.getElementById('rlNext'),navCount=document.getElementById('rlCount');
+  function rlIdx(){var i=order.indexOf(activeSid);return i<0?0:i;}
+  function showActive(){
+    if(!order.length){navEl.style.display='none';return;}
+    if(order.indexOf(activeSid)<0) activeSid=order[0];
+    var idx=order.indexOf(activeSid);
+    for(var k=0;k<order.length;k++){var cc=cards[order[k]];
+      if(cc) cc.el.classList.toggle('rl-active', order[k]===activeSid);}
+    navEl.style.display='';
+    var c=cards[activeSid],nm=(c&&c.lastM&&c.lastM.name)||('Lobby '+activeSid);
+    navCount.innerHTML='Match <b>'+(idx+1)+'</b> / '+order.length+' &middot; '+esc(nm);
+    var one=order.length<=1;
+    navPrev.classList.toggle('off',one);navNext.classList.toggle('off',one);
+  }
+  function rlGo(d){if(!order.length)return;
+    activeSid=order[(rlIdx()+d+order.length)%order.length];showActive();}
+  navPrev.addEventListener('click',function(){rlGo(-1);});
+  navNext.addEventListener('click',function(){rlGo(1);});
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowLeft')rlGo(-1);else if(e.key==='ArrowRight')rlGo(1);});
 
   // Reverse spotlight: put a halo on the ship whose pilot matches `name`
   // (clearing any previous). Ships are persistent, so the halo rides along.
@@ -352,6 +405,8 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
         if(!live[sid]&&cards[sid]){ cards[sid].el.remove(); delete cards[sid]; return false; }
         return true;
       });
+      // Show exactly one match (the focused one) and refresh the Back/Next bar.
+      showActive();
       var delayChip=document.getElementById('rlDelay');
       if(d.delayed && d.delay_sec){
         delayChip.textContent='delayed ~'+Math.round(d.delay_sec/60)+' min (security)';

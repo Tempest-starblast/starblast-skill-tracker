@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.2.0"
+APP_VERSION = "9.2.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4252,6 +4252,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.2.1", "at": "2026-09-07T00:40:00Z", "changes": [
+        "The Live matches view now shows one match at a time, full-width, with Back and Next buttons (or the arrow keys) to flip between the lobbies being watched — so it's easy to find the game you're looking for instead of scrolling a wall of them."
+    ]},
     {"version": "9.2.0", "at": "2026-09-06T23:55:00Z", "changes": [
         "The leaderboard has a Survival board now — switch between Team mode and Survival (beta) at the top of the page. It ranks last-ship-standing survival, with the same region and time (all-time / month / week / day) filters as the team board, and you can search it the same way.",
         "Survival is judged on finish order alone — a passive watcher can't see scores, so winning a big lobby is worth the most and outlasting strong players is worth more than outlasting weak ones. Only the real elimination fight counts (the ~30-minute build phase is ignored), and it's kept completely separate from the team-mode rating."
