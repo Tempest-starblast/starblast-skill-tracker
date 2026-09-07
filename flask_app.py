@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.2.1"
+APP_VERSION = "9.3.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -242,6 +242,11 @@ def api_key_ok(key):
 # POSTs each watched lobby's live team scores/counts to /api/live/state. Kept
 # in its OWN sqlite file so these frequent writes never contend with players.db.
 LIVE_DB_PATH = os.path.join(BASE_DIR, 'live.db')
+# Replay trajectories live in their OWN file too (9.3.0): they are large
+# (~70KB/match) and only the replay page ever reads them, so keeping them out
+# of players.db stops the big blob writes from locking the hot board queries
+# and keeps players.db small and fast. Same reasoning as live.db above.
+REPLAY_DB_PATH = os.path.join(BASE_DIR, 'replays.db')
 LIVE_STALE_SECONDS = 70    # a lobby not updated within this is treated as gone
 LIVE_TRAJ_CAP = 600        # reads kept per lobby: the WHOLE match (~100 min at
                            # ~10s/read), so a finished match can be snapshotted
@@ -405,6 +410,19 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
     for k in alive:
         out[k] = ex[k] / z
     return out
+
+
+def replay_db():
+    """Connection to the replay-trajectory database (trueskill_replay), kept
+    separate from players.db so its large blob writes never lock the board."""
+    conn = sqlite3.connect(REPLAY_DB_PATH, timeout=5)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("CREATE TABLE IF NOT EXISTS trueskill_replay ("
+                 "match_key TEXT PRIMARY KEY, sys_id INTEGER, at TEXT, "
+                 "region TEXT, first_ts REAL, data BLOB)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tsreplay_sys "
+                 "ON trueskill_replay(sys_id, first_ts)")
+    return conn
 
 
 def live_db():
@@ -1495,18 +1513,7 @@ def init_db():
                     PRIMARY KEY (match_key, norm_name))''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_tsmp_norm "
               "ON trueskill_match_players(norm_name, at DESC)")
-    # Per-match, per-player score trajectory (the in-game leaderboard replay).
-    # data = zlib(json) of [[elapsed_s, [[name, score, team], ...]], ...]; keyed
-    # to sys_id + first_ts so a live match's replay can look up its raw feed.
-    c.execute('''CREATE TABLE IF NOT EXISTS trueskill_replay (
-                    match_key TEXT PRIMARY KEY,
-                    sys_id INTEGER,
-                    at TEXT,
-                    region TEXT,
-                    first_ts REAL,
-                    data BLOB)''')
-    c.execute("CREATE INDEX IF NOT EXISTS idx_tsreplay_sys "
-              "ON trueskill_replay(sys_id, first_ts)")
+    # (trueskill_replay moved to its own replays.db in 9.3.0 - see replay_db().)
 
     # Survival rounds pushed from the droplet observer (last-player-standing).
     # `data` is the full JSON record; the columns are just for listing/ranking.
@@ -4290,6 +4297,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.3.0", "at": "2026-09-07T09:00:00Z", "changes": [
+        "The site is faster. The replay recordings had grown to take up most of the database and were slowing every page down; they now live in their own separate store, so the leaderboard, clans and profiles load quickly again. Replays themselves are unchanged."
+    ]},
     {"version": "9.2.1", "at": "2026-09-07T00:40:00Z", "changes": [
         "The Live matches view now shows one match at a time, full-width, with Back and Next buttons (or the arrow keys) to flip between the lobbies being watched — so it's easy to find the game you're looking for instead of scrolling a wall of them."
     ]},
@@ -6757,7 +6767,7 @@ def trueskill_replay_push():
     replay). Stored zlib-compressed, keyed to sys_id + first_ts."""
     if not api_key_ok(request.headers.get('X-API-Key')):
         return jsonify({"error": "Unauthorized"}), 401
-    conn = db()
+    conn = replay_db()
     c = conn.cursor()
     n = 0
     for m in ((request.json or {}).get('matches') or []):
@@ -6802,6 +6812,10 @@ def trueskill_replay_push():
                   (mk, m.get('sys_id'), m.get('at'), m.get('region'),
                    m.get('first_ts'), blob))
         n += 1
+    # Cap the replay DB the way match_replays is capped: drop trajectories
+    # older than the 90-day replay window so it can't grow without bound.
+    if n:
+        c.execute("DELETE FROM trueskill_replay WHERE at < datetime('now', '-90 days')")
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "count": n}), 200
@@ -6827,8 +6841,10 @@ def trueskill_replay_read():
         pend = calendar.timegm(time.strptime(played_at, '%Y-%m-%d %H:%M:%S'))
     except (ValueError, TypeError):
         pend = None
-    cands = c.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
-                      (sys_id,)).fetchall()
+    rc = replay_db()
+    cands = rc.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
+                       (sys_id,)).fetchall()
+    rc.close()
     best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = (None,) * 8
     for data, first_ts in cands:
         try:
