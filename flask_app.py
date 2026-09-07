@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.4"
+APP_VERSION = "9.3.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1793,6 +1793,10 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_region ON matches(region, played_at)")
+    # Newest-first ordering for the /replays archive. Without it, "ORDER BY
+    # played_at DESC LIMIT 10" had to sort the whole matches table on every
+    # visit; with it the row fetch walks the newest matches and stops at ten.
+    c.execute("CREATE INDEX IF NOT EXISTS idx_matches_played ON matches(played_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_row ON match_players(match_row)")
 
     # Which changelog versions the Discord #site-updates feed has posted.
