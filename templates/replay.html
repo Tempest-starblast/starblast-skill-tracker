@@ -92,6 +92,16 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 #radarMap{flex:1;min-height:0;display:block;margin:0 auto;aspect-ratio:1;max-width:100%;max-height:100%;
   border-radius:12px;background:rgba(3,10,22,.55);border:1px solid var(--line)}
 .cempty{color:var(--muted,#8aa0b0);font-size:13px;padding:16px}
+/* Gems bar, sitting just beneath each team's win-probability bar. */
+.t-gembar{height:5px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden;margin:0 0 8px}
+.t-gembar i{display:block;height:100%;width:0;border-radius:3px;background:#b48cff;transition:width .25s linear}
+/* Fullscreen-radar button, top-right of the Radar caption. */
+.radarcap{position:relative}
+.rfs{position:absolute;right:0;top:-4px;background:rgba(153,221,255,.08);border:1px solid var(--line);
+  color:var(--muted,#8aa0b0);border-radius:6px;font-size:13px;line-height:1;padding:3px 8px;cursor:pointer}
+.rfs:hover{color:var(--text);border-color:var(--blue,#66E6B8)}
+.radarwrap:fullscreen{background:#04070d;padding:2vmin;display:flex;flex-direction:column;justify-content:center}
+.radarwrap:fullscreen #radarMap{max-height:94vh;max-width:94vw}
 
 .ctransport{display:flex;align-items:center;gap:13px;padding:10px 16px;border-top:1px solid var(--line);
   background:rgba(8,16,28,.35)}
@@ -179,7 +189,10 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 
 <script>
 const MID = {{ mid|tojson }};
-const COLS = ['#6ec1ff', '#ff8a7a', '#8dff9e'];
+// Same team palette as the live view (team1 blue, team2 green, team3 gold) so a
+// match looks the SAME in /live and in its replay.
+const COLS = ['#99DDFF', '#66E6B8', '#FFCC66'];
+const GEM_CAPS = [800, 1600, 3200, 6400];   // station gem capacity by level
 let LBL = ['Team 1', 'Team 2', 'Team 3'];
 // Tabs: one panel visible at a time, so the whole replay fits with no page scroll.
 (function(){
@@ -292,9 +305,19 @@ function jnorm(s){
 // stations), which is end-aligned onto match time since both feeds end together.
 function buildReplay(ST, RD){
   var arenaEl = document.getElementById('arena');
+  // Fullscreen the radar when the caption's expand button is pressed. Delegated
+  // on the arena (which survives the per-build innerHTML swap).
+  arenaEl.addEventListener('click', function(ev){
+    var b = ev.target.closest && ev.target.closest('#radarFs'); if(!b) return;
+    ev.stopPropagation();
+    var wrap = b.closest('.radarwrap');
+    if(!document.fullscreenElement){ if(wrap && wrap.requestFullscreen) wrap.requestFullscreen(); }
+    else if(document.exitFullscreen){ document.exitFullscreen(); }
+  });
   function arenaMsg(m){ arenaEl.className = 'arena'; arenaEl.innerHTML = '<div class="cempty">'+m+'</div>'; }
   function nearest(src, t){ var lo=0, a=src.frames; for(var j=0;j<a.length;j++){ if(a[j].t<=t) lo=j; else break; } return lo; }
-  function radarHtml(){ return '<div class="radarwrap"><div class="radarcap">Radar</div>'
+  function radarHtml(){ return '<div class="radarwrap"><div class="radarcap">Radar'
+    + '<button type="button" class="rfs" id="radarFs" title="Fullscreen radar">&#9974;</button></div>'
     + '<svg id="radarMap" viewBox="-132 -132 264 264"></svg></div>'; }
   function teamHtml(k, withRoster){
     var col = COLS[k] || '#8aa0b0';
@@ -302,6 +325,7 @@ function buildReplay(ST, RD){
       + '<div class="t-head"><span class="t-name" style="color:'+col+'">'+esc(LBL[k]||('Team '+(k+1)))+'</span>'
       + '<span class="t-wp" data-wp="'+k+'" style="color:'+col+'"></span></div>'
       + '<div class="t-wpbar"><i data-wpbar="'+k+'" style="background:'+col+'"></i></div>'
+      + '<div class="t-gembar" title="Station gems"><i data-gembar="'+k+'"></i></div>'
       + '<div class="t-mid"><span data-stsvg="'+k+'"></span><div class="t-st" data-stmeta="'+k+'"></div></div>'
       + (withRoster ? '<div class="t-roster" data-roster="'+k+'"></div>' : '') + '</div>';
   }
@@ -382,11 +406,12 @@ function buildReplay(ST, RD){
 
     // Per-team panel refs + roster rows (top 8 per team by final score). Rows
     // are built once; only their bar widths + scores update per frame (glide).
-    var rowRef = {}, wpEl = {}, wpBar = {}, stEl = {}, stMeta = {}, teamPanel = {};
+    var rowRef = {}, wpEl = {}, wpBar = {}, gemBar = {}, rosterEls = {}, stEl = {}, stMeta = {}, teamPanel = {};
     teams.forEach(function(k){
       teamPanel[k] = arenaEl.querySelector('.team[data-team="'+k+'"]');
       wpEl[k] = arenaEl.querySelector('[data-wp="'+k+'"]');
       wpBar[k] = arenaEl.querySelector('[data-wpbar="'+k+'"]');
+      gemBar[k] = arenaEl.querySelector('[data-gembar="'+k+'"]');
       stEl[k] = arenaEl.querySelector('[data-stsvg="'+k+'"]');
       stMeta[k] = arenaEl.querySelector('[data-stmeta="'+k+'"]');
       var col = COLS[k] || '#8aa0b0', rhtml = '';
@@ -400,7 +425,7 @@ function buildReplay(ST, RD){
             + '<span class="ps">0</span></div>';
         });
       var rel = arenaEl.querySelector('[data-roster="'+k+'"]');
-      if(rel){ rel.innerHTML = rhtml;
+      if(rel){ rosterEls[k] = rel; rel.innerHTML = rhtml;
         rel.querySelectorAll('.prow').forEach(function(rw){
           rowRef[rw.getAttribute('data-key')] = {bar: rw.querySelector('.pb i'), sc: rw.querySelector('.ps'), row: rw}; });
       }
@@ -590,7 +615,12 @@ function buildReplay(ST, RD){
       };
       drawRawStations = function(i){
         teams.forEach(function(k){ var o = stationOne(k, i);
-          if(stEl[k]) stEl[k].innerHTML = o.svg; if(stMeta[k]) stMeta[k].innerHTML = o.meta; });
+          if(stEl[k]) stEl[k].innerHTML = o.svg; if(stMeta[k]) stMeta[k].innerHTML = o.meta;
+          var s = (stSeries[i] || [])[k];
+          if(gemBar[k] && s){ var lvl = s[0], gems = s[1] || 0;
+            var cap = (lvl != null && GEM_CAPS[lvl]) ? GEM_CAPS[lvl] : GEM_CAPS[3];
+            gemBar[k].style.width = Math.max(0, Math.min(100, 100 * gems / cap)) + '%'; }
+        });
       };
     }
 
@@ -607,8 +637,13 @@ function buildReplay(ST, RD){
         var bt = T - offset;
         if(RD && !rdSeries){ var ri = nearest(RD, bt); if(ri !== shownRd){ RD.draw(ri); shownRd = ri; } }
         if(ST && !stSeries){ var si = nearest(ST, bt); if(si !== shownSt){ shownSt = si;
+          var sf = ST.frames[si];
           teams.forEach(function(k){ var st = ST.oneStation(k, si);
-            if(stEl[k]) stEl[k].innerHTML = st.svg; if(stMeta[k]) stMeta[k].innerHTML = st.meta; }); } }
+            if(stEl[k]) stEl[k].innerHTML = st.svg; if(stMeta[k]) stMeta[k].innerHTML = st.meta;
+            var d2 = sf && sf.st && sf.st[k];
+            if(gemBar[k] && d2){ var lvl = d2[0], gems = d2[1] || 0;
+              var cap = (lvl != null && GEM_CAPS[lvl]) ? GEM_CAPS[lvl] : GEM_CAPS[3];
+              gemBar[k].style.width = Math.max(0, Math.min(100, 100 * gems / cap)) + '%'; } }); } }
       };
     }
 
@@ -660,8 +695,20 @@ function buildReplay(ST, RD){
       var i = Math.floor(pos), j = Math.min(n-1, i+1), a = pos - i;
       Object.keys(rowRef).forEach(function(key){
         var tl = timeline[key], s = tl ? lerp(tl[i], tl[j], a) : 0, ref = rowRef[key];
+        ref.cur = s;
         ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
         ref.sc.textContent = Math.round(s).toLocaleString();
+      });
+      // Keep each roster sorted highest-score-first, live, like a leaderboard -
+      // only touching the DOM when the order actually changes.
+      teams.forEach(function(k){
+        var rel = rosterEls[k]; if(!rel) return;
+        var rws = Array.prototype.slice.call(rel.children);
+        var want = rws.slice().sort(function(x, y){
+          return (rowRef[y.getAttribute('data-key')].cur || 0)
+               - (rowRef[x.getAttribute('data-key')].cur || 0); });
+        if(want.some(function(el, idx){ return rws[idx] !== el; }))
+          want.forEach(function(rw){ rel.appendChild(rw); });
       });
       if(haveWp){
         var rI = wp[i] || [0,0,0], rJ = wp[j] || [0,0,0];

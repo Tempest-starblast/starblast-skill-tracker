@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.0"
+APP_VERSION = "9.3.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -3000,12 +3000,22 @@ def replays_index():
         args.append(int(sysq))
     else:
         sysq = ''
-    cond = (" WHERE " + " AND ".join(where)) if where else ""
     conn = db()
-    c = conn.cursor()
     try:
-        c.execute("SELECT COUNT(*) FROM match_replays mr "
-                  "JOIN matches m ON m.id = mr.match_row" + cond, args)
+        conn.execute("ATTACH DATABASE ? AS r", (REPLAY_DB_PATH,))
+    except sqlite3.Error:
+        pass
+    c = conn.cursor()
+    # A match is replayable if it has a frozen score trajectory (match_replays)
+    # OR a raw radar/win-prob trajectory (r.trueskill_replay, matched to this
+    # match's lobby + end time). The player renders from the latter, so listing
+    # only match_replays hid replays that were actually viewable (reported bug).
+    have = ("(EXISTS (SELECT 1 FROM match_replays mr WHERE mr.match_row = m.id) "
+            "OR EXISTS (SELECT 1 FROM r.trueskill_replay tr WHERE tr.sys_id = m.sys_id "
+            "AND ABS(strftime('%s', m.played_at) - strftime('%s', tr.at)) < 3600))")
+    full_cond = " WHERE " + have + ((" AND " + " AND ".join(where)) if where else "")
+    try:
+        c.execute("SELECT COUNT(*) FROM matches m" + full_cond, args)
         total = c.fetchone()[0]
     except sqlite3.Error:
         total = 0
@@ -3015,8 +3025,7 @@ def replays_index():
     if total:
         c.execute("SELECT m.id, m.lobby_name, m.sys_id, "
                   "COALESCE(m.region,'america'), m.played_at, "
-                  "COALESCE(m.tracked_reads, 0) FROM match_replays mr "
-                  "JOIN matches m ON m.id = mr.match_row" + cond +
+                  "COALESCE(m.tracked_reads, 0) FROM matches m" + full_cond +
                   " ORDER BY m.played_at DESC, m.id DESC LIMIT 10 OFFSET ?",
                   args + [(pg - 1) * 10])
         labels = dict(REGIONS)
@@ -4297,6 +4306,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.3.1", "at": "2026-09-07T09:30:00Z", "changes": [
+        "Replay improvements: each team's roster now re-orders live by score as the match plays (highest first), there's a gems bar under each team's win-chance bar, the radar has a fullscreen button, and team colours now match the live view. Searching replays by server number also finds every match that has a replay, not just some."
+    ]},
     {"version": "9.3.0", "at": "2026-09-07T09:00:00Z", "changes": [
         "The site is faster. The replay recordings had grown to take up most of the database and were slowing every page down; they now live in their own separate store, so the leaderboard, clans and profiles load quickly again. Replays themselves are unchanged."
     ]},
