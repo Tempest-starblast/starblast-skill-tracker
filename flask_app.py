@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.1"
+APP_VERSION = "9.3.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4306,6 +4306,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.3.2", "at": "2026-09-07T10:30:00Z", "changes": [
+        "The leaderboard loads much faster. With over 13,000 ranked players it was quietly building every single row on every visit just to show you fifty; now it only builds the page you're looking at, so the board, its search and the region/time filters all open quickly."
+    ]},
     {"version": "9.3.1", "at": "2026-09-07T09:30:00Z", "changes": [
         "Replay improvements: each team's roster now re-orders live by score as the match plays (highest first), there's a gems bar under each team's win-chance bar, the radar has a fullscreen button, and team colours now match the live view. Searching replays by server number also finds every match that has a replay, not just some."
     ]},
@@ -6393,6 +6396,38 @@ PERIOD_SQL = {"day": "-1 day", "week": "-7 days", "month": "-30 days"}
 # they search. Ranking is unaffected: the board is still sorted whole
 # and then sliced, so a page boundary is only ever a display cut.
 PER_PAGE = 50
+
+
+def _home_regions_for(norm_names, mode):
+    """Most-played region per player, for a SMALL set of names only - a
+    targeted lookup over the norm_name index rather than a group-by across the
+    whole match history. Only the ~50 rows a page actually draws need this, so
+    this stays off the O(all-players) path. Returns {norm_name: region} for the
+    regions the board badges."""
+    names = [n for n in norm_names if n]
+    if not names:
+        return {}
+    marks = ",".join("?" * len(names))
+    best = {}
+    try:
+        conn = db(timeout=4)
+        c = conn.cursor()
+        if mode == 'survival':
+            c.execute("SELECT srp.norm_name, sr.region, COUNT(*) "
+                      "FROM survival_round_players srp "
+                      "JOIN survival_results sr ON sr.key = srp.round_key "
+                      "WHERE srp.norm_name IN (%s) GROUP BY 1, 2" % marks, names)
+        else:
+            c.execute("SELECT mp.norm_name, m.region, COUNT(*) FROM match_players mp "
+                      "JOIN matches m ON m.id = mp.match_row "
+                      "WHERE mp.norm_name IN (%s) GROUP BY 1, 2" % marks, names)
+        for norm, reg, cnt in c.fetchall():
+            if cnt > best.get(norm, (0, None))[0]:
+                best[norm] = (cnt, reg)
+        conn.close()
+    except sqlite3.Error:
+        return {}
+    return {k: v[1] for k, v in best.items() if v[1] in REGION_KEYS}
 
 
 def board_rows(c, period="all", region="all"):
@@ -13094,111 +13129,29 @@ def leaderboard():
     conn.close()
 
     rows.sort(key=leaderboard_sort_key)
+    # `total` stays the size of the whole board: it is the count the page
+    # reports, and a search must not appear to shrink the leaderboard.
+    total_ranked = len(rows)
 
-    # Which region each player turns up in most, for the badge on the
-    # combined board. A player who splits their time gets the one they
-    # play most - the profile has the full breakdown.
     # One canonical skill-rank per player (top-X% of the all-time board),
-    # looked up by name so the same badge shows on every view.
+    # cached, so the same badge shows on every view.
     divmap = division_map()
 
-    home_region = {}
-    if region == ALL_REGIONS:
-        conn2 = db()
-        c2 = conn2.cursor()
-        if mode == 'survival':
-            c2.execute("SELECT srp.norm_name, sr.region, COUNT(*) "
-                       "FROM survival_round_players srp "
-                       "JOIN survival_results sr ON sr.key = srp.round_key "
-                       "GROUP BY 1, 2")
-        else:
-            c2.execute("SELECT mp.norm_name, m.region, COUNT(*) FROM match_players mp "
-                       "JOIN matches m ON m.id = mp.match_row GROUP BY 1, 2")
-        best = {}
-        for norm, reg, cnt in c2.fetchall():
-            if cnt > best.get(norm, (0, None))[0]:
-                best[norm] = (cnt, reg)
-        conn2.close()
-        home_region = {k: v[1] for k, v in best.items() if v[1] in REGION_KEYS}
+    # Two set lookups shared by every shown row, kept off the per-row path: the
+    # styled-tag map, and which names own an account (a green login dot, or the
+    # protected tick). With 13k+ ranked players this is the whole reason the
+    # board stays quick - only the rows actually on screen are ever built in
+    # full, so the enrichment below is O(page), not O(board).
+    _cx = db()
+    _cc = _cx.cursor()
+    _shown = clan_display_map(_cc)
+    _cc.execute("SELECT norm_name FROM players "
+                "WHERE google_sub IS NOT NULL AND norm_name IS NOT NULL")
+    _accounts = {r[0] for r in _cc.fetchall()}
+    _cx.close()
 
-    leaderboard_data = []
-    for rank, (name, elo, wins, losses, clan, protected) in enumerate(
-            rows, 1):
-        wins = wins or 0
-        losses = losses or 0
-        played = wins + losses
-        # Same formatting as the player profile page, so a win rate reads
-        # identically wherever it is shown.
-        winrate = f"{round(100 * wins / played)}%" if played else "-"
-        # The region cell links through to that region's board, so it needs
-        # the key for the URL as well as the full label for the text.
-        home = home_region.get(normalize_name(name))
-        leaderboard_data.append({
-            "rank": rank,
-            "name": name, "display": display_name(name, clan),
-            "skill": (f"{elo:+.2f}" if gain
-                      else (f"{STARTING_ELO + elo:.1f}" if relative else f"{elo:.1f}")),
-            "search": search_key(name, clan),
-            "wins": wins, "losses": losses, "winrate": winrate,
-            # The record cell reads per mode: team = won-lost, survival = wins
-            # out of rounds played (losses here is rounds-not-won).
-            "record": (f"{wins} / {played}" if mode == 'survival'
-                       else f"{wins}-{losses}"),
-            "clan": clan, "protected": protected,
-            # Under five matches the rating is still finding its level -
-            # and moves faster to get there. Saying so is honest, and
-            # stops a one-game number reading like a settled one.
-            "provisional": played < PROVISIONAL_GAMES,
-            "region": home, "region_label": REGION_LABELS.get(home),
-            # Skill division (top-X% ship rank). None while provisional, and
-            # not shown for survival (the divisions are the team-board ranks).
-            "division": (None if mode == 'survival' or played < PROVISIONAL_GAMES
-                         else divmap.get(normalize_name(name))),
-        })
-    conn = db()
-    c = conn.cursor()
-    # The tag exactly as its leader wrote it. The folded key is for URLs
-    # and matching only; a key is a poor thing to show people. Folding the
-    # shown form into the search key too means a pasted ₣ⱠⱤ⇝ finds the
-    # clan's members even when their own names do not carry it.
-    _shown = clan_display_map(c)
-    # Names owned by an account get a green login dot on the board; if that
-    # name also runs protection the dot becomes the green protected tick. One
-    # set lookup keeps this off the per-row query path.
-    c.execute("SELECT norm_name FROM players "
-              "WHERE google_sub IS NOT NULL AND norm_name IS NOT NULL")
-    _accounts = {r[0] for r in c.fetchall()}
-    for _row in leaderboard_data:
-        _row["has_account"] = normalize_name(_row["name"]) in _accounts
-        if _row.get("clan"):
-            _disp = _shown.get(_row["clan"], _row["clan"])
-            _row["clan_display"] = _disp
-            if _disp != _row["clan"]:
-                _row["search"] += normalize_name(_disp)
-                _row["display"] = display_name(_row["name"], _row["clan"], _disp)
-    # Only trust a recent push. A stale row would claim a match is being
-    # watched long after the tracker stopped, which is worse than saying
-    # nothing at all.
-    conn.close()
-
-    # A region link names a player, not a page - which page they sit on
-    # is a property of the board being opened, so only this route can
-    # know it. Redirecting (rather than rendering) keeps #p-<name> in the
-    # address bar, which is what the :target highlight matches on.
-    if find:
-        fkey = normalize_name(find)
-        for p in leaderboard_data:
-            if normalize_name(p['name']) == fkey:
-                _mq = 'mode=survival&' if mode == 'survival' else ''
-                return redirect('/?%speriod=%s&region=%s&page=%d#p-%s' % (
-                    _mq, period, region, (p['rank'] - 1) // PER_PAGE + 1,
-                    quote(p['name'], safe='')))
-        # Not ranked on this board at all - show page one rather than
-        # a dead end.
-
-    # Your own rows, so the board can point them out in green - and so a
-    # bare visit can open on the page you are actually on rather than at
-    # a stranger's rank 1 (7.0.1).
+    # Your own names, so the board can point your rows out in green and pin your
+    # standing at the foot (7.0.1, 7.0.8).
     _mine = set()
     _sub = current_user()
     if _sub:
@@ -13210,49 +13163,133 @@ def leaderboard():
             _mc.close()
         except sqlite3.Error:
             _mine = set()
-    if _mine:
-        for p in leaderboard_data:
-            if normalize_name(p['name']) in _mine:
-                p['mine'] = True
 
-    # Your own standing, pinned to the foot of the board (7.0.8). It used
-    # to open the board on your own page instead, which put everybody who
-    # is not near the top somewhere in the middle of the table and - worse -
-    # broke the pager: "first page" links carry no page number, so the jump
-    # caught them and bounced you straight back. Showing the row here
-    # instead means the board always opens at rank 1, every arrow works,
-    # and you can still see exactly where you stand without hunting.
-    me_rows = []
-    if _mine:
-        for _p in leaderboard_data:
-            if normalize_name(_p['name']) in _mine:
-                me_rows.append(_p)
-        me_rows = me_rows[:3]
+    # A region link names a player, not a page - which page they sit on is a
+    # property of the board being opened, so only this route can know it.
+    # Redirecting (rather than rendering) keeps #p-<name> in the address bar,
+    # which is what the :target highlight matches on. Resolved straight off the
+    # sorted rows - no need to build the whole board to place one name.
+    if find:
+        fkey = normalize_name(find)
+        for i, row in enumerate(rows):
+            if normalize_name(row[0]) == fkey:
+                _mq = 'mode=survival&' if mode == 'survival' else ''
+                return redirect('/?%speriod=%s&region=%s&page=%d#p-%s' % (
+                    _mq, period, region, i // PER_PAGE + 1,
+                    quote(row[0], safe='')))
+        # Not ranked on this board at all - fall through to page one.
 
-    # `total` stays the size of the whole board: it is the count the page
-    # reports, and a search must not appear to shrink the leaderboard.
-    total_ranked = len(leaderboard_data)
+    def _search_for(name, clan):
+        """The board-search key for a row. A styled clan tag is folded in so a
+        pasted ₣ⱠⱤ⇝ finds the clan's members even when their own names do not
+        carry it."""
+        s = search_key(name, clan)
+        if clan:
+            disp = _shown.get(clan, clan)
+            if disp != clan:
+                s += normalize_name(disp)
+        return s
+
+    # Which rows are actually on show. A search scans the whole board, but only
+    # by the cheap search key; the default view slices straight to the page.
+    # Either way only the rows that end up visible get built in full.
     if q:
-        # Both readings of the query: as written, and folded to plain
-        # letters - so typing L7 finds Ⱡ7 and pasting Ⱡ7 finds it too,
-        # whichever symbol alphabet either side used.
+        # Both readings of the query: as written, and folded to plain letters -
+        # so typing L7 finds Ⱡ7 and pasting Ⱡ7 finds it too, whichever symbol
+        # alphabet either side used.
         qkey = normalize_name(q)
         qfold = clean_clan_tag(q)
-        leaderboard_data = [p for p in leaderboard_data
-                            if qkey in p['search']
-                            or (qfold and qfold in p['search'])]
-    found = len(leaderboard_data)
+        ranked = []
+        for i, row in enumerate(rows):
+            s = _search_for(row[0], row[4])
+            if qkey in s or (qfold and qfold in s):
+                ranked.append((i + 1, row))
+        found = len(ranked)
+    else:
+        ranked = None
+        found = total_ranked
+
     pages = max(1, (found + PER_PAGE - 1) // PER_PAGE)
     # Clamped, not 404'd: ?page=900 is a stale link, not an error.
     pnum = min(max(pnum, 1), pages)
     start = (pnum - 1) * PER_PAGE
-    leaderboard_data = leaderboard_data[start:start + PER_PAGE]
-    # Only pin your row at the foot when it is NOT already on the page
-    # in front of you - seeing yourself twice is just noise.
+    if q:
+        page_pairs = ranked[start:start + PER_PAGE]
+    else:
+        page_pairs = [(start + j + 1, rows[start + j])
+                      for j in range(min(PER_PAGE, max(0, total_ranked - start)))]
+
+    # Your own standing, pinned to the foot of the board (7.0.8) - found by
+    # scanning the sorted rows (just a name compare), capped at three, and
+    # deduped against the visible page below.
+    me_pairs = []
+    if _mine:
+        for i, row in enumerate(rows):
+            if normalize_name(row[0]) in _mine:
+                me_pairs.append((i + 1, row))
+                if len(me_pairs) >= 3:
+                    break
+
+    # Home region only for the rows about to be drawn - a targeted lookup over
+    # the norm_name index, not a group-by across every match ever played.
+    vis_norms = {normalize_name(p[1][0]) for p in page_pairs}
+    vis_norms |= {normalize_name(p[1][0]) for p in me_pairs}
+    home_region = (_home_regions_for(vis_norms, mode)
+                   if region == ALL_REGIONS else {})
+
+    def _enrich(rank, row):
+        name, elo, wins, losses, clan, protected = row
+        wins = wins or 0
+        losses = losses or 0
+        played = wins + losses
+        # Same formatting as the player profile page, so a win rate reads
+        # identically wherever it is shown.
+        winrate = f"{round(100 * wins / played)}%" if played else "-"
+        nn = normalize_name(name)
+        # The region cell links through to that region's board, so it needs the
+        # key for the URL as well as the full label for the text.
+        home = home_region.get(nn)
+        # The tag exactly as its leader wrote it (styled), or the plain tag.
+        disp = _shown.get(clan, clan) if clan else None
+        d = {
+            "rank": rank,
+            "name": name,
+            "display": (display_name(name, clan, disp)
+                        if (clan and disp != clan) else display_name(name, clan)),
+            "skill": (f"{elo:+.2f}" if gain
+                      else (f"{STARTING_ELO + elo:.1f}" if relative else f"{elo:.1f}")),
+            "search": _search_for(name, clan),
+            "wins": wins, "losses": losses, "winrate": winrate,
+            # The record cell reads per mode: team = won-lost, survival = wins
+            # out of rounds played (losses here is rounds-not-won).
+            "record": (f"{wins} / {played}" if mode == 'survival'
+                       else f"{wins}-{losses}"),
+            "clan": clan, "protected": protected,
+            # Under five matches the rating is still finding its level - and
+            # moves faster to get there. Saying so is honest, and stops a
+            # one-game number reading like a settled one.
+            "provisional": played < PROVISIONAL_GAMES,
+            "region": home, "region_label": REGION_LABELS.get(home),
+            # Skill division (top-X% ship rank). None while provisional, and not
+            # shown for survival (the divisions are the team-board ranks).
+            "division": (None if mode == 'survival' or played < PROVISIONAL_GAMES
+                         else divmap.get(nn)),
+            "has_account": nn in _accounts,
+        }
+        if clan:
+            d["clan_display"] = disp
+        if nn in _mine:
+            d["mine"] = True
+        return d
+
+    leaderboard_data = [_enrich(rank, row) for rank, row in page_pairs]
+    me_rows = [_enrich(rank, row) for rank, row in me_pairs]
+    # Only pin your row at the foot when it is NOT already on the page in front
+    # of you - seeing yourself twice is just noise.
     if me_rows:
-        _shown = {normalize_name(_p['name']) for _p in leaderboard_data}
+        _shownset = {normalize_name(_p['name']) for _p in leaderboard_data}
         me_rows = [_p for _p in me_rows
-                   if normalize_name(_p['name']) not in _shown]
+                   if normalize_name(_p['name']) not in _shownset]
     return render_template('index.html', leaderboard=leaderboard_data,
                            periods=PERIODS, regions=REGION_CHOICES,
                            period=period, region=region, gain=gain,
