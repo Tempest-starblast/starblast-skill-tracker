@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.5"
+APP_VERSION = "9.3.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4328,7 +4328,8 @@ def game_end():
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
     {"version": "9.3.2", "at": "2026-09-07T10:30:00Z", "changes": [
-        "The leaderboard loads much faster. With over 13,000 ranked players it was quietly building every single row on every visit just to show you fifty; now it only builds the page you're looking at, so the board, its search and the region/time filters all open quickly."
+        "The leaderboard loads much faster. With over 13,000 ranked players it was quietly building every single row on every visit just to show you fifty; now it only builds the page you're looking at, so the board, its search and the region/time filters all open quickly.",
+        "The Replays archive opens quickly now too — it was scanning the whole match history on every visit, and no longer does."
     ]},
     {"version": "9.3.1", "at": "2026-09-07T09:30:00Z", "changes": [
         "Replay improvements: each team's roster now re-orders live by score as the match plays (highest first), there's a gems bar under each team's win-chance bar, the radar has a fullscreen button, and team colours now match the live view. Searching replays by server number also finds every match that has a replay, not just some."
