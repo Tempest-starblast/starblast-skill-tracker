@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.3"
+APP_VERSION = "9.3.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2979,6 +2979,10 @@ def replay_page(mid):
                            page='replay')
 
 
+_REPLAY_COUNT_CACHE = {}     # (date, sysq) -> (total, ts)
+_REPLAY_COUNT_TTL = 60       # the archive count moves only as matches end
+
+
 @app.route('/replays')
 def replays_index():
     """Every match that has a replay, newest first - searchable by date and
@@ -3014,11 +3018,24 @@ def replays_index():
             "OR EXISTS (SELECT 1 FROM r.trueskill_replay tr WHERE tr.sys_id = m.sys_id "
             "AND ABS(strftime('%s', m.played_at) - strftime('%s', tr.at)) < 3600))")
     full_cond = " WHERE " + have + ((" AND " + " AND ".join(where)) if where else "")
-    try:
-        c.execute("SELECT COUNT(*) FROM matches m" + full_cond, args)
-        total = c.fetchone()[0]
-    except sqlite3.Error:
-        total = 0
+    # The total only feeds "N replays, page X/Y" and only changes when a match
+    # ends, but computing it means running the replayable-EXISTS across every
+    # match ever (the row fetch below is cheap - it stops at 10). So cache it
+    # briefly per filter; paging and revisits then skip the full scan entirely.
+    _ckey = (date, sysq)
+    _now = time.time()
+    _chit = _REPLAY_COUNT_CACHE.get(_ckey)
+    if _chit and _now - _chit[1] < _REPLAY_COUNT_TTL:
+        total = _chit[0]
+    else:
+        try:
+            c.execute("SELECT COUNT(*) FROM matches m" + full_cond, args)
+            total = c.fetchone()[0]
+        except sqlite3.Error:
+            total = 0
+        if len(_REPLAY_COUNT_CACHE) > 5000:
+            _REPLAY_COUNT_CACHE.clear()
+        _REPLAY_COUNT_CACHE[_ckey] = (total, _now)
     pages = max(1, (total + 9) // 10)
     pg = min(pg, pages)
     rows = []
