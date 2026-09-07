@@ -1515,6 +1515,14 @@ def init_db():
                     data TEXT)''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_survival_ended "
               "ON survival_results(ended_at)")
+    # Whether this round has been posted to the Discord survival-results feed.
+    # Backfilled to 1 on the column's first appearance so going live doesn't
+    # dump the whole back-catalogue into the channel (mirrors matches.announced).
+    try:
+        c.execute("ALTER TABLE survival_results ADD COLUMN announced INTEGER DEFAULT 0")
+        c.execute("UPDATE survival_results SET announced = 1")
+    except sqlite3.OperationalError:
+        pass
 
     # Survival placement rating (9.2.0), keyed by the same norm_name identity
     # as the team board so a player is one player. Review-only for now - built
@@ -1936,6 +1944,16 @@ def init_db():
                     created_at TEXT,
                     status TEXT DEFAULT 'open'
                 )''')
+    # Delivery flag for the Discord report feed (owner DMs). On the column's
+    # first appearance the backlog is marked delivered so going live doesn't DM
+    # weeks of old reports - but anything from the last few days is left to send,
+    # so a report filed just before this deploy still reaches the owner.
+    for _rt in ("bug_reports", "name_reports"):
+        try:
+            c.execute("ALTER TABLE %s ADD COLUMN delivered INTEGER DEFAULT 0" % _rt)
+            c.execute("UPDATE %s SET delivered = 1 WHERE created_at < '2026-09-05'" % _rt)
+        except sqlite3.OperationalError:
+            pass
     # Discord accounts already granted the server's Player role, so the
     # bot's poll does not grant twice. Sub only - no handles, no dates
     # beyond when it was granted.
@@ -7050,9 +7068,15 @@ def survival_push():
             continue                       # no real player left to credit
         key = "%s|%s" % (r.get('sid'), r.get('ended_at'))
         try:
-            c.execute("INSERT OR REPLACE INTO survival_results "
+            # ON CONFLICT (not REPLACE) so a re-push keeps the `announced` flag
+            # and never re-posts a round to the Discord feed.
+            c.execute("INSERT INTO survival_results "
                       "(key, ended_at, region, lobby, winner, elim_field_size, data) "
-                      "VALUES (?,?,?,?,?,?,?)",
+                      "VALUES (?,?,?,?,?,?,?) "
+                      "ON CONFLICT(key) DO UPDATE SET ended_at=excluded.ended_at, "
+                      "region=excluded.region, lobby=excluded.lobby, "
+                      "winner=excluded.winner, elim_field_size=excluded.elim_field_size, "
+                      "data=excluded.data",
                       (key, r.get('ended_at'), r.get('region'), r.get('lobby'),
                        w, int(r.get('elim_field_size') or 0),
                        json.dumps(r, ensure_ascii=False)))
@@ -7068,6 +7092,115 @@ def survival_push():
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "count": n}), 200
+
+
+@app.route('/api/bot/survival/undelivered')
+def bot_survival_undelivered():
+    """Finished survival rounds not yet posted to the Discord survival-results
+    feed, oldest first. Only real contests (field >= SURV_MIN_FIELD) - the same
+    bar the placement board uses - so tiny mass-quit finishes don't spam it."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    rows = c.execute(
+        "SELECT key, ended_at, region, lobby, winner, elim_field_size, data "
+        "FROM survival_results WHERE COALESCE(announced, 0) = 0 "
+        "AND COALESCE(elim_field_size, 0) >= ? "
+        "ORDER BY ended_at LIMIT 12", (SURV_MIN_FIELD,)).fetchall()
+    out = []
+    for key, ended_at, region, lobby, winner, field, data_json in rows:
+        try:
+            d = json.loads(data_json)
+        except (TypeError, ValueError):
+            d = {}
+        w, ru = _survival_true_winner(d)
+        # Top finishers with the rating each won or lost (from the rated round).
+        places = [{"name": nm, "place": pl, "delta": round(dl, 1)}
+                  for nm, pl, dl in c.execute(
+                      "SELECT name, place, delta FROM survival_round_players "
+                      "WHERE round_key = ? ORDER BY place LIMIT 5", (key,)).fetchall()]
+        out.append({"key": key, "ended_at": ended_at,
+                    "region": region or "america", "lobby": lobby,
+                    "winner": w or winner, "runner_up": ru,
+                    "field": field or 0,
+                    "duration_min": int(round((d.get("duration_s") or 0) / 60)),
+                    "placements": places})
+    conn.close()
+    return jsonify({"rounds": out}), 200
+
+
+@app.route('/api/bot/survival/delivered', methods=['POST'])
+def bot_survival_delivered():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    keys = [str(k) for k in ((request.json or {}).get('keys') or [])][:50]
+    if not keys:
+        return jsonify({"ok": True, "count": 0}), 200
+    conn = db()
+    c = conn.cursor()
+    c.executemany("UPDATE survival_results SET announced = 1 WHERE key = ?",
+                  [(k,) for k in keys])
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": len(keys)}), 200
+
+
+@app.route('/api/bot/reports/undelivered')
+def bot_reports_undelivered():
+    """Reports filed on the site that haven't been DM'd to the owner yet -
+    name reports (someone disputing/flagging a name) and general problem
+    reports, oldest first. The reporter's Discord handle is joined in when we
+    have one, so the DM can say who filed it."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    out = []
+    for rid, nm, rb, note, at in c.execute(
+            "SELECT id, name, reported_by, note, created_at FROM name_reports "
+            "WHERE COALESCE(delivered, 0) = 0 ORDER BY id LIMIT 15").fetchall():
+        handle = None
+        if rb:
+            _h = c.execute("SELECT COALESCE(display, username) FROM discord_users "
+                           "WHERE sub = ?", (rb,)).fetchone()
+            handle = _h[0] if _h else None
+        out.append({"type": "name", "id": rid, "name": nm, "by": rb,
+                    "handle": handle, "note": note, "at": at})
+    for rid, kind, body, contact, gs, at in c.execute(
+            "SELECT id, kind, body, contact, google_sub, created_at FROM bug_reports "
+            "WHERE COALESCE(delivered, 0) = 0 ORDER BY id LIMIT 15").fetchall():
+        handle = None
+        if gs:
+            _h = c.execute("SELECT COALESCE(display, username) FROM discord_users "
+                           "WHERE sub = ?", (gs,)).fetchone()
+            handle = _h[0] if _h else None
+        out.append({"type": "bug", "id": rid, "kind": kind, "body": body,
+                    "contact": contact, "by": gs, "handle": handle, "at": at})
+    conn.close()
+    return jsonify({"reports": out}), 200
+
+
+@app.route('/api/bot/reports/delivered', methods=['POST'])
+def bot_reports_delivered():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    body = request.json or {}
+    name_ids = [int(x) for x in (body.get('name_ids') or [])
+                if str(x).lstrip('-').isdigit()]
+    bug_ids = [int(x) for x in (body.get('bug_ids') or [])
+               if str(x).lstrip('-').isdigit()]
+    conn = db()
+    c = conn.cursor()
+    if name_ids:
+        c.executemany("UPDATE name_reports SET delivered = 1 WHERE id = ?",
+                      [(i,) for i in name_ids])
+    if bug_ids:
+        c.executemany("UPDATE bug_reports SET delivered = 1 WHERE id = ?",
+                      [(i,) for i in bug_ids])
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": len(name_ids) + len(bug_ids)}), 200
 
 
 @app.route('/survival')
