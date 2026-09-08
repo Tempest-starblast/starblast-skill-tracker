@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3.7"
+APP_VERSION = "9.4.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4345,6 +4345,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.4.0", "at": "2026-09-08T05:30:00Z", "changes": [
+        "Survival rounds now have replays. Every recent round on the Survival page has a ▶ replay link that opens an elimination timeline — the whole field laid out in finishing order, each ship's bar ending the moment it was knocked out, with a playhead you can scrub from the first ship out to the last one standing. (Survival is watched by roster, not positions, so it's a placement timeline rather than a radar.)",
+        "Survival results posted to Discord now list every ship in the round, in finishing order with the rating each gained or lost — not just the top five."
+    ]},
     {"version": "9.3.7", "at": "2026-09-07T12:00:00Z", "changes": [
         "Fixed replays showing “No replay recorded for that match” even though the match was watched. Most matches are recorded by the live watcher, which captures the full radar and win-probability replay but not the older score-over-time snapshot — the page was treating that missing snapshot as no replay at all. Now it plays the radar replay and shows the final standings; the score/ship charts only appear for matches that have them."
     ]},
@@ -7253,11 +7257,13 @@ def bot_survival_undelivered():
         except (TypeError, ValueError):
             d = {}
         w, ru = _survival_true_winner(d)
-        # Top finishers with the rating each won or lost (from the rated round).
+        # EVERY finisher with the rating each won or lost (from the rated
+        # round), in placement order - the bot lists them all. Capped only to
+        # keep a pathological field from bloating the payload.
         places = [{"name": nm, "place": pl, "delta": round(dl, 1)}
                   for nm, pl, dl in c.execute(
                       "SELECT name, place, delta FROM survival_round_players "
-                      "WHERE round_key = ? ORDER BY place LIMIT 5", (key,)).fetchall()]
+                      "WHERE round_key = ? ORDER BY place LIMIT 60", (key,)).fetchall()]
         out.append({"key": key, "ended_at": ended_at,
                     "region": region or "america", "lobby": lobby,
                     "winner": w or winner, "runner_up": ru,
@@ -7348,7 +7354,7 @@ def survival_page():
     conn = db()
     c = conn.cursor()
     try:
-        data_rows = c.execute("SELECT data FROM survival_results "
+        data_rows = c.execute("SELECT key, data FROM survival_results "
                               "ORDER BY ended_at DESC LIMIT 80").fetchall()
         # Most wins comes from the rated board, which already excludes blocked
         # bots/observers - not a raw GROUP BY on the stored winner column.
@@ -7357,7 +7363,7 @@ def survival_page():
     except sqlite3.Error:
         data_rows, win_rows = [], []
     rounds = []
-    for (data,) in data_rows:
+    for (key, data) in data_rows:
         try:
             r = json.loads(data)
         except Exception:
@@ -7367,6 +7373,7 @@ def survival_page():
         # ship never shows as the winner of a historical round.
         w, ru = _survival_true_winner(r)
         rounds.append({
+            "key": key,
             "winner": w or r.get('winner') or '',
             "runner_up": ru,
             "field": r.get('elim_field_size') or 0,
@@ -7382,6 +7389,78 @@ def survival_page():
     # this page is the round-by-round results feed + most-wins tally.
     return render_template('survival.html', page='survival', version=APP_VERSION,
                            rounds=rounds, top=top)
+
+
+@app.route('/survival/replay')
+def survival_replay():
+    """Replay ONE recorded survival round as an elimination timeline - the field
+    shrinking from N ships to the last one standing. Survival is watched by
+    roster only (no positions exist), so the replay is the placement/elimination
+    timeline, not a radar. key = the survival_results key (sid|ended_at)."""
+    key = (request.args.get('key') or '').strip()
+    if not key:
+        return redirect('/survival')
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT ended_at, region, lobby, winner, elim_field_size, data "
+                    "FROM survival_results WHERE key = ?", (key,)).fetchone()
+    if not row:
+        conn.close()
+        return redirect('/survival')
+    ended_at, region, lobby, winner, field, data_json = row
+    try:
+        d = json.loads(data_json)
+    except (TypeError, ValueError):
+        d = {}
+    # Rating change per player, if the round was rated (field >= SURV_MIN_FIELD).
+    deltas = {normalize_name(nm): dl for nm, dl in c.execute(
+        "SELECT name, delta FROM survival_round_players "
+        "WHERE round_key = ?", (key,)).fetchall()}
+    conn.close()
+
+    # leave_order is winner-first; each entry is [name, seconds-before-end].
+    # Drop resident watchers, collapse a name seen twice to its best placement.
+    fighters, seen = [], set()
+    for e in (d.get('leave_order') or []):
+        nm = e[0] if isinstance(e, (list, tuple)) else e
+        sec = (e[1] if isinstance(e, (list, tuple)) and len(e) > 1 else 0) or 0
+        if not nm or is_observer_name(nm):
+            continue
+        k = normalize_name(nm)
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        fighters.append({"name": str(nm).strip()[:64], "secs_before_end": int(sec)})
+    # Timeline window = the elimination sequence. t=0 is the first ship out
+    # (longest secs-before-end), t=span is the winner (survived to the end).
+    span = max([f["secs_before_end"] for f in fighters], default=0)
+    for i, f in enumerate(fighters):
+        f["place"] = i + 1
+        f["survived_s"] = f["secs_before_end"]        # how long before the end
+        f["elim_t"] = max(0, span - f["secs_before_end"])   # x on the timeline
+        dl = deltas.get(normalize_name(f["name"]))
+        f["delta"] = round(dl, 1) if dl is not None else None
+    w, ru = _survival_true_winner(d)
+    rd = {
+        "key": key,
+        "lobby": lobby or ("#%s" % (d.get('sid') or '')),
+        "sid": d.get('sid'),
+        "region": region or 'america',
+        "region_label": REGION_LABELS.get(region, (region or 'america').title()),
+        "ended_at": ended_at or '',
+        "when_utc": ((ended_at or '').replace(' ', 'T') + 'Z') if ended_at else '',
+        "duration_min": int(round((d.get('duration_s') or 0) / 60)),
+        "field": field or len(fighters),
+        "elim_span_s": span,
+        "close_call": bool(d.get('close_call')),
+        "winner": w or winner or '',
+        "runner_up": ru,
+        "fighters": fighters,
+        "quitters": [str(q).strip()[:48] for q in (d.get('did_not_reach_elim') or [])
+                     if q and not is_observer_name(q)][:40],
+    }
+    return render_template('survival_replay.html', page='survival',
+                           version=APP_VERSION, rd=rd)
 
 
 # TrueSkill parameters - must match the raw scorer (trueskill_scorer.py) so the

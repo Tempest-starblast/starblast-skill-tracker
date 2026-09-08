@@ -27,6 +27,9 @@
 .svempty{color:var(--muted);padding:26px 0;text-align:center;font-size:13px}
 .svnote a{color:var(--blue);text-decoration:none}
 .svnote a:hover{text-decoration:underline}
+a.svtrophy{text-decoration:none}
+.svreplay{color:var(--blue);text-decoration:none;font-weight:600;white-space:nowrap}
+.svreplay:hover{text-decoration:underline}
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Survival</h1>
@@ -46,10 +49,10 @@
     <h2>Recent rounds</h2>
     {% for r in rounds %}
     <div class="svround">
-      <span class="svtrophy">&#127942;</span>
+      <a class="svtrophy" href="/survival/replay?key={{ r.key|urlencode }}" title="Watch the elimination replay">&#127942;</a>
       <div>
         <div class="svwin"><a href="/player/{{ r.winner|urlencode }}">{{ r.winner }}</a></div>
-        <div class="svsub">last of {{ r.field }}{% if r.runner_up %} &middot; runner-up <a href="/player/{{ r.runner_up|urlencode }}">{{ r.runner_up }}</a>{% endif %}</div>
+        <div class="svsub">last of {{ r.field }}{% if r.runner_up %} &middot; runner-up <a href="/player/{{ r.runner_up|urlencode }}">{{ r.runner_up }}</a>{% endif %} &middot; <a class="svreplay" href="/survival/replay?key={{ r.key|urlencode }}">&#9654; replay</a></div>
       </div>
       <div class="svmeta">{{ r.region }}<br><time class="lt" datetime="{{ r.when_utc }}">{{ r.when }}</time> &middot; {{ r.dur_min }}m</div>
     </div>

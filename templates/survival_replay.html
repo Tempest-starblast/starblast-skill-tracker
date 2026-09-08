@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Survival replay - {{ rd.lobby }} - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}Elimination replay of a Starblast survival round in {{ rd.region_label }} - the field of {{ rd.field }} shrinking to the last ship standing, {{ rd.winner }}.{% endblock %}
+{% block css %}
+.rback{display:inline-block;color:var(--muted);text-decoration:none;font-size:13px;margin:-2px 0 12px}
+.rback:hover{color:var(--text)}
+.rhead{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 18px;margin-bottom:14px;backdrop-filter:var(--blur)}
+.rhead h1{font-size:20px;margin:0 0 4px}
+.rhead .sub{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:5px 12px;align-items:center}
+.rhead .sub b{color:var(--text);font-weight:600}
+.close-badge{color:#0b0e13;background:var(--amber,#f0c04a);border-radius:100px;padding:1px 9px;font-size:11px;font-weight:700;letter-spacing:.04em}
+.rwin{margin-top:9px;font-size:14px}
+.rwin .crown{font-size:16px}
+.rwin a{color:var(--amber,#f0c04a);font-weight:700;text-decoration:none}
+.rwin a:hover{text-decoration:underline}
+
+.transport{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:9px 14px;margin-bottom:12px;backdrop-filter:var(--blur)}
+.transport button{font:inherit;font-size:15px;cursor:pointer;background:var(--blue,#66e6b8);color:#0b0e13;
+  border:none;border-radius:8px;width:38px;height:34px;flex:0 0 auto;font-weight:700}
+.transport button:active{transform:translateY(1px)}
+.transport input[type=range]{flex:1;accent-color:var(--blue,#66e6b8)}
+.transport .tt{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12.5px;white-space:nowrap;min-width:46px;text-align:right}
+.transport .rem{font-variant-numeric:tabular-nums;color:var(--green,#66e6b8);font-size:12.5px;white-space:nowrap;font-weight:600}
+
+.tlwrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 16px 16px;
+  backdrop-filter:var(--blur);overflow-x:auto}
+.tlaxis{display:grid;grid-template-columns:30px minmax(96px,1.4fr) 4fr 96px;gap:12px;
+  padding:6px 0 4px;position:sticky;top:0}
+.tlaxis .ticks{grid-column:3;position:relative;height:14px;color:var(--dim);font-size:10.5px;font-variant-numeric:tabular-nums}
+.tlaxis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tlaxis .ticks span:first-child{transform:none}
+.tlaxis .ticks span:last-child{transform:translateX(-100%)}
+#timeline{position:relative}
+.tl-row{display:grid;grid-template-columns:30px minmax(96px,1.4fr) 4fr 96px;gap:12px;align-items:center;
+  padding:5px 0;border-top:1px solid var(--line);font-size:13px;transition:opacity .18s}
+.tl-row:first-child{border-top:none}
+.tl-place{color:var(--dim);font-variant-numeric:tabular-nums;text-align:right;font-weight:600}
+.tl-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-name a{color:var(--text);text-decoration:none}
+.tl-name a:hover{color:var(--blue)}
+.tl-track{position:relative;height:15px;border-radius:8px;background:rgba(140,160,180,.09)}
+.tl-bar{position:absolute;left:0;top:0;bottom:0;border-radius:8px;
+  background:linear-gradient(90deg,rgba(102,230,184,.35),var(--green,#66e6b8));min-width:4px}
+.tl-dot{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;transform:translate(50%,-50%);
+  right:0;background:#0b0e13;border:2px solid var(--green,#66e6b8);box-shadow:0 0 0 2px var(--panel)}
+.tl-right{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.tl-right .dl{font-weight:600}
+.tl-right .up{color:var(--green,#66e6b8)}.tl-right .dn{color:#ff7a7a}
+/* winner */
+.tl-row.winner .tl-bar{background:linear-gradient(90deg,rgba(240,192,74,.4),var(--amber,#f0c04a))}
+.tl-row.winner .tl-dot{display:none}
+.tl-row.winner .crown{position:absolute;right:-2px;top:50%;transform:translate(50%,-50%);font-size:14px}
+.tl-row.winner .tl-name a{color:var(--amber,#f0c04a);font-weight:700}
+.tl-row.winner .tl-place{color:var(--amber,#f0c04a)}
+/* eliminated state as the playhead passes */
+.tl-row.out{opacity:.4}
+.tl-row.out .tl-dot{background:#ff7a7a;border-color:#ff7a7a}
+#playhead{position:absolute;top:0;width:2px;background:rgba(153,221,255,.7);
+  box-shadow:0 0 8px rgba(153,221,255,.5);pointer-events:none;z-index:3}
+.quitters{color:var(--muted);font-size:12px;margin-top:14px;line-height:1.7}
+.quitters b{color:var(--dim);text-transform:uppercase;letter-spacing:.1em;font-size:10.5px;font-weight:700}
+.svnote2{color:var(--muted);font-size:12.5px;margin:12px 2px 0}
+{% endblock %}
+{% block body %}
+<a class="rback" href="/survival">&larr; Survival</a>
+
+{% set n = rd.fighters|length %}
+{% set span = rd.elim_span_s %}
+
+<div class="rhead">
+  <h1>&#127942; {{ rd.lobby }}</h1>
+  <div class="sub">
+    <span><b>{{ rd.region_label }}</b></span>
+    <span><time class="lt" datetime="{{ rd.when_utc }}">{{ rd.ended_at[:16] }}</time></span>
+    {% if rd.duration_min %}<span>{{ rd.duration_min }} min round</span>{% endif %}
+    <span><b>{{ rd.field }}</b> in the elimination fight</span>
+    {% if rd.close_call %}<span class="close-badge">PHOTO FINISH</span>{% endif %}
+  </div>
+  {% if rd.winner %}
+  <div class="rwin"><span class="crown">&#128081;</span> Last ship standing:
+    <a href="/player/{{ rd.winner|urlencode }}">{{ rd.winner }}</a>{% if rd.runner_up %},
+    over <a href="/player/{{ rd.runner_up|urlencode }}" style="color:var(--muted);text-decoration:none">{{ rd.runner_up }}</a>{% endif %}.</div>
+  {% endif %}
+</div>
+
+{% if n >= 1 %}
+<div class="transport">
+  <button id="play" type="button" aria-label="Play">&#9654;</button>
+  <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Scrub the round">
+  <span class="rem" id="rem">{{ n }} left</span>
+  <span class="tt" id="tt">{% if span %}0:00{% else %}start{% endif %}</span>
+</div>
+
+<div class="tlwrap">
+  <div class="tlaxis">
+    <div class="ticks">
+      {% if span %}
+      <span>0:00</span>
+      <span style="left:25%">{{ '%d:%02d'|format((span*0.25)//60, (span*0.25)|round|int % 60) }}</span>
+      <span style="left:50%">{{ '%d:%02d'|format((span*0.5)//60, (span*0.5)|round|int % 60) }}</span>
+      <span style="left:75%">{{ '%d:%02d'|format((span*0.75)//60, (span*0.75)|round|int % 60) }}</span>
+      <span style="left:100%">{{ '%d:%02d'|format(span//60, span % 60) }}</span>
+      {% else %}
+      <span>first out</span><span style="left:100%">winner</span>
+      {% endif %}
+    </div>
+  </div>
+  <div id="timeline" data-span="{{ span }}">
+    {% for f in rd.fighters %}
+      {% if span > 0 %}
+        {% set bp = [ (100.0 * f.elim_t / span), 2.0 ]|max %}
+      {% else %}
+        {% set bp = 100.0 * (n - f.place + 1) / n %}
+      {% endif %}
+      <div class="tl-row{% if f.place == 1 %} winner{% endif %}" data-bp="{{ '%.2f'|format(bp) }}">
+        <div class="tl-place">{{ f.place }}</div>
+        <div class="tl-name"><a href="/player/{{ f.name|urlencode }}">{{ f.name }}</a></div>
+        <div class="tl-track">
+          <div class="tl-bar" style="width:{{ '%.2f'|format(bp) }}%">
+            {% if f.place == 1 %}<span class="crown">&#128081;</span>{% else %}<span class="tl-dot"></span>{% endif %}
+          </div>
+        </div>
+        <div class="tl-right">
+          {% if span %}<span>{{ '%d:%02d'|format(f.survived_s//60, f.survived_s % 60) }}</span>{% endif %}
+          {% if f.delta is not none %} <span class="dl {{ 'up' if f.delta >= 0 else 'dn' }}">{{ '+' if f.delta >= 0 else '' }}{{ f.delta }}</span>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+    <div id="playhead"></div>
+  </div>
+  <p class="svnote2">The playhead sweeps the elimination phase left&rarr;right; each bar ends when that ship was knocked out. Survival is watched by roster, so this is the placement timeline &mdash; not a positional radar.</p>
+</div>
+
+{% if rd.quitters %}
+<div class="quitters"><b>Left before elimination</b><br>{{ rd.quitters|join(' · ') }}</div>
+{% endif %}
+{% else %}
+<div class="tlwrap"><p class="svnote2">No ranked ships were resolved for this round.</p></div>
+{% endif %}
+
+<script>
+(function(){
+  var tl = document.getElementById('timeline');
+  if(!tl) return;
+  var rows = [].slice.call(tl.querySelectorAll('.tl-row'));
+  var playhead = document.getElementById('playhead');
+  var seek = document.getElementById('seek');
+  var playBtn = document.getElementById('play');
+  var ttl = document.getElementById('tt');
+  var reml = document.getElementById('rem');
+  var span = parseFloat(tl.getAttribute('data-span')) || 0;
+  var t = 0;                       // 0..1 progress across the elimination window
+  function fmt(s){ s=Math.round(s); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+  function placeHead(){
+    var sample = tl.querySelector('.tl-track');
+    if(!sample){ playhead.style.display='none'; return; }
+    var base = tl.getBoundingClientRect(), r = sample.getBoundingClientRect();
+    playhead.style.left = ((r.left - base.left) + r.width * t) + 'px';
+    playhead.style.height = tl.scrollHeight + 'px';
+  }
+  function render(){
+    var pct = t*100, remaining = 0;
+    rows.forEach(function(row){
+      var bp = parseFloat(row.getAttribute('data-bp'));
+      var out = (bp <= pct + 0.01) && bp < 100;     // winner (bp=100) survives to the end
+      row.classList.toggle('out', out);
+      if(!out) remaining++;
+    });
+    placeHead();
+    if(ttl) ttl.textContent = span > 0 ? fmt(t*span) : (t>=1?'end':'start');
+    if(reml) reml.textContent = remaining + ' left';
+    if(seek && document.activeElement !== seek) seek.value = Math.round(t*1000);
+  }
+  var raf=null, last=0, DUR=9000;
+  function step(ts){ if(!last) last=ts; t += (ts-last)/DUR; last=ts;
+    if(t>=1){ t=1; render(); stop(); return; } render(); raf=requestAnimationFrame(step); }
+  function play(){ if(t>=1) t=0; last=0; playBtn.innerHTML='&#10073;&#10073;'; raf=requestAnimationFrame(step); }
+  function stop(){ if(raf) cancelAnimationFrame(raf); raf=null; playBtn.innerHTML='&#9654;'; }
+  if(playBtn) playBtn.onclick = function(){ raf ? stop() : play(); };
+  if(seek) seek.oninput = function(){ stop(); t=(parseInt(seek.value,10)||0)/1000; render(); };
+  window.addEventListener('resize', placeHead);
+  render();
+  // gentle auto-play once the page settles (respect reduced-motion)
+  if(!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    setTimeout(play, 500);
+  }
+})();
+</script>
+{% endblock %}
