@@ -105,16 +105,14 @@
     if(shown === 'open'){ return; }
     shown = 'open'; stopAnim(); startPoll(3000);
     var form =
-      sel('o_root_mode','Mode',[['team','Team'],['survival','Survival'],['invasion','Invasion'],['deathmatch','Deathmatch'],['battleroyale','Battle royale']],'team')
+      sel('o_root_mode','Mode',[['team','Team'],['invasion','Invasion'],['deathmatch','Deathmatch']],'team')
       + opt('o_friendly_colors','Teams (max 3)','number','min=0 max=3',3)
       + opt('o_map_size','Map size','number','min=20 max=200',80)
       + opt('o_max_players','Max players','number','min=1 max=120',24)
       + opt('o_crystal_value','Crystal value','number','min=0 max=5 step=0.1',1)
       + opt('o_max_level','Max level','number','min=1 max=7',7)
       + opt('o_station_size','Station toughness','number','min=0.5 max=6 step=0.1',2)
-      + opt('o_lives','Lives (survival)','number','min=1 max=5',1)
       + opt('o_starting_ship','Starting ship code','number','min=100 max=703',101)
-      + opt('o_survival_time','Survival after (min)','number','min=0 max=120',0)
       + sel('o_soundtrack','Soundtrack',[['','Default'],['procedurality.mp3','Procedurality'],['argon.mp3','Argon'],['crystals.mp3','Crystals']],'')
       + sel('o_join_gate','Who can join',[['odyssey','Odyssey only'],['open','Anyone']],'odyssey')
       + '<label class="full">Map name<input id="o_map_name" type="text" maxlength="24" value=""></label>'
@@ -173,9 +171,7 @@
       crystal_value: parseFloat(gVal('o_crystal_value')),
       max_level: parseInt(gVal('o_max_level'),10),
       station_size: parseFloat(gVal('o_station_size')),
-      lives: parseInt(gVal('o_lives'),10),
       starting_ship: parseInt(gVal('o_starting_ship'),10),
-      survival_time: parseInt(gVal('o_survival_time')||'0',10),
       soundtrack: gVal('o_soundtrack'),
       map_name: gVal('o_map_name')
     }, join_gate: gVal('o_join_gate')};

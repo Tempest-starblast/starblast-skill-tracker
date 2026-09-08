@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.2"
+APP_VERSION = "9.8.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -11908,22 +11908,21 @@ CUSTOM_OWNER_ONLY = True            # TESTING: only the owner can open/see/play 
 # becomes unrated. (Matches the user's rule: "if it's not default, it's not
 # rated".)
 CUSTOM_GAME_OPTIONS = {
-    "root_mode":       ("team", "choice", ["team", "survival", "invasion",
-                                           "deathmatch", "battleroyale"]),
+    "root_mode":       ("team", "choice", ["team", "invasion", "deathmatch"]),
     "friendly_colors": (3, "int", 0, 3),        # number of teams; 3 = team-mode max
     "map_size":        (80, "int", 20, 200),
     "max_players":     (24, "int", 1, 120),
     "crystal_value":   (1.0, "float", 0.0, 5.0),
     "max_level":       (7, "int", 1, 7),
-    "lives":           (1, "int", 1, 5),
     "starting_ship":   (101, "int", 100, 703),  # ship code (tier*100+model)
     "station_size":    (2.0, "float", 0.5, 6.0),  # station toughness / size
     "map_name":        ("", "str", 24),
     "soundtrack":      ("", "choice", ["", "procedurality.mp3", "argon.mp3",
                                        "crystals.mp3"]),
-    "survival_time":   (0, "int", 0, 120),      # survival trigger, minutes (0=off)
-    "survival_level":  (8, "int", 1, 8),        # 8 = never trigger by level
 }
+# A custom asteroid/terrain map (from the drag editor or pasted): a list of
+# {x, y, size} in map cells; kept alongside the options.
+CUSTOM_MAP_MAX = 400                # max placed asteroids
 CUSTOM_MOD_MAX = 200000             # imported mod source cap (chars)
 
 
