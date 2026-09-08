@@ -20,6 +20,13 @@
 .cgspin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--green,#66e6b8);
   border-radius:50%;animation:cgspin 0.8s linear infinite;vertical-align:middle;margin-right:7px}
 @keyframes cgspin{to{transform:rotate(360deg)}}
+.cgbar{height:10px;border-radius:999px;background:rgba(127,127,127,.16);overflow:hidden;margin:14px 0 9px}
+.cgbar-fill{height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg,var(--green,#66e6b8),#7bd0ff);
+  transition:width .3s cubic-bezier(.25,.8,.3,1)}
+.cgstep{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);letter-spacing:.02em;min-height:16px}
+.cgpct{font-variant-numeric:tabular-nums;color:var(--text);font-weight:700;min-width:34px}
+.cghint{color:var(--muted);font-size:11.5px;margin-top:10px;line-height:1.6}
 {% endblock %}
 {% block body %}
 <div class="cgwrap">
@@ -53,18 +60,30 @@
   if(!box) return;
   var initialLink = box.getAttribute('data-link') || '';
   var initialRegion = box.getAttribute('data-region') || '';
-  var polling = null;
+  var polling = null, anim = null;
   function esc(s){var d=document.createElement('span');d.textContent=(s==null?'':s);return d.innerHTML;}
 
+  // Measured on the server: the host boots the game in ~0.85s; with the tightened
+  // polls the whole open lands in ~2-3.5s. The bar fills toward 90% over EST,
+  // then creeps while we wait, and snaps to 100% the moment the link arrives.
+  var EST_MS = 3200;
+  var STEPS = [
+    [0,    'Requesting a private lobby…'],
+    [650,  'Waking the game host…'],
+    [1500, 'Booting the arena on Starblast…'],
+    [2500, 'Fetching your join link…']
+  ];
+
   function renderJoin(l, region){
-    stopPoll();
+    stopPoll(); stopAnim();
     box.innerHTML = '<h2>You’re in — join now</h2>'
       + '<a class="cglink" href="'+esc(l)+'" target="_blank" rel="noopener">▶ Join the lobby</a>'
       + '<div class="cgmeta">'+(region?('<b>'+esc(region.charAt(0).toUpperCase()+region.slice(1))+'</b> · '):'')
-      + 'live now. Plays and rates like regular team mode. Keep your verified Odyssey name — anyone the lobby doesn’t recognise as Odyssey is removed automatically.</div>';
+      + 'live now. Plays and rates like regular team mode. Keep your verified Odyssey name — anyone the lobby doesn’t recognise as Odyssey is removed automatically.</div>'
+      + '<div class="cghint">Opens Starblast in a new tab — it takes a few seconds to load the arena. An empty lobby closes after ~3&nbsp;minutes, so hop in.</div>';
   }
   function renderOpen(){
-    stopPoll();
+    stopPoll(); stopAnim();
     box.innerHTML = '<h2>Open a lobby</h2>'
       + '<p style="margin:0 0 13px;font-size:14px;color:var(--muted)">No lobby is running. Open one — the join link then appears here for you and every other Odyssey player, and it closes on its own once everyone leaves.</p>'
       + '<button class="primary" id="cgopen" type="button">Open lobby</button>'
@@ -72,9 +91,34 @@
     document.getElementById('cgopen').onclick = openLobby;
   }
   function renderOpening(){
-    box.innerHTML = '<h2>Opening…</h2>'
-      + '<p style="margin:0;font-size:14px;color:var(--muted)"><span class="cgspin"></span>Spinning up the lobby — this takes a few seconds. The join link will appear here.</p>';
-    startPoll();
+    stopAnim();
+    box.innerHTML = '<h2>Opening your lobby</h2>'
+      + '<div class="cgbar"><div class="cgbar-fill" id="cgfill"></div></div>'
+      + '<div class="cgstep"><span class="cgpct" id="cgpct">0%</span><span id="cgsteptxt">'+STEPS[0][1]+'</span></div>';
+    var start = Date.now();
+    var fill = document.getElementById('cgfill'),
+        pctEl = document.getElementById('cgpct'),
+        stepEl = document.getElementById('cgsteptxt');
+    anim = setInterval(function(){
+      var t = Date.now() - start, pct;
+      if(t > 25000){                                    // host unreachable - don't hang
+        stopAnim(); stopPoll();
+        box.innerHTML = '<h2>Hmm, that took too long</h2>'
+          + '<p style="margin:0 0 13px;font-size:14px;color:var(--muted)">The game host didn’t answer. It may be restarting — give it a moment and try again.</p>'
+          + '<button class="primary" id="cgopen" type="button">Try again</button>';
+        document.getElementById('cgopen').onclick = openLobby;
+        return;
+      }
+      if(t < EST_MS) pct = (t / EST_MS) * 90;          // ramp to 90% over the estimate
+      else pct = 90 + Math.min(7, (t - EST_MS) / 1400); // then creep to 97% while waiting
+      pct = Math.min(97, pct);
+      if(fill) fill.style.width = pct.toFixed(0) + '%';
+      if(pctEl) pctEl.textContent = pct.toFixed(0) + '%';
+      var label = STEPS[0][1];
+      for(var i=0;i<STEPS.length;i++){ if(t >= STEPS[i][0]) label = STEPS[i][1]; }
+      if(stepEl) stepEl.textContent = label;
+    }, 120);
+    startPoll(1000);   // watch for the link quickly while opening
   }
   function openLobby(){
     var btn = document.getElementById('cgopen'), msg = document.getElementById('cgmsg');
@@ -91,14 +135,15 @@
       .then(function(s){
         if(!s.allowed){ location.reload(); return; }
         if(s.link){ renderJoin(s.link, s.region); }
-        else if(!s.opening){ renderOpen(); }
+        else if(!s.opening && !anim){ renderOpen(); }
       }).catch(function(){});
   }
-  function startPoll(){ if(polling) return; polling = setInterval(poll, 3000); }
+  function startPoll(ms){ stopPoll(); polling = setInterval(poll, ms || 3000); }
   function stopPoll(){ if(polling){ clearInterval(polling); polling = null; } }
+  function stopAnim(){ if(anim){ clearInterval(anim); anim = null; } }
 
   if(initialLink){ renderJoin(initialLink, initialRegion); }
-  else { renderOpen(); startPoll(); }   // keep watching in case someone else opens it
+  else { renderOpen(); startPoll(3000); }   // keep watching in case someone else opens it
 })();
 </script>
 {% endif %}
