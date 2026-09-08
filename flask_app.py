@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.8"
+APP_VERSION = "9.8.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4462,8 +4462,13 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.8.0", "at": "2026-09-08T20:00:00Z", "changes": [
+        "Discord rank roles. Every skill division — from Fly up to Shadow X-3 — is now a coloured role in the Discord server. You get yours automatically, it updates as you climb or slip, and the member list groups everyone by rank. Reaching a new division is celebrated in a #rank-ups channel.",
+        "The Odyssey lobby's join link is now posted in an Odyssey-only Discord channel (#odyssey-lobby) the moment the host opens a lobby, and taken down when it closes — so every Odyssey player gets the link, not only the ones watching the page. Opening a lobby also shows a live progress bar while it spins up.",
+        "Fixed the survival results feed, which had quietly stopped posting finished survival rounds to Discord."
+    ]},
     {"version": "9.7.0", "at": "2026-09-08T09:00:00Z", "changes": [
-        "There's an Odyssey-only custom lobby now (More → Odyssey lobby). It's a private team-mode game for top players that any verified Odyssey player can open on demand — it counts on the leaderboard exactly like regular team mode, because the same rating engine watches it. To get in you need an Odyssey rank (or above) on a verified account; the join link only shows to players who qualify, and anyone else is removed automatically."
+        "There's an Odyssey custom lobby (More → Odyssey lobby): a private team-mode game for top players. The host opens it on demand, and any established Odyssey-rank (or above) player on a verified account can then join — the join link shows on the page for players who qualify, and anyone the lobby doesn't recognise as Odyssey is removed automatically. It's in testing, so these matches don't count on the leaderboard yet."
     ]},
     {"version": "9.6.0", "at": "2026-09-08T07:30:00Z", "changes": [
         "You can request to merge a name into your account (More → Merge a name). Played some games before you set your play name, so your record ended up under a different name? Ask to fold that name in — its wins, losses and replays become yours, and the old name is retired. You give a reason and upload proof (a screenshot), and it's reviewed by hand before anything moves, since a merge shifts a whole record. Once approved, you're shown how to set your play name so it never happens again."
