@@ -528,7 +528,7 @@ async function devRestore(){
       <a href="/live" role="menuitem" id="liveTab" class="{% if page=='live' %}on{% endif %}">Live matches</a>
       <a href="/survival" role="menuitem" class="{% if page=='survival' %}on{% endif %}">Survival <span style="font-size:9px;color:#66E6B8;letter-spacing:.5px">BETA</span></a>
       <a href="/compare" role="menuitem" class="{% if page=='compare' %}on{% endif %}">Compare players</a>
-      <a href="/customgame" role="menuitem" class="{% if page=='customgame' %}on{% endif %}">Odyssey lobby <span style="font-size:9px;color:#ff7b53;letter-spacing:.5px">NEW</span></a>
+      <a href="/customgame" role="menuitem" id="customTab" style="display:none" class="{% if page=='customgame' %}on{% endif %}">Odyssey lobby <span style="font-size:9px;color:#ff7b53;letter-spacing:.5px">NEW</span></a>
       <div class="tmsec" id="ownerSec" style="display:none">Owner</div>
       <a href="/flood" role="menuitem" id="floodTab" style="display:none" class="{% if page=='flood' %}on{% endif %}">Flood review</a>
       <a href="/dev/merges" role="menuitem" id="mergesTab" style="display:none" class="{% if page=='merge' %}on{% endif %}">Merge requests</a>
@@ -683,6 +683,7 @@ window.addEventListener('DOMContentLoaded', async function(){
         var ft=document.getElementById('floodTab'); if(ft) ft.style.display='';
         var mt=document.getElementById('mergesTab'); if(mt) mt.style.display='';
         var os=document.getElementById('ownerSec'); if(os) os.style.display='';
+        var ct=document.getElementById('customTab'); if(ct) ct.style.display='';  // owner-only while testing
         if(d.live_flood > 0) sbFloodAlert(d.live_flood);
       }
       // The header chip: name, rating, rank - filled from the same /me

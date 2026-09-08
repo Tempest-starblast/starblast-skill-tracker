@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.2"
+APP_VERSION = "9.7.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -11797,6 +11797,7 @@ def report_name():
 
 
 CUSTOM_GATE_MIN_LEVEL = 7           # Odyssey (ranks.py level 7) and above
+CUSTOM_OWNER_ONLY = True            # TESTING: only the owner can open/see/play the lobby
 
 
 @app.route('/api/customgate')
@@ -11822,6 +11823,14 @@ def api_customgate():
     established = played >= PROVISIONAL_GAMES
     div = division_map().get(key)
     level = int(div["level"]) if div else 0
+    if CUSTOM_OWNER_ONLY:
+        # TESTING: only names owned by the owner may play; the host auto-bans
+        # everyone else on entry.
+        owner = bool(row and row[0] in OWNER_SUBS)
+        return jsonify({"ok": owner, "verified": verified, "established": established,
+                        "division": (div["name"] if div else None), "level": level,
+                        "min_level": CUSTOM_GATE_MIN_LEVEL, "owner_only": True,
+                        "reason": "ok" if owner else "testing-owner-only"}), 200
     ok = verified and established and level >= CUSTOM_GATE_MIN_LEVEL
     if not verified:
         reason = "not-verified"
@@ -11844,6 +11853,8 @@ def _user_meets_custom_gate(sub_id):
         return False
     if sub_id in OWNER_SUBS:            # the owner can always open/see the lobby
         return True
+    if CUSTOM_OWNER_ONLY:              # TESTING: nobody but the owner, for now
+        return False
     conn = db()
     c = conn.cursor()
     names = [r[0] for r in c.execute(
