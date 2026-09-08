@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.4"
+APP_VERSION = "9.7.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -11823,14 +11823,10 @@ def api_customgate():
     established = played >= PROVISIONAL_GAMES
     div = division_map().get(key)
     level = int(div["level"]) if div else 0
-    if CUSTOM_OWNER_ONLY:
-        # TESTING: only names owned by the owner may play; the host auto-bans
-        # everyone else on entry.
-        owner = bool(row and row[0] in OWNER_SUBS)
-        return jsonify({"ok": owner, "verified": verified, "established": established,
-                        "division": (div["name"] if div else None), "level": level,
-                        "min_level": CUSTOM_GATE_MIN_LEVEL, "owner_only": True,
-                        "reason": "ok" if owner else "testing-owner-only"}), 200
+    # The IN-GAME rule is always Odyssey (verified + established + Odyssey rank),
+    # even while the lobby is owner-only to SEE/open. That way it's already the
+    # right rule when it opens to all Odyssey. The owner is always allowed too,
+    # via the pre-seeded allow-set (/api/customgame/allowed), so they can test.
     ok = verified and established and level >= CUSTOM_GATE_MIN_LEVEL
     if not verified:
         reason = "not-verified"
@@ -11847,28 +11843,26 @@ def api_customgate():
 
 @app.route('/api/customgame/allowed')
 def api_customgame_allowed():
-    """Key-gated. The host pre-seeds its allow-set from this when a lobby
-    starts, so an allowed player is never touched and everyone else can be
-    disarmed+killed the instant they spawn (no per-name gate call in the hot
-    path). In owner-only testing mode the allow-set is the owner's own names;
-    otherwise it's empty and the host falls back to per-name /api/customgate.
-    Names are lowercased+trimmed to match the host's own name key."""
+    """Key-gated. The host pre-seeds an ALWAYS-ALLOW set from this at game
+    start - the owner's own names - so the owner/tester is never touched by the
+    kick logic regardless of which of their names they use. Everyone else is
+    decided by the Odyssey gate (/api/customgate). Names are raw display names;
+    the host lowercases (JS) so unicode case-folding matches its own key."""
     if not api_key_ok(request.headers.get('X-API-Key')):
         return jsonify({"error": "Unauthorized"}), 401
     names = []
-    strict = bool(CUSTOM_OWNER_ONLY)
-    if strict and OWNER_SUBS:
+    if OWNER_SUBS:
         subs = list(OWNER_SUBS)
         conn = db()
         c = conn.cursor()
         q = ("SELECT name FROM players WHERE google_sub IN (%s) AND name IS NOT NULL"
              % ",".join("?" * len(subs)))
         for r in c.execute(q, subs).fetchall():
-            nm = (r[0] or "").strip()   # raw display name; the host lowercases
-            if nm:                       # (JS) so unicode case-folding matches
+            nm = (r[0] or "").strip()
+            if nm:
                 names.append(nm)
         conn.close()
-    return jsonify({"owner_only": strict, "names": names}), 200
+    return jsonify({"owner_only": bool(CUSTOM_OWNER_ONLY), "names": names}), 200
 
 
 def _user_meets_custom_gate(sub_id):
