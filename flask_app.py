@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.0"
+APP_VERSION = "9.7.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4441,6 +4441,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.7.0", "at": "2026-09-08T09:00:00Z", "changes": [
+        "There's an Odyssey-only custom lobby now (More → Odyssey lobby). It's a private team-mode game for top players, re-hosted automatically every few hours, and it counts on the leaderboard exactly like regular team mode — the same rating engine watches it. To get in you need an Odyssey rank (or above) on a verified account; the join link only shows to players who qualify, and anyone else is removed automatically."
+    ]},
     {"version": "9.6.0", "at": "2026-09-08T07:30:00Z", "changes": [
         "You can request to merge a name into your account (More → Merge a name). Played some games before you set your play name, so your record ended up under a different name? Ask to fold that name in — its wins, losses and replays become yours, and the old name is retired. You give a reason and upload proof (a screenshot), and it's reviewed by hand before anything moves, since a merge shifts a whole record. Once approved, you're shown how to set your play name so it never happens again."
     ]},
