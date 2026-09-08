@@ -31,7 +31,7 @@
 {% block body %}
 <div class="cgwrap">
 <h1 class="ptitle">Odyssey custom lobby</h1>
-<p class="cgnote">A private team-mode lobby for top players. It plays exactly like regular team mode and <b>counts on the same leaderboard</b> &mdash; the same rating engine watches it. It&rsquo;s <b>opened on demand</b>: a verified <b>Odyssey</b> player (rank Odyssey or above) opens it, everyone who qualifies gets the join link, and anyone the lobby doesn&rsquo;t recognise as Odyssey is removed automatically.</p>
+<p class="cgnote">A private team-mode lobby for top players. It plays exactly like regular team mode. The <b>host opens it on demand</b>; every <b>Odyssey</b> player (rank Odyssey or above) then gets the join link and can play, and anyone the lobby doesn&rsquo;t recognise as Odyssey is removed automatically.</p>
 
 <div class="cgcard">
 {% if not signed_in %}
@@ -44,9 +44,9 @@
     <li>Your account must own a <b>verified name</b> (claim it on <a href="/play" style="color:var(--blue,#66e6b8)">Play</a>).</li>
     <li>That name must be an <b>established Odyssey</b> rank or above (top&nbsp;3% of the team board, past the provisional games).</li>
   </ul>
-  <p class="cgreq">Climb into Odyssey and you&rsquo;ll be able to open and join the lobby here.</p>
+  <p class="cgreq">Climb into Odyssey and you&rsquo;ll be able to see and join the lobby here whenever the host opens one.</p>
 {% else %}
-  <div id="cgstatus" data-link="{{ link or '' }}" data-region="{{ region or '' }}">
+  <div id="cgstatus" data-link="{{ link or '' }}" data-region="{{ region or '' }}" data-canhost="{{ '1' if can_host else '' }}">
     <h2>Loading&hellip;</h2>
   </div>
 {% endif %}
@@ -60,7 +60,8 @@
   if(!box) return;
   var initialLink = box.getAttribute('data-link') || '';
   var initialRegion = box.getAttribute('data-region') || '';
-  var polling = null, anim = null;
+  var canHost = box.getAttribute('data-canhost') === '1';   // only the owner opens lobbies
+  var polling = null, anim = null, shown = '';
   function esc(s){var d=document.createElement('span');d.textContent=(s==null?'':s);return d.innerHTML;}
 
   // Measured on the server: the host boots the game in ~0.85s; with the tightened
@@ -75,23 +76,32 @@
   ];
 
   function renderJoin(l, region){
-    stopPoll(); stopAnim();
+    if(shown === 'join'){ return; }
+    shown = 'join'; stopAnim(); startPoll(4000);   // keep watching so it reverts if the lobby closes
     box.innerHTML = '<h2>You’re in — join now</h2>'
       + '<a class="cglink" href="'+esc(l)+'" target="_blank" rel="noopener">▶ Join the lobby</a>'
       + '<div class="cgmeta">'+(region?('<b>'+esc(region.charAt(0).toUpperCase()+region.slice(1))+'</b> · '):'')
-      + 'live now. Plays and rates like regular team mode. Keep your verified Odyssey name — anyone the lobby doesn’t recognise as Odyssey is removed automatically.</div>'
+      + 'live now. Plays like regular team mode. Keep your verified Odyssey name — anyone the lobby doesn’t recognise as Odyssey is removed automatically.</div>'
       + '<div class="cghint">Opens Starblast in a new tab — it takes a few seconds to load the arena. An empty lobby closes after ~3&nbsp;minutes, so hop in.</div>';
   }
-  function renderOpen(){
-    stopPoll(); stopAnim();
+  function renderOpen(){          // host (owner) only
+    if(shown === 'open'){ return; }
+    shown = 'open'; stopAnim(); startPoll(3000);
     box.innerHTML = '<h2>Open a lobby</h2>'
-      + '<p style="margin:0 0 13px;font-size:14px;color:var(--muted)">No lobby is running. Open one — the join link then appears here for you and every other Odyssey player, and it closes on its own once everyone leaves.</p>'
+      + '<p style="margin:0 0 13px;font-size:14px;color:var(--muted)">No lobby is running. Open one — the join link then appears here for you and every Odyssey player, and it closes on its own once everyone leaves.</p>'
       + '<button class="primary" id="cgopen" type="button">Open lobby</button>'
       + '<div class="cgmsg" id="cgmsg"></div>';
     document.getElementById('cgopen').onclick = openLobby;
   }
+  function renderWait(){          // Odyssey players who aren't the host
+    if(shown === 'wait'){ return; }
+    shown = 'wait'; stopAnim(); startPoll(3000);
+    box.innerHTML = '<h2>No lobby open</h2>'
+      + '<p style="margin:0;font-size:14px;color:var(--muted)">There&rsquo;s no Odyssey lobby running right now. The <b>host</b> opens these — keep this page open and the <b>Join</b> button appears here the moment one goes live.</p>';
+  }
+  function renderIdle(){ if(canHost){ renderOpen(); } else { renderWait(); } }
   function renderOpening(){
-    stopAnim();
+    shown = 'opening'; stopAnim();
     box.innerHTML = '<h2>Opening your lobby</h2>'
       + '<div class="cgbar"><div class="cgbar-fill" id="cgfill"></div></div>'
       + '<div class="cgstep"><span class="cgpct" id="cgpct">0%</span><span id="cgsteptxt">'+STEPS[0][1]+'</span></div>';
@@ -102,7 +112,7 @@
     anim = setInterval(function(){
       var t = Date.now() - start, pct;
       if(t > 25000){                                    // host unreachable - don't hang
-        stopAnim(); stopPoll();
+        stopAnim(); stopPoll(); shown = 'error';
         box.innerHTML = '<h2>Hmm, that took too long</h2>'
           + '<p style="margin:0 0 13px;font-size:14px;color:var(--muted)">The game host didn’t answer. It may be restarting — give it a moment and try again.</p>'
           + '<button class="primary" id="cgopen" type="button">Try again</button>';
@@ -135,7 +145,7 @@
       .then(function(s){
         if(!s.allowed){ location.reload(); return; }
         if(s.link){ renderJoin(s.link, s.region); }
-        else if(!s.opening && !anim){ renderOpen(); }
+        else if(!s.opening && !anim){ renderIdle(); }
       }).catch(function(){});
   }
   function startPoll(ms){ stopPoll(); polling = setInterval(poll, ms || 3000); }
@@ -143,7 +153,7 @@
   function stopAnim(){ if(anim){ clearInterval(anim); anim = null; } }
 
   if(initialLink){ renderJoin(initialLink, initialRegion); }
-  else { renderOpen(); startPoll(3000); }   // keep watching in case someone else opens it
+  else { renderIdle(); }   // renderOpen/renderWait start the poll; watchers see a Join the moment the host opens one
 })();
 </script>
 {% endif %}

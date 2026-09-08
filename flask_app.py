@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.7"
+APP_VERSION = "9.7.8"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -9436,6 +9436,9 @@ def me():
     return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats, "admin_of": admin_of, "notices": notices,
                     # Reveals the owner-only live win-probability tab in the menu.
                     "is_owner": is_site_owner(),
+                    # Reveals the "Odyssey lobby" tab: any established Odyssey
+                    # player can see/join it (only the owner can host one).
+                    "custom_view": _user_meets_custom_gate(sub_id),
                     # Lobbies being flooded right this moment, so the alert
                     # can follow the owner onto any page of the site.
                     "live_flood": (live_flood_count() if is_site_owner() else 0),
@@ -11946,15 +11949,15 @@ def api_customgame_allowed():
 
 
 def _user_meets_custom_gate(sub_id):
-    """True if the signed-in account owns a VERIFIED, established Odyssey-rank
-    (or above) name - the same bar the in-lobby kick uses. Governs who can see
-    the join link on /customgame."""
+    """True if the account owns an established Odyssey-rank (or above) name -
+    the bar to SEE the join link on /customgame and to JOIN the lobby (the same
+    rank the in-lobby kick enforces). The owner always qualifies. NOTE: HOSTING
+    (opening a lobby) is owner-only - see _can_host_custom; any Odyssey player
+    may join a lobby the owner has opened."""
     if not sub_id:
         return False
-    if sub_id in OWNER_SUBS:            # the owner can always open/see the lobby
+    if sub_id in OWNER_SUBS:            # the owner can always see/join the lobby
         return True
-    if CUSTOM_OWNER_ONLY:              # TESTING: nobody but the owner, for now
-        return False
     conn = db()
     c = conn.cursor()
     names = [r[0] for r in c.execute(
@@ -11967,6 +11970,12 @@ def _user_meets_custom_gate(sub_id):
     dm = division_map()
     return any((dm.get(nn) or {}).get("level", 0) >= CUSTOM_GATE_MIN_LEVEL
                for nn in names)
+
+
+def _can_host_custom(sub_id):
+    """Only the owner may OPEN/host a lobby. Everyone else - even Odyssey - can
+    only join one the owner has opened."""
+    return bool(sub_id) and sub_id in OWNER_SUBS
 
 
 @app.route('/api/customgame/set', methods=['POST'])
@@ -11994,14 +12003,14 @@ def api_customgame_set():
 
 @app.route('/api/customgame/open', methods=['POST'])
 def api_customgame_open():
-    """A verified Odyssey player asks to open a lobby. Sets the 'wanted' flag the
+    """The host (owner only) asks to open a lobby. Sets the 'wanted' flag the
     droplet host polls; the host then creates the game and reports its link back
-    via /set. Signed-in Odyssey-gated (same bar as seeing the link)."""
+    via /set. Any Odyssey player can then JOIN it, but only the owner opens one."""
     sub_id = current_user()
     if not sub_id:
         return jsonify({"ok": False, "message": "Sign in first."}), 401
-    if not _user_meets_custom_gate(sub_id):
-        return jsonify({"ok": False, "message": "Odyssey rank required."}), 403
+    if not _can_host_custom(sub_id):
+        return jsonify({"ok": False, "message": "Only the host can open a lobby."}), 403
     conn = db()
     c = conn.cursor()
     row = c.execute("SELECT link FROM custom_game WHERE id = 1").fetchone()
@@ -12050,16 +12059,19 @@ def api_customgame_status():
     link = (row[0] if row else '') or ''
     region = (row[1] if row else '') or ''
     wanted_at = (row[2] if row else '') or ''
-    return jsonify({"allowed": allowed, "link": (link if allowed else None),
+    return jsonify({"allowed": allowed, "can_host": _can_host_custom(sub_id),
+                    "link": (link if allowed else None),
                     "region": region, "opening": bool(wanted_at and not link)}), 200
 
 
 @app.route('/customgame')
 def customgame_page():
-    """The Odyssey-only custom lobby. Verified Odyssey players open a lobby on
-    demand and see the join link; everyone else is told the requirement."""
+    """The Odyssey custom lobby. Any established Odyssey player sees the join
+    link and can play; only the owner (host) can OPEN a lobby. Everyone else is
+    told the requirement."""
     sub_id = current_user()
     allowed = _user_meets_custom_gate(sub_id)
+    can_host = _can_host_custom(sub_id)
     link = region = None
     if allowed:
         conn = db()
@@ -12069,8 +12081,8 @@ def customgame_page():
         if row and row[0]:
             link, region = row[0], row[1]
     return render_template('customgame.html', page='customgame', version=APP_VERSION,
-                           signed_in=bool(sub_id), allowed=allowed, link=link,
-                           region=region)
+                           signed_in=bool(sub_id), allowed=allowed, can_host=can_host,
+                           link=link, region=region)
 
 
 def perform_name_merge(c, from_norm, to_norm):
