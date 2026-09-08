@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.6"
+APP_VERSION = "9.7.7"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1976,6 +1976,14 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS discord_role_grants (
                     sub TEXT PRIMARY KEY,
                     granted_at TEXT
+                )''')
+    # Rank-role sync: the division LEVEL we have already announced for a Discord
+    # id, so the bot keeps everyone's hoisted rank role current but celebrates a
+    # real climb only once - and never on the silent first backfill (prev NULL).
+    c.execute('''CREATE TABLE IF NOT EXISTS discord_rank_state (
+                    discord_id TEXT PRIMARY KEY,
+                    announced_level INTEGER,
+                    updated_at TEXT
                 )''')
     # Name-merge requests: "I played under this name before I set my play name -
     # please fold its record into mine." Owner-approved by hand with uploaded
@@ -11013,6 +11021,78 @@ def bot_playerrole_check():
         qualifies = bool(c.fetchone())
     conn.close()
     return jsonify({"player": qualifies}), 200
+
+
+@app.route('/api/bot/rankroles')
+def bot_rankroles():
+    """The rank-role roster the bot reconciles. For every reachable Discord
+    account: its CURRENT highest established division, plus the level we last
+    announced (`prev`, NULL if never) so the bot grants the right hoisted role
+    and celebrates only a genuine climb. Also ships the 8 division defs so the
+    bot can create the roles from one source of truth (no second ladder copy)."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    dm = division_map()                       # norm_name -> ranks.RANKS entry
+    # Highest ESTABLISHED division per owning account (google_sub).
+    best = {}
+    for sub, nn, played in c.execute(
+            "SELECT google_sub, norm_name, COALESCE(wins, 0) + COALESCE(losses, 0) "
+            "FROM players WHERE google_sub IS NOT NULL AND norm_name IS NOT NULL"):
+        if (played or 0) < PROVISIONAL_GAMES:
+            continue
+        div = dm.get(nn)
+        if not div:
+            continue
+        cur = best.get(sub)
+        if cur is None or div["level"] > cur["level"]:
+            best[sub] = div
+    # Collapse to the Discord snowflake (an account reaches Discord directly or
+    # via a link); keep the highest level when two subs resolve to one person.
+    by_did = {}
+    for sub, div in best.items():
+        did = discord_id_for_owner(c, sub)
+        if not did:
+            continue
+        cur = by_did.get(did)
+        if cur is None or div["level"] > cur["level"]:
+            by_did[did] = div
+    announced = {r[0]: r[1] for r in c.execute(
+        "SELECT discord_id, announced_level FROM discord_rank_state")}
+    conn.close()
+    members = [{"discord_id": did, "level": div["level"], "key": div["key"],
+                "name": div["name"], "color": div["color"], "band": div["band"],
+                "prev": announced.get(did)} for did, div in by_did.items()]
+    defs = [{"level": r["level"], "key": r["key"], "name": r["name"],
+             "color": r["color"], "band": r["band"]} for r in ranks.RANKS]
+    return jsonify({"members": members, "defs": defs}), 200
+
+
+@app.route('/api/bot/rankroles/synced', methods=['POST'])
+def bot_rankroles_synced():
+    """The bot reports the level it has now assigned + announced for each Discord
+    id, so a climb is celebrated exactly once."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    levels = (request.json or {}).get('levels') or {}
+    conn = db()
+    c = conn.cursor()
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    n = 0
+    for did, lvl in levels.items():
+        try:
+            lvl = int(lvl)
+        except (TypeError, ValueError):
+            continue
+        c.execute("INSERT INTO discord_rank_state (discord_id, announced_level, updated_at) "
+                  "VALUES (?, ?, ?) ON CONFLICT(discord_id) DO UPDATE SET "
+                  "announced_level=excluded.announced_level, updated_at=excluded.updated_at",
+                  (str(did), lvl, now))
+        n += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": n}), 200
 
 
 @app.route('/api/bot/matches/undelivered')
