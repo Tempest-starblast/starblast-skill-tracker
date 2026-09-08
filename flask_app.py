@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.4.0"
+APP_VERSION = "9.4.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7431,13 +7431,20 @@ def survival_replay():
             continue
         seen.add(k)
         fighters.append({"name": str(nm).strip()[:64], "secs_before_end": int(sec)})
-    # Timeline window = the elimination sequence. t=0 is the first ship out
-    # (longest secs-before-end), t=span is the winner (survived to the end).
-    span = max([f["secs_before_end"] for f in fighters], default=0)
+    # Timeline window = the elimination sequence itself: from the first ship out
+    # (largest secs-before-end) to the last one standing (smallest). Normalising
+    # by (max-min), not max, makes the winner's bar reach the very end even
+    # though their final poll lands a few seconds before the round is finalised.
+    sbes = [f["secs_before_end"] for f in fighters]
+    min_sbe = min(sbes) if sbes else 0
+    max_sbe = max(sbes) if sbes else 0
+    window = max_sbe - min_sbe
     for i, f in enumerate(fighters):
         f["place"] = i + 1
-        f["survived_s"] = f["secs_before_end"]        # how long before the end
-        f["elim_t"] = max(0, span - f["secs_before_end"])   # x on the timeline
+        # How long this ship lasted INTO the elimination window: 0 = first out,
+        # `window` = the winner (still there at the end).
+        f["elim_t"] = max_sbe - f["secs_before_end"]
+        f["survived_s"] = f["elim_t"]
         dl = deltas.get(normalize_name(f["name"]))
         f["delta"] = round(dl, 1) if dl is not None else None
     w, ru = _survival_true_winner(d)
@@ -7451,7 +7458,7 @@ def survival_replay():
         "when_utc": ((ended_at or '').replace(' ', 'T') + 'Z') if ended_at else '',
         "duration_min": int(round((d.get('duration_s') or 0) / 60)),
         "field": field or len(fighters),
-        "elim_span_s": span,
+        "elim_span_s": window,
         "close_call": bool(d.get('close_call')),
         "winner": w or winner or '',
         "runner_up": ru,
