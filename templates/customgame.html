@@ -167,7 +167,13 @@
       var er=document.getElementById('maperase'); if(er) er.textContent='Erase'; });
     var er=document.getElementById('maperase'); if(er) er.onclick=function(){ mapErase=!mapErase; er.textContent=mapErase?'Erasing ✓':'Erase'; };
     var cl=document.getElementById('mapclear'); if(cl) cl.onclick=function(){ mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
-    var im=document.getElementById('mapimport'); if(im) im.onclick=function(){ var t=document.getElementById('o_custom_map'); mapGrid=strToGrid(t?t.value:'', mapSize()); drawMap(); };
+    var im=document.getElementById('mapimport'); if(im) im.onclick=function(){   // paste -> auto-fill the size, load the grid, re-serialise
+      var t=document.getElementById('o_custom_map'); var raw=t?t.value:'';
+      var lines=String(raw).replace(/\n+$/,'').split('\n');
+      var cols=0; for(var i=0;i<lines.length;i++){ var L=lines[i].replace(/\s+$/,'').length; if(L>cols) cols=L; }
+      var size=Math.max(20, Math.min(200, Math.max(lines.length, cols)));
+      var r=document.getElementById('o_map_size'); if(r){ r.value=size; var nn=document.getElementById('o_map_size_n'); if(nn) nn.value=r.value; }
+      mapGrid=strToGrid(raw, mapSize()); drawMap(); syncMapText(); };
     var ms=document.getElementById('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); });
   }
   function renderOpen(){          // host (owner) only
