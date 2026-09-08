@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.4"
+APP_VERSION = "9.8.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2026,7 +2026,8 @@ def init_db():
     # when it's default settings with no mod (so a customised game never counts).
     for _col in ("discord_msg_id TEXT", "discord_posted_link TEXT",
                  "options_json TEXT", "mod_code TEXT", "rated INTEGER",
-                 "join_gate TEXT", "last_error TEXT", "extracted_json TEXT"):
+                 "join_gate TEXT", "last_error TEXT", "extracted_json TEXT",
+                 "custom_map TEXT"):
         try:
             c.execute("ALTER TABLE custom_game ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -4467,6 +4468,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.8.5", "at": "2026-09-08T22:30:00Z", "changes": [
+        "The Odyssey custom-lobby builder has a drag-to-draw map editor. When you open a lobby, the Custom settings now include a grid you can paint asteroids onto — pick an asteroid size and drag to place them, erase or clear, and it fills the whole map live. Prefer to type? Paste a raw Starblast custom map into the box and hit “Apply pasted” to load it onto the grid, then tweak it by hand. A custom map makes the game unrated (it still records who played, their teams, time and score)."
+    ]},
     {"version": "9.8.0", "at": "2026-09-08T20:00:00Z", "changes": [
         "Discord rank roles. Every skill division — from Fly up to Shadow X-3 — is now a coloured role in the Discord server. You get yours automatically, it updates as you climb or slip, and the member list groups everyone by rank. Reaching a new division is celebrated in a #rank-ups channel.",
         "The Odyssey lobby's join link is now posted in an Odyssey-only Discord channel (#odyssey-lobby) the moment the host opens a lobby, and taken down when it closes — so every Odyssey player gets the link, not only the ones watching the page. Opening a lobby also shows a live progress bar while it spins up.",
@@ -11920,9 +11924,18 @@ CUSTOM_GAME_OPTIONS = {
     "soundtrack":      ("", "choice", ["", "procedurality.mp3", "argon.mp3",
                                        "crystals.mp3"]),
 }
-# A custom asteroid/terrain map (from the drag editor or pasted): a list of
-# {x, y, size} in map cells; kept alongside the options.
-CUSTOM_MAP_MAX = 400                # max placed asteroids
+# A custom asteroid map is Starblast's "painted" grid: a string of map_size
+# rows x map_size chars, each char a digit 0-9 (asteroid size) or space (empty).
+CUSTOM_MAP_MAX_CHARS = 45000        # ~200x200 grid + newlines
+
+
+def normalize_custom_map(raw):
+    """Keep only digits, spaces and newlines; cap the size. Empty -> ''."""
+    s = str(raw or "")
+    if not s.strip():
+        return ""
+    s = re.sub(r'[^0-9 \n]', ' ', s)
+    return s[:CUSTOM_MAP_MAX_CHARS]
 CUSTOM_MOD_MAX = 200000             # imported mod source cap (chars)
 
 
@@ -12104,21 +12117,22 @@ def api_customgame_open():
     body = request.json or {}
     opts = normalize_custom_options(body.get("options") or {})
     mod_code = str(body.get("mod_code") or "")[:CUSTOM_MOD_MAX]
+    custom_map = normalize_custom_map(body.get("custom_map"))
     join_gate = body.get("join_gate")
     join_gate = join_gate if join_gate in ("odyssey", "open") else "odyssey"
-    rated = 1 if custom_is_rated(opts, mod_code) else 0
+    rated = 1 if (custom_is_rated(opts, mod_code) and not custom_map) else 0
     conn = db()
     c = conn.cursor()
     row = c.execute("SELECT link FROM custom_game WHERE id = 1").fetchone()
     if row and row[0]:
         conn.close()
         return jsonify({"ok": True, "already": True, "message": "A lobby is already up."}), 200
-    c.execute("INSERT INTO custom_game (id, wanted_at, options_json, mod_code, rated, join_gate, last_error, extracted_json) "
-              "VALUES (1, ?, ?, ?, ?, ?, '', '') ON CONFLICT(id) DO UPDATE SET "
+    c.execute("INSERT INTO custom_game (id, wanted_at, options_json, mod_code, rated, join_gate, last_error, extracted_json, custom_map) "
+              "VALUES (1, ?, ?, ?, ?, ?, '', '', ?) ON CONFLICT(id) DO UPDATE SET "
               "wanted_at=excluded.wanted_at, options_json=excluded.options_json, "
               "mod_code=excluded.mod_code, rated=excluded.rated, join_gate=excluded.join_gate, "
-              "last_error='', extracted_json=''",
-              (time.strftime('%Y-%m-%d %H:%M:%S'), json.dumps(opts), mod_code, rated, join_gate))
+              "last_error='', extracted_json='', custom_map=excluded.custom_map",
+              (time.strftime('%Y-%m-%d %H:%M:%S'), json.dumps(opts), mod_code, rated, join_gate, custom_map))
     conn.commit()
     conn.close()
     kind = "rated standard" if rated else "unrated custom"
@@ -12133,7 +12147,7 @@ def api_customgame_pending():
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT link, wanted_at, options_json, mod_code, rated, join_gate "
+    row = c.execute("SELECT link, wanted_at, options_json, mod_code, rated, join_gate, custom_map "
                     "FROM custom_game WHERE id = 1").fetchone()
     conn.close()
     link = (row[0] if row else '') or ''
@@ -12151,7 +12165,11 @@ def api_customgame_pending():
             opts = json.loads(row[2]) if (row and row[2]) else {}
         except Exception:
             opts = {}
-        resp["options"] = normalize_custom_options(opts)
+        options = normalize_custom_options(opts)
+        cmap = (row[6] if row else '') or ''
+        if cmap:
+            options["custom_map"] = cmap
+        resp["options"] = options
         resp["mod_code"] = (row[3] if row else '') or ''
         resp["rated"] = bool(row[4]) if (row and row[4] is not None) else True
         resp["join_gate"] = (row[5] if row else '') or 'odyssey'

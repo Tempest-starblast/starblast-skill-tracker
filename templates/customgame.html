@@ -42,6 +42,14 @@
 .cgform textarea{background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;
   padding:7px 9px;color:var(--text);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
   min-height:88px;resize:vertical;width:100%}
+.cgmap{padding:2px 0 4px}
+.cgmaptools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-bottom:8px}
+.cgmaptools input[type=range]{width:90px;accent-color:var(--green,#66e6b8)}
+.cgmap button{background:rgba(127,127,127,.14);border:1px solid var(--line);border-radius:6px;
+  padding:5px 10px;color:var(--text);font-size:11.5px;cursor:pointer}
+.cgmap button:hover{border-color:var(--green,#66e6b8)}
+#mapcanvas{width:100%;max-width:320px;border:1px solid var(--line);border-radius:8px;
+  background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
 {% endblock %}
 {% block body %}
 <div class="cgwrap">
@@ -111,6 +119,46 @@
       +'<input id="'+id+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'"'
       +' oninput="document.getElementById(\''+id+'_v\').textContent=this.value"></label>';
   }
+
+  // ---- custom map editor: a painted grid <-> the Starblast custom_map string ----
+  var mapGrid = null, mapErase = false;
+  function mapSize(){ var e=document.getElementById('o_map_size'); return e?(parseInt(e.value,10)||80):80; }
+  function newGrid(n){ var g=[]; for(var r=0;r<n;r++){ var row=[]; for(var c=0;c<n;c++) row.push(0); g.push(row); } return g; }
+  function gridToStr(g){ return g.map(function(row){ return row.map(function(c){ return c?String(c):' '; }).join(''); }).join('\n'); }
+  function strToGrid(str,n){ var g=newGrid(n); var lines=String(str||'').split('\n');
+    for(var r=0;r<n;r++){ var ln=lines[r]||''; for(var c=0;c<n;c++){ var ch=ln.charAt(c); g[r][c]=(ch>='0'&&ch<='9')?parseInt(ch,10):0; } } return g; }
+  function drawMap(){ var cv=document.getElementById('mapcanvas'); if(!cv||!mapGrid) return;
+    var n=mapGrid.length, ctx=cv.getContext('2d'), cs=cv.width/n;
+    ctx.clearRect(0,0,cv.width,cv.height);
+    for(var r=0;r<n;r++) for(var c=0;c<n;c++){ var v=mapGrid[r][c]; if(!v) continue;
+      ctx.beginPath(); ctx.fillStyle='#9aa4b2';
+      ctx.arc(c*cs+cs/2, r*cs+cs/2, Math.max(0.8,(cs/2)*(0.4+0.065*v)), 0, 6.2832); ctx.fill(); } }
+  function mapCell(cv,ev){ var n=mapGrid.length, rect=cv.getBoundingClientRect(), cs=cv.width/n;
+    var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
+    return {r:Math.floor(y/cs), c:Math.floor(x/cs), n:n}; }
+  function syncMapText(){ var t=document.getElementById('o_custom_map'); if(t&&mapGrid) t.value=gridToStr(mapGrid); }
+  function initMapEditor(){
+    var cv=document.getElementById('mapcanvas'); if(!cv) return;
+    mapGrid=newGrid(mapSize()); drawMap();
+    var painting=false;
+    function apply(pt){ var p=mapCell(cv,pt); if(p.r<0||p.c<0||p.r>=p.n||p.c>=p.n) return;
+      var b=parseInt((document.getElementById('mapbrush')||{}).value||'9',10);
+      mapGrid[p.r][p.c]=mapErase?0:b; drawMap(); syncMapText(); }
+    function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY}; }
+    cv.addEventListener('mousedown', function(e){ painting=true; apply(pt(e)); e.preventDefault(); });
+    cv.addEventListener('mousemove', function(e){ if(painting) apply(pt(e)); });
+    window.addEventListener('mouseup', function(){ painting=false; });
+    cv.addEventListener('touchstart', function(e){ painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
+    cv.addEventListener('touchmove', function(e){ if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
+    window.addEventListener('touchend', function(){ painting=false; });
+    var bv=document.getElementById('mapbrush'); if(bv) bv.addEventListener('input', function(){
+      document.getElementById('mapbrush_v').textContent=this.value; mapErase=false;
+      var er=document.getElementById('maperase'); if(er) er.textContent='Erase'; });
+    var er=document.getElementById('maperase'); if(er) er.onclick=function(){ mapErase=!mapErase; er.textContent=mapErase?'Erasing ✓':'Erase'; };
+    var cl=document.getElementById('mapclear'); if(cl) cl.onclick=function(){ mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
+    var im=document.getElementById('mapimport'); if(im) im.onclick=function(){ var t=document.getElementById('o_custom_map'); mapGrid=strToGrid(t?t.value:'', mapSize()); drawMap(); };
+    var ms=document.getElementById('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); });
+  }
   function renderOpen(){          // host (owner) only
     if(shown === 'open'){ return; }
     shown = 'open'; stopAnim(); startPoll(3000);
@@ -126,6 +174,15 @@
       + opt('o_starting_ship','Starting ship code','number','min=100 max=703',101)
       + sel('o_soundtrack','Soundtrack',[['','Default'],['procedurality.mp3','Procedurality'],['argon.mp3','Argon'],['crystals.mp3','Crystals']],'')
       + '<label class="full">Map name<input id="o_map_name" type="text" maxlength="24" value=""></label>'
+      + '<div class="full cgmap">'
+        + '<div class="cgmaptools"><span>Asteroid size</span>'
+          + '<input type="range" id="mapbrush" min="1" max="9" value="9"><span class="cgval" id="mapbrush_v">9</span>'
+          + '<button type="button" id="maperase">Erase</button>'
+          + '<button type="button" id="mapclear">Clear</button>'
+          + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button></div>'
+        + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
+        + '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Custom map — drag on the grid to place asteroids, or paste a raw map below and hit “Apply pasted” (a custom map makes the game unrated)'
+          + '<textarea id="o_custom_map" spellcheck="false" placeholder="Optional. Paste a Starblast custom_map string here, or just draw on the grid above."></textarea></label></div>'
       + '<label class="full">Import a mod (JS — team mode only, unrated)<textarea id="o_mod_code" placeholder="Optional: paste a Starblast mod here. Its settings are pulled in automatically. Must be a team-mode mod."></textarea></label>'
       + '<p class="note">Leave everything as-is for the <b>standard rated</b> lobby. Change anything (or import a mod) and it’s <b>unrated</b> — but it still records who won/lost, their teams, how long they played and their score.</p>';
     box.innerHTML = '<h2>Open a lobby</h2>'
@@ -134,6 +191,7 @@
       + '<button class="primary" id="cgopen" type="button">Open lobby</button>'
       + '<div class="cgmsg" id="cgmsg"></div>';
     document.getElementById('cgopen').onclick = openLobby;
+    initMapEditor();
   }
   function renderWait(){          // Odyssey players who aren't the host
     if(shown === 'wait'){ return; }
@@ -193,7 +251,7 @@
       starting_ship: parseInt(gVal('o_starting_ship'),10),
       soundtrack: gVal('o_soundtrack'),
       map_name: gVal('o_map_name')
-    }, mod_code: gVal('o_mod_code'), join_gate: gVal('o_join_gate')};
+    }, custom_map: gVal('o_custom_map'), mod_code: gVal('o_mod_code'), join_gate: gVal('o_join_gate')};
   }
   var lastConfig = null;
   function openLobby(){
