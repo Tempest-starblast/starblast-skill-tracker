@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.3"
+APP_VERSION = "9.7.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -11843,6 +11843,32 @@ def api_customgate():
     return jsonify({"ok": ok, "verified": verified, "established": established,
                     "division": (div["name"] if div else None), "level": level,
                     "min_level": CUSTOM_GATE_MIN_LEVEL, "reason": reason}), 200
+
+
+@app.route('/api/customgame/allowed')
+def api_customgame_allowed():
+    """Key-gated. The host pre-seeds its allow-set from this when a lobby
+    starts, so an allowed player is never touched and everyone else can be
+    disarmed+killed the instant they spawn (no per-name gate call in the hot
+    path). In owner-only testing mode the allow-set is the owner's own names;
+    otherwise it's empty and the host falls back to per-name /api/customgate.
+    Names are lowercased+trimmed to match the host's own name key."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    names = []
+    strict = bool(CUSTOM_OWNER_ONLY)
+    if strict and OWNER_SUBS:
+        subs = list(OWNER_SUBS)
+        conn = db()
+        c = conn.cursor()
+        q = ("SELECT name FROM players WHERE google_sub IN (%s) AND name IS NOT NULL"
+             % ",".join("?" * len(subs)))
+        for r in c.execute(q, subs).fetchall():
+            nm = (r[0] or "").strip()   # raw display name; the host lowercases
+            if nm:                       # (JS) so unicode case-folding matches
+                names.append(nm)
+        conn.close()
+    return jsonify({"owner_only": strict, "names": names}), 200
 
 
 def _user_meets_custom_gate(sub_id):
