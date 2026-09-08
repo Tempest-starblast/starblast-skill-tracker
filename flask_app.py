@@ -2018,6 +2018,14 @@ def init_db():
         c.execute("ALTER TABLE custom_game ADD COLUMN wanted_at TEXT")
     except sqlite3.OperationalError:
         pass
+    # The bot mirrors the live link into #odyssey-lobby: discord_msg_id is the
+    # message it posted, discord_posted_link is the link that message shows (so
+    # it re-posts on a new lobby and clears when the lobby closes).
+    for _col in ("discord_msg_id TEXT", "discord_posted_link TEXT"):
+        try:
+            c.execute("ALTER TABLE custom_game ADD COLUMN %s" % _col)
+        except sqlite3.OperationalError:
+            pass
     # The game's own deathmatch ladder, snapshotted daily by the bot
     # (the free tier here cannot fetch starblast.io itself). account_id
     # is the game's stable ECP id, so across days this table remembers
@@ -12062,6 +12070,36 @@ def api_customgame_status():
     return jsonify({"allowed": allowed, "can_host": _can_host_custom(sub_id),
                     "link": (link if allowed else None),
                     "region": region, "opening": bool(wanted_at and not link)}), 200
+
+
+@app.route('/api/customgame/discord', methods=['GET', 'POST'])
+def api_customgame_discord():
+    """Key-gated bridge to #odyssey-lobby. GET returns the live link + the state
+    of the bot's channel post; POST records the message the bot now holds (its
+    id + the link it shows, or blanks once it removed the post). The bot posts
+    when a lobby opens and clears when it closes."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    if request.method == 'POST':
+        d = request.json or {}
+        c.execute("INSERT INTO custom_game (id, discord_msg_id, discord_posted_link) "
+                  "VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                  "discord_msg_id=excluded.discord_msg_id, "
+                  "discord_posted_link=excluded.discord_posted_link",
+                  (str(d.get('msg_id') or '')[:32], str(d.get('posted_link') or '')[:200]))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True}), 200
+    row = c.execute("SELECT link, region, sid, discord_msg_id, discord_posted_link "
+                    "FROM custom_game WHERE id = 1").fetchone()
+    conn.close()
+    return jsonify({"link": (row[0] if row else '') or '',
+                    "region": (row[1] if row else '') or '',
+                    "sid": (row[2] if row else None),
+                    "msg_id": (row[3] if row else '') or '',
+                    "posted_link": (row[4] if row else '') or ''}), 200
 
 
 @app.route('/customgame')
