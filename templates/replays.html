@@ -13,17 +13,32 @@
 .pager a{color:#9adcff;text-decoration:none;padding:5px 13px;border:1px solid var(--line);
   border-radius:3px;background:rgba(0,0,0,.25)}
 .pager .off{opacity:.35;pointer-events:none}
+.rpmodebar{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:-4px 0 14px}
+.rpmodebar a{padding:7px 16px;color:var(--muted);text-decoration:none;font-size:13.5px;font-weight:600}
+.rpmodebar a+a{border-left:1px solid var(--line)}
+.rpmodebar a.on{background:var(--blue,#66e6b8);color:#0b0e13}
 {% endblock %}
 {% block body %}
+{% set survival = (mode == 'survival') %}
+{% set mq = '&mode=survival' if survival else '' %}
 <h1 class="ptitle">{{ t('Replays') }}</h1>
-<p style="color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5;margin:-6px 0 16px;max-width:62ch">Every tracked <b>team&nbsp;mode</b> match, replayable &mdash; score and win chance over the whole game. (Survival rounds aren&rsquo;t replayed.)</p>
+<div class="rpmodebar">
+  <a href="/replays" class="{% if not survival %}on{% endif %}">Team mode</a>
+  <a href="/replays?mode=survival" class="{% if survival %}on{% endif %}">Survival</a>
+</div>
+{% if survival %}
+<p style="color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5;margin:-6px 0 16px;max-width:64ch">Every recorded <b>survival</b> round &mdash; replayed as an elimination timeline, the field shrinking to the last ship standing.</p>
+{% else %}
+<p style="color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5;margin:-6px 0 16px;max-width:64ch">Every tracked <b>team&nbsp;mode</b> match, replayable &mdash; score and win chance over the whole game.</p>
+{% endif %}
 
 <div class="card">
   <form class="rpfilters" method="get" action="/replays">
+    <input type="hidden" name="mode" value="{{ mode }}">
     <input type="date" name="date" value="{{ date }}">
-    <input type="number" name="sys" placeholder="Server #" min="0" value="{{ sysq }}">
+    <input type="number" name="sys" placeholder="{% if survival %}Lobby #{% else %}Server #{% endif %}" min="0" value="{{ sysq }}">
     <button class="primary" type="submit">{{ t('Search all') }}</button>
-    {% if date or sysq %}<a href="/replays" class="ghost" style="text-decoration:none;
+    {% if date or sysq %}<a href="/replays{{ '?mode=survival' if survival else '' }}" class="ghost" style="text-decoration:none;
        padding:8px 14px;border:1px solid var(--line);border-radius:3px">{{ t('Clear') }}</a>{% endif %}
   </form>
 </div>
@@ -32,10 +47,19 @@
   {% if rows %}
   <div class="tablewrap">
   <table>
-    <thead><tr><th>{{ t('When') }}</th><th>Server</th><th>{{ t('Region') }}</th>
-      <th class="num">Tracked</th><th></th></tr></thead>
+    <thead><tr><th>{{ t('When') }}</th><th>{% if survival %}Winner{% else %}Server{% endif %}</th><th>{{ t('Region') }}</th>
+      <th class="num">{% if survival %}Length{% else %}Tracked{% endif %}</th><th></th></tr></thead>
     <tbody>
     {% for r in rows %}
+      {% if survival %}
+      <tr class="rprow" onclick="location.href='/survival/replay?key={{ r.key|urlencode }}'" style="cursor:pointer">
+        <td><time class="rel" datetime="{{ r.at_utc }}">{{ r.at }}</time></td>
+        <td>&#127942; {{ r.winner }} <span style="color:var(--muted,#8aa0b0)">last of {{ r.field }}</span></td>
+        <td>{{ r.region }}</td>
+        <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>
+        <td class="rpgo">&#9654; replay</td>
+      </tr>
+      {% else %}
       <tr class="rprow" onclick="location.href='/replay/{{ r.id }}'" style="cursor:pointer">
         <td><time class="rel" datetime="{{ r.at_utc }}">{{ r.at }}</time></td>
         <td>{{ r.name }} <span style="color:var(--muted,#8aa0b0)">#{{ r.sys }}</span></td>
@@ -43,19 +67,20 @@
         <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>
         <td class="rpgo">&#9654; replay</td>
       </tr>
+      {% endif %}
     {% endfor %}
     </tbody>
   </table>
   </div>
   <div class="pager">
     <a class="{% if pg <= 1 %}off{% endif %}"
-       href="/replays?page={{ pg - 1 }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}">&larr;</a>
+       href="/replays?page={{ pg - 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}">&larr;</a>
     <span>{{ t('Page') }} {{ pg }} / {{ pages }}</span>
     <a class="{% if pg >= pages %}off{% endif %}"
-       href="/replays?page={{ pg + 1 }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}">&rarr;</a>
+       href="/replays?page={{ pg + 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}">&rarr;</a>
   </div>
   {% else %}
-  <p class="empty">No replays match that search.</p>
+  <p class="empty">No {% if survival %}survival rounds{% else %}replays{% endif %} match that search.</p>
   {% endif %}
 </div>
 {% endblock %}

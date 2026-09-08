@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.4.1"
+APP_VERSION = "9.5.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -3001,8 +3001,65 @@ def replay_page(mid):
                            page='replay')
 
 
-_REPLAY_COUNT_CACHE = {}     # (date, sysq) -> (total, ts)
+_REPLAY_COUNT_CACHE = {}     # (mode, date, sysq) -> (total, ts)
 _REPLAY_COUNT_TTL = 60       # the archive count moves only as matches end
+
+
+def _survival_replays_page(pg, date, sysq):
+    """The Survival side of the /replays archive: recorded survival rounds,
+    newest first, each linking to its elimination-timeline replay. Same shape
+    of page (search by date + lobby number, ten a page) as the team archive."""
+    where, args = [], []
+    if date:
+        where.append("ended_at LIKE ?")
+        args.append(date + '%')
+    if sysq:
+        where.append("key LIKE ?")           # key = "<sid>|<ended_at>"
+        args.append(sysq + '|%')
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    conn = db()
+    c = conn.cursor()
+    _ckey = ('survival', date, sysq)
+    _now = time.time()
+    _chit = _REPLAY_COUNT_CACHE.get(_ckey)
+    if _chit and _now - _chit[1] < _REPLAY_COUNT_TTL:
+        total = _chit[0]
+    else:
+        try:
+            total = c.execute("SELECT COUNT(*) FROM survival_results" + clause,
+                              args).fetchone()[0]
+        except sqlite3.Error:
+            total = 0
+        if len(_REPLAY_COUNT_CACHE) > 5000:
+            _REPLAY_COUNT_CACHE.clear()
+        _REPLAY_COUNT_CACHE[_ckey] = (total, _now)
+    pages = max(1, (total + 9) // 10)
+    pg = min(pg, pages)
+    rows = []
+    if total:
+        labels = dict(REGIONS)
+        for key, ended_at, region, lobby, winner, field, data_json in c.execute(
+                "SELECT key, ended_at, region, lobby, winner, elim_field_size, data "
+                "FROM survival_results" + clause +
+                " ORDER BY ended_at DESC LIMIT 10 OFFSET ?", args + [(pg - 1) * 10]):
+            try:
+                d = json.loads(data_json)
+            except (TypeError, ValueError):
+                d = {}
+            w, ru = _survival_true_winner(d)
+            rows.append({
+                "key": key, "winner": w or winner or '',
+                "field": field or 0,
+                "sys": (key.split('|', 1)[0] if key else ''),
+                "region": labels.get(region, (region or '').title()),
+                "at": str(ended_at or '')[:16],
+                "at_utc": ((ended_at or '').replace(' ', 'T') + 'Z') if ended_at else '',
+                "mins": int(round((d.get('duration_s') or 0) / 60)),
+            })
+    conn.close()
+    return render_template('replays.html', version=APP_VERSION, page='replays',
+                           rows=rows, total=total, pg=pg, pages=pages,
+                           date=date, sysq=sysq, mode='survival')
 
 
 @app.route('/replays')
@@ -3015,6 +3072,17 @@ def replays_index():
         pg = 1
     date = str(request.args.get('date') or '').strip()[:10]
     sysq = str(request.args.get('sys') or '').strip()[:12]
+    # Team mode is the archive; Survival (the same page over recorded rounds)
+    # is one toggle away, mirroring the leaderboard's mode switch.
+    mode = request.args.get('mode', 'team')
+    if mode not in ('team', 'survival'):
+        mode = 'team'
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
+        date = ''
+    if not sysq.isdigit():
+        sysq = ''
+    if mode == 'survival':
+        return _survival_replays_page(pg, date, sysq)
     where, args = [], []
     if re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
         where.append("m.played_at LIKE ?")
@@ -3044,7 +3112,7 @@ def replays_index():
     # ends, but computing it means running the replayable-EXISTS across every
     # match ever (the row fetch below is cheap - it stops at 10). So cache it
     # briefly per filter; paging and revisits then skip the full scan entirely.
-    _ckey = (date, sysq)
+    _ckey = ('team', date, sysq)
     _now = time.time()
     _chit = _REPLAY_COUNT_CACHE.get(_ckey)
     if _chit and _now - _chit[1] < _REPLAY_COUNT_TTL:
@@ -3077,7 +3145,7 @@ def replays_index():
     conn.close()
     return render_template('replays.html', version=APP_VERSION, page='replays',
                            rows=rows, total=total, pg=pg, pages=pages,
-                           date=date, sysq=sysq)
+                           date=date, sysq=sysq, mode='team')
 
 
 @app.route('/api/live/state', methods=['POST'])
@@ -4345,6 +4413,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.5.0", "at": "2026-09-08T06:30:00Z", "changes": [
+        "The Replays page has a Team mode / Survival toggle now, like the leaderboard — switch between the team-match archive and the survival-round archive, each searchable by date and lobby number, each linking to its replay.",
+        "Match results posted to Discord now carry a replay link again. Most matches are recorded by the live watcher, whose replays weren't being detected here, so the link had quietly gone missing from the results feed."
+    ]},
     {"version": "9.4.0", "at": "2026-09-08T05:30:00Z", "changes": [
         "Survival rounds now have replays. Every recent round on the Survival page has a ▶ replay link that opens an elimination timeline — the whole field laid out in finishing order, each ship's bar ending the moment it was knocked out, with a playhead you can scrub from the first ship out to the last one standing. (Survival is watched by roster, not positions, so it's a placement timeline rather than a radar.)",
         "Survival results posted to Discord now list every ship in the round, in finishing order with the rating each gained or lost — not just the top five."
@@ -10911,6 +10983,10 @@ def bot_matches_undelivered():
     if not api_key_ok(request.headers.get('X-API-Key')):
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
+    try:
+        conn.execute("ATTACH DATABASE ? AS r", (REPLAY_DB_PATH,))
+    except sqlite3.Error:
+        pass
     c = conn.cursor()
     c.execute("SELECT id, match_id, COALESCE(region, 'america'), played_at, "
               "lobby_name, COALESCE(tracked_reads, 0), sys_id "
@@ -10955,12 +11031,21 @@ def bot_matches_undelivered():
                   "ORDER BY name", (match_id,))
         exempt = [r[0] for r in c.fetchall()]
         mins = int(round((treads or 0) * 10 / 60.0))
-        # The journal replay, when one was frozen for this match - the bot
-        # appends it as a link so the feed is where replays are found.
+        # The journal replay, when one exists for this match - the bot appends
+        # it as a link so the feed is where replays are found. A match is
+        # replayable with EITHER a frozen score snapshot (match_replays) OR the
+        # live watcher's radar/win-prob trajectory (trueskill_replay); most
+        # recent matches only have the latter, so gating on match_replays alone
+        # left almost every result post with no link (same gap the /replay page
+        # had before 9.3.7). Match the /replays archive's rule exactly.
         replay_url = None
         try:
-            c.execute("SELECT 1 FROM match_replays WHERE match_row = ?", (mid,))
-            if c.fetchone():
+            has = c.execute(
+                "SELECT 1 WHERE EXISTS (SELECT 1 FROM match_replays mr "
+                "WHERE mr.match_row = ?) OR EXISTS (SELECT 1 FROM r.trueskill_replay tr "
+                "WHERE tr.sys_id = ? AND ABS(strftime('%s', ?) - strftime('%s', tr.at)) < 3600)",
+                (mid, sysid, played_at)).fetchone()
+            if has:
                 replay_url = "https://starblastelo.pythonanywhere.com/replay/%d" % mid
         except sqlite3.Error:
             pass
