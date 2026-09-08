@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.3"
+APP_VERSION = "9.8.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2026,7 +2026,7 @@ def init_db():
     # when it's default settings with no mod (so a customised game never counts).
     for _col in ("discord_msg_id TEXT", "discord_posted_link TEXT",
                  "options_json TEXT", "mod_code TEXT", "rated INTEGER",
-                 "join_gate TEXT"):
+                 "join_gate TEXT", "last_error TEXT", "extracted_json TEXT"):
         try:
             c.execute("ALTER TABLE custom_game ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -12070,6 +12070,20 @@ def api_customgame_set():
               (link, d.get('sid'), str(d.get('region') or '')[:16],
                str(d.get('password') or '')[:40], str(d.get('expires_at') or '')[:32],
                time.strftime('%Y-%m-%d %H:%M:%S')))
+    # A link success clears any prior error; an explicit error is stored; a plain
+    # "clear the link" (no error field, e.g. finish/boot) leaves the error alone
+    # so a mod rejection's message survives the finish() clear that follows it.
+    if link:
+        c.execute("UPDATE custom_game SET last_error='' WHERE id = 1")
+    elif 'error' in d:
+        c.execute("UPDATE custom_game SET last_error=? WHERE id = 1",
+                  (str(d.get('error') or '')[:400],))
+    if d.get('extracted'):
+        try:
+            c.execute("UPDATE custom_game SET extracted_json=? WHERE id = 1",
+                      (json.dumps(d.get('extracted'))[:2000],))
+        except (TypeError, ValueError):
+            pass
     conn.commit()
     conn.close()
     return jsonify({"ok": True}), 200
@@ -12099,10 +12113,11 @@ def api_customgame_open():
     if row and row[0]:
         conn.close()
         return jsonify({"ok": True, "already": True, "message": "A lobby is already up."}), 200
-    c.execute("INSERT INTO custom_game (id, wanted_at, options_json, mod_code, rated, join_gate) "
-              "VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+    c.execute("INSERT INTO custom_game (id, wanted_at, options_json, mod_code, rated, join_gate, last_error, extracted_json) "
+              "VALUES (1, ?, ?, ?, ?, ?, '', '') ON CONFLICT(id) DO UPDATE SET "
               "wanted_at=excluded.wanted_at, options_json=excluded.options_json, "
-              "mod_code=excluded.mod_code, rated=excluded.rated, join_gate=excluded.join_gate",
+              "mod_code=excluded.mod_code, rated=excluded.rated, join_gate=excluded.join_gate, "
+              "last_error='', extracted_json=''",
               (time.strftime('%Y-%m-%d %H:%M:%S'), json.dumps(opts), mod_code, rated, join_gate))
     conn.commit()
     conn.close()
@@ -12149,16 +12164,20 @@ def api_customgame_status():
     qualifies, plus whether an open request is in flight."""
     sub_id = current_user()
     allowed = _user_meets_custom_gate(sub_id)
+    can_host = _can_host_custom(sub_id)
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT link, region, wanted_at FROM custom_game WHERE id = 1").fetchone()
+    row = c.execute("SELECT link, region, wanted_at, last_error FROM custom_game WHERE id = 1").fetchone()
     conn.close()
     link = (row[0] if row else '') or ''
     region = (row[1] if row else '') or ''
     wanted_at = (row[2] if row else '') or ''
-    return jsonify({"allowed": allowed, "can_host": _can_host_custom(sub_id),
+    last_error = (row[3] if row else '') or ''
+    return jsonify({"allowed": allowed, "can_host": can_host,
                     "link": (link if allowed else None),
-                    "region": region, "opening": bool(wanted_at and not link)}), 200
+                    "region": region, "opening": bool(wanted_at and not link),
+                    # only the host needs to see why their open failed
+                    "error": (last_error if (can_host and last_error and not link) else None)}), 200
 
 
 @app.route('/api/customgame/discord', methods=['GET', 'POST'])
