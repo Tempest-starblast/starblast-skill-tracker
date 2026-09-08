@@ -38,7 +38,13 @@
 .cgform .full{grid-column:1/-1}
 .cgform .note{grid-column:1/-1;font-size:11px;color:var(--muted);line-height:1.5;margin:0}
 .cgval{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums}
-.cgform input[type=range]{width:100%;accent-color:var(--green,#66e6b8);margin-top:3px}
+.cgsrow{display:flex;align-items:center;gap:9px;margin-top:2px}
+.cgsrow input[type=range]{flex:1;min-width:0}
+.cgnum{width:58px;flex:none;text-align:center;-moz-appearance:textfield;
+  font-weight:700;font-variant-numeric:tabular-nums}
+.cgnum::-webkit-outer-spin-button,.cgnum::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.cgform input[type=range]{width:100%;accent-color:var(--green,#66e6b8);
+  padding:0;border:0;background:none;height:22px}
 .cgform textarea{background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;
   padding:7px 9px;color:var(--text);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
   min-height:88px;resize:vertical;width:100%}
@@ -114,10 +120,15 @@
     var o=opts.map(function(p){return '<option value="'+p[0]+'"'+(p[0]==val?' selected':'')+'>'+p[1]+'</option>';}).join('');
     return '<label>'+label+'<select id="'+id+'">'+o+'</select></label>';
   }
-  function sl(id,label,min,max,step,val){        // slider with a live value badge
-    return '<label>'+label+' <span class="cgval" id="'+id+'_v">'+val+'</span>'
+  function sl(id,label,min,max,step,val){        // drag OR type — the range and the number box stay in sync
+    return '<label>'+label
+      +'<span class="cgsrow">'
       +'<input id="'+id+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'"'
-      +' oninput="document.getElementById(\''+id+'_v\').textContent=this.value"></label>';
+      +' oninput="var n=document.getElementById(\''+id+'_n\');if(n)n.value=this.value">'
+      +'<input class="cgnum" id="'+id+'_n" type="number" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'"'
+      +' oninput="var r=document.getElementById(\''+id+'\');if(r)r.value=this.value"'
+      +' onchange="var r=document.getElementById(\''+id+'\');if(r){r.value=this.value;this.value=r.value;r.dispatchEvent(new Event(\'change\'));}">'
+      +'</span></label>';
   }
 
   // ---- custom map editor: a painted grid <-> the Starblast custom_map string ----
