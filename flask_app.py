@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.6.0"
+APP_VERSION = "9.7.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1997,6 +1997,14 @@ def init_db():
                     decided_note TEXT
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_merge_status ON merge_requests(status, id)")
+    # The current scheduled Odyssey-only custom lobby (single row, id=1). The
+    # droplet host reports the fresh join link here every re-host; the /customgame
+    # page shows it ONLY to verified Odyssey-rank players.
+    c.execute('''CREATE TABLE IF NOT EXISTS custom_game (
+                    id INTEGER PRIMARY KEY,
+                    link TEXT, sid INTEGER, region TEXT,
+                    password TEXT, expires_at TEXT, updated_at TEXT
+                )''')
     # The game's own deathmatch ladder, snapshotted daily by the bot
     # (the free tier here cannot fetch starblast.io itself). account_id
     # is the game's stable ECP id, so across days this table remembers
@@ -11778,6 +11786,108 @@ def report_name():
     conn.close()
     return jsonify({"message": f"Reported '{stored_name}'. {CONTACT_HANDLE} will look at it by "
                                f"hand - nothing changes automatically."}), 200
+
+
+CUSTOM_GATE_MIN_LEVEL = 7           # Odyssey (ranks.py level 7) and above
+
+
+@app.route('/api/customgate')
+def api_customgate():
+    """Gate check for the Odyssey-only custom lobby. Given an in-game name,
+    says whether that player may be in the lobby: they must be a VERIFIED
+    account (their name is claimed) AND an established Odyssey-rank (or above)
+    player. The modding host calls this per joining ship and kicks anyone the
+    answer says isn't ok. Key-gated - only the host should ask."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    name = str(request.args.get('name') or '').strip()
+    key = normalize_name(name)
+    if not key:
+        return jsonify({"ok": False, "verified": False, "reason": "no-name"}), 200
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT google_sub, COALESCE(wins, 0) + COALESCE(losses, 0) "
+                    "FROM players WHERE norm_name = ?", (key,)).fetchone()
+    conn.close()
+    verified = bool(row and row[0])
+    played = int(row[1]) if row else 0
+    established = played >= PROVISIONAL_GAMES
+    div = division_map().get(key)
+    level = int(div["level"]) if div else 0
+    ok = verified and established and level >= CUSTOM_GATE_MIN_LEVEL
+    if not verified:
+        reason = "not-verified"
+    elif not established:
+        reason = "provisional"
+    elif level < CUSTOM_GATE_MIN_LEVEL:
+        reason = "below-odyssey"
+    else:
+        reason = "ok"
+    return jsonify({"ok": ok, "verified": verified, "established": established,
+                    "division": (div["name"] if div else None), "level": level,
+                    "min_level": CUSTOM_GATE_MIN_LEVEL, "reason": reason}), 200
+
+
+def _user_meets_custom_gate(sub_id):
+    """True if the signed-in account owns a VERIFIED, established Odyssey-rank
+    (or above) name - the same bar the in-lobby kick uses. Governs who can see
+    the join link on /customgame."""
+    if not sub_id:
+        return False
+    conn = db()
+    c = conn.cursor()
+    names = [r[0] for r in c.execute(
+        "SELECT norm_name FROM players WHERE google_sub = ? "
+        "AND COALESCE(wins, 0) + COALESCE(losses, 0) >= ? AND norm_name IS NOT NULL",
+        (sub_id, PROVISIONAL_GAMES)).fetchall()]
+    conn.close()
+    if not names:
+        return False
+    dm = division_map()
+    return any((dm.get(nn) or {}).get("level", 0) >= CUSTOM_GATE_MIN_LEVEL
+               for nn in names)
+
+
+@app.route('/api/customgame/set', methods=['POST'])
+def api_customgame_set():
+    """The droplet host reports the current lobby's join link here on each
+    re-host. Key-gated. Empty link clears it (lobby down between cycles)."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    link = str(d.get('link') or '')[:200]
+    conn = db()
+    c = conn.cursor()
+    c.execute("INSERT INTO custom_game (id, link, sid, region, password, expires_at, updated_at) "
+              "VALUES (1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET link=excluded.link, "
+              "sid=excluded.sid, region=excluded.region, password=excluded.password, "
+              "expires_at=excluded.expires_at, updated_at=excluded.updated_at",
+              (link, d.get('sid'), str(d.get('region') or '')[:16],
+               str(d.get('password') or '')[:40], str(d.get('expires_at') or '')[:32],
+               time.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/customgame')
+def customgame_page():
+    """The Odyssey-only custom lobby. The join link is shown ONLY to verified
+    Odyssey-rank players; everyone else is told the requirement."""
+    sub_id = current_user()
+    allowed = _user_meets_custom_gate(sub_id)
+    link = region = expires = None
+    if allowed:
+        conn = db()
+        c = conn.cursor()
+        row = c.execute("SELECT link, region, expires_at FROM custom_game "
+                        "WHERE id = 1").fetchone()
+        conn.close()
+        if row and row[0]:
+            link, region, expires = row[0], row[1], row[2]
+    return render_template('customgame.html', page='customgame', version=APP_VERSION,
+                           signed_in=bool(sub_id), allowed=allowed, link=link,
+                           region=region, expires=expires)
 
 
 def perform_name_merge(c, from_norm, to_norm):

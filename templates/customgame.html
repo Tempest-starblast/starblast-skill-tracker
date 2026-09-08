@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Odyssey custom lobby - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}An Odyssey-rank-only custom team lobby, hosted on a rolling schedule. Verified Odyssey players get the join link.{% endblock %}
+{% block css %}
+.cgwrap{max-width:60ch}
+.cgnote{color:var(--muted);font-size:13.5px;line-height:1.65;margin:-4px 0 18px}
+.cgcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;backdrop-filter:var(--blur)}
+.cgcard h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
+.cglink{display:inline-block;font-size:16px;font-weight:700;color:#0b0e13;background:var(--green,#66e6b8);
+  padding:12px 20px;border-radius:10px;text-decoration:none;word-break:break-all}
+.cglink:hover{filter:brightness(1.05)}
+.cgmeta{color:var(--muted);font-size:12.5px;margin-top:12px;line-height:1.7}
+.cgmeta b{color:var(--text)}
+.cggate{border:1px solid rgba(240,192,74,.35);background:rgba(240,192,74,.05);border-radius:10px;padding:14px 16px;font-size:13.5px;line-height:1.7}
+.cggate b{color:var(--amber,#f0c04a)}
+.cgreq{color:var(--muted);font-size:12.5px;margin-top:10px;line-height:1.7}
+.cgreq li{margin:2px 0}
+{% endblock %}
+{% block body %}
+<div class="cgwrap">
+<h1 class="ptitle">Odyssey custom lobby</h1>
+<p class="cgnote">A private team-mode lobby for top players, re-hosted automatically every 6&nbsp;hours. It plays exactly like regular team mode and <b>counts on the same leaderboard</b> &mdash; the same rating engine watches it. Getting in requires an <b>Odyssey</b> rank (or above) on a <b>verified account</b>; anyone else is removed automatically.</p>
+
+<div class="cgcard">
+{% if not signed_in %}
+  <h2>Sign in</h2>
+  <p style="margin:0;font-size:14px">Sign in at the top of the page to see whether you qualify for the lobby.</p>
+{% elif not allowed %}
+  <h2>Not yet</h2>
+  <div class="cggate">This lobby is <b>Odyssey-rank only</b>, and you don&rsquo;t qualify right now.</div>
+  <ul class="cgreq">
+    <li>Your account must own a <b>verified name</b> (claim it on <a href="/play" style="color:var(--blue,#66e6b8)">Play</a>).</li>
+    <li>That name must be an <b>established Odyssey</b> rank or above (top&nbsp;3% of the team board, past the provisional games).</li>
+  </ul>
+  <p class="cgreq">Climb into Odyssey and the join link appears here automatically.</p>
+{% elif link %}
+  <h2>You&rsquo;re in &mdash; join now</h2>
+  <a class="cglink" href="{{ link }}" target="_blank" rel="noopener">&#9654; Join the lobby</a>
+  <div class="cgmeta">
+    {% if region %}<b>{{ region|title }}</b> &middot; {% endif %}live now.<br>
+    Plays and rates like regular team mode. Keep your <b>verified Odyssey name</b> &mdash; anyone the lobby doesn&rsquo;t recognise as Odyssey is kicked automatically.
+  </div>
+{% else %}
+  <h2>Qualified &mdash; no lobby up right now</h2>
+  <p style="margin:0;font-size:14px">You&rsquo;re cleared for the Odyssey lobby, but none is running this moment. A fresh one spins up on the schedule &mdash; check back and the join link will be here.</p>
+{% endif %}
+</div>
+</div>
+{% endblock %}
