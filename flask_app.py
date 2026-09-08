@@ -11842,6 +11842,8 @@ def _user_meets_custom_gate(sub_id):
     the join link on /customgame."""
     if not sub_id:
         return False
+    if sub_id in OWNER_SUBS:            # the owner can always open/see the lobby
+        return True
     conn = db()
     c = conn.cursor()
     names = [r[0] for r in c.execute(
