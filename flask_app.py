@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.0"
+APP_VERSION = "9.8.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2021,7 +2021,12 @@ def init_db():
     # The bot mirrors the live link into #odyssey-lobby: discord_msg_id is the
     # message it posted, discord_posted_link is the link that message shows (so
     # it re-posts on a new lobby and clears when the lobby closes).
-    for _col in ("discord_msg_id TEXT", "discord_posted_link TEXT"):
+    # options_json = the chosen modding options for the wanted game; mod_code =
+    # an imported full mod (browser-modding JS) to run instead; rated = 1 only
+    # when it's default settings with no mod (so a customised game never counts).
+    for _col in ("discord_msg_id TEXT", "discord_posted_link TEXT",
+                 "options_json TEXT", "mod_code TEXT", "rated INTEGER",
+                 "join_gate TEXT"):
         try:
             c.execute("ALTER TABLE custom_game ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -11895,6 +11900,63 @@ def report_name():
 CUSTOM_GATE_MIN_LEVEL = 7           # Odyssey (ranks.py level 7) and above
 CUSTOM_OWNER_ONLY = True            # TESTING: only the owner can open/see/play the lobby
 
+# ---------- custom-game builder (owner-hosted; unrated when non-default) -------
+# Each option: (default, kind, ...). int/float clamp to [a, b]; 'choice' must be
+# in the list; 'str' trims to max length. The DEFAULTS below are the rated
+# preset: a game left at every default with no imported mod is the standard
+# team lobby and counts on the board; change anything (or import a mod) and it
+# becomes unrated. (Matches the user's rule: "if it's not default, it's not
+# rated".)
+CUSTOM_GAME_OPTIONS = {
+    "root_mode":       ("team", "choice", ["team", "survival", "invasion",
+                                           "deathmatch", "battleroyale"]),
+    "friendly_colors": (3, "int", 0, 3),        # number of teams; 3 = team-mode max
+    "map_size":        (80, "int", 20, 200),
+    "max_players":     (24, "int", 1, 120),
+    "crystal_value":   (1.0, "float", 0.0, 5.0),
+    "max_level":       (7, "int", 1, 7),
+    "lives":           (1, "int", 1, 5),
+    "starting_ship":   (101, "int", 100, 703),  # ship code (tier*100+model)
+    "station_size":    (2.0, "float", 0.5, 6.0),  # station toughness / size
+    "map_name":        ("", "str", 24),
+    "soundtrack":      ("", "choice", ["", "procedurality.mp3", "argon.mp3",
+                                       "crystals.mp3"]),
+    "survival_time":   (0, "int", 0, 120),      # survival trigger, minutes (0=off)
+    "survival_level":  (8, "int", 1, 8),        # 8 = never trigger by level
+}
+CUSTOM_MOD_MAX = 200000             # imported mod source cap (chars)
+
+
+def normalize_custom_options(raw):
+    """Validate/clamp a submitted options dict against CUSTOM_GAME_OPTIONS.
+    Unknown keys dropped, each value coerced into range; returns a full dict
+    with every option present (defaults filled in)."""
+    raw = raw or {}
+    out = {}
+    for key, spec in CUSTOM_GAME_OPTIONS.items():
+        default, kind = spec[0], spec[1]
+        v = raw.get(key, default)
+        try:
+            if kind == "int":
+                v = max(spec[2], min(spec[3], int(v)))
+            elif kind == "float":
+                v = max(spec[2], min(spec[3], round(float(v), 3)))
+            elif kind == "choice":
+                v = v if v in spec[2] else default
+            elif kind == "str":
+                v = str(v)[:spec[2]]
+        except (TypeError, ValueError):
+            v = default
+        out[key] = v
+    return out
+
+
+def custom_is_rated(opts, mod_code):
+    """Rated ONLY when every option is at its default and no mod is imported."""
+    if (mod_code or "").strip():
+        return False
+    return all(opts.get(k) == spec[0] for k, spec in CUSTOM_GAME_OPTIONS.items())
+
 
 @app.route('/api/customgate')
 def api_customgate():
@@ -12024,18 +12086,30 @@ def api_customgame_open():
         return jsonify({"ok": False, "message": "Sign in first."}), 401
     if not _can_host_custom(sub_id):
         return jsonify({"ok": False, "message": "Only the host can open a lobby."}), 403
+    # Optional custom config (owner-built): options + an imported mod. Absent =
+    # the standard rated lobby. Anything non-default (or a mod) => unrated.
+    body = request.json or {}
+    opts = normalize_custom_options(body.get("options") or {})
+    mod_code = str(body.get("mod_code") or "")[:CUSTOM_MOD_MAX]
+    join_gate = body.get("join_gate")
+    join_gate = join_gate if join_gate in ("odyssey", "open") else "odyssey"
+    rated = 1 if custom_is_rated(opts, mod_code) else 0
     conn = db()
     c = conn.cursor()
     row = c.execute("SELECT link FROM custom_game WHERE id = 1").fetchone()
     if row and row[0]:
         conn.close()
         return jsonify({"ok": True, "already": True, "message": "A lobby is already up."}), 200
-    c.execute("INSERT INTO custom_game (id, wanted_at) VALUES (1, ?) "
-              "ON CONFLICT(id) DO UPDATE SET wanted_at=excluded.wanted_at",
-              (time.strftime('%Y-%m-%d %H:%M:%S'),))
+    c.execute("INSERT INTO custom_game (id, wanted_at, options_json, mod_code, rated, join_gate) "
+              "VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+              "wanted_at=excluded.wanted_at, options_json=excluded.options_json, "
+              "mod_code=excluded.mod_code, rated=excluded.rated, join_gate=excluded.join_gate",
+              (time.strftime('%Y-%m-%d %H:%M:%S'), json.dumps(opts), mod_code, rated, join_gate))
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "message": "Opening a lobby - this takes a few seconds."}), 200
+    kind = "rated standard" if rated else "unrated custom"
+    return jsonify({"ok": True, "rated": bool(rated),
+                    "message": "Opening a %s lobby - this takes a few seconds." % kind}), 200
 
 
 @app.route('/api/customgame/pending')
@@ -12045,7 +12119,8 @@ def api_customgame_pending():
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT link, wanted_at FROM custom_game WHERE id = 1").fetchone()
+    row = c.execute("SELECT link, wanted_at, options_json, mod_code, rated, join_gate "
+                    "FROM custom_game WHERE id = 1").fetchone()
     conn.close()
     link = (row[0] if row else '') or ''
     wanted_at = (row[1] if row else '') or ''
@@ -12056,7 +12131,17 @@ def api_customgame_pending():
                 time.strptime(wanted_at, '%Y-%m-%d %H:%M:%S'))) < 90
         except Exception:
             wanted = True
-    return jsonify({"wanted": wanted}), 200
+    resp = {"wanted": wanted}
+    if wanted:                       # hand the host the config it should build
+        try:
+            opts = json.loads(row[2]) if (row and row[2]) else {}
+        except Exception:
+            opts = {}
+        resp["options"] = normalize_custom_options(opts)
+        resp["mod_code"] = (row[3] if row else '') or ''
+        resp["rated"] = bool(row[4]) if (row and row[4] is not None) else True
+        resp["join_gate"] = (row[5] if row else '') or 'odyssey'
+    return jsonify(resp), 200
 
 
 @app.route('/api/customgame/status')
