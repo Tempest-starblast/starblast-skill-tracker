@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.7.1"
+APP_VERSION = "9.7.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2003,8 +2003,13 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS custom_game (
                     id INTEGER PRIMARY KEY,
                     link TEXT, sid INTEGER, region TEXT,
-                    password TEXT, expires_at TEXT, updated_at TEXT
+                    password TEXT, expires_at TEXT, updated_at TEXT,
+                    wanted_at TEXT
                 )''')
+    try:
+        c.execute("ALTER TABLE custom_game ADD COLUMN wanted_at TEXT")
+    except sqlite3.OperationalError:
+        pass
     # The game's own deathmatch ladder, snapshotted daily by the bot
     # (the free tier here cannot fetch starblast.io itself). account_id
     # is the game's stable ECP id, so across days this table remembers
@@ -4442,7 +4447,7 @@ def game_end():
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
     {"version": "9.7.0", "at": "2026-09-08T09:00:00Z", "changes": [
-        "There's an Odyssey-only custom lobby now (More → Odyssey lobby). It's a private team-mode game for top players, re-hosted automatically every few hours, and it counts on the leaderboard exactly like regular team mode — the same rating engine watches it. To get in you need an Odyssey rank (or above) on a verified account; the join link only shows to players who qualify, and anyone else is removed automatically."
+        "There's an Odyssey-only custom lobby now (More → Odyssey lobby). It's a private team-mode game for top players that any verified Odyssey player can open on demand — it counts on the leaderboard exactly like regular team mode, because the same rating engine watches it. To get in you need an Odyssey rank (or above) on a verified account; the join link only shows to players who qualify, and anyone else is removed automatically."
     ]},
     {"version": "9.6.0", "at": "2026-09-08T07:30:00Z", "changes": [
         "You can request to merge a name into your account (More → Merge a name). Played some games before you set your play name, so your record ended up under a different name? Ask to fold that name in — its wins, losses and replays become yours, and the old name is retired. You give a reason and upload proof (a screenshot), and it's reviewed by hand before anything moves, since a merge shifts a whole record. Once approved, you're shown how to set your play name so it never happens again."
@@ -11853,18 +11858,19 @@ def _user_meets_custom_gate(sub_id):
 
 @app.route('/api/customgame/set', methods=['POST'])
 def api_customgame_set():
-    """The droplet host reports the current lobby's join link here on each
-    re-host. Key-gated. Empty link clears it (lobby down between cycles)."""
+    """The droplet host reports the live lobby's join link here (key-gated).
+    An empty link means the lobby went down; either way this answers/clears the
+    pending open request."""
     if not api_key_ok(request.headers.get('X-API-Key')):
         return jsonify({"error": "Unauthorized"}), 401
     d = request.json or {}
     link = str(d.get('link') or '')[:200]
     conn = db()
     c = conn.cursor()
-    c.execute("INSERT INTO custom_game (id, link, sid, region, password, expires_at, updated_at) "
-              "VALUES (1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET link=excluded.link, "
+    c.execute("INSERT INTO custom_game (id, link, sid, region, password, expires_at, updated_at, wanted_at) "
+              "VALUES (1,?,?,?,?,?,?, '') ON CONFLICT(id) DO UPDATE SET link=excluded.link, "
               "sid=excluded.sid, region=excluded.region, password=excluded.password, "
-              "expires_at=excluded.expires_at, updated_at=excluded.updated_at",
+              "expires_at=excluded.expires_at, updated_at=excluded.updated_at, wanted_at=''",
               (link, d.get('sid'), str(d.get('region') or '')[:16],
                str(d.get('password') or '')[:40], str(d.get('expires_at') or '')[:32],
                time.strftime('%Y-%m-%d %H:%M:%S')))
@@ -11873,24 +11879,85 @@ def api_customgame_set():
     return jsonify({"ok": True}), 200
 
 
-@app.route('/customgame')
-def customgame_page():
-    """The Odyssey-only custom lobby. The join link is shown ONLY to verified
-    Odyssey-rank players; everyone else is told the requirement."""
+@app.route('/api/customgame/open', methods=['POST'])
+def api_customgame_open():
+    """A verified Odyssey player asks to open a lobby. Sets the 'wanted' flag the
+    droplet host polls; the host then creates the game and reports its link back
+    via /set. Signed-in Odyssey-gated (same bar as seeing the link)."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    if not _user_meets_custom_gate(sub_id):
+        return jsonify({"ok": False, "message": "Odyssey rank required."}), 403
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT link FROM custom_game WHERE id = 1").fetchone()
+    if row and row[0]:
+        conn.close()
+        return jsonify({"ok": True, "already": True, "message": "A lobby is already up."}), 200
+    c.execute("INSERT INTO custom_game (id, wanted_at) VALUES (1, ?) "
+              "ON CONFLICT(id) DO UPDATE SET wanted_at=excluded.wanted_at",
+              (time.strftime('%Y-%m-%d %H:%M:%S'),))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "message": "Opening a lobby - this takes a few seconds."}), 200
+
+
+@app.route('/api/customgame/pending')
+def api_customgame_pending():
+    """The droplet host polls this: is a lobby wanted and not yet up? Key-gated."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT link, wanted_at FROM custom_game WHERE id = 1").fetchone()
+    conn.close()
+    link = (row[0] if row else '') or ''
+    wanted_at = (row[1] if row else '') or ''
+    wanted = False
+    if wanted_at and not link:
+        try:
+            wanted = (time.time() - time.mktime(
+                time.strptime(wanted_at, '%Y-%m-%d %H:%M:%S'))) < 90
+        except Exception:
+            wanted = True
+    return jsonify({"wanted": wanted}), 200
+
+
+@app.route('/api/customgame/status')
+def api_customgame_status():
+    """Live status for the /customgame page poll: the link if the signed-in user
+    qualifies, plus whether an open request is in flight."""
     sub_id = current_user()
     allowed = _user_meets_custom_gate(sub_id)
-    link = region = expires = None
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT link, region, wanted_at FROM custom_game WHERE id = 1").fetchone()
+    conn.close()
+    link = (row[0] if row else '') or ''
+    region = (row[1] if row else '') or ''
+    wanted_at = (row[2] if row else '') or ''
+    return jsonify({"allowed": allowed, "link": (link if allowed else None),
+                    "region": region, "opening": bool(wanted_at and not link)}), 200
+
+
+@app.route('/customgame')
+def customgame_page():
+    """The Odyssey-only custom lobby. Verified Odyssey players open a lobby on
+    demand and see the join link; everyone else is told the requirement."""
+    sub_id = current_user()
+    allowed = _user_meets_custom_gate(sub_id)
+    link = region = None
     if allowed:
         conn = db()
         c = conn.cursor()
-        row = c.execute("SELECT link, region, expires_at FROM custom_game "
-                        "WHERE id = 1").fetchone()
+        row = c.execute("SELECT link, region FROM custom_game WHERE id = 1").fetchone()
         conn.close()
         if row and row[0]:
-            link, region, expires = row[0], row[1], row[2]
+            link, region = row[0], row[1]
     return render_template('customgame.html', page='customgame', version=APP_VERSION,
                            signed_in=bool(sub_id), allowed=allowed, link=link,
-                           region=region, expires=expires)
+                           region=region)
 
 
 def perform_name_merge(c, from_norm, to_norm):
