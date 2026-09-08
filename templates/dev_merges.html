@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Merge requests - review{% endblock %}
+{% block css %}
+.dmwrap{display:flex;flex-direction:column;gap:14px}
+.dm{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;backdrop-filter:var(--blur)}
+.dm.pending{border-color:rgba(240,192,74,.45)}
+.dm h3{margin:0 0 6px;font-size:16px}
+.dm h3 .st{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.dm .rec{color:var(--muted);font-size:12.5px;margin:2px 0}
+.dm .rec b{color:var(--text)}
+.dm .reason{font-size:13.5px;margin:9px 0;white-space:pre-wrap;line-height:1.5}
+.dm .proof{margin-top:6px}
+.dm .proof img{max-width:100%;max-height:360px;border:1px solid var(--line);border-radius:8px;display:block}
+.dm .proof a{color:var(--blue,#66e6b8);text-decoration:none;font-size:13px}
+.dm form{display:flex;gap:8px;align-items:center;margin-top:11px;flex-wrap:wrap}
+.dm input[type=text]{flex:1;min-width:160px;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:6px;color:inherit;padding:7px 10px;font:inherit;font-size:13px}
+.dm button{font:inherit;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;padding:8px 16px;border:1px solid var(--line)}
+.dm button.ap{background:var(--green,#66e6b8);color:#0b0e13;border:none}
+.dm button.rj{background:transparent;color:#ff7a7a;border-color:#ff7a7a}
+.dm .done{color:var(--muted);font-size:12.5px;margin-top:7px}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Merge requests</h1>
+<div class="dmwrap">
+{% for r in rows %}
+  <div class="dm {{ r.status }}">
+    <h3>{{ r.from_name }} &rarr; {{ r.to_name }} <span class="st">&middot; {{ r.status }}</span></h3>
+    <div class="rec"><b>{{ r.from_name }}</b> (to move): {% if r.from_rec %}{{ r.from_rec[0] }}W&nbsp;{{ r.from_rec[1] }}L &middot; {{ r.from_rec[2] }}{% else %}not on the board{% endif %}</div>
+    <div class="rec"><b>{{ r.to_name }}</b> (target): {% if r.to_rec %}{{ r.to_rec[0] }}W&nbsp;{{ r.to_rec[1] }}L &middot; {{ r.to_rec[2] }}{% else %}not on the board{% endif %}</div>
+    <div class="rec">requested {{ r.when }} &middot; acct {{ r.sub[:22] }}</div>
+    {% if r.reason %}<div class="reason">{{ r.reason }}</div>{% endif %}
+    <div class="proof"><a href="/merge/proof/{{ r.id }}" target="_blank" rel="noopener">{% if r.mime and r.mime.startswith('image/') %}<img src="/merge/proof/{{ r.id }}" alt="proof screenshot">{% else %}Open proof ({{ r.mime or 'file' }}) &rarr;{% endif %}</a></div>
+    {% if r.status == 'pending' %}
+    <form method="post" action="/dev/merges/{{ r.id }}">
+      <input type="text" name="note" placeholder="note (optional, shown to requester if rejected)">
+      <button class="ap" name="action" value="approve" type="submit">Approve &amp; merge</button>
+      <button class="rj" name="action" value="reject" type="submit">Reject</button>
+    </form>
+    {% else %}
+    <div class="done">Decided.</div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="dm"><p style="margin:0;color:var(--muted)">No merge requests yet.</p></div>
+{% endfor %}
+</div>
+{% endblock %}

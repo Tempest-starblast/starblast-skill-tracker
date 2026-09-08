@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Merge a name - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}Request to fold a name you played under before setting your play name into your account, so its wins, losses and replays count as yours.{% endblock %}
+{% block css %}
+.mgnote{color:var(--muted);font-size:13.5px;line-height:1.6;max-width:64ch;margin:-4px 0 18px}
+.mgcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px;backdrop-filter:var(--blur)}
+.mgcard h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
+.mgform label{display:block;font-size:12.5px;color:var(--muted);margin:11px 0 4px;font-weight:600}
+.mgform input[type=text],.mgform select,.mgform textarea{width:100%;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:6px;color:inherit;padding:9px 11px;font:inherit;font-size:14px}
+.mgform textarea{min-height:70px;resize:vertical}
+.mgform input[type=file]{font:inherit;font-size:13px;color:var(--muted);margin-top:4px}
+.mgform .hint{color:var(--dim,#8aa0b0);font-size:11.5px;margin-top:4px;line-height:1.5}
+.mgform button{margin-top:15px}
+.mgmsg{margin-top:12px;font-size:13.5px}
+.mgmsg.ok{color:var(--green,#66e6b8)}.mgmsg.err{color:#ff7a7a}
+.mgreq{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line);font-size:13.5px}
+.mgreq:first-of-type{border-top:none}
+.mgreq .st{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:2px 9px;border-radius:100px;white-space:nowrap}
+.st.pending{background:rgba(240,192,74,.16);color:var(--amber,#f0c04a)}
+.st.approved{background:rgba(102,230,184,.16);color:var(--green,#66e6b8)}
+.st.rejected{background:rgba(255,122,122,.16);color:#ff7a7a}
+.mgok{margin-top:9px;padding:12px 14px;border:1px solid rgba(102,230,184,.3);border-radius:8px;background:rgba(102,230,184,.06);font-size:13px;line-height:1.75}
+.mgok b{color:var(--text)}
+.mgok a{color:var(--blue,#66e6b8)}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Merge a name</h1>
+<p class="mgnote">Played some games before you set your play name, so your record landed under a different name? Ask to fold that name into your account &mdash; its wins, losses and replays become yours, and the old name is retired. Reviewed by hand with proof, because moving a whole record isn&rsquo;t something we let happen automatically.</p>
+
+{% if not signed_in %}
+<div class="mgcard"><p style="margin:0;font-size:14px">Sign in first (top of the page) &mdash; a merge attaches a record to <b>your</b> account, so we need to know whose it is.</p></div>
+{% elif not my_names %}
+<div class="mgcard"><p style="margin:0;font-size:14px">Your account doesn&rsquo;t own a name yet. Set and claim your play name on <a href="/play" style="color:var(--blue,#66e6b8)">Play</a> first &mdash; that&rsquo;s the name the old record merges into.</p></div>
+{% else %}
+<div class="mgcard">
+  <h2>Request a merge</h2>
+  <form class="mgform" id="mgform">
+    <label for="fromn">The name to merge (the one you played under)</label>
+    <input type="text" id="fromn" name="from_name" placeholder="exact in-game name" required>
+    <label for="ton">Into your name</label>
+    <select id="ton" name="to_name" required>
+      {% for n in my_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+    </select>
+    <label for="why">Reason</label>
+    <textarea id="why" name="reason" placeholder="e.g. I forgot to set my play name, so my games went under &lsquo;X&rsquo; instead of my account name." required></textarea>
+    <label for="proof">Proof</label>
+    <input type="file" id="proof" name="proof" accept="image/*,application/pdf" required>
+    <div class="hint">A screenshot that shows it was you &mdash; e.g. you in-game as that name while signed into your account, or the match on your own screen. Image or PDF, under 6&nbsp;MB.</div>
+    <button class="primary" type="submit">Submit request</button>
+    <div class="mgmsg" id="mgmsg"></div>
+  </form>
+</div>
+{% endif %}
+
+{% if requests %}
+<div class="mgcard">
+  <h2>Your requests</h2>
+  {% for r in requests %}
+  <div class="mgreq">
+    <div>
+      <div><b>{{ r.from_name }}</b> &rarr; {{ r.to_name }}</div>
+      <div style="color:var(--muted);font-size:12px;margin-top:2px">{{ r.when }}{% if r.reason %} &middot; {{ r.reason[:90] }}{% endif %}</div>
+      {% if r.status == 'approved' %}
+      <div class="mgok">
+        <b>Merged.</b> {{ r.from_name }}&rsquo;s record is now part of {{ r.to_name }}.<br>
+        <b>Set your play name to {{ r.to_name }}</b> so future games count automatically &mdash; do it on <a href="/play">Play</a>.<br>
+        <span style="color:var(--muted)">To avoid this next time: set your play name (or check in on Play) <b>before</b> you play, so every game lands on your account from the start.</span>
+      </div>
+      {% elif r.status == 'rejected' and r.note %}
+      <div style="color:#ff7a7a;font-size:12.5px;margin-top:4px">{{ r.note }}</div>
+      {% endif %}
+    </div>
+    <span class="st {{ r.status }}">{{ r.status }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+(function(){
+  var f = document.getElementById('mgform');
+  if(!f) return;
+  f.addEventListener('submit', function(e){
+    e.preventDefault();
+    var msg = document.getElementById('mgmsg');
+    var btn = f.querySelector('button');
+    msg.className = 'mgmsg'; msg.textContent = 'Submitting…'; btn.disabled = true;
+    fetch('/merge/request', { method:'POST', body: new FormData(f) })
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(res){
+        msg.className = 'mgmsg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = (res.j && res.j.message) || (res.ok ? 'Submitted.' : 'Something went wrong.');
+        if(res.ok){ f.reset(); setTimeout(function(){ location.reload(); }, 1500); }
+      })
+      .catch(function(){ msg.className='mgmsg err'; msg.textContent='Network error - try again.'; })
+      .finally(function(){ btn.disabled = false; });
+  });
+})();
+</script>
+{% endblock %}

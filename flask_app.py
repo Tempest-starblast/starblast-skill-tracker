@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.5.0"
+APP_VERSION = "9.6.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1977,6 +1977,26 @@ def init_db():
                     sub TEXT PRIMARY KEY,
                     granted_at TEXT
                 )''')
+    # Name-merge requests: "I played under this name before I set my play name -
+    # please fold its record into mine." Owner-approved by hand with uploaded
+    # proof, because nothing in-game can tell a real owner from an impersonator
+    # and this MOVES a whole record. proof is the screenshot/PDF, kept in-row.
+    c.execute('''CREATE TABLE IF NOT EXISTS merge_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    google_sub TEXT NOT NULL,
+                    from_name TEXT NOT NULL,
+                    from_norm TEXT NOT NULL,
+                    to_name TEXT NOT NULL,
+                    to_norm TEXT NOT NULL,
+                    reason TEXT,
+                    proof BLOB,
+                    proof_mime TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TEXT,
+                    decided_at TEXT,
+                    decided_note TEXT
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_merge_status ON merge_requests(status, id)")
     # The game's own deathmatch ladder, snapshotted daily by the bot
     # (the free tier here cannot fetch starblast.io itself). account_id
     # is the game's stable ECP id, so across days this table remembers
@@ -4413,6 +4433,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.6.0", "at": "2026-09-08T07:30:00Z", "changes": [
+        "You can request to merge a name into your account (More → Merge a name). Played some games before you set your play name, so your record ended up under a different name? Ask to fold that name in — its wins, losses and replays become yours, and the old name is retired. You give a reason and upload proof (a screenshot), and it's reviewed by hand before anything moves, since a merge shifts a whole record. Once approved, you're shown how to set your play name so it never happens again."
+    ]},
     {"version": "9.5.0", "at": "2026-09-08T06:30:00Z", "changes": [
         "The Replays page has a Team mode / Survival toggle now, like the leaderboard — switch between the team-match archive and the survival-round archive, each searchable by date and lobby number, each linking to its replay.",
         "Match results posted to Discord now carry a replay link again. Most matches are recorded by the live watcher, whose replays weren't being detected here, so the link had quietly gone missing from the results feed."
@@ -11755,6 +11778,201 @@ def report_name():
     conn.close()
     return jsonify({"message": f"Reported '{stored_name}'. {CONTACT_HANDLE} will look at it by "
                                f"hand - nothing changes automatically."}), 200
+
+
+def perform_name_merge(c, from_norm, to_norm):
+    """Fold the record played under from_norm INTO to_norm: reassign its rated
+    matches (so its wins/losses AND its replays become to_norm's), recompute
+    to_norm's aggregate, and remove the now-empty from_norm row. The on-screen
+    name in each match is kept as it was actually flown - only the identity the
+    result counts for changes. Caller owns the commit. Returns a summary."""
+    moved = c.execute("SELECT COUNT(*) FROM match_players WHERE norm_name = ?",
+                      (from_norm,)).fetchone()[0]
+    # Never double-count a match both names were in (same person, rare): drop the
+    # from_norm row where to_norm already has one.
+    c.execute("DELETE FROM match_players WHERE norm_name = ? AND match_row IN "
+              "(SELECT match_row FROM match_players WHERE norm_name = ?)",
+              (from_norm, to_norm))
+    c.execute("UPDATE match_players SET norm_name = ? WHERE norm_name = ?",
+              (to_norm, from_norm))
+    try:
+        c.execute("UPDATE held_results SET norm_name = ? WHERE norm_name = ?",
+                  (to_norm, from_norm))
+    except sqlite3.Error:
+        pass
+    # to_norm's rating is exactly STARTING_ELO + the sum of its deltas (the board
+    # invariant), recomputed over the now-combined match set.
+    row = c.execute(
+        "SELECT COALESCE(SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END), 0), "
+        "COALESCE(SUM(CASE WHEN won = 1 THEN 0 ELSE 1 END), 0), "
+        "COALESCE(SUM(delta), 0) FROM match_players WHERE norm_name = ?",
+        (to_norm,)).fetchone()
+    wins, losses, sumdelta = int(row[0] or 0), int(row[1] or 0), float(row[2] or 0.0)
+    new_elo = round(STARTING_ELO + sumdelta, 2)
+    c.execute("UPDATE players SET wins = ?, losses = ?, elo = ? WHERE norm_name = ?",
+              (wins, losses, new_elo, to_norm))
+    c.execute("DELETE FROM players WHERE norm_name = ?", (from_norm,))
+    return {"matches_moved": moved, "wins": wins, "losses": losses, "elo": new_elo}
+
+
+@app.route('/merge')
+def merge_page():
+    """Request to fold a name you played under (before setting your play name)
+    into your account's name. Owner-reviewed by hand, with uploaded proof."""
+    sub_id = current_user()
+    my_names, reqs = [], []
+    conn = db()
+    c = conn.cursor()
+    if sub_id:
+        my_names = [r[0] for r in c.execute(
+            "SELECT name FROM players WHERE google_sub = ? "
+            "ORDER BY (COALESCE(wins,0)+COALESCE(losses,0)) DESC, name", (sub_id,)).fetchall()]
+        for rid, fn, tn, reason, status, created, note in c.execute(
+                "SELECT id, from_name, to_name, reason, status, created_at, decided_note "
+                "FROM merge_requests WHERE google_sub = ? ORDER BY id DESC LIMIT 20",
+                (sub_id,)).fetchall():
+            reqs.append({"id": rid, "from_name": fn, "to_name": tn, "reason": reason,
+                         "status": status, "when": (created or '')[:16], "note": note})
+    conn.close()
+    return render_template('merge.html', page='merge', version=APP_VERSION,
+                           signed_in=bool(sub_id), my_names=my_names, requests=reqs)
+
+
+@app.route('/merge/request', methods=['POST'])
+def merge_request_submit():
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    from_name = str(request.form.get('from_name', '')).strip()
+    to_name = str(request.form.get('to_name', '')).strip()
+    reason = str(request.form.get('reason', '')).strip()[:800]
+    if not from_name or not to_name:
+        return jsonify({"ok": False, "message": "Give the name to merge and your name."}), 400
+    if len(reason) < 5:
+        return jsonify({"ok": False, "message": "Add a reason so it can be reviewed."}), 400
+    from_norm, to_norm = normalize_name(from_name), normalize_name(to_name)
+    if not from_norm or not to_norm:
+        return jsonify({"ok": False, "message": "That name can't be read."}), 400
+    if from_norm == to_norm:
+        return jsonify({"ok": False, "message": "Those are the same name."}), 400
+    proof = request.files.get('proof')
+    blob = proof.read() if proof is not None else b''
+    if not blob:
+        return jsonify({"ok": False, "message": "Attach proof (a screenshot) so it can be verified."}), 400
+    if len(blob) > 6 * 1024 * 1024:
+        return jsonify({"ok": False, "message": "That file is too big - keep it under 6 MB."}), 413
+    mime = (getattr(proof, 'mimetype', '') or '')[:60]
+    if not (mime.startswith('image/') or mime == 'application/pdf'):
+        return jsonify({"ok": False, "message": "Attach an image (screenshot) or a PDF."}), 400
+    conn = db()
+    c = conn.cursor()
+    own = c.execute("SELECT name FROM players WHERE norm_name = ? AND google_sub = ?",
+                    (to_norm, sub_id)).fetchone()
+    if not own:
+        conn.close()
+        return jsonify({"ok": False, "message": "The name to merge INTO has to be one your "
+                       "account owns - claim it first on Play."}), 400
+    to_name = own[0]
+    src = c.execute("SELECT name, google_sub FROM players WHERE norm_name = ?",
+                    (from_norm,)).fetchone()
+    if not src:
+        conn.close()
+        return jsonify({"ok": False, "message": f"'{from_name}' isn't on the leaderboard."}), 404
+    if src[1] and src[1] != sub_id:
+        conn.close()
+        return jsonify({"ok": False, "message": f"'{src[0]}' already belongs to another account, "
+                       "so it can't be merged this way. Use Report instead."}), 400
+    from_name = src[0]
+    pending = c.execute("SELECT COUNT(*) FROM merge_requests WHERE google_sub = ? "
+                        "AND status = 'pending'", (sub_id,)).fetchone()[0]
+    if pending >= 3:
+        conn.close()
+        return jsonify({"ok": False, "message": "You already have merge requests waiting - "
+                       "let those be reviewed first."}), 429
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    c.execute("INSERT INTO merge_requests (google_sub, from_name, from_norm, to_name, to_norm, "
+              "reason, proof, proof_mime, status, created_at) VALUES (?,?,?,?,?,?,?,?, 'pending', ?)",
+              (sub_id, from_name, from_norm, to_name, to_norm, reason,
+               sqlite3.Binary(blob), mime, now))
+    try:
+        c.execute("INSERT INTO bug_reports (kind, body, contact, google_sub, ip, created_at, status) "
+                  "VALUES ('merge-request', ?, NULL, ?, NULL, ?, 'open')",
+                  ("Name-merge request: fold '%s' into '%s'. Reason: %s  (proof attached - "
+                   "review at /dev/merges)" % (from_name, to_name, reason[:400]), sub_id, now))
+    except sqlite3.Error:
+        pass
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "message": "Request submitted. It's reviewed by hand - the "
+                   "result will show here."}), 200
+
+
+@app.route('/merge/proof/<int:rid>')
+def merge_proof(rid):
+    """The uploaded proof - OWNER ONLY (it can be someone's personal screenshot)."""
+    if not is_site_owner():
+        return ("Not found", 404)
+    conn = db()
+    row = conn.execute("SELECT proof, proof_mime FROM merge_requests WHERE id = ?",
+                       (rid,)).fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return ("No proof on file", 404)
+    from flask import Response
+    return Response(bytes(row[0]), mimetype=(row[1] or 'application/octet-stream'))
+
+
+@app.route('/dev/merges')
+def dev_merges():
+    if not is_site_owner():
+        return redirect('/')
+    conn = db()
+    c = conn.cursor()
+    rows = []
+    for rid, sub, fn, fnorm, tn, tnorm, reason, mime, status, created in c.execute(
+            "SELECT id, google_sub, from_name, from_norm, to_name, to_norm, reason, "
+            "proof_mime, status, created_at FROM merge_requests "
+            "ORDER BY (status = 'pending') DESC, id DESC LIMIT 80").fetchall():
+        fr = c.execute("SELECT COALESCE(wins,0), COALESCE(losses,0), ROUND(COALESCE(elo,1000),1) "
+                       "FROM players WHERE norm_name = ?", (fnorm,)).fetchone()
+        tr = c.execute("SELECT COALESCE(wins,0), COALESCE(losses,0), ROUND(COALESCE(elo,1000),1) "
+                       "FROM players WHERE norm_name = ?", (tnorm,)).fetchone()
+        rows.append({"id": rid, "sub": sub, "from_name": fn, "to_name": tn,
+                     "reason": reason, "mime": mime, "status": status,
+                     "when": (created or '')[:16], "from_rec": fr, "to_rec": tr})
+    conn.close()
+    return render_template('dev_merges.html', page='merge', version=APP_VERSION, rows=rows)
+
+
+@app.route('/dev/merges/<int:rid>', methods=['POST'])
+def dev_merges_decide(rid):
+    if not is_site_owner():
+        return jsonify({"ok": False, "message": "Not authorised."}), 403
+    action = str(request.form.get('action', '')).strip()
+    note = str(request.form.get('note', '')).strip()[:300]
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT from_norm, to_norm, status FROM merge_requests WHERE id = ?",
+                    (rid,)).fetchone()
+    if not row:
+        conn.close()
+        return ("No such request", 404)
+    from_norm, to_norm, status = row
+    if status != 'pending':
+        conn.close()
+        return redirect('/dev/merges')
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    if action == 'approve':
+        summary = perform_name_merge(c, from_norm, to_norm)
+        c.execute("UPDATE merge_requests SET status = 'approved', decided_at = ?, "
+                  "decided_note = ? WHERE id = ?",
+                  (now, note or ("moved %d matches" % summary["matches_moved"]), rid))
+    else:
+        c.execute("UPDATE merge_requests SET status = 'rejected', decided_at = ?, "
+                  "decided_note = ? WHERE id = ?", (now, note, rid))
+    conn.commit()
+    conn.close()
+    return redirect('/dev/merges')
 
 
 @app.route('/clan/leader/request', methods=['POST'])
