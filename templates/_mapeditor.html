@@ -115,12 +115,33 @@ window.MapEd = (function(){
   // Where the stations are on their ring right now, for the preview. In a real
   // match this is the game clock (one full turn per hour); here it is just a dial
   // you can spin, so you can see the whole sweep and build around it.
-  var orbitAng = 0, orbitTimer = null;
-  function orbitStep(){ orbitAng = (orbitAng + 0.018) % 6.2832; paintCanvas(); }
+  var orbitAng = 0, orbitTimer = null, orbitLast = 0;
+  var ORBIT_RATE = 6.2832 / 14;          // a full sweep in ~14s - calm, and easy to follow
+  // ~60Hz and TIME-BASED: each step is the real elapsed time, so the speed is the same
+  // on any machine and the motion doesn't judder the way a fixed step per tick does.
+  // (rAF would be marginally smoother but stops dead in a background tab; the dt clamp
+  // below means a throttled tab resumes gently instead of jumping.)
+  function orbitFrame(){
+    var now = (window.performance && performance.now) ? performance.now() : Date.now();
+    if(!orbitLast) orbitLast = now;
+    var dt = Math.min(0.1, (now - orbitLast) / 1000); orbitLast = now;
+    orbitAng = (orbitAng + dt * ORBIT_RATE) % 6.2832;
+    paintCanvas();
+  }
   function setOrbit(on){
-    if(orbitTimer){ clearInterval(orbitTimer); orbitTimer=null; }
-    if(on) orbitTimer=setInterval(orbitStep, 45);
+    if(orbitTimer){ clearInterval(orbitTimer); orbitTimer = null; }
+    orbitLast = 0;
+    if(on) orbitTimer = setInterval(orbitFrame, 16);
     var b=$('maporbit'); if(b){ b.textContent = on ? '⏸ Orbiting' : '⟳ Orbit'; b.classList.toggle('mapadvbtn', !!on); }
+  }
+  // Draw = paint asteroids. Move = grab the stations and swing them round the ring
+  // yourself (the auto-orbit is just this, driven by a clock).
+  var mapMode = 'draw';
+  function setMode(m){
+    mapMode = (m === 'move') ? 'move' : 'draw';
+    var cv=$('mapcanvas'); if(cv) cv.style.cursor = (mapMode==='move') ? 'grab' : 'crosshair';
+    var b=$('mapselect');
+    if(b){ b.textContent = (mapMode==='move') ? '✋ Moving' : '✋ Move'; b.classList.toggle('mapadvbtn', mapMode==='move'); }
   }
   function drawBases(ctx,n,cs,cv){
     var mode=($('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
@@ -216,6 +237,7 @@ window.MapEd = (function(){
       + '<button type="button" id="mapundo" title="Undo the last change">↶ Undo</button>'
       + '<button type="button" id="mapclear" title="Clear the asteroids (keeps the loaded image and the options)">Clear</button>'
       + '<label class="cgchk" title="Keep the ring the stations orbit free of asteroids. Nothing is lost - turn it off and they come back."><input type="checkbox" id="mapclearpath">Clear station path</label>'
+      + '<button type="button" id="mapselect" title="Grab the stations and drag them around their ring yourself, instead of painting">✋ Move</button>'
       + '<button type="button" id="maporbit" title="Spin the stations around their ring, the way they orbit in game">⟳ Orbit</button>'
       + '<button type="button" id="mapadv" class="mapadvbtn" data-advtoggle data-on="More tools ▾" data-off="Fewer tools ▴">More tools ▾</button>'
       + '<span class="adv cgmapmore">'
@@ -241,7 +263,7 @@ window.MapEd = (function(){
     opts=opts||{}; readOnly=!!opts.readOnly; if(opts.size) fallbackSize=opts.size;
     var cv=$('mapcanvas'); if(!cv) return;
     if(readOnly) cv.classList.add('ro');
-    setOrbit(false);                       // a fresh mount never inherits a running timer
+    setOrbit(false); setMode('draw');      // a fresh mount never inherits a running animation
     mapGrid=newGrid(mapSize()); mapUndo=[]; drawMap(); xyBounds();
     // load-ish bindings (both modes)
     var im=$('mapimport'); if(im) im.onclick=function(){ var t=$('o_custom_map'); loadMapString(t?t.value:''); };
@@ -256,12 +278,31 @@ window.MapEd = (function(){
       if(clearPath && !mapErase && inPath(p.r,p.c,p.n,pathBand(p.n))) return;   // the stations need this lane
       mapGrid[p.r][p.c]=mapErase?0:brush(); drawMap(); syncMapText(); showXY(p.r,p.c); }
     function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY}; }
-    cv.addEventListener('mousedown', function(e){ pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
-    cv.addEventListener('mousemove', function(e){ if(painting) apply(pt(e)); });
-    window.addEventListener('mouseup', function(){ painting=false; });
-    cv.addEventListener('touchstart', function(e){ pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
-    cv.addEventListener('touchmove', function(e){ if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
-    window.addEventListener('touchend', function(){ painting=false; });
+    // Angle of the pointer about the map centre, in the same frame drawBases uses.
+    function pointerAngle(p){ var rect=cv.getBoundingClientRect();
+      var x=(p.clientX-rect.left)/rect.width*cv.width - cv.width/2;
+      var y=(p.clientY-rect.top)/rect.height*cv.height - cv.height/2;
+      return Math.atan2(y, x); }
+    var drag=null;                       // {a: grab angle, o: orbit angle when grabbed}
+    function grab(p){ setOrbit(false); drag={a:pointerAngle(p), o:orbitAng};
+      var c=$('mapcanvas'); if(c) c.style.cursor='grabbing'; }
+    function swing(p){ if(!drag) return;
+      orbitAng = (drag.o + (pointerAngle(p) - drag.a)) % 6.2832; paintCanvas(); }
+    function release(){ if(!drag) return; drag=null;
+      var c=$('mapcanvas'); if(c) c.style.cursor = (mapMode==='move') ? 'grab' : 'crosshair'; }
+
+    cv.addEventListener('mousedown', function(e){
+      if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
+      pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
+    cv.addEventListener('mousemove', function(e){ if(drag){ swing(pt(e)); return; } if(painting) apply(pt(e)); });
+    window.addEventListener('mouseup', function(){ painting=false; release(); });
+    cv.addEventListener('touchstart', function(e){
+      if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
+      pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
+    cv.addEventListener('touchmove', function(e){
+      if(drag){ swing(pt(e)); e.preventDefault(); return; }
+      if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
+    window.addEventListener('touchend', function(){ painting=false; release(); });
     var bv=$('mapbrush'); if(bv){ bv.addEventListener('input', function(){
       $('mapbrush_v').textContent=this.value; mapErase=false; var er=$('maperase'); if(er) er.textContent='Erase'; });
       wheelStep(bv); }
@@ -282,6 +323,7 @@ window.MapEd = (function(){
     var inv=$('mapinvert'); if(inv) inv.onchange=applyLastImage;   // re-trace the last image flipped
     var cp=$('mapclearpath'); if(cp) cp.onchange=function(){ clearPath=this.checked; drawMap(); syncMapText(); };
     var ob=$('maporbit'); if(ob) ob.onclick=function(){ setOrbit(!orbitTimer); };
+    var sb=$('mapselect'); if(sb) sb.onclick=function(){ setMode(mapMode==='move'?'draw':'move'); };
     ['imgcut','imgsize','imgspace'].forEach(function(id){ var e=$(id); if(!e) return;   // image options
       e.addEventListener('input', function(){ var b=$(id+'_v'); if(b) b.textContent=this.value+(id==='imgcut'?'%':''); });
       e.addEventListener('change', applyLastImage); wheelStep(e); });

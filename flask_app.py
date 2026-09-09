@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.7"
+APP_VERSION = "9.12.8"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4496,6 +4496,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.8", "at": "2026-09-09T20:00:00Z", "changes": [
+        "The map editor’s orbit is much smoother — it now moves by real elapsed time at around 60 frames a second, so it glides instead of stepping, and runs at the same speed on any machine.",
+        "New “Move” mode in the map editor: switch to it and you can grab the stations and swing them around their ring yourself, to line the map up exactly how you want. Painting is paused while you’re moving them, and taking hold of a station stops the automatic orbit so the two never fight each other."
+    ]},
     {"version": "9.12.7", "at": "2026-09-09T19:00:00Z", "changes": [
         "Map editor: a “Clear station path” switch. The stations circle the map once an hour, so anything sitting on that ring is in their way — turn it on and the ring is cleared and blocked off, so you can’t drop asteroids there by accident. Nothing is thrown away: turn it off and everything comes straight back, which matters most after tracing an image over the whole map.",
         "Map editor: an “Orbit” button that spins the stations around their ring the way they travel in game, so you can see the whole path they sweep instead of a single frozen moment, and build around it."
