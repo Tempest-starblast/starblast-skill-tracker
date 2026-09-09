@@ -238,6 +238,78 @@
     var mn=/^-?\d+(\.\d+)?/.exec(body.slice(i)); if(mn) return {value:parseFloat(mn[0]),from:i,to:i+mn[0].length,keyFrom:keyFrom,str:false};
     var mb=/^(true|false)/.exec(body.slice(i)); if(mb) return {value:mb[1]==='true',from:i,to:i+mb[0].length,keyFrom:keyFrom,str:false};
     return undefined; }
+  // ---- custom_map inside a mod: find where it really lives, read it, write it back there ----
+  // Mods rarely write the map as a literal. It's usually `custom_map: map` with
+  // `var map = ` + "`...`" + ` above, or an array of rows .join("\n"). Resolve all of
+  // those to (value, where-it-lives), so a pasted mod's map shows up in the editor
+  // and a changed map goes back into the same place in the code - never a second key.
+  function skipWs(code, i){ while(i < code.length && /\s/.test(code[i])) i++; return i; }
+  function parseStrLit(code, i){                          // "..." '...' or `...` starting at i
+    var q = code[i]; if(q !== '"' && q !== "'" && q !== '`') return null;
+    var out = '', j = i + 1;
+    for(; j < code.length; j++){ var c = code[j];
+      if(c === '\\'){ var n = code[j + 1]; j++;
+        if(n === 'n') out += '\n'; else if(n === 't') out += '\t'; else if(n === 'r') out += '\r';
+        else if(n === '\r'){ if(code[j + 1] === '\n') j++; }      // line continuation
+        else if(n === '\n'){ }
+        else out += n;
+        continue; }
+      if(c === q) return { value: out.replace(/\r\n?/g, '\n'), from: i, to: j + 1 };
+      out += c; }
+    return null; }
+  function lineIndent(code, i){ var ls = code.lastIndexOf('\n', i) + 1; return (/^[ \t]*/.exec(code.slice(ls, i)) || [''])[0]; }
+  // literal (+ literal)*  |  [rows].join(sep)  |  identifier -> its assignment
+  function parseStrExpr(code, i, depth){
+    depth = depth || 0; i = skipWs(code, i);
+    var lit = parseStrLit(code, i);
+    if(lit){ var end = lit.to, val = lit.value;
+      for(;;){ var k = skipWs(code, end); if(code[k] !== '+') break;
+        var nx = parseStrLit(code, skipWs(code, k + 1)); if(!nx) break; val += nx.value; end = nx.to; }
+      return { value: val, from: i, to: end, kind: 'lit' }; }
+    if(code[i] === '['){ var rows = [], j = i + 1;
+      for(;;){ j = skipWs(code, j); if(code[j] === ']'){ j++; break; }
+        var r = parseStrLit(code, j); if(!r) return null; rows.push(r.value); j = skipWs(code, r.to);
+        if(code[j] === ','){ j++; continue; } if(code[j] === ']'){ j++; break; } return null; }
+      var m = /^\s*\.join\s*\(/.exec(code.slice(j)); if(!m) return null;
+      var sep = parseStrLit(code, skipWs(code, j + m[0].length)); if(!sep) return null;
+      var close = skipWs(code, sep.to); if(code[close] !== ')') return null;
+      return { value: rows.join(sep.value), from: i, to: close + 1, kind: 'array',
+               sepSrc: code.slice(sep.from, sep.to), sepValue: sep.value, indent: lineIndent(code, i) }; }
+    var id = /^[A-Za-z_$][\w$]*/.exec(code.slice(i));
+    if(id && depth < 3){ var name = id[0];
+      var re = new RegExp('(?:\\b(?:var|let|const)\\s+|(?:^|[^\\w$.]))' + name.replace(/\$/g, '\\$') + '\\s*=(?!=)', 'm');
+      var d = re.exec(code); if(!d) return null;
+      var inner = parseStrExpr(code, d.index + d[0].length, depth + 1); if(!inner) return null;
+      inner.ref = { from: i, to: i + name.length };         // where the options block names it
+      return inner; }
+    return null; }
+  function modReadMap(code, blk){                           // {key, expr} or null; expr null = present but unreadable
+    var body = code.slice(blk.start, blk.end), m = /(^|[\s,{])custom_map\s*:\s*/m.exec(body); if(!m) return null;
+    var key = { keyFrom: blk.start + m.index + m[1].length, valueAt: blk.start + m.index + m[0].length };
+    return { key: key, expr: parseStrExpr(code, key.valueAt, 0) }; }
+  function mapLiteral(map){ return '`' + map + '`'; }     // rows are digits and spaces, nothing to escape
+  function mapArraySrc(map, ex){ var ind = ex.indent || '';
+    return '[\n' + map.split('\n').map(function(r){ return ind + '  ' + JSON.stringify(r); }).join(',\n') + '\n' + ind + '].join(' + ex.sepSrc + ')'; }
+  // The map changed in the editor: put it back where the mod keeps it.
+  function modWriteMap(){
+    if(modSyncing) return; var ta = document.getElementById('o_mod_code'); if(!ta || !ta.value.trim()) return;
+    var code = ta.value, map = MapEd.str(), blk = modOptionsBlock(code);
+    if(!blk){ if(!map) return;
+      ta.value = 'this.options = {\n  custom_map: ' + mapLiteral(map) + '\n};\n' + code;
+      modHint('Added a this.options block to the mod with the map.'); return; }
+    var info = modReadMap(code, blk);
+    if(!map){                                               // no map: drop the key so the game builds its own field
+      if(!info) return;
+      var end = info.expr ? (info.expr.ref ? info.expr.ref.to : info.expr.to) : null; if(end == null) return;
+      var pre = code.slice(0, info.key.keyFrom), rest = code.slice(end).replace(/^\s*,/, '');
+      if(/^\s*\}/.test(rest)) pre = pre.replace(/,\s*$/, '');
+      pre = pre.replace(/[ \t]+$/, ''); if(/\n$/.test(pre)) rest = rest.replace(/^[ \t]*\n/, '');
+      ta.value = pre + rest; return; }
+    if(!info){ ta.value = code.slice(0, blk.start) + '{\n  custom_map: ' + mapLiteral(map) + ',' + code.slice(blk.start + 1); return; }
+    if(!info.expr){ modHint('This mod builds custom_map in a way that can\u2019t be rewritten automatically \u2014 change it in the code by hand.'); return; }
+    var ex = info.expr, src = (ex.kind === 'array' && ex.sepValue === '\n') ? mapArraySrc(map, ex) : mapLiteral(map);
+    ta.value = code.slice(0, ex.from) + src + code.slice(ex.to);
+  }
   function applyModToForm(){
     var ta=document.getElementById('o_mod_code'), code=ta?ta.value:''; var blk=modOptionsBlock(code);
     if(!blk){ ensureModTeam(); modHint('That mod had no settings block — added one with root_mode: "team" (the lobby is team mode only). Change any setting above and it goes in there too.'); return; }
@@ -247,13 +319,18 @@
       else if(el.type==='checkbox'){ el.checked=(v.value===true||v.value===1||v.value==='true'); }
       else { el.value=v.value; var nb=document.getElementById('o_'+k+'_n'); if(nb) nb.value=el.value; }
       el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); n++; });
-    var cm=modReadValue(body,'custom_map'); if(cm && cm.str && /[1-9]/.test(cm.value)){ MapEd.load(cm.value); n++; }
+    var cm=modReadMap(code, blk), mapCells=0;
+    if(cm && cm.expr && /[1-9]/.test(cm.expr.value)){ MapEd.load(cm.expr.value); mapCells=MapEd.count();
+      var ms=document.getElementById('mapsel'); if(ms) ms.value=''; }
     var fixed=ensureModTeam();
     modSyncing=false;
-    modHint('Read '+n+' setting'+(n===1?'':'s')+' from the mod. Changing a setting above now updates the code.'
-      + (fixed ? ' Set its root_mode to "team" — the lobby is team mode only.' : ''));
+    modHint('Read '+n+' setting'+(n===1?'':'s')+(mapCells ? ' and its map ('+mapCells+' asteroids, shown above)' : '')
+      +' from the mod. Change a setting or the map and the code updates too.'
+      + (fixed ? ' Set its root_mode to "team" — the lobby is team mode only.' : '')
+      + (cm && !cm.expr ? ' Its custom_map is built in a way that can\u2019t be read here.' : ''));
   }
   function writeFormToMod(key){
+    if(key==='custom_map'){ modWriteMap(); return; }
     if(modSyncing) return; var ta=document.getElementById('o_mod_code'); if(!ta||!ta.value.trim()) return;
     var code=ta.value, blk=modOptionsBlock(code);
     var el=document.getElementById(key==='custom_map'?'o_custom_map':'o_'+key); if(!el) return;
@@ -290,7 +367,9 @@
     if(!ta||!fi) return;
     function take(f){ if(!f) return;
       if(f.size > 200000){ modHint('That file is too big (200 KB max).'); return; }
-      var rd=new FileReader(); rd.onload=function(){ ta.value=String(rd.result||''); modHint('Loaded '+f.name+' ('+Math.round(f.size/1024)+' KB) — hit “Read settings from mod” to pull its settings in.'); };
+      var rd=new FileReader(); rd.onload=function(){ ta.value=String(rd.result||'');
+        if(modOptionsBlock(ta.value)) applyModToForm();
+        else modHint('Loaded '+f.name+' ('+Math.round(f.size/1024)+' KB) — it has no this.options block, so there were no settings to read.'); };
       rd.onerror=function(){ modHint('Couldn’t read that file.'); }; rd.readAsText(f); }
     if(btn) btn.onclick=function(){ fi.click(); };
     fi.onchange=function(){ take(this.files&&this.files[0]); this.value=''; };
@@ -299,7 +378,9 @@
     if(ap) ap.onclick=applyModToForm;
     MOD_KEYS.forEach(function(k){ var el=document.getElementById('o_'+k); if(!el) return;
       el.addEventListener('input', function(){ writeFormToMod(k); }); el.addEventListener('change', function(){ writeFormToMod(k); }); });
-    MapEd.onChange=function(){ writeFormToMod('custom_map'); };
+    MapEd.onChange=modWriteMap;
+    // Pasting a whole mod is an import: read it straight away, no button needed.
+    ta.addEventListener('paste', function(){ setTimeout(function(){ if(modOptionsBlock(ta.value)) applyModToForm(); }, 0); });
   }
   // The lobby takes a map from My Maps (picker) or pasted text; the canvas is a
   // read-only preview that shows the bases for the lobby's own team/station settings.

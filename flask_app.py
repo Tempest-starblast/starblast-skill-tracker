@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.1"
+APP_VERSION = "9.13.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4503,6 +4503,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.2", "at": "2026-09-10T00:00:00Z", "changes": [
+        "The lobby now reads a mod’s map the way mods actually write it. Paste or load a mod and its custom_map shows up in the map preview straight away — whether it’s a literal string, a variable holding the map, rows joined with .join(), or pieces added together. Before, only a literal string was understood, so most mods’ maps were silently ignored.",
+        "And it goes both ways: change the map — draw one in, pick from My Maps, generate from a seed, import a file — and the mod’s code is updated in the place the map already lives (a variable stays a variable, an array stays an array). Clearing the map removes it from the mod so the game builds its own field. If a mod builds its map with code that can’t be rewritten safely, the lobby says so instead of guessing.",
+        "Pasting or loading a whole mod reads its settings automatically — no need to press “Read settings from mod” first."
+    ]},
     {"version": "9.13.1", "at": "2026-09-09T23:00:00Z", "changes": [
         "The seed-to-map generator has been rewritten as plain, readable code. 9.13.0 shipped the game’s own generator as-is, which is deliberately scrambled and impossible to check or maintain; the new version is ordinary code with real names and comments, and it reproduces the game’s fields exactly — checked cell for cell against the original across thousands of seeds, every map size and both team settings. Nothing changes for players: the same seed still gives the same map."
     ]},
