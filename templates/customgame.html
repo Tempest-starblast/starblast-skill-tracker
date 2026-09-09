@@ -155,6 +155,77 @@
       +'</span></label>';
   }
 
+  // ---- the mod box <-> the settings form ----
+  // "Read settings from mod" parses the mod's `this.options = { ... }` (no eval: a
+  // brace-matched block + per-key literal reads) into the form; from then on every
+  // form change is written back into that block, so what you see is what the host
+  // runs. Only literal values are touched; expressions are left alone.
+  var MOD_KEYS=['root_mode','friendly_colors','map_size','max_players','crystal_value','max_level','starting_ship','station_size','map_name','soundtrack'];
+  var modSyncing=false;
+  function modHint(t){ var h=document.getElementById('modfile_hint'); if(h) h.textContent=t; }
+  function modOptionsBlock(code){ var m=/this\.options\s*=\s*\{/.exec(code); if(!m) return null;
+    var start=m.index+m[0].length-1, depth=0, inStr=null, esc=false;
+    for(var i=start;i<code.length;i++){ var ch=code[i];
+      if(inStr){ if(esc){esc=false;continue;} if(ch==='\\'){esc=true;continue;} if(ch===inStr) inStr=null; continue; }
+      if(ch==='"'||ch==="'"||ch==='`'){ inStr=ch; continue; }
+      if(ch==='{') depth++; else if(ch==='}'){ depth--; if(depth===0) return {start:start,end:i+1}; } }
+    return null; }
+  function modReadValue(body,key){ var re=new RegExp('(^|[\\s,{])'+key+'\\s*:\\s*','m'); var m=re.exec(body); if(!m) return undefined;
+    var i=m.index+m[0].length, keyFrom=m.index+m[1].length, ch=body[i];
+    if(ch==='"'||ch==="'"||ch==='`'){ var q=ch, out='', j=i+1;
+      for(;j<body.length;j++){ var c=body[j]; if(c==='\\'){ var n=body[j+1]; out+=(n==='n'?'\n':n==='t'?'\t':n); j++; continue; } if(c===q) break; out+=c; }
+      return {value:out,from:i,to:j+1,keyFrom:keyFrom,str:true}; }
+    var mn=/^-?\d+(\.\d+)?/.exec(body.slice(i)); if(mn) return {value:parseFloat(mn[0]),from:i,to:i+mn[0].length,keyFrom:keyFrom,str:false};
+    var mb=/^(true|false)/.exec(body.slice(i)); if(mb) return {value:mb[1]==='true',from:i,to:i+mb[0].length,keyFrom:keyFrom,str:false};
+    return undefined; }
+  function applyModToForm(){
+    var ta=document.getElementById('o_mod_code'), code=ta?ta.value:''; var blk=modOptionsBlock(code);
+    if(!blk){ modHint('No “this.options = { … }” block found in that mod.'); return; }
+    var body=code.slice(blk.start,blk.end), n=0; modSyncing=true;
+    MOD_KEYS.forEach(function(k){ var v=modReadValue(body,k); if(v===undefined) return; var el=document.getElementById('o_'+k); if(!el) return;
+      if(el.tagName==='SELECT'){ var ok=[].some.call(el.options,function(o){ return o.value==String(v.value); }); if(!ok) return; el.value=String(v.value); }
+      else { el.value=v.value; var nb=document.getElementById('o_'+k+'_n'); if(nb) nb.value=el.value; }
+      el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); n++; });
+    var cm=modReadValue(body,'custom_map'); if(cm && cm.str && /[1-9]/.test(cm.value)){ MapEd.load(cm.value); n++; }
+    modSyncing=false;
+    modHint('Read '+n+' setting'+(n===1?'':'s')+' from the mod. Changing a setting above now updates the code.');
+  }
+  function writeFormToMod(key){
+    if(modSyncing) return; var ta=document.getElementById('o_mod_code'); if(!ta||!ta.value.trim()) return;
+    var code=ta.value, blk=modOptionsBlock(code); if(!blk) return;
+    var body=code.slice(blk.start,blk.end);
+    var raw = (key==='custom_map') ? (document.getElementById('o_custom_map')||{}).value : (document.getElementById('o_'+key)||{}).value;
+    if(raw===undefined) return;
+    var isStr = (key==='root_mode'||key==='map_name'||key==='soundtrack'||key==='custom_map');
+    var lit = isStr ? JSON.stringify(String(raw)) : String(parseFloat(raw));
+    if(!isStr && isNaN(parseFloat(raw))) return;
+    if((key==='soundtrack'||key==='map_name'||key==='custom_map') && !raw) lit=null;    // empty -> drop the key
+    var v=modReadValue(body,key), nb;
+    if(v && lit!==null){ nb=body.slice(0,v.from)+lit+body.slice(v.to); }
+    else if(v && lit===null){ var pre=body.slice(0,v.keyFrom), rest=body.slice(v.to).replace(/^\s*,/,'');
+      if(/^\s*\}/.test(rest)) pre=pre.replace(/,\s*$/,''); nb=pre+rest; }
+    else if(!v && lit!==null){ nb='{\n  '+key+': '+lit+','+body.slice(1); }
+    else return;
+    ta.value=code.slice(0,blk.start)+nb+code.slice(blk.end);
+  }
+  // A mod can be loaded from a file (.js/.txt) - button, or drop it onto the box.
+  function bindMod(){
+    var ta=document.getElementById('o_mod_code'), fi=document.getElementById('modfile'),
+        btn=document.getElementById('modfile_btn'), ap=document.getElementById('modapply');
+    if(!ta||!fi) return;
+    function take(f){ if(!f) return;
+      if(f.size > 200000){ modHint('That file is too big (200 KB max).'); return; }
+      var rd=new FileReader(); rd.onload=function(){ ta.value=String(rd.result||''); modHint('Loaded '+f.name+' ('+Math.round(f.size/1024)+' KB) — hit “Read settings from mod” to pull its settings in.'); };
+      rd.onerror=function(){ modHint('Couldn’t read that file.'); }; rd.readAsText(f); }
+    if(btn) btn.onclick=function(){ fi.click(); };
+    fi.onchange=function(){ take(this.files&&this.files[0]); this.value=''; };
+    ta.addEventListener('dragover', function(e){ e.preventDefault(); });
+    ta.addEventListener('drop', function(e){ e.preventDefault(); take(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]); });
+    if(ap) ap.onclick=applyModToForm;
+    MOD_KEYS.forEach(function(k){ var el=document.getElementById('o_'+k); if(!el) return;
+      el.addEventListener('input', function(){ writeFormToMod(k); }); el.addEventListener('change', function(){ writeFormToMod(k); }); });
+    MapEd.onChange=function(){ writeFormToMod('custom_map'); };
+  }
   // The lobby takes a map from My Maps (picker) or pasted text; the canvas is a
   // read-only preview that shows the bases for the lobby's own team/station settings.
   function loadMapPicker(){
@@ -194,7 +265,11 @@
         + '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Or paste a map copied from My Maps and hit Apply. Any custom map makes the game unrated.'
           + '<textarea id="o_custom_map" spellcheck="false" placeholder="Optional. Paste a Starblast custom_map string here."></textarea></label>'
         + '<button type="button" id="mapimport" style="margin-top:6px">Apply pasted ↑</button></div>'
-      + '<label class="full">Import a mod (JS — team mode only, unrated)<textarea id="o_mod_code" placeholder="Optional: paste a Starblast mod here. Its settings are pulled in automatically. Must be a team-mode mod."></textarea></label>'
+      + '<label class="full">Import a mod (JS — team mode only, unrated)<textarea id="o_mod_code" placeholder="Optional: paste a Starblast mod here or load it from a file. Hit “Read settings from mod” to pull its this.options into the settings above — after that, changing a setting updates the code too. Must be a team-mode mod."></textarea></label>'
+      + '<div class="full cgmap cgmodtools"><button type="button" id="modfile_btn">Load mod from file (.js / .txt)</button>'
+        + '<button type="button" id="modapply" title="Read this.options = { … } from the mod into the settings above. After that, changing a setting rewrites it in the code.">Read settings from mod ↑</button>'
+        + '<input type="file" id="modfile" accept=".js,.txt,.mjs,text/plain,text/javascript,application/javascript" style="display:none">'
+        + '<span id="modfile_hint">…or drop a file onto the box above.</span></div>'
       + '<p class="note">Leave everything as-is for the <b>standard rated</b> lobby. Change anything (or import a mod) and it’s <b>unrated</b> — but it still records who won/lost, their teams, how long they played and their score.</p>';
     box.innerHTML = '<h2>Open a lobby</h2>'
       + '<p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Open one — the join link appears here for you and every Odyssey player. You can stop it anytime from the lobby screen, and it also closes on its own once everyone leaves.</p>'
@@ -202,7 +277,7 @@
       + '<button class="primary" id="cgopen" type="button">Open lobby</button>'
       + '<div class="cgmsg" id="cgmsg"></div>';
     document.getElementById('cgopen').onclick = openLobby;
-    MapEd.init({readOnly:true}); loadMapPicker();
+    MapEd.init({readOnly:true}); loadMapPicker(); bindMod();
   }
   function renderWait(){          // Odyssey players who aren't the host
     if(shown === 'wait'){ return; }

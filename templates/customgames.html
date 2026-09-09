@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Custom games - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}Results of the Odyssey custom lobby's unrated games: who played, their teams, scores and time.{% endblock %}
+{% block css %}
+.cgl{max-width:72ch}
+.cglnote{color:var(--muted);font-size:13.5px;line-height:1.65;margin:-4px 0 18px}
+.cm{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px 12px;backdrop-filter:var(--blur);margin-bottom:12px}
+.cmhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.cmwhen{font-weight:700;font-size:14px;color:var(--text)}
+.cmmeta{color:var(--muted);font-size:12px}
+.cmbadge{font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.cmbadge.un{color:#ffb86b;border-color:rgba(255,184,107,.4)}
+.cmbadge.mod{color:#66aaff;border-color:rgba(102,170,255,.4)}
+.cmbadge.map{color:var(--green,#66e6b8);border-color:rgba(102,230,184,.4)}
+.cmteams{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.cmteam{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:rgba(127,127,127,.05)}
+.cmteam.won{border-color:rgba(255,215,0,.45);box-shadow:inset 0 0 0 1px rgba(255,215,0,.18)}
+.cmth{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;margin-bottom:6px}
+.cmth .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+.cmth .tot{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600}
+.cmp{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:2px 0}
+.cmp a{color:var(--text);text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmp a:hover{color:var(--green,#66e6b8)}
+.cmp .sc{font-variant-numeric:tabular-nums;font-weight:600}
+.cmp .tm{font-variant-numeric:tabular-nums;color:var(--muted);font-size:11px;min-width:38px;text-align:right}
+.cmnote{color:var(--muted);font-size:12px;margin-top:8px}
+.cmempty{color:var(--muted);font-size:14px}
+{% endblock %}
+{% block body %}
+<div class="cgl">
+<h1 class="ptitle">Custom games</h1>
+<p class="cglnote">Games from the <a href="/customgame" style="color:var(--green,#66e6b8)">Odyssey custom lobby</a> that weren&rsquo;t the standard rated game &mdash; custom settings, a custom map or an imported mod. They don&rsquo;t touch the leaderboard, but who played, the team they were on, their score and how long they played are all kept here.</p>
+{% for m in matches %}
+<div class="cm" id="m{{ m.id }}">
+  <div class="cmhead">
+    <span class="cmwhen">{{ m.when }}</span>
+    <span class="cmmeta">{{ m.mode_label }}{% if m.n_teams %} &middot; {{ m.n_teams }} teams{% endif %} &middot; {{ m.duration_min }} min &middot; {{ m.n_players }} player{{ '' if m.n_players == 1 else 's' }}</span>
+    <span class="cmbadge un">unrated</span>
+    {% if m.mod %}<span class="cmbadge mod">mod</span>{% endif %}
+    {% if m.has_map %}<span class="cmbadge map">custom map</span>{% endif %}
+  </div>
+  {% if m.teams %}
+  <div class="cmteams">
+    {% for t in m.teams %}
+    <div class="cmteam{% if t.won %} won{% endif %}">
+      <div class="cmth"><span class="sw" style="background:hsl({{ t.hue }},70%,58%)"></span>{% if t.won %}&#127942; {% endif %}{{ t.label }}<span class="tot">{{ t.score }}</span></div>
+      {% for p in t.players %}
+      <div class="cmp"><a href="/player/{{ p.name|urlencode }}">{{ p.name }}</a><span class="sc">{{ p.score }}</span><span class="tm">{{ p.play_min }}m</span></div>
+      {% else %}
+      <div class="cmp" style="color:var(--muted)">nobody</div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="cmteam">
+    {% for p in m.players %}
+    <div class="cmp"><a href="/player/{{ p.name|urlencode }}">{% if p.won %}&#127942; {% endif %}{{ p.name }}</a><span class="sc">{{ p.score }}</span><span class="tm">{{ p.play_min }}m</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if m.outcome != 'finished' %}<div class="cmnote">No result &mdash; the lobby closed before a station fell{% if m.reason %} ({{ m.reason }}){% endif %}.</div>{% endif %}
+</div>
+{% else %}
+<div class="cm"><p class="cmempty" style="margin:0">No custom games recorded yet. They appear here as soon as one finishes.</p></div>
+{% endfor %}
+</div>
+{% endblock %}

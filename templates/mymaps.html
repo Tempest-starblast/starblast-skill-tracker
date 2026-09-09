@@ -41,7 +41,7 @@
 {% if not signed_in %}
 <div class="mmcard"><h2>Sign in</h2><p style="margin:0;font-size:14px">Sign in at the top of the page to build and save maps.</p></div>
 {% elif not allowed %}
-<div class="mmcard"><h2>Not yet</h2><p style="margin:0;font-size:14px;color:var(--muted)">My Maps is for the lobby host and established <b>Odyssey</b>-rank players.</p></div>
+<div class="mmcard"><h2>Host only</h2><p style="margin:0;font-size:14px;color:var(--muted)">My Maps is the lobby host&rsquo;s workshop.</p></div>
 {% else %}
 {% include "_mapeditor.html" %}
 <div class="mmcard">

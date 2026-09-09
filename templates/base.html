@@ -686,8 +686,10 @@ window.addEventListener('DOMContentLoaded', async function(){
         var os=document.getElementById('ownerSec'); if(os) os.style.display='';
         if(d.live_flood > 0) sbFloodAlert(d.live_flood);
       }
-      if(d.custom_view || d.is_owner){   // Odyssey players (+ owner) see the lobby + My Maps tabs
+      if(d.custom_view || d.is_owner){   // Odyssey players (+ owner) see the lobby tab
         var ct=document.getElementById('customTab'); if(ct) ct.style.display='';
+      }
+      if(d.is_owner){                    // My Maps is the host's workshop
         var mt=document.getElementById('mapsTab'); if(mt) mt.style.display='';
       }
       // The header chip: name, rating, rank - filled from the same /me

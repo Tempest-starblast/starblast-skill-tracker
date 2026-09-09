@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.9.0"
+APP_VERSION = "9.9.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4480,6 +4480,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.9.1", "at": "2026-09-09T05:00:00Z", "changes": [
+        "My Maps is now the host's workshop only, like the lobby builder itself (Odyssey players still see the lobby's join link as before).",
+        "An imported mod can be loaded straight from a file (.js or .txt) — a button under the mod box, or drop the file onto it.",
+        "The map editor's station ring now follows the game's own formula: the bases sit further out than the earlier estimate, about 71% of the way from the centre to the edge."
+    ]},
     {"version": "9.9.0", "at": "2026-09-09T04:00:00Z", "changes": [
         "New: My Maps (More → My Maps) — a standalone map workshop for the custom lobby. Draw asteroids, trace an image, place exact points, undo — with the sun, the station orbit and the team bases drawn so you can build around them. Name and save as many maps as you like, and load, copy or delete them any time. Open to the host and established Odyssey players, so anyone at that level can build a map and pass it to the host.",
         "Opening a lobby now takes a saved map: pick one from My Maps in the lobby's Custom settings, or copy a map in My Maps and paste it in. The lobby page just previews the chosen map (with your team and station settings) instead of hosting the whole editor."
@@ -12298,9 +12303,8 @@ MAP_NAME_MAX = 40
 
 
 def _can_use_maps(sub_id):
-    """My Maps is for the people who can use the custom lobby: the host, plus any
-    established Odyssey player (who can build a map and copy it to the host)."""
-    return bool(sub_id) and (_can_host_custom(sub_id) or _user_meets_custom_gate(sub_id))
+    """My Maps is the host's workshop - owner only (owner's call, 9.9.1)."""
+    return bool(sub_id) and _can_host_custom(sub_id)
 
 
 @app.route('/api/maps', methods=['GET', 'POST'])
