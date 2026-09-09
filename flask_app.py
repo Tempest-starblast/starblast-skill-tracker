@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.7"
+APP_VERSION = "9.8.8"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4468,6 +4468,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.8.8", "at": "2026-09-09T02:30:00Z", "changes": [
+        "The map editor now shows where the team stations will be. In team mode it draws the sun at the centre, the ring the stations ride (they revolve around it once an hour, so the whole ring gets swept), and one marker per team sized to your station setting — based on the game's real base placement — so you can build the map around them instead of guessing.",
+        "Image → asteroids got proper controls: an Invert option (for a dark design on a light background), a brightness cutoff, a choice of a fixed asteroid size or size-by-brightness with a cap, and a spacing setting to thin the field. Change any of them and the last image re-traces on the spot.",
+        "Scrolling over the small option sliders now moves exactly one step."
+    ]},
     {"version": "9.8.7", "at": "2026-09-09T01:15:00Z", "changes": [
         "The custom-lobby “Starting ship” setting is now a proper ship picker — choose a real ship by name, grouped by tier (Fly, Odyssey, Bastion…), instead of typing a code into a spinner that could land on a ship that doesn’t exist.",
         "Clearer wording on the custom-lobby page: it now spells out that the host chooses who can join (Odyssey-only, where non-Odyssey players are removed automatically, or anyone with the link) and that leaving the defaults gives the standard rated game."

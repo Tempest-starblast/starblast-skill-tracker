@@ -58,6 +58,14 @@
 .cgmapxy input[type=number]{width:56px;text-align:center;-moz-appearance:textfield}
 .cgmapxy input::-webkit-outer-spin-button,.cgmapxy input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .cgxyhint{color:var(--text);font-variant-numeric:tabular-nums}
+.cgform .cgchk{display:inline-flex;flex-direction:row;align-items:center;gap:5px;cursor:pointer;font-size:11.5px}
+.cgform .cgchk input{width:auto;margin:0;padding:0}
+.cgimgopts{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:var(--muted)}
+.cgimgopts>span{display:inline-flex;align-items:center;gap:5px}
+.cgimgopts input[type=range]{width:80px;accent-color:var(--green,#66e6b8);padding:0;border:0;background:none}
+.cgimgopts select{padding:3px 6px;font-size:11.5px}
+.cgimglbl{color:var(--text);font-weight:600}
+.cgimghint{flex-basis:100%;font-size:11px;opacity:.8}
 #mapcanvas{width:100%;max-width:320px;border:1px solid var(--line);border-radius:8px;
   background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
 .cgstop{display:block;margin:14px 0 0;width:100%;padding:9px 14px;border-radius:9px;cursor:pointer;
@@ -168,6 +176,12 @@
   function pushUndo(){ if(!mapGrid) return; mapUndo.push(mapGrid.map(function(row){ return row.slice(); }));
     if(mapUndo.length>60) mapUndo.shift(); }
   function doUndo(){ if(mapUndo.length){ mapGrid=mapUndo.pop(); drawMap(); syncMapText(); } }
+  // Mouse-wheel on a small slider = exactly ONE step (browsers otherwise skip).
+  function wheelStep(el){ if(!el) return; el.addEventListener('wheel', function(e){ e.preventDefault();
+    var st=parseFloat(el.step)||1, mn=parseFloat(el.min), mx=parseFloat(el.max);
+    var v=parseFloat(el.value)+(e.deltaY<0?st:-st); if(!isNaN(mn)) v=Math.max(mn,v); if(!isNaN(mx)) v=Math.min(mx,v);
+    v=Math.round(v/st)*st; var s=String(+v.toFixed(3));
+    if(s!==el.value){ el.value=s; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); } }, {passive:false}); }
   function mapSize(){ var e=document.getElementById('o_map_size'); return e?(parseInt(e.value,10)||80):80; }
   function newGrid(n){ var g=[]; for(var r=0;r<n;r++){ var row=[]; for(var c=0;c<n;c++) row.push(0); g.push(row); } return g; }
   function gridToStr(g){ return g.map(function(row){ return row.map(function(c){ return c?String(c):' '; }).join(''); }).join('\n'); }
@@ -178,17 +192,51 @@
     ctx.clearRect(0,0,cv.width,cv.height);
     for(var r=0;r<n;r++) for(var c=0;c<n;c++){ var v=mapGrid[r][c]; if(!v) continue;
       ctx.beginPath(); ctx.fillStyle='#9aa4b2';
-      ctx.arc(c*cs+cs/2, r*cs+cs/2, Math.max(0.8,(cs/2)*(0.4+0.065*v)), 0, 6.2832); ctx.fill(); } }
+      ctx.arc(c*cs+cs/2, r*cs+cs/2, Math.max(0.8,(cs/2)*(0.4+0.065*v)), 0, 6.2832); ctx.fill(); }
+    drawBases(ctx,n,cs,cv); }
+  // Team-mode bases, from the game's own base-warp geometry (the archive fit, 1 Sep):
+  // stations sit on a ring of radius MAP/4 around the centre sun, evenly spaced, and
+  // revolve once an hour - only the starting angle/direction differ per match. Drawn so
+  // the owner can build around them; the whole ring gets swept, so keep it in mind.
+  var TEAMCOL=['#ff6b6b','#5ee6a0','#66aaff'];
+  function drawBases(ctx,n,cs,cv){
+    var mode=(document.getElementById('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
+    var nt=parseInt((document.getElementById('o_friendly_colors')||{}).value,10); if(isNaN(nt)) nt=3; if(nt<1) return;
+    var ss=parseFloat((document.getElementById('o_station_size')||{}).value); if(isNaN(ss)) ss=2;
+    var cx=cv.width/2, cy=cv.height/2, R=(n/4)*cs;                   // ring radius = map/4
+    ctx.save();
+    ctx.setLineDash([4,4]); ctx.strokeStyle='rgba(255,255,255,.3)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,6.2832); ctx.stroke();        // the orbit the stations ride
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(255,220,120,.9)'; ctx.beginPath(); ctx.arc(cx,cy,Math.max(2,cs*0.6),0,6.2832); ctx.fill();   // the sun
+    var sr=Math.max(3, cs*1.5*ss);                                    // footprint grows with the station-size slider (approx.)
+    for(var i=0;i<nt;i++){ var ang=-Math.PI/2 + i*2*Math.PI/nt;        // team 1 at the top; the real phase varies per match
+      var x=cx+R*Math.cos(ang), y=cy+R*Math.sin(ang);
+      ctx.globalAlpha=0.85; ctx.fillStyle=TEAMCOL[i]||'#bbb';
+      ctx.beginPath(); ctx.rect(x-sr,y-sr,2*sr,2*sr); ctx.fill();
+      ctx.globalAlpha=1; ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle='#000'; ctx.font='bold '+Math.max(8,Math.min(12,sr))+'px system-ui';
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(i+1), x, y); }
+    ctx.restore(); }
   function mapCell(cv,ev){ var n=mapGrid.length, rect=cv.getBoundingClientRect(), cs=cv.width/n;
     var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
     return {r:Math.floor(y/cs), c:Math.floor(x/cs), n:n}; }
   function syncMapText(){ var t=document.getElementById('o_custom_map'); if(t&&mapGrid) t.value=gridToStr(mapGrid); }
-  // ---- image -> asteroids: sample the picture onto the grid, brightness = size, black = empty ----
+  // ---- image -> asteroids: sample the picture onto the grid. By default bright = a
+  // bigger asteroid, black = empty (a light design on a black background). "Invert"
+  // flips it (dark = asteroids) for a dark design on a light background. ----
+  var mapLastImg = null;
+  function imgOpt(id,d){ var e=document.getElementById(id); return e ? e.value : d; }
   function imageToGrid(img){
-    var n=mapSize();
+    var n=mapSize(), inv=!!(document.getElementById('mapinvert')||{}).checked;
+    // the owner's image options (each re-traces the last image live):
+    var cut=(Math.max(0,Math.min(100,parseFloat(imgOpt('imgcut',11))||0))/100)*255;  // brightness needed to count
+    var fixed=(imgOpt('imgsizemode','bright')==='fixed');                            // fixed size vs by brightness
+    var sz=Math.max(1,Math.min(9,parseInt(imgOpt('imgsize',9),10)||9));             // the fixed size, or the max
+    var sp=Math.max(1,Math.min(4,parseInt(imgOpt('imgspace',1),10)||1));            // keep every sp-th cell
     var oc=document.createElement('canvas'); oc.width=n; oc.height=n;
     var x=oc.getContext('2d');
-    x.fillStyle='#000'; x.fillRect(0,0,n,n);                       // black = empty background
+    x.fillStyle= inv ? '#fff' : '#000'; x.fillRect(0,0,n,n);        // empty-side background so edges stay empty
     var scale=Math.min(n/img.width, n/img.height);                 // contain-fit, keep the design's shape
     var w=Math.max(1,img.width*scale), h=Math.max(1,img.height*scale);
     x.drawImage(img,(n-w)/2,(n-h)/2,w,h);
@@ -196,13 +244,18 @@
     var g=newGrid(n);
     for(var r=0;r<n;r++) for(var c=0;c<n;c++){
       var i=(r*n+c)*4, a=d[i+3], L=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-      g[r][c] = (a<40 || L<28) ? 0 : Math.max(1, Math.min(9, Math.round(L/255*9)));  // dark/transparent = empty
+      if(inv) L=255-L;                                              // dark becomes the asteroid side
+      var v=0;
+      if(a>=40 && L>=cut && (sp===1 || (r%sp===0 && c%sp===0)))
+        v = fixed ? sz : Math.max(1, Math.min(sz, Math.round(L/255*sz)));
+      g[r][c]=v;
     }
     return g;
   }
+  function applyLastImage(){ if(!mapLastImg) return; var g=imageToGrid(mapLastImg); if(g){ pushUndo(); mapGrid=g; drawMap(); syncMapText(); } }
   function loadImageSrc(src){
     var img=new Image();
-    img.onload=function(){ var g=imageToGrid(img); if(g){ pushUndo(); mapGrid=g; drawMap(); syncMapText(); } };
+    img.onload=function(){ mapLastImg=img; applyLastImage(); };
     img.src=src;
   }
   function handleImageFile(file){
@@ -230,14 +283,20 @@
     var bv=document.getElementById('mapbrush'); if(bv){ bv.addEventListener('input', function(){
       document.getElementById('mapbrush_v').textContent=this.value; mapErase=false;
       var er=document.getElementById('maperase'); if(er) er.textContent='Erase'; });
-      bv.addEventListener('wheel', function(e){ e.preventDefault();          // scroll steps by exactly 1
-        var v=parseInt(this.value,10)+(e.deltaY<0?1:-1); v=Math.max(1,Math.min(9,v));
-        if(String(v)!==this.value){ this.value=v; this.dispatchEvent(new Event('input')); } }, {passive:false}); }
+      wheelStep(bv); }
     var er=document.getElementById('maperase'); if(er) er.onclick=function(){ mapErase=!mapErase; er.textContent=mapErase?'Erasing ✓':'Erase'; };
     // image import: button -> file picker, plus drag-drop onto the canvas and Ctrl-V paste
     var fi=document.getElementById('mapimgfile');
     var ib=document.getElementById('mapimg'); if(ib&&fi) ib.onclick=function(){ fi.click(); };
     if(fi) fi.onchange=function(){ if(this.files&&this.files[0]) handleImageFile(this.files[0]); this.value=''; };
+    var inv=document.getElementById('mapinvert'); if(inv) inv.onchange=applyLastImage;   // re-trace the last image flipped
+    ['imgcut','imgsize','imgspace'].forEach(function(id){ var e=document.getElementById(id); if(!e) return;   // image options
+      e.addEventListener('input', function(){ var b=document.getElementById(id+'_v'); if(b) b.textContent=this.value+(id==='imgcut'?'%':''); });
+      e.addEventListener('change', applyLastImage); wheelStep(e); });
+    var sm=document.getElementById('imgsizemode'); if(sm) sm.onchange=applyLastImage;
+    // the base overlay depends on mode / teams / station size - redraw when they move
+    ['o_root_mode','o_friendly_colors','o_station_size'].forEach(function(id){ var e=document.getElementById(id); if(!e) return;
+      e.addEventListener('input', drawMap); e.addEventListener('change', drawMap); });
     cv.addEventListener('dragover', function(e){ e.preventDefault(); });
     cv.addEventListener('drop', function(e){ e.preventDefault();
       var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(f) handleImageFile(f); });
@@ -304,6 +363,13 @@
           + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button>'
           + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
         + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
+        + '<div class="cgimgopts"><span class="cgimglbl">Image → asteroids</span>'
+          + '<label class="cgchk"><input type="checkbox" id="mapinvert">Invert (dark = asteroids)</label>'
+          + '<span>Cutoff <input type="range" id="imgcut" min="0" max="100" step="1" value="11"><b class="cgval" id="imgcut_v">11%</b></span>'
+          + '<span>Size <select id="imgsizemode"><option value="bright">by brightness, up to</option><option value="fixed">fixed at</option></select>'
+            + '<input type="range" id="imgsize" min="1" max="9" step="1" value="9"><b class="cgval" id="imgsize_v">9</b></span>'
+          + '<span>Spacing <input type="range" id="imgspace" min="1" max="4" step="1" value="1"><b class="cgval" id="imgspace_v">1</b></span>'
+          + '<span class="cgimghint">Tweak these after importing — the last image re-traces live.</span></div>'
         + '<div class="cgmapxy">By point: X<input type="number" id="mapx" min="0" value="0">Y<input type="number" id="mapy" min="0" value="0">'
           + '<button type="button" id="mapplace" title="Place an asteroid of the current size at X,Y">Place</button>'
           + '<button type="button" id="mapremove" title="Remove the asteroid at X,Y">Remove</button>'
