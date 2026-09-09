@@ -248,14 +248,19 @@ let LBL = ['Team 1', 'Team 2', 'Team 3'];
         const f = w.teams[i] && String(w.teams[i].faction || '').trim();
         return f ? f.slice(0, 28) : v;
       });
-      // The game's OWN team colours (each lobby's welcome carries a hue per team),
-      // so ships, station blueprints, base icons and the legend all match what the
-      // players saw in-game - the fixed blue/green/gold palette is only the fallback.
-      w.teams.forEach((t, i) => {
-        const h = t && Number(t.hue);
-        if(i < COLS.length && isFinite(h)) COLS[i] = 'hsl(' + ((h % 360) + 360) % 360 + ',72%,64%)';
-      });
+      applyHues(w.teams.map(t => t && t.hue));
     }
+  }
+  // The game's OWN team colours, so ships, station blueprints, base icons and the
+  // legend all match what the players saw in-game. The fixed blue/green/gold
+  // palette stays the fallback for matches recorded before hues were captured.
+  function applyHues(hues){
+    if(!Array.isArray(hues)) return;
+    hues.forEach(function(h, i){
+      var n = Number(h);
+      if(i < COLS.length && h != null && isFinite(n))
+        COLS[i] = 'hsl(' + (((n % 360) + 360) % 360) + ',72%,64%)';
+    });
   }
 
 function esc(s){const d=document.createElement('span');d.textContent=String(s==null?'':s);return d.innerHTML;}
@@ -385,6 +390,9 @@ function buildReplay(ST, RD){
   }
 
   fetch('/api/trueskill/replay?match_row='+MID).then(r=>r.json()).then(function(res){
+    // The lobby's own team colours, when the match recorded them (the welcome
+    // isn't stored for raw-watched matches, so this is where hues arrive).
+    applyHues(res.hues);
     var frames = res && res.frames;
     var haveLb = frames && frames.length >= 2;
     if(haveLb){
