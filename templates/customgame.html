@@ -51,6 +51,10 @@
   font-size:13px;font-weight:600;color:#ff8a8a;background:rgba(255,90,90,.08);border:1px solid rgba(255,90,90,.35)}
 .cgstop:hover{background:rgba(255,90,90,.16)}
 .cgstop:disabled{opacity:.6;cursor:default}
+.cgform .cgsec{grid-column:1/-1;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+  border-top:1px solid var(--line);padding-top:10px;margin-top:4px;font-weight:700}
+.cgform .cgchkrow{flex-direction:row;align-items:center;gap:8px;font-size:12.5px;color:var(--text);padding:6px 0;cursor:pointer}
+.cgform .cgchkrow input{width:auto;padding:0;margin:0;accent-color:var(--green,#66e6b8)}
 .cgmappick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:11.5px;color:var(--muted)}
 .cgmappick select{flex:1;min-width:180px}
 .cgmaplink{color:var(--green,#66e6b8);font-size:11.5px;text-decoration:none;white-space:nowrap}
@@ -91,6 +95,7 @@
   var initialRegion = box.getAttribute('data-region') || '';
   var canHost = box.getAttribute('data-canhost') === '1';   // only the owner opens lobbies
   var polling = null, anim = null, shown = '';
+  var CG_SPEC = {{ custom_spec|tojson }};   // the server's option schema: defaults, ranges, kinds
   function esc(s){var d=document.createElement('span');d.textContent=(s==null?'':s);return d.innerHTML;}
 
   // Measured on the server: the host boots the game in ~0.85s; with the tightened
@@ -144,6 +149,30 @@
     }).join('');
     return '<label>'+label+'<select id="'+id+'">'+g+'</select></label>';
   }
+  // The settings form, built from CG_SPEC and grouped like the game's own creator
+  // panel. [key, label, slider step, choice labels]
+  var CG_SECTIONS=[
+    ['Map',[['map_name','Map name'],['map_size','Map size',2],['map_id','Map pattern (seed; 0 = random)',1],['map_density','Asteroid density (×)',0.1]]],
+    ['Game',[['root_mode','Mode',null,{team:'Team',invasion:'Invasion',deathmatch:'Deathmatch'}],['friendly_colors','Teams',1],['max_players','Max players',1],['survival_time','Survival trigger: time (min)',1],['survival_level','Survival trigger: level (8 = never)',1]]],
+    ['Resources',[['crystal_value','Crystal value (×)',0.1],['crystal_drop','Gems dropped on death (share)',0.05],['weapon_drop','Weapon drops from asteroids',0.1],['release_crystal','Players can release gems (V)'],['asteroids_strength','Asteroid strength (×)',0.1]]],
+    ['Ships & lives',[['starting_ship','Starting ship'],['starting_ship_maxed','Starting ship fully upgraded'],['max_level','Max ship level',1],['lives','Lives',1],['maxtierlives','Lives at max level (0 = same)',1]]],
+    ['Flight',[['speed_mod','Ship speed (×)',0.05],['friction_ratio','Friction (×)',0.05],['strafe','Strafe',0.05],['rcs_toggle','RCS toggle'],['projectile_speed','Projectile speed (×)',0.05]]],
+    ['Shields, power & healing',[['shield_regen_factor','Shield regen (×)',0.05],['power_regen_factor','Power regen (×)',0.05],['healing_enabled','Healing on'],['healing_ratio','Healing ratio',0.05],['invulnerable_ships','Invulnerable ships']]],
+    ['Weapons',[['weapons_store','Weapons store'],['mines_self_destroy','Mines expire'],['mines_destroy_delay','Mine lifespan (ticks; 60 = 1 s)',60]]],
+    ['Stations (team mode)',[['station_size','Station size',1],['station_crystal_capacity','Station gem capacity (×)',0.1],['station_repair_threshold','Repair threshold (share of gems)',0.05],['station_regeneration','Station regen (×)',0.05],['auto_assign_teams','Auto-assign teams'],['all_ships_can_dock','High tiers can dock at depots'],['all_ships_can_respawn','High tiers can respawn at ports']]],
+    ['HUD & sound',[['radar_zoom','Radar zoom',null,{1:'1×',2:'2×',4:'4×'}],['auto_refill','Auto refill from pickups'],['soundtrack','Soundtrack',null,{'':'Game default','procedurality.mp3':'Procedurality','argon.mp3':'Argon','crystals.mp3':'Crystals','red_mist.mp3':'Red Mist','civilisation.mp3':'Civilisation','warp_drive.mp3':'Warp Drive'}]]]
+  ];
+  function chk(id,label,on){ return '<label class="cgchkrow"><input type="checkbox" id="'+id+'"'+(on?' checked':'')+'>'+label+'</label>'; }
+  function optField(k,label,step,labels){ var s=CG_SPEC[k]; if(!s) return '';
+    if(s.kind==='bool') return chk('o_'+k,label,!!s['default']);
+    if(k==='starting_ship') return shipSelect('o_'+k,label,s['default']);
+    if(s.kind==='choice'){ var opts=(s.choices||[]).map(function(c){ var key=String(c); return [key,(labels&&labels[key]!==undefined)?labels[key]:key]; }); return sel('o_'+k,label,opts,String(s['default'])); }
+    if(s.kind==='str') return '<label>'+label+'<input id="o_'+k+'" type="text" maxlength="'+(s.max||24)+'" value="'+esc(s['default']||'')+'"></label>';
+    return sl('o_'+k,label,s.min,s.max,step||1,s['default']); }
+  function buildOptionsForm(){
+    var h=sel('o_join_gate','Who can join',[['odyssey','Odyssey only'],['open','Anyone']],'odyssey');
+    CG_SECTIONS.forEach(function(sec){ h+='<div class="full cgsec">'+sec[0]+'</div>'; sec[1].forEach(function(f){ h+=optField(f[0],f[1],f[2],f[3]); }); });
+    return h; }
   function sl(id,label,min,max,step,val){        // drag OR type — the range and the number box stay in sync
     return '<label>'+label
       +'<span class="cgsrow">'
@@ -160,7 +189,7 @@
   // brace-matched block + per-key literal reads) into the form; from then on every
   // form change is written back into that block, so what you see is what the host
   // runs. Only literal values are touched; expressions are left alone.
-  var MOD_KEYS=['root_mode','friendly_colors','map_size','max_players','crystal_value','max_level','starting_ship','station_size','map_name','soundtrack'];
+  var MOD_KEYS=Object.keys(CG_SPEC);
   var modSyncing=false;
   function modHint(t){ var h=document.getElementById('modfile_hint'); if(h) h.textContent=t; }
   function modOptionsBlock(code){ var m=/this\.options\s*=\s*\{/.exec(code); if(!m) return null;
@@ -184,6 +213,7 @@
     var body=code.slice(blk.start,blk.end), n=0; modSyncing=true;
     MOD_KEYS.forEach(function(k){ var v=modReadValue(body,k); if(v===undefined) return; var el=document.getElementById('o_'+k); if(!el) return;
       if(el.tagName==='SELECT'){ var ok=[].some.call(el.options,function(o){ return o.value==String(v.value); }); if(!ok) return; el.value=String(v.value); }
+      else if(el.type==='checkbox'){ el.checked=(v.value===true||v.value===1||v.value==='true'); }
       else { el.value=v.value; var nb=document.getElementById('o_'+k+'_n'); if(nb) nb.value=el.value; }
       el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); n++; });
     var cm=modReadValue(body,'custom_map'); if(cm && cm.str && /[1-9]/.test(cm.value)){ MapEd.load(cm.value); n++; }
@@ -194,12 +224,13 @@
     if(modSyncing) return; var ta=document.getElementById('o_mod_code'); if(!ta||!ta.value.trim()) return;
     var code=ta.value, blk=modOptionsBlock(code); if(!blk) return;
     var body=code.slice(blk.start,blk.end);
-    var raw = (key==='custom_map') ? (document.getElementById('o_custom_map')||{}).value : (document.getElementById('o_'+key)||{}).value;
-    if(raw===undefined) return;
-    var isStr = (key==='root_mode'||key==='map_name'||key==='soundtrack'||key==='custom_map');
-    var lit = isStr ? JSON.stringify(String(raw)) : String(parseFloat(raw));
-    if(!isStr && isNaN(parseFloat(raw))) return;
+    var el=document.getElementById(key==='custom_map'?'o_custom_map':'o_'+key); if(!el) return;
+    var kind=(CG_SPEC[key]||{}).kind||(key==='custom_map'?'str':'float'), raw=el.value, lit;
+    if(kind==='bool') lit = el.checked ? 'true' : 'false';
+    else if(kind==='str'||key==='root_mode'||key==='soundtrack'||key==='custom_map') lit = JSON.stringify(String(raw));
+    else { if(isNaN(parseFloat(raw))) return; lit = String(parseFloat(raw)); }
     if((key==='soundtrack'||key==='map_name'||key==='custom_map') && !raw) lit=null;    // empty -> drop the key
+    if(key==='map_id' && !(parseFloat(raw)>0)) lit=null;                                 // 0 = let the game pick
     var v=modReadValue(body,key), nb;
     if(v && lit!==null){ nb=body.slice(0,v.from)+lit+body.slice(v.to); }
     else if(v && lit===null){ var pre=body.slice(0,v.keyFrom), rest=body.slice(v.to).replace(/^\s*,/,'');
@@ -246,18 +277,8 @@
   function renderOpen(){          // host (owner) only
     if(shown === 'open'){ return; }
     shown = 'open'; stopAnim(); startPoll(3000);
-    var form =
-      sel('o_root_mode','Mode',[['team','Team'],['invasion','Invasion'],['deathmatch','Deathmatch']],'team')
-      + sel('o_join_gate','Who can join',[['odyssey','Odyssey only'],['open','Anyone']],'odyssey')
-      + sl('o_friendly_colors','Teams',0,3,1,3)
-      + sl('o_map_size','Map size',20,200,5,80)
-      + sl('o_max_players','Max players',1,120,1,24)
-      + sl('o_crystal_value','Crystal value',0,5,0.1,1)
-      + sl('o_max_level','Max level',1,7,1,7)
-      + sl('o_station_size','Station toughness',0.5,6,0.1,2)
-      + shipSelect('o_starting_ship','Starting ship',101)
-      + sel('o_soundtrack','Soundtrack',[['','Default'],['procedurality.mp3','Procedurality'],['argon.mp3','Argon'],['crystals.mp3','Crystals']],'')
-      + '<label class="full">Map name<input id="o_map_name" type="text" maxlength="24" value=""></label>'
+    var form = buildOptionsForm()
+      + '<div class="full cgsec">Custom map &amp; mod</div>'
       + '<div class="full cgmap"><div class="cgmappick"><span class="cgimglbl">Custom map</span>'
         + '<select id="mapsel"><option value="">— pick one of your saved maps —</option></select>'
         + '<button type="button" id="mapuse">Use this map</button>'
@@ -327,19 +348,14 @@
     startPoll(1000);   // watch for the link quickly while opening
   }
   function gVal(id){var e=document.getElementById(id);return e?e.value:'';}
-  function gatherConfig(){
-    return {options:{
-      root_mode: gVal('o_root_mode'),
-      friendly_colors: parseInt(gVal('o_friendly_colors'),10),
-      map_size: parseInt(gVal('o_map_size'),10),
-      max_players: parseInt(gVal('o_max_players'),10),
-      crystal_value: parseFloat(gVal('o_crystal_value')),
-      max_level: parseInt(gVal('o_max_level'),10),
-      station_size: parseFloat(gVal('o_station_size')),
-      starting_ship: parseInt(gVal('o_starting_ship'),10),
-      soundtrack: gVal('o_soundtrack'),
-      map_name: gVal('o_map_name')
-    }, custom_map: gVal('o_custom_map'), mod_code: gVal('o_mod_code'), join_gate: gVal('o_join_gate')};
+  function gatherConfig(){                 // every option in CG_SPEC, read by its kind
+    var options={};
+    Object.keys(CG_SPEC).forEach(function(k){ var el=document.getElementById('o_'+k); if(!el) return; var kind=CG_SPEC[k].kind;
+      if(kind==='bool') options[k]=!!el.checked;
+      else if(kind==='int') options[k]=parseInt(el.value,10);
+      else if(kind==='float') options[k]=parseFloat(el.value);
+      else options[k]=el.value; });
+    return {options:options, custom_map: gVal('o_custom_map'), mod_code: gVal('o_mod_code'), join_gate: gVal('o_join_gate')};
   }
   var lastConfig = null;
   function openLobby(){

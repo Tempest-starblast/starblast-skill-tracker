@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.10.0"
+APP_VERSION = "9.11.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4494,6 +4494,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.11.0", "at": "2026-09-09T07:30:00Z", "changes": [
+        "The custom-lobby builder now has the game's full set of settings, grouped like the game's own creator: map pattern (seed) and asteroid density; the survival triggers (time and level); crystal value, gems dropped on death, weapon drops, gem release and asteroid strength; starting ship (and fully upgraded), max level, lives and lives at max level; ship speed, friction, strafe, RCS and projectile speed; shield and power regen, healing on/off and its ratio, invulnerable ships; weapons store and mine lifespan; station size, station gem capacity, repair threshold, regeneration, auto-assign teams and high-tier docking/respawn; radar zoom, auto refill and three more soundtracks.",
+        "The defaults now match the game's team-mode defaults (e.g. 70 players, crystal ×2), so leaving everything as-is is still exactly the standard rated lobby — change any of them and it's an unrated custom game. Reading settings from a mod and writing them back now covers all of these, on/off switches included."
+    ]},
     {"version": "9.10.0", "at": "2026-09-09T06:00:00Z", "changes": [
         "Custom games are recorded. Every unrated game from the Odyssey custom lobby (custom settings, a custom map or a mod) now saves who played, the team each was on, their score, how long they played, and which team won — the last station standing (or the top scorer in deathmatch). A lobby that closes before a station falls is kept as “no result”. None of it touches the leaderboard.",
         "New Custom games page (More → Custom games) listing them, a Custom games card on player profiles, and each result is posted to a #custom-games channel in Discord."
@@ -11980,19 +11984,79 @@ CUSTOM_OWNER_ONLY = True            # TESTING: only the owner can open/see/play 
 # team lobby and counts on the board; change anything (or import a mod) and it
 # becomes unrated. (Matches the user's rule: "if it's not default, it's not
 # rated".)
+# The full option set the game accepts (starblast-modding README), with the
+# TEAM-mode defaults - so a form left at every default is exactly the standard
+# public lobby. Kinds: int/float (min, max), choice (list), str (max len), bool.
 CUSTOM_GAME_OPTIONS = {
-    "root_mode":       ("team", "choice", ["team", "invasion", "deathmatch"]),
-    "friendly_colors": (3, "int", 0, 3),        # number of teams; 3 = team-mode max
-    "map_size":        (80, "int", 20, 200),
-    "max_players":     (24, "int", 1, 120),
-    "crystal_value":   (1.0, "float", 0.0, 5.0),
-    "max_level":       (7, "int", 1, 7),
-    "starting_ship":   (101, "int", 100, 704),  # ship code (tier*100+model)
-    "station_size":    (2.0, "float", 0.5, 6.0),  # station toughness / size
+    # map
     "map_name":        ("", "str", 24),
-    "soundtrack":      ("", "choice", ["", "procedurality.mp3", "argon.mp3",
-                                       "crystals.mp3"]),
+    "map_size":        (80, "int", 20, 200),          # even only (normalize rounds down)
+    "map_id":          (0, "int", 0, 9999),           # the "map pattern" seed; 0 = let the game pick
+    "map_density":     (1.0, "float", 0.0, 2.0),
+    # game
+    "root_mode":       ("team", "choice", ["team", "invasion", "deathmatch"]),
+    "friendly_colors": (3, "int", 0, 3),              # number of teams; 3 = team-mode max
+    "max_players":     (70, "int", 1, 240),
+    "survival_time":   (45, "int", 0, 600),           # survival trigger: minutes (game creator default)
+    "survival_level":  (7, "int", 2, 8),              # survival trigger: ship level (8 = never)
+    # resources
+    "crystal_value":   (2.0, "float", 0.0, 10.0),
+    "crystal_drop":    (1.0, "float", 0.0, 1.0),      # share of gems collectible when drained
+    "weapon_drop":     (0.0, "float", 0.0, 10.0),
+    "release_crystal": (True, "bool"),
+    "asteroids_strength": (1.0, "float", 0.0, 1000.0),
+    # ships & lives
+    "starting_ship":   (101, "int", 100, 704),        # ship code (tier*100+model)
+    "starting_ship_maxed": (False, "bool"),
+    "max_level":       (7, "int", 1, 7),
+    "lives":           (4, "int", 1, 5),
+    "maxtierlives":    (0, "int", 0, 5),              # lives at max level (0 = same as lives)
+    # flight
+    "speed_mod":       (1.2, "float", 0.0, 2.0),
+    "friction_ratio":  (1.0, "float", 0.0, 2.0),
+    "strafe":          (0.0, "float", 0.0, 1.0),
+    "rcs_toggle":      (True, "bool"),
+    "projectile_speed": (1.0, "float", 0.0, 3.0),
+    # shields / power / healing
+    "shield_regen_factor": (1.0, "float", 0.0, 3.0),
+    "power_regen_factor":  (1.0, "float", 0.0, 3.0),
+    "healing_enabled": (True, "bool"),
+    "healing_ratio":   (0.5, "float", 0.0, 2.0),
+    "invulnerable_ships": (False, "bool"),
+    # weapons
+    "weapons_store":   (True, "bool"),
+    "mines_self_destroy": (True, "bool"),
+    "mines_destroy_delay": (18000, "int", 0, 60000),  # ticks; 60 = 1 s
+    # stations (team mode)
+    "station_size":    (2, "int", 1, 5),
+    "station_crystal_capacity": (1.0, "float", 0.1, 10.0),   # gems to fill a station (x)
+    "station_repair_threshold": (0.25, "float", 0.0, 1.0),
+    "station_regeneration": (1.0, "float", 0.0, 2.0),
+    "auto_assign_teams": (False, "bool"),
+    "all_ships_can_dock": (False, "bool"),
+    "all_ships_can_respawn": (False, "bool"),
+    # hud & sound
+    "radar_zoom":      (2, "choice", [1, 2, 4]),
+    "auto_refill":     (False, "bool"),
+    "soundtrack":      ("", "choice", ["", "procedurality.mp3", "argon.mp3", "crystals.mp3",
+                                       "red_mist.mp3", "civilisation.mp3", "warp_drive.mp3"]),
 }
+
+
+def custom_spec():
+    """CUSTOM_GAME_OPTIONS as plain JSON for the lobby page, so the form is built
+    from the same defaults/ranges the server enforces."""
+    out = {}
+    for k, s in CUSTOM_GAME_OPTIONS.items():
+        d = {"default": s[0], "kind": s[1]}
+        if s[1] in ("int", "float"):
+            d["min"], d["max"] = s[2], s[3]
+        elif s[1] == "choice":
+            d["choices"] = list(s[2])
+        elif s[1] == "str":
+            d["max"] = s[2]
+        out[k] = d
+    return out
 # A custom asteroid map is Starblast's "painted" grid: a string of map_size
 # rows x map_size chars, each char a digit 0-9 (asteroid size) or space (empty).
 CUSTOM_MAP_MAX_CHARS = 45000        # ~200x200 grid + newlines
@@ -12019,13 +12083,19 @@ def normalize_custom_options(raw):
         v = raw.get(key, default)
         try:
             if kind == "int":
-                v = max(spec[2], min(spec[3], int(v)))
+                v = max(spec[2], min(spec[3], int(round(float(v)))))
+                if key == "map_size":
+                    v -= v % 2                       # the game wants an even map size
             elif kind == "float":
                 v = max(spec[2], min(spec[3], round(float(v), 3)))
             elif kind == "choice":
+                if spec[2] and isinstance(spec[2][0], int) and not isinstance(v, bool):
+                    v = int(round(float(v)))
                 v = v if v in spec[2] else default
             elif kind == "str":
                 v = str(v)[:spec[2]]
+            elif kind == "bool":
+                v = v if isinstance(v, bool) else (str(v).strip().lower() in ("1", "true", "yes", "on"))
         except (TypeError, ValueError):
             v = default
         out[key] = v
@@ -12599,7 +12669,7 @@ def customgame_page():
             link, region = row[0], row[1]
     return render_template('customgame.html', page='customgame', version=APP_VERSION,
                            signed_in=bool(sub_id), allowed=allowed, can_host=can_host,
-                           link=link, region=region)
+                           link=link, region=region, custom_spec=custom_spec())
 
 
 def perform_name_merge(c, from_norm, to_norm):
