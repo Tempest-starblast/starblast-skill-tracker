@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.5"
+APP_VERSION = "9.12.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4496,6 +4496,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.6", "at": "2026-09-09T18:00:00Z", "changes": [
+        "Replay radar: each team's base is now placed by the game's own geometry — the station ring turns once an hour and every team sits at its own fixed offset on it — instead of being worked out from where the ships happened to be. That guesswork could put a team's base on top of its enemy's; the positions are now computed, not inferred. Matches recorded from now on use it, older ones keep the old estimate. (Thanks to ServerList+ by @dankdmitron, whose spectator showed how it's done.)"
+    ]},
     {"version": "9.12.5", "at": "2026-09-09T17:15:00Z", "changes": [
         "When a replay can't work out where each team's base was with confidence, the radar no longer invents decorative markers at fixed positions. It now draws the orbit the stations travel — a circle we do know, since they ride it once an hour — and leaves the markers off rather than guessing where on it each team sat."
     ]},
@@ -7173,6 +7176,11 @@ def trueskill_replay_push():
         if isinstance(m.get('gt0'), (int, float)) and isinstance(m.get('phases'), list):
             obj["gt0"] = m['gt0']
             obj["phases"] = m['phases']
+        # Match clock at frame 0 - places the bases the way the game does.
+        if isinstance(m.get('mt0'), (int, float)):
+            obj["mt0"] = m['mt0']
+            if isinstance(m.get('phases'), list):
+                obj["phases"] = m['phases']
         # id -> player name, so the replay radar can label each ship dot.
         if isinstance(nm, dict) and nm:
             obj["nm"] = nm
@@ -7221,7 +7229,7 @@ def trueskill_replay_read():
                        (sys_id,)).fetchall()
     rc.close()
     best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = (None,) * 8
-    best_hues = best_gt0 = best_phases = None
+    best_hues = best_gt0 = best_phases = best_mt0 = None
     for data, first_ts in cands:
         try:
             obj = json.loads(zlib.decompress(data).decode('utf-8'))
@@ -7233,10 +7241,10 @@ def trueskill_replay_read():
             frames = obj.get("f"); mwp = obj.get("wp"); mrd = obj.get("rd")
             mstl = obj.get("stlay"); mst = obj.get("st"); mbs = obj.get("bs")
             mnm = obj.get("nm"); mhu = obj.get("hues")
-            mgt = obj.get("gt0"); mph = obj.get("phases")
+            mgt = obj.get("gt0"); mph = obj.get("phases"); mmt = obj.get("mt0")
         else:
             frames, mwp, mrd, mstl, mst, mbs = obj, None, None, None, None, None
-            mnm = None; mhu = None; mgt = None; mph = None
+            mnm = None; mhu = None; mgt = None; mph = None; mmt = None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
@@ -7245,7 +7253,7 @@ def trueskill_replay_read():
         if best is None or gap < best_gap:
             best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = \
                 frames, gap, mwp, mrd, mstl, mst, mbs, mnm
-            best_hues = mhu; best_gt0 = mgt; best_phases = mph
+            best_hues = mhu; best_gt0 = mgt; best_phases = mph; best_mt0 = mmt
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
         # Prefer the raw multi-factor model's own win-prob; fall back to the
@@ -7264,9 +7272,10 @@ def trueskill_replay_read():
         gt0 = best_gt0 if isinstance(best_gt0, (int, float)) else None
         phases = best_phases if isinstance(best_phases, list) else None
         conn.close()
+        mt0 = best_mt0 if isinstance(best_mt0, (int, float)) else None
         return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
                         "st": st, "bs": bs, "nm": nm, "hues": hues,
-                        "gt0": gt0, "phases": phases}), 200
+                        "gt0": gt0, "phases": phases, "mt0": mt0}), 200
     conn.close()
     return jsonify({"frames": None}), 200
 
