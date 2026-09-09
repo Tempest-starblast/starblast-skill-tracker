@@ -24,6 +24,9 @@
 .cgimgopts select{padding:3px 6px;font-size:11.5px}
 .cgimglbl{color:var(--text);font-weight:600}
 .cgimghint{flex-basis:100%;font-size:11px;opacity:.8}
+html:not(.mapadv) .adv{display:none!important}
+.cgmaptools .cgmapmore{display:inline-flex;gap:8px;align-items:center}
+.mapadvbtn,.cgadvbtn{background:rgba(102,230,184,.10)!important;border:1px solid rgba(102,230,184,.35)!important;color:var(--green,#66e6b8)!important}
 #mapcanvas{width:100%;max-width:320px;border:1px solid var(--line);border-radius:8px;
   background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
 #mapcanvas.ro{cursor:default;max-width:240px}
@@ -64,7 +67,9 @@ window.MapEd = (function(){
   // step/60/3600*2*PI, one revolution per hour). Teams sit evenly spaced; only the
   // starting phase differs per match. Drawn so you can build around them; the whole
   // ring gets swept, so keep it in mind.
-  var TEAMCOL=['#ff6b6b','#5ee6a0','#66aaff'];
+  // Team colours: evenly spaced hues for however many teams (the game does the same;
+  // its 3-team set is hues 30/150/270).
+  function teamColor(i,n){ return 'hsl('+((30 + i*360/Math.max(1,n))%360)+',70%,58%)'; }
   function drawBases(ctx,n,cs,cv){
     var mode=($('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
     var nt=parseInt(($('o_friendly_colors')||{}).value,10); if(isNaN(nt)) nt=3; if(nt<1) return;
@@ -78,7 +83,7 @@ window.MapEd = (function(){
     var sr=Math.max(3, cs*1.5*ss);                                    // footprint grows with the station-size slider (approx.)
     for(var i=0;i<nt;i++){ var ang=-Math.PI/2 + i*2*Math.PI/nt;        // team 1 at the top; the real phase varies per match
       var x=cx+R*Math.cos(ang), y=cy+R*Math.sin(ang);
-      ctx.globalAlpha=0.85; ctx.fillStyle=TEAMCOL[i]||'#bbb';
+      ctx.globalAlpha=0.85; ctx.fillStyle=teamColor(i,nt);
       ctx.beginPath(); ctx.rect(x-sr,y-sr,2*sr,2*sr); ctx.fill();
       ctx.globalAlpha=1; ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1; ctx.stroke();
       ctx.fillStyle='#000'; ctx.font='bold '+Math.max(8,Math.min(12,sr))+'px system-ui';
@@ -157,19 +162,21 @@ window.MapEd = (function(){
       + '<button type="button" id="maperase">Erase</button>'
       + '<button type="button" id="mapundo" title="Undo the last change">↶ Undo</button>'
       + '<button type="button" id="mapclear" title="Clear the asteroids (keeps the loaded image and the options)">Clear</button>'
-      + '<button type="button" id="mapreset" title="Start over: clear the asteroids, forget the loaded image and put every option back to default">Reset all</button>'
-      + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button>'
-      + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button>'
+      + '<button type="button" id="mapadv" class="mapadvbtn" data-advtoggle data-on="More tools ▾" data-off="Fewer tools ▴">More tools ▾</button>'
+      + '<span class="adv cgmapmore">'
+        + '<button type="button" id="mapreset" title="Start over: clear the asteroids, forget the loaded image and put every option back to default">Reset all</button>'
+        + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button>'
+        + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button></span>'
       + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
       + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
-      + '<div class="cgimgopts"><span class="cgimglbl">Image → asteroids</span>'
+      + '<div class="cgimgopts adv"><span class="cgimglbl">Image → asteroids</span>'
         + '<label class="cgchk"><input type="checkbox" id="mapinvert">Invert (dark = asteroids)</label>'
         + '<span>Cutoff <input type="range" id="imgcut" min="0" max="100" step="1" value="11"><b class="cgval" id="imgcut_v">11%</b></span>'
         + '<span>Size <select id="imgsizemode"><option value="bright">by brightness, up to</option><option value="fixed">fixed at</option></select>'
           + '<input type="range" id="imgsize" min="1" max="9" step="1" value="9"><b class="cgval" id="imgsize_v">9</b></span>'
         + '<span>Spacing <input type="range" id="imgspace" min="1" max="4" step="1" value="1"><b class="cgval" id="imgspace_v">1</b></span>'
         + '<span class="cgimghint">Tweak these after importing — the last image re-traces live.</span></div>'
-      + '<div class="cgmapxy">By point: X<input type="number" id="mapx" min="0" value="0">Y<input type="number" id="mapy" min="0" value="0">'
+      + '<div class="cgmapxy adv">By point: X<input type="number" id="mapx" min="0" value="0">Y<input type="number" id="mapy" min="0" value="0">'
         + '<button type="button" id="mapplace" title="Place an asteroid of the current size at X,Y">Place</button>'
         + '<button type="button" id="mapremove" title="Remove the asteroid at X,Y">Remove</button>'
         + '<span id="mapxyhint" class="cgxyhint"></span></div>';
@@ -234,7 +241,21 @@ window.MapEd = (function(){
     var rm=$('mapremove'); if(rm) rm.onclick=function(){ var p=xyCell(); if(!p) return; pushUndo(); mapGrid[p.r][p.c]=0; drawMap(); syncMapText(); showXY(p.r,p.c); };
   }
 
-  api.init = init;
+  // "Advanced" = the complicated tools/settings; hidden for beginners, one switch shows
+  // them, remembered per browser. Anything with class "adv" (on either page) obeys it;
+  // any button with data-advtoggle flips it and gets its label from data-on/data-off.
+  function isAdvanced(){ return document.documentElement.classList.contains('mapadv'); }
+  function setAdvanced(on){ document.documentElement.classList.toggle('mapadv', !!on);
+    try { localStorage.setItem('mapadv', on ? '1' : '0'); } catch(e) {}
+    var bs=document.querySelectorAll('[data-advtoggle]');
+    for(var i=0;i<bs.length;i++){ var b=bs[i]; b.textContent = on ? (b.getAttribute('data-off')||'Hide advanced ▴') : (b.getAttribute('data-on')||'Show advanced ▾'); } }
+  function initAdvanced(){ var saved=null; try { saved=localStorage.getItem('mapadv'); } catch(e) {}
+    setAdvanced(saved==='1');
+    var bs=document.querySelectorAll('[data-advtoggle]');
+    for(var i=0;i<bs.length;i++){ if(!bs[i].__advBound){ bs[i].__advBound=true; bs[i].onclick=function(){ setAdvanced(!isAdvanced()); }; } } }
+  api.init = function(opts){ init(opts); initAdvanced(); };
+  api.isAdvanced = isAdvanced;
+  api.setAdvanced = setAdvanced;
   api.toolsHtml = toolsHtml;
   api.load = loadMapString;                       // a map string -> size control + grid + textarea
   api.str = function(){ return (mapGrid && countCells(mapGrid)) ? gridToStr(mapGrid) : ''; };

@@ -51,6 +51,16 @@
   font-size:13px;font-weight:600;color:#ff8a8a;background:rgba(255,90,90,.08);border:1px solid rgba(255,90,90,.35)}
 .cgstop:hover{background:rgba(255,90,90,.16)}
 .cgstop:disabled{opacity:.6;cursor:default}
+.cgform .cgsub{grid-column:1/-1;border:1px solid var(--line);border-radius:9px;padding:8px 12px;margin:2px 0}
+.cgform .cgsub summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text);list-style:none}
+.cgform .cgsub summary::-webkit-details-marker{display:none}
+.cgform .cgsub summary::before{content:'\25B8  ';color:var(--muted)}
+.cgform .cgsub[open] summary::before{content:'\25BE  '}
+.cgform .cgsub label{display:block;font-size:11px;color:var(--muted)}
+.cgadvrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:4px 0}
+.cgadvhint{font-size:11.5px;color:var(--muted)}
+.cgadvbtn{background:rgba(127,127,127,.14);border:1px solid var(--line);border-radius:7px;padding:6px 11px;color:var(--text);font-size:12px;cursor:pointer;font-family:inherit}
+.cgform .cgformadv{padding:0}
 .cgerr{background:rgba(255,90,90,.1);border:1px solid rgba(255,90,90,.35);color:#ff8a8a;border-radius:9px;
   padding:9px 12px;font-size:13px;margin:0 0 10px;line-height:1.5}
 .cgform .cgsec{grid-column:1/-1;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
@@ -153,15 +163,16 @@
   }
   // The settings form, built from CG_SPEC and grouped like the game's own creator
   // panel. [key, label, slider step, choice labels]
+  // Basics = what a beginner needs; everything else sits behind "Show advanced settings".
+  var CG_BASIC=[['friendly_colors','Teams',1],['map_size','Map size',2],['max_players','Max players',1],['crystal_value','Crystal value (×)',0.1],['lives','Lives',1],['starting_ship','Starting ship'],['map_name','Map name']];
   var CG_SECTIONS=[
-    ['Map',[['map_name','Map name'],['map_size','Map size',2],['map_id','Map pattern (seed; 0 = random)',1],['map_density','Asteroid density (×; 1 = game default)',0.1]]],
-    ['Game',[['root_mode','Mode',null,{team:'Team',invasion:'Invasion',deathmatch:'Deathmatch'}],['friendly_colors','Teams',1],['max_players','Max players',1],['survival_time','Survival trigger: time (min)',1],['survival_level','Survival trigger: level (8 = never)',1]]],
-    ['Resources',[['crystal_value','Crystal value (×)',0.1],['crystal_drop','Gems dropped on death (share)',0.05],['weapon_drop','Weapon drops from asteroids',0.1],['release_crystal','Players can release gems (V)'],['asteroids_strength','Asteroid strength (×)',0.1]]],
-    ['Ships & lives',[['starting_ship','Starting ship'],['starting_ship_maxed','Starting ship fully upgraded'],['max_level','Max ship level',1],['lives','Lives',1],['maxtierlives','Lives at max level (0 = same)',1]]],
+    ['Map',[['map_id','Map pattern (seed; 0 = random)',1],['map_density','Asteroid density (×; 1 = game default)',0.1]]],
+    ['Resources',[['crystal_drop','Gems dropped on death (share)',0.05],['weapon_drop','Weapon drops from asteroids',0.1],['release_crystal','Players can release gems (V)'],['asteroids_strength','Asteroid strength (×)',0.1]]],
+    ['Ships & lives',[['starting_ship_maxed','Starting ship fully upgraded'],['max_level','Max ship level',1],['maxtierlives','Lives at max level (0 = same)',1]]],
     ['Flight',[['speed_mod','Ship speed (×)',0.05],['friction_ratio','Friction (×)',0.05],['strafe','Strafe',0.05],['rcs_toggle','RCS toggle'],['projectile_speed','Projectile speed (×)',0.05]]],
     ['Shields, power & healing',[['shield_regen_factor','Shield regen (×)',0.05],['power_regen_factor','Power regen (×)',0.05],['healing_enabled','Healing on'],['healing_ratio','Healing ratio',0.05],['invulnerable_ships','Invulnerable ships']]],
     ['Weapons',[['weapons_store','Weapons store'],['mines_self_destroy','Mines expire'],['mines_destroy_delay','Mine lifespan (ticks; 60 = 1 s)',60]]],
-    ['Stations (team mode)',[['station_size','Station size',1],['station_crystal_capacity','Station gem capacity (×)',0.1],['station_repair_threshold','Repair threshold (share of gems)',0.05],['station_regeneration','Station regen (×)',0.05],['auto_assign_teams','Auto-assign teams'],['all_ships_can_dock','High tiers can dock at depots'],['all_ships_can_respawn','High tiers can respawn at ports']]],
+    ['Stations',[['station_size','Station size',1],['station_crystal_capacity','Station gem capacity (×)',0.1],['station_repair_threshold','Repair threshold (share of gems)',0.05],['station_regeneration','Station regen (×)',0.05],['auto_assign_teams','Auto-assign teams'],['all_ships_can_dock','High tiers can dock at depots'],['all_ships_can_respawn','High tiers can respawn at ports']]],
     ['HUD & sound',[['radar_zoom','Radar zoom',null,{1:'1×',2:'2×',4:'4×'}],['auto_refill','Auto refill from pickups'],['soundtrack','Soundtrack',null,{'':'Game default','procedurality.mp3':'Procedurality','argon.mp3':'Argon','crystals.mp3':'Crystals','red_mist.mp3':'Red Mist','civilisation.mp3':'Civilisation','warp_drive.mp3':'Warp Drive'}]]]
   ];
   function chk(id,label,on){ return '<label class="cgchkrow"><input type="checkbox" id="'+id+'"'+(on?' checked':'')+'>'+label+'</label>'; }
@@ -173,7 +184,13 @@
     return sl('o_'+k,label,s.min,s.max,step||1,s['default']); }
   function buildOptionsForm(){
     var h=sel('o_join_gate','Who can join',[['odyssey','Odyssey only'],['open','Anyone']],'odyssey');
+    h+='<div class="full cgsec">Basics</div>';
+    CG_BASIC.forEach(function(f){ h+=optField(f[0],f[1],f[2],f[3]); });
+    h+='<div class="full cgadvrow"><button type="button" class="cgadvbtn" data-advtoggle data-on="Show advanced settings ▾" data-off="Hide advanced settings ▴">Show advanced settings ▾</button>'
+      +'<span class="cgadvhint">Everything else the game allows — station gem capacity, healing, ship speed, mines, radar…</span></div>';
+    h+='<div class="full adv"><div class="cgform cgformadv">';
     CG_SECTIONS.forEach(function(sec){ h+='<div class="full cgsec">'+sec[0]+'</div>'; sec[1].forEach(function(f){ h+=optField(f[0],f[1],f[2],f[3]); }); });
+    h+='</div></div>';
     return h; }
   function sl(id,label,min,max,step,val){        // drag OR type — the range and the number box stay in sync
     return '<label>'+label
@@ -194,6 +211,17 @@
   var MOD_KEYS=Object.keys(CG_SPEC);
   var modSyncing=false;
   function modHint(t){ var h=document.getElementById('modfile_hint'); if(h) h.textContent=t; }
+  // The lobby is team mode only: make sure a mod says so (root_mode: "team"), creating
+  // the this.options block if it has none. Returns true if the code was changed.
+  function ensureModTeam(){
+    var ta=document.getElementById('o_mod_code'); if(!ta || !ta.value.trim()) return false;
+    var code=ta.value, blk=modOptionsBlock(code);
+    if(!blk){ ta.value='this.options = {\n  root_mode: "team"\n};\n'+code; return true; }
+    var body=code.slice(blk.start,blk.end), v=modReadValue(body,'root_mode');
+    if(v && v.str && v.value==='team') return false;
+    var nb = v ? body.slice(0,v.from)+'"team"'+body.slice(v.to) : '{\n  root_mode: "team",'+body.slice(1);
+    ta.value=code.slice(0,blk.start)+nb+code.slice(blk.end); return true;
+  }
   function modOptionsBlock(code){ var m=/this\.options\s*=\s*\{/.exec(code); if(!m) return null;
     var start=m.index+m[0].length-1, depth=0, inStr=null, esc=false;
     for(var i=start;i<code.length;i++){ var ch=code[i];
@@ -211,7 +239,7 @@
     return undefined; }
   function applyModToForm(){
     var ta=document.getElementById('o_mod_code'), code=ta?ta.value:''; var blk=modOptionsBlock(code);
-    if(!blk){ modHint('No “this.options = { … }” block in that mod — change any setting above and one is added to the code (Mode: Team is what the lobby needs).'); return; }
+    if(!blk){ ensureModTeam(); modHint('That mod had no settings block — added one with root_mode: "team" (the lobby is team mode only). Change any setting above and it goes in there too.'); return; }
     var body=code.slice(blk.start,blk.end), n=0; modSyncing=true;
     MOD_KEYS.forEach(function(k){ var v=modReadValue(body,k); if(v===undefined) return; var el=document.getElementById('o_'+k); if(!el) return;
       if(el.tagName==='SELECT'){ var ok=[].some.call(el.options,function(o){ return o.value==String(v.value); }); if(!ok) return; el.value=String(v.value); }
@@ -219,8 +247,10 @@
       else { el.value=v.value; var nb=document.getElementById('o_'+k+'_n'); if(nb) nb.value=el.value; }
       el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); n++; });
     var cm=modReadValue(body,'custom_map'); if(cm && cm.str && /[1-9]/.test(cm.value)){ MapEd.load(cm.value); n++; }
+    var fixed=ensureModTeam();
     modSyncing=false;
-    modHint('Read '+n+' setting'+(n===1?'':'s')+' from the mod. Changing a setting above now updates the code.');
+    modHint('Read '+n+' setting'+(n===1?'':'s')+' from the mod. Changing a setting above now updates the code.'
+      + (fixed ? ' Set its root_mode to "team" — the lobby is team mode only.' : ''));
   }
   function writeFormToMod(key){
     if(modSyncing) return; var ta=document.getElementById('o_mod_code'); if(!ta||!ta.value.trim()) return;
@@ -296,14 +326,16 @@
         + '<button type="button" id="mapnone">No custom map</button>'
         + '<a class="cgmaplink" href="/mymaps">Build maps in My Maps ↗</a></div>'
         + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
-        + '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Or paste a map copied from My Maps and hit Apply. Any custom map makes the game unrated.'
+        + '<details class="cgsub adv"><summary>Paste a map instead</summary>'
+          + '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Paste a map copied from My Maps and hit Apply. Any custom map makes the game unrated.'
           + '<textarea id="o_custom_map" spellcheck="false" placeholder="Optional. Paste a Starblast custom_map string here."></textarea></label>'
-        + '<button type="button" id="mapimport" style="margin-top:6px">Apply pasted ↑</button></div>'
-      + '<label class="full">Import a mod (JS — team mode only, unrated)<textarea id="o_mod_code" placeholder="Optional: paste a Starblast mod here or load it from a file. Hit “Read settings from mod” to pull its this.options into the settings above — after that, changing a setting updates the code too. Must be a team-mode mod."></textarea></label>'
-      + '<div class="full cgmap cgmodtools"><button type="button" id="modfile_btn">Load mod from file (.js / .txt)</button>'
-        + '<button type="button" id="modapply" title="Read this.options = { … } from the mod into the settings above. After that, changing a setting rewrites it in the code.">Read settings from mod ↑</button>'
-        + '<input type="file" id="modfile" accept=".js,.txt,.mjs,text/plain,text/javascript,application/javascript" style="display:none">'
-        + '<span id="modfile_hint">…or drop a file onto the box above.</span></div>'
+          + '<button type="button" id="mapimport" style="margin-top:6px">Apply pasted ↑</button></details></div>'
+      + '<details class="full cgsub" id="cgmodsec"><summary>Import a mod (JS) — only if you have one</summary>'
+        + '<label style="display:block;margin-top:8px">Mod code<textarea id="o_mod_code" placeholder="Paste a Starblast mod here or load it from a file. “Read settings from mod” pulls its this.options into the settings above — after that, changing a setting updates the code too. It’s made team-mode automatically."></textarea></label>'
+        + '<div class="cgmap cgmodtools"><button type="button" id="modfile_btn">Load mod from file (.js / .txt)</button>'
+          + '<button type="button" id="modapply" title="Read this.options = { … } from the mod into the settings above. After that, changing a setting rewrites it in the code.">Read settings from mod ↑</button>'
+          + '<input type="file" id="modfile" accept=".js,.txt,.mjs,text/plain,text/javascript,application/javascript" style="display:none">'
+          + '<span id="modfile_hint">…or drop a file onto the box above.</span></div></details>'
       + '<p class="note">Leave everything as-is for the <b>standard rated</b> lobby. Change anything (or import a mod) and it’s <b>unrated</b> — but it still records who won/lost, their teams, how long they played and their score.</p>';
     box.innerHTML = '<h2>Open a lobby</h2>'
       + (errMsg ? '<div class="cgerr">'+esc(errMsg)+'</div>' : '')
@@ -340,6 +372,7 @@
       else { el.value=o[k]; var nb=document.getElementById('o_'+k+'_n'); if(nb) nb.value=el.value; } });
     var jg=document.getElementById('o_join_gate'); if(jg && lastConfig.join_gate) jg.value=lastConfig.join_gate;
     var mc=document.getElementById('o_mod_code'); if(mc) mc.value=lastConfig.mod_code||'';
+    if(mc && mc.value.trim()){ var ms=document.getElementById('cgmodsec'); if(ms) ms.open=true; }
     if(lastConfig.custom_map && /[1-9]/.test(lastConfig.custom_map)) MapEd.load(lastConfig.custom_map); else MapEd.draw();
   }
   function renderOpening(){
@@ -387,7 +420,7 @@
     var btn = document.getElementById('cgopen'), msg = document.getElementById('cgmsg');
     if(btn) btn.disabled = true;
     if(msg) msg.textContent = 'Opening…';
-    if(document.getElementById('o_root_mode')) lastConfig = gatherConfig();  // form present -> capture
+    if(document.getElementById('o_friendly_colors')){ ensureModTeam(); lastConfig = gatherConfig(); }  // form present -> capture
     fetch('/api/customgame/open', {method:'POST', headers:{'Content-Type':'application/json'},
                                    body: JSON.stringify(lastConfig || {})})
       .then(function(r){return r.json();})

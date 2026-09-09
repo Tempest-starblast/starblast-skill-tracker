@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.11.2"
+APP_VERSION = "9.12.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4494,6 +4494,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.0", "at": "2026-09-09T10:00:00Z", "changes": [
+        "The custom-lobby builder is beginner-friendly now: a short Basics panel (teams, map size, players, crystal value, lives, starting ship, map name) and one “Show advanced settings” switch that reveals everything else, grouped. Pasting a map and importing a mod fold away until you want them, and the survival triggers and mode picker are gone — the lobby is team mode, full stop. A mod you import is made team-mode automatically.",
+        "Up to 5 teams (the game's limit) — the map editor's base markers and orbit follow the team count, with a distinct colour per team.",
+        "My Maps has the same idea: brush, erase, undo and clear up front, and a “More tools” switch for image tracing, exact-point placement, raw map text and reset."
+    ]},
     {"version": "9.11.2", "at": "2026-09-09T09:00:00Z", "changes": [
         "Fixed: when the host's open was rejected (say, a mod that isn't team mode), the page kept snapping back to an error screen and the form came back empty, so you couldn't fix the mod. The message now shows above the settings with everything you'd entered still there — settings, mod and map — so you can correct it and open again."
     ]},
@@ -12000,11 +12005,9 @@ CUSTOM_GAME_OPTIONS = {
     "map_id":          (0, "int", 0, 9999),           # the "map pattern" seed; 0 = let the game pick
     "map_density":     (1.0, "float", 0.0, 1.0),      # server clamps at 1; 1 = its automatic density (not forwarded)
     # game
-    "root_mode":       ("team", "choice", ["team", "invasion", "deathmatch"]),
-    "friendly_colors": (3, "int", 0, 3),              # number of teams; 3 = team-mode max
+    "root_mode":       ("team", "choice", ["team"]),  # the lobby is team mode only (owner's call)
+    "friendly_colors": (3, "int", 1, 5),              # number of teams; the game allows up to 5
     "max_players":     (70, "int", 1, 240),
-    "survival_time":   (0, "int", 0, 600),            # survival trigger: minutes (0 = none; the server's default)
-    "survival_level":  (8, "int", 2, 8),              # survival trigger: ship level (8 = never; server default)
     # resources
     "crystal_value":   (2.5, "float", 0.0, 10.0),     # the server's team default (probed 9 Sep 2026)
     "crystal_drop":    (1.0, "float", 0.0, 1.0),      # share of gems collectible when drained
