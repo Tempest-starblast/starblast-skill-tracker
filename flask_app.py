@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.9"
+APP_VERSION = "9.13.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2044,6 +2044,13 @@ def init_db():
         created_at TEXT,
         updated_at TEXT)''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_custom_maps_owner ON custom_maps(owner_sub)")
+    # A map traced from a picture keeps that picture (downscaled) and the trace
+    # settings, so loading it back can still re-tune the trace.
+    for _col in ("image TEXT", "img_opts TEXT"):
+        try:
+            c.execute("ALTER TABLE custom_maps ADD COLUMN %s" % _col)
+        except sqlite3.OperationalError:
+            pass
     # Recorded UNRATED custom-lobby games (Phase 3): who played, which team,
     # score, time, and who won - never rating-bearing. Posted by the host.
     c.execute('''CREATE TABLE IF NOT EXISTS custom_matches (
@@ -4496,6 +4503,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.0", "at": "2026-09-09T22:00:00Z", "changes": [
+        "Build a map from a seed. Type a seed (or hit the dice) in My Maps or in the lobby and it builds the exact asteroid field that seed produces in game — then you can edit it like any other map. It is the game’s own map generator, so what you see is what would be flown.",
+        "A map traced from a picture now keeps the picture. Save it, load it back later, and the image is still attached along with the trace settings — so you can nudge the cutoff or the asteroid size and re-trace, instead of hunting for the original file. Saved maps that carry one are marked in the list.",
+        "The lobby can send a map back the other way: <b>Save to My Maps</b> takes whatever map the lobby is set up with — pasted, imported or seed-generated — and files it in My Maps so you can edit it there."
+    ]},
     {"version": "9.12.9", "at": "2026-09-09T21:00:00Z", "changes": [
         "You can now save a map to your device: <b>Download</b> in My Maps writes it out as a plain .txt file, named after the map. Handy as a backup, or for sending a map to someone.",
         "And load one back: <b>Import map</b> in My Maps opens a map file from your device into the editor (it comes in as a new map, so it never overwrites one you already saved). The lobby has the same button, so the host can drop a map file straight into a game without going through My Maps first."
@@ -12488,6 +12500,7 @@ def api_customgame_discord():
 
 MAPS_PER_USER = 40
 MAP_NAME_MAX = 40
+MAP_IMAGE_MAX = 1200000     # data URL chars; the client shrinks to 420px first
 
 
 def _can_use_maps(sub_id):
@@ -12507,11 +12520,14 @@ def api_maps():
     conn = db()
     c = conn.cursor()
     if request.method == 'GET':
-        rows = c.execute("SELECT id, name, size, cells, updated_at FROM custom_maps "
-                         "WHERE owner_sub = ? ORDER BY updated_at DESC, id DESC", (sub_id,)).fetchall()
+        rows = c.execute("SELECT id, name, size, cells, updated_at, "
+                         "CASE WHEN COALESCE(image,'') = '' THEN 0 ELSE 1 END "
+                         "FROM custom_maps WHERE owner_sub = ? "
+                         "ORDER BY updated_at DESC, id DESC", (sub_id,)).fetchall()
         conn.close()
         return jsonify({"ok": True, "maps": [{"id": r[0], "name": r[1], "size": r[2],
-                                              "cells": r[3] or 0, "updated_at": r[4] or ''}
+                                              "cells": r[3] or 0, "updated_at": r[4] or '',
+                                              "has_image": bool(r[5])}
                                              for r in rows]}), 200
     body = request.json or {}
     name = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get("name") or "")).strip()[:MAP_NAME_MAX] or "Untitled map"
@@ -12523,6 +12539,14 @@ def api_maps():
     size = max(20, min(200, max(len(lines), max(len(l.rstrip()) for l in lines))))
     cells = sum(1 for ch in cmap if ch in '123456789')
     now = time.strftime('%Y-%m-%d %H:%M:%S')
+    # The source image (a data URL) and the trace settings, when the map came from one.
+    image = str(body.get("image") or "")
+    if not image.startswith("data:image/") or len(image) > MAP_IMAGE_MAX:
+        image = ""
+    try:
+        img_opts = json.dumps(body.get("img_opts"))[:400] if body.get("img_opts") else ""
+    except (TypeError, ValueError):
+        img_opts = ""
     mid = body.get("id")
     try:
         mid = int(mid) if mid not in (None, '') else None
@@ -12533,16 +12557,18 @@ def api_maps():
         if not own or own[0] != sub_id:
             conn.close()
             return jsonify({"ok": False, "message": "That map isn't yours."}), 403
-        c.execute("UPDATE custom_maps SET name=?, size=?, map=?, cells=?, updated_at=? WHERE id = ?",
-                  (name, size, cmap, cells, now, mid))
+        c.execute("UPDATE custom_maps SET name=?, size=?, map=?, cells=?, updated_at=?, "
+                  "image=?, img_opts=? WHERE id = ?",
+                  (name, size, cmap, cells, now, image, img_opts, mid))
     else:
         n = c.execute("SELECT COUNT(*) FROM custom_maps WHERE owner_sub = ?", (sub_id,)).fetchone()[0]
         if n >= MAPS_PER_USER:
             conn.close()
             return jsonify({"ok": False, "message": "You have %d maps saved - delete one to make room."
                             % MAPS_PER_USER}), 400
-        c.execute("INSERT INTO custom_maps (owner_sub, name, size, map, cells, created_at, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?)", (sub_id, name, size, cmap, cells, now, now))
+        c.execute("INSERT INTO custom_maps (owner_sub, name, size, map, cells, created_at, updated_at, "
+                  "image, img_opts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  (sub_id, name, size, cmap, cells, now, now, image, img_opts))
         mid = c.lastrowid
     conn.commit()
     conn.close()
@@ -12560,8 +12586,8 @@ def api_map_one(mid):
         return jsonify({"ok": False, "message": "My Maps is for Odyssey players and the host."}), 403
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT id, owner_sub, name, size, map, cells FROM custom_maps WHERE id = ?",
-                    (mid,)).fetchone()
+    row = c.execute("SELECT id, owner_sub, name, size, map, cells, image, img_opts "
+                    "FROM custom_maps WHERE id = ?", (mid,)).fetchone()
     if not row or row[1] != sub_id:
         conn.close()
         return jsonify({"ok": False, "message": "No such map."}), 404
@@ -12571,8 +12597,12 @@ def api_map_one(mid):
         conn.close()
         return jsonify({"ok": True}), 200
     conn.close()
+    try:
+        _iopts = json.loads(row[7]) if row[7] else None
+    except (TypeError, ValueError):
+        _iopts = None
     return jsonify({"ok": True, "id": row[0], "name": row[2], "size": row[3], "map": row[4],
-                    "cells": row[5] or 0}), 200
+                    "cells": row[5] or 0, "image": row[6] or None, "img_opts": _iopts}), 200
 
 
 CUSTOM_MODE_LABEL = {"team": "Team mode", "invasion": "Invasion", "deathmatch": "Deathmatch"}

@@ -181,7 +181,19 @@ window.MapEd = (function(){
   // ---- image -> asteroids: sample the picture onto the grid. By default bright = a
   // bigger asteroid, black = empty (a light design on a black background). "Invert"
   // flips it (dark = asteroids) for a dark design on a light background. ----
-  var mapLastImg = null;
+  var mapLastImg = null, mapLastImgSrc = null;
+  // The trace only samples at map_size (<=200), so a big source is wasted bytes.
+  // Downscale to 420px on the long side before keeping it with the map.
+  var IMG_STORE_MAX = 420;
+  function shrinkToDataURL(img){
+    try{
+      var w=img.width, h=img.height, m=Math.max(w,h);
+      if(m > IMG_STORE_MAX){ var k=IMG_STORE_MAX/m; w=Math.round(w*k); h=Math.round(h*k); }
+      var c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      return c.toDataURL('image/png');
+    }catch(e){ return null; }
+  }
   function imgOpt(id,d){ var e=$(id); return e ? e.value : d; }
   function imageToGrid(img){
     var n=mapSize(), inv=!!($('mapinvert')||{}).checked;
@@ -210,14 +222,24 @@ window.MapEd = (function(){
   function applyLastImage(){ if(!mapLastImg) return; var g=imageToGrid(mapLastImg); if(g){ pushUndo(); mapGrid=g; drawMap(); syncMapText(); } }
   // Start over: empty grid, no remembered image, every tool/option back to default (undoable).
   function resetAll(){
-    pushUndo(); mapGrid=newGrid(mapSize()); mapLastImg=null; mapErase=false;
+    pushUndo(); mapGrid=newGrid(mapSize()); mapLastImg=null; mapLastImgSrc=null; mapErase=false;
     var set=function(id,v){ var e=$(id); if(e){ e.value=v; var b=$(id+'_v'); if(b) b.textContent=v+(id==='imgcut'?'%':''); } };
     set('mapbrush',9); set('imgcut',11); set('imgsize',9); set('imgspace',1);
     var sm=$('imgsizemode'); if(sm) sm.value='bright'; var inv=$('mapinvert'); if(inv) inv.checked=false;
     var er=$('maperase'); if(er) er.textContent='Erase'; var fi=$('mapimgfile'); if(fi) fi.value='';
     clearPath=false; var cp=$('mapclearpath'); if(cp) cp.checked=false;
     drawMap(); syncMapText(); }
-  function loadImageSrc(src){ var img=new Image(); img.onload=function(){ mapLastImg=img; applyLastImage(); }; img.src=src; }
+  function loadImageSrc(src){ var img=new Image();
+    img.onload=function(){ mapLastImg=img; mapLastImgSrc=shrinkToDataURL(img)||src; applyLastImage(); };
+    img.src=src; }
+  // Restore an image that was saved WITH a map: the saved grid stays exactly as it
+  // was, but the picture is back, so the trace controls work again on re-tune.
+  function attachImage(src, cb){
+    if(!src){ mapLastImg=null; mapLastImgSrc=null; if(cb) cb(false); return; }
+    var img=new Image();
+    img.onload=function(){ mapLastImg=img; mapLastImgSrc=src; if(cb) cb(true); };
+    img.onerror=function(){ if(cb) cb(false); };
+    img.src=src; }
   function handleImageFile(file){
     if(!file || !/^image\//.test(file.type||'')) return;
     var rd=new FileReader(); rd.onload=function(){ loadImageSrc(rd.result); }; rd.readAsDataURL(file);
@@ -253,6 +275,10 @@ window.MapEd = (function(){
           + '<input type="range" id="imgsize" min="1" max="9" step="1" value="9"><b class="cgval" id="imgsize_v">9</b></span>'
         + '<span>Spacing <input type="range" id="imgspace" min="1" max="4" step="1" value="1"><b class="cgval" id="imgspace_v">1</b></span>'
         + '<span class="cgimghint">Tweak these after importing — the last image re-traces live.</span></div>'
+      + '<div class="cgmapxy">From seed: <input type="number" id="mapseed" min="0" max="9999999" placeholder="e.g. 5000">'
+        + '<button type="button" id="mapseedgo" title="Build the map this seed produces in game">Generate</button>'
+        + '<button type="button" id="mapseedrand" title="Try a random seed">🎲</button>'
+        + '<span id="mapseedhint" class="cgxyhint"></span></div>'
       + '<div class="cgmapxy adv">By point: X<input type="number" id="mapx" min="0" value="0">Y<input type="number" id="mapy" min="0" value="0">'
         + '<button type="button" id="mapplace" title="Place an asteroid of the current size at X,Y">Place</button>'
         + '<button type="button" id="mapremove" title="Remove the asteroid at X,Y">Remove</button>'
@@ -322,6 +348,19 @@ window.MapEd = (function(){
       }); }
     var inv=$('mapinvert'); if(inv) inv.onchange=applyLastImage;   // re-trace the last image flipped
     var cp=$('mapclearpath'); if(cp) cp.onchange=function(){ clearPath=this.checked; drawMap(); syncMapText(); };
+    // seed -> map
+    var sg=$('mapseedgo'), sr=$('mapseedrand'), si=$('mapseed'), sh=$('mapseedhint');
+    function runSeed(){
+      if(!window.SBMapGen){ if(sh) sh.textContent='Generator unavailable'; return; }
+      var v=parseInt((si||{}).value,10);
+      if(isNaN(v) || v<0){ if(sh) sh.textContent='Enter a seed first'; return; }
+      var teams=parseInt(($('o_friendly_colors')||{}).value,10) || 3;
+      var k=api.fromSeed(v, mapSize(), teams);
+      if(sh) sh.textContent = (k==null) ? 'Generator unavailable' : ('seed '+v+' → '+k+' asteroids');
+    }
+    if(sg) sg.onclick=runSeed;
+    if(sr) sr.onclick=function(){ if(si){ si.value=Math.floor(Math.random()*10000); runSeed(); } };
+    if(si) si.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); runSeed(); } });
     var ob=$('maporbit'); if(ob) ob.onclick=function(){ setOrbit(!orbitTimer); };
     var sb=$('mapselect'); if(sb) sb.onclick=function(){ setMode(mapMode==='move'?'draw':'move'); };
     ['imgcut','imgsize','imgspace'].forEach(function(id){ var e=$(id); if(!e) return;   // image options
@@ -366,7 +405,34 @@ window.MapEd = (function(){
   api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
   api.draw = drawMap;
   api.resetUndo = function(){ mapUndo=[]; };
+  // Build the field a given seed produces in game, straight into the editor.
+  // Same generator the asteroid baker uses, so it matches what players would fly.
+  api.fromSeed = function(seed, size, teams){
+    if(!window.SBMapGen) return null;
+    var n = Math.max(20, Math.min(200, parseInt(size,10) || mapSize()));
+    n -= n % 2;                                    // the generator works in pairs of cells
+    var txt = SBMapGen.grid(parseInt(seed,10) || 0, n, teams);
+    pushUndo(); loadMapString(txt); mapLastImg=null; mapLastImgSrc=null;
+    return countCells(mapGrid);
+  };
   api.resetAll = resetAll;
+  // ---- the source image + trace settings travel with a saved map ----
+  api.imageSrc = function(){ return mapLastImgSrc; };
+  api.hasImage = function(){ return !!mapLastImg; };
+  api.imageOpts = function(){
+    var v=function(id,d){ var e=$(id); return e ? e.value : d; };
+    return { invert: !!($('mapinvert')||{}).checked, cut: v('imgcut','11'),
+             mode: v('imgsizemode','bright'), size: v('imgsize','9'), space: v('imgspace','1') };
+  };
+  api.setImage = function(src, opts, cb){
+    if(opts){
+      var set=function(id,val){ var e=$(id); if(e && val!=null){ e.value=val; var b=$(id+'_v'); if(b) b.textContent=val+(id==='imgcut'?'%':''); } };
+      set('imgcut',opts.cut); set('imgsize',opts.size); set('imgspace',opts.space);
+      var sm=$('imgsizemode'); if(sm && opts.mode) sm.value=opts.mode;
+      var iv=$('mapinvert'); if(iv) iv.checked=!!opts.invert;
+    }
+    attachImage(src, cb);          // NOTE: does not re-trace - the saved grid is kept
+  };
   api.clearPath = function(on){ if(on===undefined) return clearPath;
     clearPath=!!on; var cp=$('mapclearpath'); if(cp) cp.checked=clearPath; drawMap(); syncMapText(); };
   return api;

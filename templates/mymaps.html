@@ -43,6 +43,7 @@
 {% elif not allowed %}
 <div class="mmcard"><h2>Host only</h2><p style="margin:0;font-size:14px;color:var(--muted)">My Maps is the lobby host&rsquo;s workshop.</p></div>
 {% else %}
+{% include "_mapgen.html" %}
 {% include "_mapeditor.html" %}
 <div class="mmcard">
   <h2>Editor</h2>
@@ -111,7 +112,7 @@
       if(!maps.length){ ul.innerHTML='<li class="mmempty">No saved maps yet — draw one above and hit Save.</li>'; return; }
       maps.forEach(function(m){
         var li=document.createElement('li');
-        li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids · '+esc(fmtWhen(m.updated_at))+'</span>'
+        li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
           +'<button class="mmbtn" data-act="load" type="button">Load</button>'
           +'<button class="mmbtn" data-act="copy" type="button">Copy</button>'
           +'<button class="mmbtn" data-act="dl" type="button">Download</button>'
@@ -135,7 +136,15 @@
     fetchMap(id, function(d){
       MapEd.load(d.map); MapEd.resetUndo();
       cur={id:d.id,name:d.name}; $('mmname').value=d.name; setDirty(false);
-      status('Loaded “'+d.name+'”','ok'); window.scrollTo({top:0,behavior:'smooth'});
+      window.scrollTo({top:0,behavior:'smooth'});
+      if(d.image && MapEd.setImage){
+        // Put the picture back WITHOUT re-tracing - the saved map is what you saved.
+        MapEd.setImage(d.image, d.img_opts, function(ok){
+          status(ok ? 'Loaded “'+d.name+'” — its image came too, so you can re-tune the trace'
+                    : 'Loaded “'+d.name+'” (its image couldn’t be read)', 'ok');
+          setDirty(false);
+        });
+      } else { MapEd.setImage && MapEd.setImage(null); status('Loaded “'+d.name+'”','ok'); }
     });
   }
   function save(){
@@ -143,8 +152,12 @@
     if(!map){ status('Place some asteroids first','err'); return; }
     var name=($('mmname').value||'').trim()||'Untitled map';
     var b=$('mmsave'); b.disabled=true; status('Saving…');
+    // A map traced from a picture keeps the picture and the trace settings, so it
+    // can be re-tuned after loading instead of starting from the image again.
+    var payload={id:cur.id,name:name,map:map,size:MapEd.size()};
+    if(MapEd.hasImage && MapEd.hasImage()){ payload.image=MapEd.imageSrc(); payload.img_opts=MapEd.imageOpts(); }
     fetch('/api/maps',{method:'POST',headers:{'Content-Type':'application/json'},
-                       body:JSON.stringify({id:cur.id,name:name,map:map,size:MapEd.size()})})
+                       body:JSON.stringify(payload)})
       .then(function(r){return r.json();}).then(function(j){ b.disabled=false;
         if(!j.ok){ status(j.message||'Save failed','err'); return; }
         cur={id:j.id,name:j.name}; $('mmname').value=j.name; setDirty(false); status('Saved','ok'); listMaps(); })

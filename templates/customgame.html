@@ -98,6 +98,7 @@
 </div>
 
 {% if allowed %}
+{% include "_mapgen.html" %}
 {% include "_mapeditor.html" %}
 <script>
 (function(){
@@ -315,6 +316,40 @@
         .then(function(j){ if(j&&j.map){ MapEd.load(j.map); } }).catch(function(){}); };
     var none=document.getElementById('mapnone'); if(none) none.onclick=function(){ MapEd.load(''); s.value=''; };
     // A map file straight from the host's device, without a trip through My Maps.
+    // seed -> a real map, the same field the game would build for that seed
+    var sg=document.getElementById('cgseedgo'), sr=document.getElementById('cgseedrand'),
+        si=document.getElementById('cgseed'), sh=document.getElementById('cgseedhint');
+    function runSeed(){
+      if(!sh) return;
+      if(!window.SBMapGen){ sh.textContent='Generator unavailable'; return; }
+      var v=parseInt((si||{}).value,10);
+      if(isNaN(v)||v<0){ sh.textContent='Enter a seed first'; return; }
+      var size=parseInt((document.getElementById('o_map_size')||{}).value,10)||80;
+      var teams=parseInt((document.getElementById('o_friendly_colors')||{}).value,10)||3;
+      var k=MapEd.fromSeed(v, size, teams);
+      sh.textContent = (k==null) ? 'Generator unavailable' : (k+' asteroids — unrated');
+      if(s) s.value='';
+    }
+    if(sg) sg.onclick=runSeed;
+    if(sr) sr.onclick=function(){ if(si){ si.value=Math.floor(Math.random()*10000); runSeed(); } };
+    // Push the lobby's current map into My Maps so it can be edited there.
+    var sv=document.getElementById('mapsaveas');
+    if(sv) sv.onclick=function(){
+      var msg=document.getElementById('cgmsg');
+      function say(t,bad){ if(msg){ msg.className='cgmsg'+(bad?' err':''); msg.textContent=t; } }
+      var map=MapEd.str();
+      if(!map){ say('There’s no map to save yet.', true); return; }
+      var name=(prompt('Name this map for My Maps:', (document.getElementById('o_map_name')||{}).value || 'Lobby map')||'').trim();
+      if(!name) return;
+      sv.disabled=true; say('Saving to My Maps…');
+      fetch('/api/maps',{method:'POST',headers:{'Content-Type':'application/json'},
+                         body:JSON.stringify({name:name, map:map, size:MapEd.size()})})
+        .then(function(r){ return r.json(); })
+        .then(function(j){ sv.disabled=false;
+          if(j && j.ok) say('Saved “'+name+'” to My Maps — edit it there anytime.');
+          else say((j && j.message) || 'Couldn’t save that map.', true); })
+        .catch(function(){ sv.disabled=false; say('Couldn’t reach the server.', true); });
+    };
     var fb=document.getElementById('mapfilebtn'), fi=document.getElementById('mapfile');
     if(fb&&fi){
       fb.onclick=function(){ fi.click(); };
@@ -343,6 +378,12 @@
         + '<button type="button" id="mapuse">Use this map</button>'
         + '<button type="button" id="mapnone">No custom map</button>'
         + '<button type="button" id="mapfilebtn" title="Load a map file from your device">Import map</button>'
+        + '<button type="button" id="mapsaveas" title="Save the map this lobby is using into My Maps, so you can edit it there">Save to My Maps</button>'
+        + '</div><div class="cgmappick"><span class="cgimglbl">From seed</span>'
+        + '<input type="number" id="cgseed" min="0" max="9999999" placeholder="e.g. 5000" style="flex:0 0 120px;min-width:0">'
+        + '<button type="button" id="cgseedgo" title="Build the map this seed produces in game">Generate map</button>'
+        + '<button type="button" id="cgseedrand" title="Try a random seed">🎲</button>'
+        + '<span id="cgseedhint" class="cgxyhint"></span>'
         + '<input type="file" id="mapfile" accept=".txt,.map,text/plain" style="display:none">'
         + '<a class="cgmaplink" href="/mymaps">Build maps in My Maps ↗</a></div>'
         + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
