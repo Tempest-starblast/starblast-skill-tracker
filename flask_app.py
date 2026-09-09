@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.6"
+APP_VERSION = "9.8.7"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4468,6 +4468,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.8.7", "at": "2026-09-09T01:15:00Z", "changes": [
+        "The custom-lobby “Starting ship” setting is now a proper ship picker — choose a real ship by name, grouped by tier (Fly, Odyssey, Bastion…), instead of typing a code into a spinner that could land on a ship that doesn’t exist.",
+        "Clearer wording on the custom-lobby page: it now spells out that the host chooses who can join (Odyssey-only, where non-Odyssey players are removed automatically, or anyone with the link) and that leaving the defaults gives the standard rated game."
+    ]},
     {"version": "9.8.6", "at": "2026-09-09T00:30:00Z", "changes": [
         "The custom-lobby map editor can build a map from an image. Drop or paste a picture (or use “From image”) — a design on a black background — and it’s traced onto the grid as asteroids: brighter areas become bigger asteroids, black stays empty. Tidy the result by hand afterwards if you like.",
         "The host can now stop a running lobby on demand — there’s a Stop lobby button on the live-lobby screen, so you don’t have to wait for it to empty out and close itself.",
@@ -11923,7 +11927,7 @@ CUSTOM_GAME_OPTIONS = {
     "max_players":     (24, "int", 1, 120),
     "crystal_value":   (1.0, "float", 0.0, 5.0),
     "max_level":       (7, "int", 1, 7),
-    "starting_ship":   (101, "int", 100, 703),  # ship code (tier*100+model)
+    "starting_ship":   (101, "int", 100, 704),  # ship code (tier*100+model)
     "station_size":    (2.0, "float", 0.5, 6.0),  # station toughness / size
     "map_name":        ("", "str", 24),
     "soundtrack":      ("", "choice", ["", "procedurality.mp3", "argon.mp3",

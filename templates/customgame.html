@@ -68,7 +68,7 @@
 {% block body %}
 <div class="cgwrap">
 <h1 class="ptitle">Odyssey custom lobby</h1>
-<p class="cgnote">A private team-mode lobby for top players. It plays exactly like regular team mode. The <b>host opens it on demand</b>; every <b>Odyssey</b> player (rank Odyssey or above) then gets the join link and can play, and anyone the lobby doesn&rsquo;t recognise as Odyssey is removed automatically.</p>
+<p class="cgnote">A custom team-mode lobby for top players, opened by the <b>host on demand</b>. The join link shows here for every <b>Odyssey</b> player (rank Odyssey or above) the moment one goes live. The host sets who can join: <b>Odyssey only</b> &mdash; and anyone the lobby doesn&rsquo;t recognise as Odyssey is removed automatically &mdash; or <b>anyone</b> with the link. Left at its defaults it&rsquo;s the standard rated game; change the settings, draw a map or import a mod and it&rsquo;s an unrated custom game.</p>
 
 <div class="cgcard">
 {% if not signed_in %}
@@ -118,7 +118,7 @@
     box.innerHTML = '<h2>You’re in — join now</h2>'
       + '<a class="cglink" href="'+esc(l)+'" target="_blank" rel="noopener">▶ Join the lobby</a>'
       + '<div class="cgmeta">'+(region?('<b>'+esc(region.charAt(0).toUpperCase()+region.slice(1))+'</b> · '):'')
-      + 'live now. Plays like regular team mode. Keep your verified Odyssey name — anyone the lobby doesn’t recognise as Odyssey is removed automatically.</div>'
+      + 'live now. If the host set it to Odyssey-only, keep your verified Odyssey name on — anyone the lobby doesn’t recognise is removed automatically.</div>'
       + '<div class="cghint">Opens Starblast in a new tab — it takes a few seconds to load the arena. An empty lobby closes after ~3&nbsp;minutes, so hop in.</div>'
       + (canHost ? '<button class="cgstop" id="cgstop" type="button">Stop lobby</button>' : '');
     var sb = document.getElementById('cgstop');
@@ -135,6 +135,22 @@
   function sel(id,label,opts,val){
     var o=opts.map(function(p){return '<option value="'+p[0]+'"'+(p[0]==val?' selected':'')+'>'+p[1]+'</option>';}).join('');
     return '<label>'+label+'<select id="'+id+'">'+o+'</select></label>';
+  }
+  // Real Starblast ships grouped by tier - so the "Starting ship" picker offers
+  // valid ships by name instead of a meaningless number spinner.
+  var SHIPS=[['Tier 1',[[101,'Fly']]],
+    ['Tier 2',[[201,'Delta-Fighter'],[202,'Trident']]],
+    ['Tier 3',[[301,'Pulse-Fighter'],[302,'Side-Fighter'],[303,'Shadow X-1'],[304,'Y-Defender']]],
+    ['Tier 4',[[401,'Vanguard'],[402,'Mercury'],[403,'X-Warrior'],[404,'Side-Interceptor'],[405,'Pioneer'],[406,'Crusader']]],
+    ['Tier 5',[[501,'U-Sniper'],[502,'FuryStar'],[503,'T-Warrior'],[504,'Aetos'],[505,'Shadow X-2'],[506,'Howler'],[507,'Toscain'],[508,'Bat-Defender']]],
+    ['Tier 6',[[601,'Advanced-Fighter'],[602,'Scorpion'],[603,'Marauder'],[604,'Condor'],[605,'A-Speedster'],[606,'Rock-Tower'],[607,'H-Mercury'],[608,'Barracuda'],[609,'O-Defender']]],
+    ['Tier 7',[[701,'Odyssey'],[702,'Shadow X-3'],[703,'Bastion'],[704,'Aries']]]];
+  function shipSelect(id,label,val){
+    var g=SHIPS.map(function(t){
+      var os=t[1].map(function(s){ return '<option value="'+s[0]+'"'+(s[0]==val?' selected':'')+'>'+s[0]+' · '+s[1]+'</option>'; }).join('');
+      return '<optgroup label="'+t[0]+'">'+os+'</optgroup>';
+    }).join('');
+    return '<label>'+label+'<select id="'+id+'">'+g+'</select></label>';
   }
   function sl(id,label,min,max,step,val){        // drag OR type — the range and the number box stay in sync
     return '<label>'+label
@@ -275,7 +291,7 @@
       + sl('o_crystal_value','Crystal value',0,5,0.1,1)
       + sl('o_max_level','Max level',1,7,1,7)
       + sl('o_station_size','Station toughness',0.5,6,0.1,2)
-      + opt('o_starting_ship','Starting ship code','number','min=100 max=703',101)
+      + shipSelect('o_starting_ship','Starting ship',101)
       + sel('o_soundtrack','Soundtrack',[['','Default'],['procedurality.mp3','Procedurality'],['argon.mp3','Argon'],['crystals.mp3','Crystals']],'')
       + '<label class="full">Map name<input id="o_map_name" type="text" maxlength="24" value=""></label>'
       + '<div class="full cgmap">'
@@ -297,7 +313,7 @@
       + '<label class="full">Import a mod (JS — team mode only, unrated)<textarea id="o_mod_code" placeholder="Optional: paste a Starblast mod here. Its settings are pulled in automatically. Must be a team-mode mod."></textarea></label>'
       + '<p class="note">Leave everything as-is for the <b>standard rated</b> lobby. Change anything (or import a mod) and it’s <b>unrated</b> — but it still records who won/lost, their teams, how long they played and their score.</p>';
     box.innerHTML = '<h2>Open a lobby</h2>'
-      + '<p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Open one — the join link then appears here for you and every Odyssey player, and it closes on its own once everyone leaves.</p>'
+      + '<p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Open one — the join link appears here for you and every Odyssey player. You can stop it anytime from the lobby screen, and it also closes on its own once everyone leaves.</p>'
       + '<details class="cgcustom"><summary>Custom settings</summary><div class="cgform">'+form+'</div></details>'
       + '<button class="primary" id="cgopen" type="button">Open lobby</button>'
       + '<div class="cgmsg" id="cgmsg"></div>';
