@@ -528,9 +528,7 @@ function buildReplay(ST, RD){
     var rdSeries = (res.rd && res.rd.length === frames.length) ? res.rd : null;
     var drawRadarAt = null;
     if(rdSeries){
-      var RMX = 132, RANG = [28,148,268], RBR = 90, rIcons = '';
-      for(var ii=0; ii<3; ii++){ var a0 = RANG[ii]*Math.PI/180, cx0 = Math.cos(a0)*RBR, cy0 = -Math.sin(a0)*RBR, s0 = RMX/12;
-        rIcons += '<rect x="'+(cx0-s0)+'" y="'+(cy0-s0)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+COLS[ii]+'" opacity="0.85"/>'; }
+      var RMX = 132;
       // TRUE base positions (8.6.0): stations sit on a ring that ORBITS the sun
       // once an hour. Newer replays carry the fitted ring (res.bs = angular
       // velocity + per-team angle at t0), so the icons sit where the bases really
@@ -548,36 +546,32 @@ function buildReplay(ST, RD){
       // own base): a shaky fit could draw a base on the wrong vertex, and a
       // decorative ring is better than a confidently wrong marker.
       var bsFit = (res.bs && res.bs.a && (res.bs.q || 0) >= 0.55) ? res.bs : null;
-      // When the fit ISN'T confident we used to fall back to a decorative ring at
-      // fixed angles - markers that are simply wrong. If the match recorded the
-      // game clock we can instead place the ring from the game's own rotation:
-      // it turns a full circle each hour, so the angle is the fraction of an hour
-      // (Station.js). Measured ~0.53 "ships nearest their own base" against 0.33
-      // for chance, with no per-match fitting. CLOCK_K is an empirical offset.
-      var CLOCK_K = 110 * Math.PI / 180;
-      var clockBases = (typeof res.gt0 === 'number' && Array.isArray(res.phases)
-                        && res.phases.every(function(p){ return typeof p === 'number'; }))
-                       ? {gt0: res.gt0, ph: res.phases} : null;
+      // What we actually know about the stations, and what we don't:
+      //  KNOWN - they ride a circle of radius RING_R (map half-width * sqrt2/2,
+      //          confirmed: ships sit at a median radius of 91), and that circle
+      //          turns exactly once an hour (confirmed: subtracting that rate
+      //          from each team's measured ship-cluster angle leaves a steady
+      //          residual instead of a drifting one).
+      //  UNKNOWN - WHERE on the circle a team sits at a given moment. Four
+      //          independent estimates of the offset disagreed (110/152/172/181
+      //          deg) and measured team separations came out anywhere from 40 to
+      //          340 deg when they must be 120 - a spectator never receives the
+      //          game's step counter, and ships don't cluster tightly enough at
+      //          their own base to recover it.
+      // So: when the per-match fit IS confident we draw the bases it found; when
+      // it isn't, we draw the orbit they travel and no markers, rather than the
+      // old decorative ring, which put markers at invented angles.
+      var orbitPath = '<circle cx="0" cy="0" r="'+RING_R.toFixed(1)+'" fill="none" '
+        + 'stroke="rgba(153,221,255,.16)" stroke-width="0.8" stroke-dasharray="4 5"/>';
       var baseIcons = function(el){
+        if(!bsFit) return orbitPath;
         var out = '', s0 = RMX/12;
-        if(bsFit){
-          Object.keys(bsFit.a).forEach(function(k){
-            var ang = bsFit.a[k] + (bsFit.w || 0) * el;
-            var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
-            out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[k]||'#888')+'" opacity="0.85"/>';
-          });
-          return out;
-        }
-        if(clockBases){
-          var rot = CLOCK_K + 2*Math.PI * ((clockBases.gt0 + el) / 3600);
-          clockBases.ph.forEach(function(p, i){
-            var ang = p + rot;
-            var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
-            out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[i]||'#888')+'" opacity="0.7"/>';
-          });
-          return out;
-        }
-        return rIcons;
+        Object.keys(bsFit.a).forEach(function(k){
+          var ang = bsFit.a[k] + (bsFit.w || 0) * el;
+          var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
+          out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[k]||'#888')+'" opacity="0.85"/>';
+        });
+        return orbitPath + out;
       };
       // A ship row is [team, code, x, y] (older rows [team, x, y]). The code lets
       // us MATCH a ship in the next frame and glide it there, so ships flow

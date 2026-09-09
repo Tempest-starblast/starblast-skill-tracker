@@ -4497,7 +4497,7 @@ def game_end():
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
     {"version": "9.12.5", "at": "2026-09-09T17:15:00Z", "changes": [
-        "When a replay can't work out where each team's base was with confidence, the radar no longer falls back to decorative markers at made-up positions. It now places them from the game's own clock — the station ring turns once an hour — which is far closer to the truth. Matches recorded from now on carry that clock."
+        "When a replay can't work out where each team's base was with confidence, the radar no longer invents decorative markers at fixed positions. It now draws the orbit the stations travel — a circle we do know, since they ride it once an hour — and leaves the markers off rather than guessing where on it each team sat."
     ]},
     {"version": "9.12.4", "at": "2026-09-09T16:30:00Z", "changes": [
         "The live view now shows each lobby in its real team colours — the ones the players see in the game — instead of the same blue/green/gold everywhere. Replays do the same for matches recorded from now on; older replays keep the old palette, since their colours were never recorded."
