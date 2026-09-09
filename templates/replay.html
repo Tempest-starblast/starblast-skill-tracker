@@ -548,15 +548,36 @@ function buildReplay(ST, RD){
       // own base): a shaky fit could draw a base on the wrong vertex, and a
       // decorative ring is better than a confidently wrong marker.
       var bsFit = (res.bs && res.bs.a && (res.bs.q || 0) >= 0.55) ? res.bs : null;
+      // When the fit ISN'T confident we used to fall back to a decorative ring at
+      // fixed angles - markers that are simply wrong. If the match recorded the
+      // game clock we can instead place the ring from the game's own rotation:
+      // it turns a full circle each hour, so the angle is the fraction of an hour
+      // (Station.js). Measured ~0.53 "ships nearest their own base" against 0.33
+      // for chance, with no per-match fitting. CLOCK_K is an empirical offset.
+      var CLOCK_K = 110 * Math.PI / 180;
+      var clockBases = (typeof res.gt0 === 'number' && Array.isArray(res.phases)
+                        && res.phases.every(function(p){ return typeof p === 'number'; }))
+                       ? {gt0: res.gt0, ph: res.phases} : null;
       var baseIcons = function(el){
-        if(!bsFit) return rIcons;
         var out = '', s0 = RMX/12;
-        Object.keys(bsFit.a).forEach(function(k){
-          var ang = bsFit.a[k] + (bsFit.w || 0) * el;
-          var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
-          out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[k]||'#888')+'" opacity="0.85"/>';
-        });
-        return out;
+        if(bsFit){
+          Object.keys(bsFit.a).forEach(function(k){
+            var ang = bsFit.a[k] + (bsFit.w || 0) * el;
+            var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
+            out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[k]||'#888')+'" opacity="0.85"/>';
+          });
+          return out;
+        }
+        if(clockBases){
+          var rot = CLOCK_K + 2*Math.PI * ((clockBases.gt0 + el) / 3600);
+          clockBases.ph.forEach(function(p, i){
+            var ang = p + rot;
+            var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
+            out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[i]||'#888')+'" opacity="0.7"/>';
+          });
+          return out;
+        }
+        return rIcons;
       };
       // A ship row is [team, code, x, y] (older rows [team, x, y]). The code lets
       // us MATCH a ship in the next frame and glide it there, so ships flow

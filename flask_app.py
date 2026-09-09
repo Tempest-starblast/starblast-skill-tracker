@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.4"
+APP_VERSION = "9.12.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4496,6 +4496,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.5", "at": "2026-09-09T17:15:00Z", "changes": [
+        "When a replay can't work out where each team's base was with confidence, the radar no longer falls back to decorative markers at made-up positions. It now places them from the game's own clock — the station ring turns once an hour — which is far closer to the truth. Matches recorded from now on carry that clock."
+    ]},
     {"version": "9.12.4", "at": "2026-09-09T16:30:00Z", "changes": [
         "The live view now shows each lobby in its real team colours — the ones the players see in the game — instead of the same blue/green/gold everywhere. Replays do the same for matches recorded from now on; older replays keep the old palette, since their colours were never recorded."
     ]},
@@ -7165,6 +7168,11 @@ def trueskill_replay_push():
         _hues = m.get('hues')
         if isinstance(_hues, list) and any(h is not None for h in _hues):
             obj["hues"] = _hues
+        # Game clock at frame 0 + the ring phases: lets the radar place the
+        # bases from the game's own rotation when the fit isn't confident.
+        if isinstance(m.get('gt0'), (int, float)) and isinstance(m.get('phases'), list):
+            obj["gt0"] = m['gt0']
+            obj["phases"] = m['phases']
         # id -> player name, so the replay radar can label each ship dot.
         if isinstance(nm, dict) and nm:
             obj["nm"] = nm
@@ -7213,7 +7221,7 @@ def trueskill_replay_read():
                        (sys_id,)).fetchall()
     rc.close()
     best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = (None,) * 8
-    best_hues = None
+    best_hues = best_gt0 = best_phases = None
     for data, first_ts in cands:
         try:
             obj = json.loads(zlib.decompress(data).decode('utf-8'))
@@ -7225,9 +7233,10 @@ def trueskill_replay_read():
             frames = obj.get("f"); mwp = obj.get("wp"); mrd = obj.get("rd")
             mstl = obj.get("stlay"); mst = obj.get("st"); mbs = obj.get("bs")
             mnm = obj.get("nm"); mhu = obj.get("hues")
+            mgt = obj.get("gt0"); mph = obj.get("phases")
         else:
             frames, mwp, mrd, mstl, mst, mbs = obj, None, None, None, None, None
-            mnm = None; mhu = None
+            mnm = None; mhu = None; mgt = None; mph = None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
@@ -7236,7 +7245,7 @@ def trueskill_replay_read():
         if best is None or gap < best_gap:
             best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = \
                 frames, gap, mwp, mrd, mstl, mst, mbs, mnm
-            best_hues = mhu
+            best_hues = mhu; best_gt0 = mgt; best_phases = mph
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
         # Prefer the raw multi-factor model's own win-prob; fall back to the
@@ -7252,9 +7261,12 @@ def trueskill_replay_read():
         # players actually saw (recorded since 9.12.4; older replays have none
         # and keep the fixed palette).
         hues = best_hues if isinstance(best_hues, list) else None
+        gt0 = best_gt0 if isinstance(best_gt0, (int, float)) else None
+        phases = best_phases if isinstance(best_phases, list) else None
         conn.close()
         return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
-                        "st": st, "bs": bs, "nm": nm, "hues": hues}), 200
+                        "st": st, "bs": bs, "nm": nm, "hues": hues,
+                        "gt0": gt0, "phases": phases}), 200
     conn.close()
     return jsonify({"frames": None}), 200
 
