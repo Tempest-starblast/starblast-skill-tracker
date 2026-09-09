@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}My Maps - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}Build, save and share custom asteroid maps for the Odyssey custom lobby.{% endblock %}
+{% block css %}
+.mmwrap{max-width:70ch}
+.mmnote{color:var(--muted);font-size:13.5px;line-height:1.65;margin:-4px 0 18px}
+.mmcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;backdrop-filter:var(--blur);margin-bottom:14px}
+.mmcard h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
+.mmbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.mmbar input[type=text]{flex:1;min-width:160px;background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit}
+.mmbtn{background:rgba(127,127,127,.14);border:1px solid var(--line);border-radius:7px;padding:7px 12px;color:var(--text);font-size:12.5px;cursor:pointer;font-family:inherit}
+.mmbtn:hover{border-color:var(--green,#66e6b8)}
+.mmbtn.primary{background:var(--green,#66e6b8);color:#0b0e13;border-color:transparent;font-weight:700}
+.mmbtn:disabled{opacity:.55;cursor:default}
+.mmstatus{font-size:12px;color:var(--muted);min-width:80px}
+.mmstatus.ok{color:var(--green,#66e6b8)} .mmstatus.err{color:#ff7a7a}
+.mmform{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px;margin-bottom:10px}
+@media (max-width:560px){.mmform{grid-template-columns:1fr}}
+.mmform label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);letter-spacing:.02em}
+.cgsrow{display:flex;align-items:center;gap:9px;margin-top:2px}
+.cgsrow input[type=range]{flex:1;min-width:0;accent-color:var(--green,#66e6b8);padding:0;border:0;background:none;height:22px}
+.cgnum{width:58px;flex:none;text-align:center;-moz-appearance:textfield;font-weight:700;font-variant-numeric:tabular-nums;
+  background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:6px 8px;color:var(--text);font-size:13px;font-family:inherit}
+.cgnum::-webkit-outer-spin-button,.cgnum::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.mmform .hint{grid-column:1/-1;font-size:11px;color:var(--muted);margin:-4px 0 0;line-height:1.5}
+.cgmap .cgmapxy input[type=number],.cgmap select{background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:5px 6px;color:var(--text);font-size:12px;font-family:inherit}
+.mmraw{background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:7px 9px;color:var(--text);
+  font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;min-height:88px;resize:vertical;width:100%;margin-top:6px;box-sizing:border-box}
+.mmlist{list-style:none;margin:0;padding:0}
+.mmlist li{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13px;flex-wrap:wrap}
+.mmlist li:first-child{border-top:0}
+.mmlist .nm{flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.mmlist .meta{color:var(--muted);font-size:11.5px;white-space:nowrap}
+.mmlist .mmbtn{padding:5px 9px;font-size:11.5px}
+.mmempty{color:var(--muted);font-size:13px}
+{% endblock %}
+{% block body %}
+<div class="mmwrap">
+<h1 class="ptitle">My Maps</h1>
+<p class="mmnote">Build custom asteroid maps for the <a href="/customgame" style="color:var(--green,#66e6b8)">Odyssey lobby</a>. Draw on the grid, trace an image, or paste a map; <b>save</b> it here, then load it into a lobby from the map picker &mdash; or <b>Copy map</b> and paste it in. The sun, the station orbit and the team bases are drawn so you can build around them.</p>
+{% if not signed_in %}
+<div class="mmcard"><h2>Sign in</h2><p style="margin:0;font-size:14px">Sign in at the top of the page to build and save maps.</p></div>
+{% elif not allowed %}
+<div class="mmcard"><h2>Not yet</h2><p style="margin:0;font-size:14px;color:var(--muted)">My Maps is for the lobby host and established <b>Odyssey</b>-rank players.</p></div>
+{% else %}
+{% include "_mapeditor.html" %}
+<div class="mmcard">
+  <h2>Editor</h2>
+  <div class="mmbar">
+    <input type="text" id="mmname" maxlength="40" placeholder="Map name">
+    <button class="mmbtn primary" id="mmsave" type="button">Save</button>
+    <button class="mmbtn" id="mmnew" type="button">New</button>
+    <button class="mmbtn" id="mmcopy" type="button" title="Copy the map text to your clipboard">Copy map</button>
+    <span class="mmstatus" id="mmstatus"></span>
+  </div>
+  <div class="mmform" id="mmform"></div>
+  <input type="hidden" id="o_root_mode" value="team">
+  <div class="cgmap" id="mmtools"></div>
+  <label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Raw map text &mdash; this is what gets copied. Paste a map here and hit &ldquo;Apply pasted&rdquo; to load it.
+    <textarea id="o_custom_map" class="mmraw" spellcheck="false"></textarea></label>
+</div>
+<div class="mmcard">
+  <h2>Saved maps</h2>
+  <ul class="mmlist" id="mmlist"><li class="mmempty">Loading&hellip;</li></ul>
+</div>
+{% endif %}
+</div>
+{% if allowed %}
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function sl(id,label,min,max,step,val){        // drag OR type - the range and the number box stay in sync
+    return '<label>'+label+'<span class="cgsrow">'
+      +'<input id="'+id+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'"'
+      +' oninput="var n=document.getElementById(\''+id+'_n\');if(n)n.value=this.value">'
+      +'<input class="cgnum" id="'+id+'_n" type="number" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'"'
+      +' oninput="var r=document.getElementById(\''+id+'\');if(r)r.value=this.value"'
+      +' onchange="var r=document.getElementById(\''+id+'\');if(r){r.value=this.value;this.value=r.value;r.dispatchEvent(new Event(\'change\'));}">'
+      +'</span></label>';
+  }
+  $('mmform').innerHTML = sl('o_map_size','Map size',20,200,5,80)
+    + sl('o_friendly_colors','Teams (preview)',1,3,1,3)
+    + sl('o_station_size','Station size (preview)',0.5,6,0.1,2)
+    + '<p class="hint">Map size is part of the map. Teams and station size only move the base markers here so you can build around them — the real ones are set when the lobby is opened.</p>';
+  $('mmtools').innerHTML = MapEd.toolsHtml();
+  MapEd.init({readOnly:false});
+
+  var cur = {id:null, name:''}, dirty = false;
+  function status(msg, cls){ var s=$('mmstatus'); s.textContent=msg||''; s.className='mmstatus'+(cls?' '+cls:''); }
+  function setDirty(d){ dirty=d; var b=$('mmsave'); if(b) b.textContent = d ? 'Save •' : 'Save'; }
+  MapEd.onChange = function(){ setDirty(true); };
+  window.addEventListener('beforeunload', function(e){ if(dirty){ e.preventDefault(); e.returnValue=''; } });
+
+  function esc(s){ var d=document.createElement('span'); d.textContent=(s==null?'':s); return d.innerHTML; }
+  function fmtWhen(s){ return s ? String(s).slice(0,16) : ''; }
+  function fetchMap(id, cb){
+    fetch('/api/maps/'+id,{cache:'no-store'}).then(function(r){return r.json();})
+      .then(function(d){ if(d&&d.map) cb(d); else status('Couldn’t open that map','err'); })
+      .catch(function(){ status('Couldn’t open that map','err'); });
+  }
+  function listMaps(){
+    fetch('/api/maps',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
+      var ul=$('mmlist'); ul.innerHTML='';
+      var maps=j.maps||[];
+      if(!maps.length){ ul.innerHTML='<li class="mmempty">No saved maps yet — draw one above and hit Save.</li>'; return; }
+      maps.forEach(function(m){
+        var li=document.createElement('li');
+        li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids · '+esc(fmtWhen(m.updated_at))+'</span>'
+          +'<button class="mmbtn" data-act="load" type="button">Load</button>'
+          +'<button class="mmbtn" data-act="copy" type="button">Copy</button>'
+          +'<button class="mmbtn" data-act="del" type="button">Delete</button>';
+        li.querySelector('[data-act=load]').onclick=function(){ loadMap(m.id); };
+        li.querySelector('[data-act=copy]').onclick=function(){ fetchMap(m.id, function(d){ copyText(d.map, 'Copied “'+m.name+'” — paste it into the lobby’s map box.'); }); };
+        li.querySelector('[data-act=del]').onclick=function(){
+          if(!confirm('Delete “'+m.name+'”?')) return;
+          fetch('/api/maps/'+m.id,{method:'DELETE'}).then(function(r){return r.json();}).then(function(){
+            if(cur.id===m.id){ cur={id:null,name:''}; $('mmname').value=''; }
+            listMaps(); status('Deleted','ok');
+          }).catch(function(){ status('Delete failed','err'); });
+        };
+        ul.appendChild(li);
+      });
+    }).catch(function(){ $('mmlist').innerHTML='<li class="mmempty">Couldn’t load your maps — try again.</li>'; });
+  }
+  function loadMap(id){
+    if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+    fetchMap(id, function(d){
+      MapEd.load(d.map); MapEd.resetUndo();
+      cur={id:d.id,name:d.name}; $('mmname').value=d.name; setDirty(false);
+      status('Loaded “'+d.name+'”','ok'); window.scrollTo({top:0,behavior:'smooth'});
+    });
+  }
+  function save(){
+    var map=MapEd.str();
+    if(!map){ status('Place some asteroids first','err'); return; }
+    var name=($('mmname').value||'').trim()||'Untitled map';
+    var b=$('mmsave'); b.disabled=true; status('Saving…');
+    fetch('/api/maps',{method:'POST',headers:{'Content-Type':'application/json'},
+                       body:JSON.stringify({id:cur.id,name:name,map:map,size:MapEd.size()})})
+      .then(function(r){return r.json();}).then(function(j){ b.disabled=false;
+        if(!j.ok){ status(j.message||'Save failed','err'); return; }
+        cur={id:j.id,name:j.name}; $('mmname').value=j.name; setDirty(false); status('Saved','ok'); listMaps(); })
+      .catch(function(){ b.disabled=false; status('Save failed — network','err'); });
+  }
+  function copyText(text, okMsg){
+    if(!text){ status('Nothing to copy — the map is empty','err'); return; }
+    var done=function(){ status(okMsg||'Copied','ok'); },
+        fail=function(){ status('Copy failed — select the raw text below and copy it','err'); };
+    function fallback(){ try{ var t=$('o_custom_map'); var old=t.value; t.value=text; t.focus(); t.select();
+      var ok=document.execCommand('copy'); t.value=old; ok?done():fail(); }catch(e){ fail(); } }
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done, fallback); } else fallback();
+  }
+  $('mmsave').onclick=save;
+  $('mmnew').onclick=function(){ if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+    MapEd.clear(); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };
+  $('mmcopy').onclick=function(){ copyText(MapEd.str(), 'Copied — paste it into the lobby’s map box.'); };
+  $('mmname').addEventListener('input', function(){ setDirty(true); });
+  document.addEventListener('keydown', function(e){ if((e.ctrlKey||e.metaKey) && (e.key==='s'||e.key==='S')){ e.preventDefault(); save(); } });
+  listMaps();
+})();
+</script>
+{% endif %}
+{% endblock %}

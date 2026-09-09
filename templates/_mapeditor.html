@@ -1,0 +1,247 @@
+{# The shared custom-map editor. My Maps mounts it in full (draw/save); the lobby
+   page mounts it read-only as a preview + loader. Include it once per page, then
+   render MapEd.toolsHtml() (or just a <canvas id="mapcanvas">) and call
+   MapEd.init({readOnly}). It reads the page's #o_map_size / #o_friendly_colors /
+   #o_root_mode / #o_station_size when present (defaults otherwise) and keeps
+   #o_custom_map (a textarea) in sync with the grid. #}
+<style>
+.cgval{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums}
+.cgmap{padding:2px 0 4px}
+.cgmaptools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-bottom:8px}
+.cgmaptools input[type=range]{width:90px;accent-color:var(--green,#66e6b8);padding:0;border:0;background:none}
+.cgmap button{background:rgba(127,127,127,.14);border:1px solid var(--line);border-radius:6px;
+  padding:5px 10px;color:var(--text);font-size:11.5px;cursor:pointer;font-family:inherit}
+.cgmap button:hover{border-color:var(--green,#66e6b8)}
+.cgmapxy{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:var(--muted)}
+.cgmapxy input[type=number]{width:56px;text-align:center;-moz-appearance:textfield}
+.cgmapxy input::-webkit-outer-spin-button,.cgmapxy input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.cgxyhint{color:var(--text);font-variant-numeric:tabular-nums}
+.cgmap .cgchk{display:inline-flex;flex-direction:row;align-items:center;gap:5px;cursor:pointer;font-size:11.5px;color:var(--muted)}
+.cgmap .cgchk input{width:auto;margin:0;padding:0}
+.cgimgopts{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:var(--muted)}
+.cgimgopts>span{display:inline-flex;align-items:center;gap:5px}
+.cgimgopts input[type=range]{width:80px;accent-color:var(--green,#66e6b8);padding:0;border:0;background:none}
+.cgimgopts select{padding:3px 6px;font-size:11.5px}
+.cgimglbl{color:var(--text);font-weight:600}
+.cgimghint{flex-basis:100%;font-size:11px;opacity:.8}
+#mapcanvas{width:100%;max-width:320px;border:1px solid var(--line);border-radius:8px;
+  background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
+#mapcanvas.ro{cursor:default;max-width:240px}
+</style>
+<script>
+window.MapEd = (function(){
+  // ---- the grid <-> the Starblast custom_map string (map_size rows of map_size chars,
+  // digit 1-9 = an asteroid of that size, space = empty) ----
+  var mapGrid = null, mapErase = false, mapUndo = [], readOnly = false, fallbackSize = 80;
+  var api = { onChange: null };
+  function $(id){ return document.getElementById(id); }
+  function pushUndo(){ if(!mapGrid) return; mapUndo.push(mapGrid.map(function(row){ return row.slice(); }));
+    if(mapUndo.length>60) mapUndo.shift(); }
+  function doUndo(){ if(mapUndo.length){ mapGrid=mapUndo.pop(); drawMap(); syncMapText(); } }
+  // Mouse-wheel on a small slider = exactly ONE step (browsers otherwise skip).
+  function wheelStep(el){ if(!el) return; el.addEventListener('wheel', function(e){ e.preventDefault();
+    var st=parseFloat(el.step)||1, mn=parseFloat(el.min), mx=parseFloat(el.max);
+    var v=parseFloat(el.value)+(e.deltaY<0?st:-st); if(!isNaN(mn)) v=Math.max(mn,v); if(!isNaN(mx)) v=Math.min(mx,v);
+    v=Math.round(v/st)*st; var s=String(+v.toFixed(3));
+    if(s!==el.value){ el.value=s; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); } }, {passive:false}); }
+  function mapSize(){ var e=$('o_map_size'); return e?(parseInt(e.value,10)||fallbackSize):fallbackSize; }
+  function setSizeControl(size){ var r=$('o_map_size'); if(!r) return; r.value=size; var nn=$('o_map_size_n'); if(nn) nn.value=r.value; }
+  function newGrid(n){ var g=[]; for(var r=0;r<n;r++){ var row=[]; for(var c=0;c<n;c++) row.push(0); g.push(row); } return g; }
+  function gridToStr(g){ return g.map(function(row){ return row.map(function(c){ return c?String(c):' '; }).join(''); }).join('\n'); }
+  function strToGrid(str,n){ var g=newGrid(n); var lines=String(str||'').split('\n');
+    for(var r=0;r<n;r++){ var ln=lines[r]||''; for(var c=0;c<n;c++){ var ch=ln.charAt(c); g[r][c]=(ch>='0'&&ch<='9')?parseInt(ch,10):0; } } return g; }
+  function countCells(g){ var k=0; if(!g) return 0; for(var r=0;r<g.length;r++) for(var c=0;c<g[r].length;c++) if(g[r][c]) k++; return k; }
+  function drawMap(){ var cv=$('mapcanvas'); if(!cv||!mapGrid) return;
+    var n=mapGrid.length, ctx=cv.getContext('2d'), cs=cv.width/n;
+    ctx.clearRect(0,0,cv.width,cv.height);
+    for(var r=0;r<n;r++) for(var c=0;c<n;c++){ var v=mapGrid[r][c]; if(!v) continue;
+      ctx.beginPath(); ctx.fillStyle='#9aa4b2';
+      ctx.arc(c*cs+cs/2, r*cs+cs/2, Math.max(0.8,(cs/2)*(0.4+0.065*v)), 0, 6.2832); ctx.fill(); }
+    drawBases(ctx,n,cs,cv); }
+  // Team-mode bases, from the game's own base-warp geometry (the archive fit, 1 Sep):
+  // stations sit on a ring of radius MAP/4 around the centre sun, evenly spaced, and
+  // revolve once an hour - only the starting angle/direction differ per match. Drawn so
+  // you can build around them; the whole ring gets swept, so keep it in mind.
+  var TEAMCOL=['#ff6b6b','#5ee6a0','#66aaff'];
+  function drawBases(ctx,n,cs,cv){
+    var mode=($('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
+    var nt=parseInt(($('o_friendly_colors')||{}).value,10); if(isNaN(nt)) nt=3; if(nt<1) return;
+    var ss=parseFloat(($('o_station_size')||{}).value); if(isNaN(ss)) ss=2;
+    var cx=cv.width/2, cy=cv.height/2, R=(n/4)*cs;                   // ring radius = map/4
+    ctx.save();
+    ctx.setLineDash([4,4]); ctx.strokeStyle='rgba(255,255,255,.3)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,6.2832); ctx.stroke();        // the orbit the stations ride
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(255,220,120,.9)'; ctx.beginPath(); ctx.arc(cx,cy,Math.max(2,cs*0.6),0,6.2832); ctx.fill();   // the sun
+    var sr=Math.max(3, cs*1.5*ss);                                    // footprint grows with the station-size slider (approx.)
+    for(var i=0;i<nt;i++){ var ang=-Math.PI/2 + i*2*Math.PI/nt;        // team 1 at the top; the real phase varies per match
+      var x=cx+R*Math.cos(ang), y=cy+R*Math.sin(ang);
+      ctx.globalAlpha=0.85; ctx.fillStyle=TEAMCOL[i]||'#bbb';
+      ctx.beginPath(); ctx.rect(x-sr,y-sr,2*sr,2*sr); ctx.fill();
+      ctx.globalAlpha=1; ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle='#000'; ctx.font='bold '+Math.max(8,Math.min(12,sr))+'px system-ui';
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(i+1), x, y); }
+    ctx.restore(); }
+  function mapCell(cv,ev){ var n=mapGrid.length, rect=cv.getBoundingClientRect(), cs=cv.width/n;
+    var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
+    return {r:Math.floor(y/cs), c:Math.floor(x/cs), n:n}; }
+  // An empty grid serialises to '' (not a page of spaces) so a lobby with no rocks
+  // placed is NOT treated as a custom map.
+  function syncMapText(){ var t=$('o_custom_map'); if(t&&mapGrid) t.value = countCells(mapGrid) ? gridToStr(mapGrid) : '';
+    if(typeof api.onChange==='function') api.onChange(); }
+  // A pasted / picked map string -> auto-fill the size control, load the grid, re-serialise.
+  function loadMapString(raw){
+    raw=String(raw||'');
+    var lines=raw.replace(/\n+$/,'').split('\n');
+    var cols=0; for(var i=0;i<lines.length;i++){ var L=lines[i].replace(/\s+$/,'').length; if(L>cols) cols=L; }
+    var size=Math.max(20, Math.min(200, Math.max(lines.length, cols)));
+    if(!raw.trim()) size=mapSize();
+    setSizeControl(size); fallbackSize=size;
+    pushUndo(); mapGrid=strToGrid(raw, mapSize()); drawMap(); syncMapText(); xyBounds(); }
+  // ---- image -> asteroids: sample the picture onto the grid. By default bright = a
+  // bigger asteroid, black = empty (a light design on a black background). "Invert"
+  // flips it (dark = asteroids) for a dark design on a light background. ----
+  var mapLastImg = null;
+  function imgOpt(id,d){ var e=$(id); return e ? e.value : d; }
+  function imageToGrid(img){
+    var n=mapSize(), inv=!!($('mapinvert')||{}).checked;
+    var cut=(Math.max(0,Math.min(100,parseFloat(imgOpt('imgcut',11))||0))/100)*255;  // brightness needed to count
+    var fixed=(imgOpt('imgsizemode','bright')==='fixed');                            // fixed size vs by brightness
+    var sz=Math.max(1,Math.min(9,parseInt(imgOpt('imgsize',9),10)||9));             // the fixed size, or the max
+    var sp=Math.max(1,Math.min(4,parseInt(imgOpt('imgspace',1),10)||1));            // keep every sp-th cell
+    var oc=document.createElement('canvas'); oc.width=n; oc.height=n;
+    var x=oc.getContext('2d');
+    x.fillStyle= inv ? '#fff' : '#000'; x.fillRect(0,0,n,n);        // empty-side background so edges stay empty
+    var scale=Math.min(n/img.width, n/img.height);                 // contain-fit, keep the design's shape
+    var w=Math.max(1,img.width*scale), h=Math.max(1,img.height*scale);
+    x.drawImage(img,(n-w)/2,(n-h)/2,w,h);
+    var d; try { d=x.getImageData(0,0,n,n).data; } catch(e){ return null; }
+    var g=newGrid(n);
+    for(var r=0;r<n;r++) for(var c=0;c<n;c++){
+      var i=(r*n+c)*4, a=d[i+3], L=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+      if(inv) L=255-L;                                              // dark becomes the asteroid side
+      var v=0;
+      if(a>=40 && L>=cut && (sp===1 || (r%sp===0 && c%sp===0)))
+        v = fixed ? sz : Math.max(1, Math.min(sz, Math.round(L/255*sz)));
+      g[r][c]=v;
+    }
+    return g;
+  }
+  function applyLastImage(){ if(!mapLastImg) return; var g=imageToGrid(mapLastImg); if(g){ pushUndo(); mapGrid=g; drawMap(); syncMapText(); } }
+  // Start over: empty grid, no remembered image, every tool/option back to default (undoable).
+  function resetAll(){
+    pushUndo(); mapGrid=newGrid(mapSize()); mapLastImg=null; mapErase=false;
+    var set=function(id,v){ var e=$(id); if(e){ e.value=v; var b=$(id+'_v'); if(b) b.textContent=v+(id==='imgcut'?'%':''); } };
+    set('mapbrush',9); set('imgcut',11); set('imgsize',9); set('imgspace',1);
+    var sm=$('imgsizemode'); if(sm) sm.value='bright'; var inv=$('mapinvert'); if(inv) inv.checked=false;
+    var er=$('maperase'); if(er) er.textContent='Erase'; var fi=$('mapimgfile'); if(fi) fi.value='';
+    drawMap(); syncMapText(); }
+  function loadImageSrc(src){ var img=new Image(); img.onload=function(){ mapLastImg=img; applyLastImage(); }; img.src=src; }
+  function handleImageFile(file){
+    if(!file || !/^image\//.test(file.type||'')) return;
+    var rd=new FileReader(); rd.onload=function(){ loadImageSrc(rd.result); }; rd.readAsDataURL(file);
+  }
+  function xyBounds(){ var n=mapSize()-1; var xi=$('mapx'), yi=$('mapy'); if(xi) xi.max=n; if(yi) yi.max=n; }
+  function showXY(r,c){ var xi=$('mapx'), yi=$('mapy'), h=$('mapxyhint');
+    if(xi) xi.value=c; if(yi) yi.value=r;
+    if(h) h.textContent='('+c+', '+r+') = '+(mapGrid[r][c]?('size '+mapGrid[r][c]):'empty'); }
+  function brush(){ return parseInt(($('mapbrush')||{}).value||'9',10); }
+
+  // The full editing toolbar + canvas + image options + by-point row (My Maps renders
+  // this; the lobby page renders only a preview canvas).
+  function toolsHtml(){
+    return '<div class="cgmaptools"><span>Asteroid size</span>'
+      + '<input type="range" id="mapbrush" min="1" max="9" step="1" value="9"><span class="cgval" id="mapbrush_v">9</span>'
+      + '<button type="button" id="maperase">Erase</button>'
+      + '<button type="button" id="mapundo" title="Undo the last change">↶ Undo</button>'
+      + '<button type="button" id="mapclear" title="Clear the asteroids (keeps the loaded image and the options)">Clear</button>'
+      + '<button type="button" id="mapreset" title="Start over: clear the asteroids, forget the loaded image and put every option back to default">Reset all</button>'
+      + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button>'
+      + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button>'
+      + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
+      + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
+      + '<div class="cgimgopts"><span class="cgimglbl">Image → asteroids</span>'
+        + '<label class="cgchk"><input type="checkbox" id="mapinvert">Invert (dark = asteroids)</label>'
+        + '<span>Cutoff <input type="range" id="imgcut" min="0" max="100" step="1" value="11"><b class="cgval" id="imgcut_v">11%</b></span>'
+        + '<span>Size <select id="imgsizemode"><option value="bright">by brightness, up to</option><option value="fixed">fixed at</option></select>'
+          + '<input type="range" id="imgsize" min="1" max="9" step="1" value="9"><b class="cgval" id="imgsize_v">9</b></span>'
+        + '<span>Spacing <input type="range" id="imgspace" min="1" max="4" step="1" value="1"><b class="cgval" id="imgspace_v">1</b></span>'
+        + '<span class="cgimghint">Tweak these after importing — the last image re-traces live.</span></div>'
+      + '<div class="cgmapxy">By point: X<input type="number" id="mapx" min="0" value="0">Y<input type="number" id="mapy" min="0" value="0">'
+        + '<button type="button" id="mapplace" title="Place an asteroid of the current size at X,Y">Place</button>'
+        + '<button type="button" id="mapremove" title="Remove the asteroid at X,Y">Remove</button>'
+        + '<span id="mapxyhint" class="cgxyhint"></span></div>';
+  }
+
+  function init(opts){
+    opts=opts||{}; readOnly=!!opts.readOnly; if(opts.size) fallbackSize=opts.size;
+    var cv=$('mapcanvas'); if(!cv) return;
+    if(readOnly) cv.classList.add('ro');
+    mapGrid=newGrid(mapSize()); mapUndo=[]; drawMap(); xyBounds();
+    // load-ish bindings (both modes)
+    var im=$('mapimport'); if(im) im.onclick=function(){ var t=$('o_custom_map'); loadMapString(t?t.value:''); };
+    var ms=$('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); pushUndo(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); xyBounds(); });
+    ['o_root_mode','o_friendly_colors','o_station_size'].forEach(function(id){ var e=$(id); if(!e) return;   // base overlay follows the game settings
+      e.addEventListener('input', drawMap); e.addEventListener('change', drawMap); });
+    if(readOnly) return;
+    // ---- editing bindings ----
+    var painting=false;
+    function apply(pt){ var p=mapCell(cv,pt); if(p.r<0||p.c<0||p.r>=p.n||p.c>=p.n) return;
+      mapGrid[p.r][p.c]=mapErase?0:brush(); drawMap(); syncMapText(); showXY(p.r,p.c); }
+    function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY}; }
+    cv.addEventListener('mousedown', function(e){ pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
+    cv.addEventListener('mousemove', function(e){ if(painting) apply(pt(e)); });
+    window.addEventListener('mouseup', function(){ painting=false; });
+    cv.addEventListener('touchstart', function(e){ pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
+    cv.addEventListener('touchmove', function(e){ if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
+    window.addEventListener('touchend', function(){ painting=false; });
+    var bv=$('mapbrush'); if(bv){ bv.addEventListener('input', function(){
+      $('mapbrush_v').textContent=this.value; mapErase=false; var er=$('maperase'); if(er) er.textContent='Erase'; });
+      wheelStep(bv); }
+    var er=$('maperase'); if(er) er.onclick=function(){ mapErase=!mapErase; er.textContent=mapErase?'Erasing ✓':'Erase'; };
+    // image import: button -> file picker, plus drag-drop onto the canvas and Ctrl-V paste
+    var fi=$('mapimgfile'), ib=$('mapimg'); if(ib&&fi) ib.onclick=function(){ fi.click(); };
+    if(fi) fi.onchange=function(){ if(this.files&&this.files[0]) handleImageFile(this.files[0]); this.value=''; };
+    cv.addEventListener('dragover', function(e){ e.preventDefault(); });
+    cv.addEventListener('drop', function(e){ e.preventDefault();
+      var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(f) handleImageFile(f); });
+    if(!window.__cgPasteBound){ window.__cgPasteBound=true;
+      document.addEventListener('paste', function(e){
+        if(!$('mapcanvas') || readOnly) return;
+        var items=(e.clipboardData||{}).items||[];
+        for(var i=0;i<items.length;i++){ if(items[i].type && items[i].type.indexOf('image')===0){
+          var f=items[i].getAsFile(); if(f){ e.preventDefault(); handleImageFile(f); } return; } }
+      }); }
+    var inv=$('mapinvert'); if(inv) inv.onchange=applyLastImage;   // re-trace the last image flipped
+    ['imgcut','imgsize','imgspace'].forEach(function(id){ var e=$(id); if(!e) return;   // image options
+      e.addEventListener('input', function(){ var b=$(id+'_v'); if(b) b.textContent=this.value+(id==='imgcut'?'%':''); });
+      e.addEventListener('change', applyLastImage); wheelStep(e); });
+    var sm=$('imgsizemode'); if(sm) sm.onchange=applyLastImage;
+    var cl=$('mapclear'); if(cl) cl.onclick=function(){ pushUndo(); mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
+    var rs=$('mapreset'); if(rs) rs.onclick=resetAll;
+    var ub=$('mapundo'); if(ub) ub.onclick=doUndo;
+    if(!window.__cgUndoBound){ window.__cgUndoBound=true;
+      document.addEventListener('keydown', function(e){
+        if((e.ctrlKey||e.metaKey) && (e.key==='z'||e.key==='Z') && $('mapcanvas') && !readOnly){
+          var tag=(e.target&&e.target.tagName)||''; if(tag==='TEXTAREA'||tag==='INPUT') return;   // let text undo work
+          e.preventDefault(); doUndo(); } }); }
+    // exact point editor: type X,Y then Place (current brush size) or Remove
+    function xyCell(){ var n=mapSize(); var c=parseInt(($('mapx')||{}).value,10), r=parseInt(($('mapy')||{}).value,10);
+      if(isNaN(c)||isNaN(r)||r<0||c<0||r>=n||c>=n) return null; return {r:r,c:c}; }
+    var pl=$('mapplace'); if(pl) pl.onclick=function(){ var p=xyCell(); if(!p) return; pushUndo(); mapGrid[p.r][p.c]=brush(); drawMap(); syncMapText(); showXY(p.r,p.c); };
+    var rm=$('mapremove'); if(rm) rm.onclick=function(){ var p=xyCell(); if(!p) return; pushUndo(); mapGrid[p.r][p.c]=0; drawMap(); syncMapText(); showXY(p.r,p.c); };
+  }
+
+  api.init = init;
+  api.toolsHtml = toolsHtml;
+  api.load = loadMapString;                       // a map string -> size control + grid + textarea
+  api.str = function(){ return (mapGrid && countCells(mapGrid)) ? gridToStr(mapGrid) : ''; };
+  api.count = function(){ return countCells(mapGrid); };
+  api.size = function(){ return mapGrid ? mapGrid.length : mapSize(); };
+  api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
+  api.draw = drawMap;
+  api.resetUndo = function(){ mapUndo=[]; };
+  api.resetAll = resetAll;
+  return api;
+})();
+</script>

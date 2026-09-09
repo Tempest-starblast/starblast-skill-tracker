@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.8"
+APP_VERSION = "9.9.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2032,6 +2032,18 @@ def init_db():
             c.execute("ALTER TABLE custom_game ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
             pass
+    # My Maps: custom asteroid maps built in the site's map editor, saved per
+    # account, picked (or copy-pasted) into an owner-hosted custom lobby.
+    c.execute('''CREATE TABLE IF NOT EXISTS custom_maps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_sub TEXT NOT NULL,
+        name TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        map TEXT NOT NULL,
+        cells INTEGER DEFAULT 0,
+        created_at TEXT,
+        updated_at TEXT)''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_custom_maps_owner ON custom_maps(owner_sub)")
     # The game's own deathmatch ladder, snapshotted daily by the bot
     # (the free tier here cannot fetch starblast.io itself). account_id
     # is the game's stable ECP id, so across days this table remembers
@@ -4468,6 +4480,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.9.0", "at": "2026-09-09T04:00:00Z", "changes": [
+        "New: My Maps (More → My Maps) — a standalone map workshop for the custom lobby. Draw asteroids, trace an image, place exact points, undo — with the sun, the station orbit and the team bases drawn so you can build around them. Name and save as many maps as you like, and load, copy or delete them any time. Open to the host and established Odyssey players, so anyone at that level can build a map and pass it to the host.",
+        "Opening a lobby now takes a saved map: pick one from My Maps in the lobby's Custom settings, or copy a map in My Maps and paste it in. The lobby page just previews the chosen map (with your team and station settings) instead of hosting the whole editor."
+    ]},
     {"version": "9.8.8", "at": "2026-09-09T02:30:00Z", "changes": [
         "The map editor now shows where the team stations will be. In team mode it draws the sun at the centre, the ring the stations ride (they revolve around it once an hour, so the whole ring gets swept), and one marker per team sized to your station setting — based on the game's real base placement — so you can build the map around them instead of guessing.",
         "Image → asteroids got proper controls: an Invert option (for a dark design on a light background), a brightness cutoff, a choice of a fixed asteroid size or size-by-brightness with a cap, and a spacing setting to thin the field. Change any of them and the last image re-traces on the spot.",
@@ -12133,6 +12149,8 @@ def api_customgame_open():
     opts = normalize_custom_options(body.get("options") or {})
     mod_code = str(body.get("mod_code") or "")[:CUSTOM_MOD_MAX]
     custom_map = normalize_custom_map(body.get("custom_map"))
+    if not re.search(r'[1-9]', custom_map):     # a blank grid is no custom map at all
+        custom_map = ''
     join_gate = body.get("join_gate")
     join_gate = join_gate if join_gate in ("odyssey", "open") else "odyssey"
     rated = 1 if (custom_is_rated(opts, mod_code) and not custom_map) else 0
@@ -12273,6 +12291,104 @@ def api_customgame_discord():
                     "sid": (row[2] if row else None),
                     "msg_id": (row[3] if row else '') or '',
                     "posted_link": (row[4] if row else '') or ''}), 200
+
+
+MAPS_PER_USER = 40
+MAP_NAME_MAX = 40
+
+
+def _can_use_maps(sub_id):
+    """My Maps is for the people who can use the custom lobby: the host, plus any
+    established Odyssey player (who can build a map and copy it to the host)."""
+    return bool(sub_id) and (_can_host_custom(sub_id) or _user_meets_custom_gate(sub_id))
+
+
+@app.route('/api/maps', methods=['GET', 'POST'])
+def api_maps():
+    """GET: the signed-in account's saved maps (no map text). POST: save one -
+    {id?, name, map}; an id updates that map (yours only), no id creates one."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    if not _can_use_maps(sub_id):
+        return jsonify({"ok": False, "message": "My Maps is for Odyssey players and the host."}), 403
+    conn = db()
+    c = conn.cursor()
+    if request.method == 'GET':
+        rows = c.execute("SELECT id, name, size, cells, updated_at FROM custom_maps "
+                         "WHERE owner_sub = ? ORDER BY updated_at DESC, id DESC", (sub_id,)).fetchall()
+        conn.close()
+        return jsonify({"ok": True, "maps": [{"id": r[0], "name": r[1], "size": r[2],
+                                              "cells": r[3] or 0, "updated_at": r[4] or ''}
+                                             for r in rows]}), 200
+    body = request.json or {}
+    name = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get("name") or "")).strip()[:MAP_NAME_MAX] or "Untitled map"
+    cmap = normalize_custom_map(body.get("map"))
+    if not re.search(r'[1-9]', cmap):
+        conn.close()
+        return jsonify({"ok": False, "message": "That map is empty - place some asteroids first."}), 400
+    lines = cmap.rstrip('\n').split('\n')
+    size = max(20, min(200, max(len(lines), max(len(l.rstrip()) for l in lines))))
+    cells = sum(1 for ch in cmap if ch in '123456789')
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    mid = body.get("id")
+    try:
+        mid = int(mid) if mid not in (None, '') else None
+    except (TypeError, ValueError):
+        mid = None
+    if mid is not None:
+        own = c.execute("SELECT owner_sub FROM custom_maps WHERE id = ?", (mid,)).fetchone()
+        if not own or own[0] != sub_id:
+            conn.close()
+            return jsonify({"ok": False, "message": "That map isn't yours."}), 403
+        c.execute("UPDATE custom_maps SET name=?, size=?, map=?, cells=?, updated_at=? WHERE id = ?",
+                  (name, size, cmap, cells, now, mid))
+    else:
+        n = c.execute("SELECT COUNT(*) FROM custom_maps WHERE owner_sub = ?", (sub_id,)).fetchone()[0]
+        if n >= MAPS_PER_USER:
+            conn.close()
+            return jsonify({"ok": False, "message": "You have %d maps saved - delete one to make room."
+                            % MAPS_PER_USER}), 400
+        c.execute("INSERT INTO custom_maps (owner_sub, name, size, map, cells, created_at, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?)", (sub_id, name, size, cmap, cells, now, now))
+        mid = c.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "id": mid, "name": name, "size": size, "cells": cells}), 200
+
+
+@app.route('/api/maps/<int:mid>', methods=['GET', 'DELETE'])
+def api_map_one(mid):
+    """One of your maps: GET returns it with the map text (for loading / copying);
+    DELETE removes it."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    if not _can_use_maps(sub_id):
+        return jsonify({"ok": False, "message": "My Maps is for Odyssey players and the host."}), 403
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT id, owner_sub, name, size, map, cells FROM custom_maps WHERE id = ?",
+                    (mid,)).fetchone()
+    if not row or row[1] != sub_id:
+        conn.close()
+        return jsonify({"ok": False, "message": "No such map."}), 404
+    if request.method == 'DELETE':
+        c.execute("DELETE FROM custom_maps WHERE id = ?", (mid,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True}), 200
+    conn.close()
+    return jsonify({"ok": True, "id": row[0], "name": row[2], "size": row[3], "map": row[4],
+                    "cells": row[5] or 0}), 200
+
+
+@app.route('/mymaps')
+def mymaps_page():
+    """The map workshop: build, save and copy custom asteroid maps for the lobby."""
+    sub_id = current_user()
+    return render_template('mymaps.html', page='mymaps', version=APP_VERSION,
+                           signed_in=bool(sub_id), allowed=_can_use_maps(sub_id))
 
 
 @app.route('/customgame')
