@@ -633,8 +633,11 @@ function buildReplay(ST, RD){
     var stlayRaw = res.stlay || null;
     var drawRawStations = null;
     if(stSeries && stlayRaw){
-      var stColor = function(hp){ return (hp == null) ? '#3a4655'
-        : hp === 0 ? '#63263a' : hp >= 252 ? '#66e6b8' : hp >= 140 ? '#f0c04a' : '#ff7a7a'; };
+      // Intact = the team's own colour (see modColor below - this is the RAW
+      // full-match path, which is the one normally on screen).
+      var stColor = function(hp, team){ return (hp == null) ? '#3a4655'
+        : hp === 0 ? '#63263a' : hp >= 252 ? (COLS[team] || '#66e6b8')
+        : hp >= 140 ? '#f0c04a' : '#ff7a7a'; };
       var stationOne = function(team, i){
         var lay = stlayRaw[team], s = (stSeries[i] || [])[team];
         if(!lay || !lay.length) return {svg: '', meta: ''};
@@ -650,7 +653,7 @@ function buildReplay(ST, RD){
         lay.forEach(function(m){
           if(m[2] == null) return;
           var hp = (s && s[2] && s[2].length > m[0]) ? s[2][m[0]] : null;
-          var c = stColor(hp), ty = String(m[1] || ''), x = +m[2], y = -m[3];
+          var c = stColor(hp, team), ty = String(m[1] || ''), x = +m[2], y = -m[3];
           var r = ty[0] === 'd' ? 0.44 : ty.slice(0,2) === 'sp' ? 0.36 : 0.3;
           var shape = ty.slice(0,2) === 'sp' ? '<circle cx="'+x+'" cy="'+y+'" r="'+r+'"'
             : '<rect x="'+(x-r)+'" y="'+(y-r)+'" width="'+(2*r)+'" height="'+(2*r)+'" rx="0.08"';
