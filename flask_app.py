@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.8.5"
+APP_VERSION = "9.8.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2027,7 +2027,7 @@ def init_db():
     for _col in ("discord_msg_id TEXT", "discord_posted_link TEXT",
                  "options_json TEXT", "mod_code TEXT", "rated INTEGER",
                  "join_gate TEXT", "last_error TEXT", "extracted_json TEXT",
-                 "custom_map TEXT"):
+                 "custom_map TEXT", "stop_requested INTEGER"):
         try:
             c.execute("ALTER TABLE custom_game ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -4468,6 +4468,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.8.6", "at": "2026-09-09T00:30:00Z", "changes": [
+        "The custom-lobby map editor can build a map from an image. Drop or paste a picture (or use “From image”) — a design on a black background — and it’s traced onto the grid as asteroids: brighter areas become bigger asteroids, black stays empty. Tidy the result by hand afterwards if you like.",
+        "The host can now stop a running lobby on demand — there’s a Stop lobby button on the live-lobby screen, so you don’t have to wait for it to empty out and close itself.",
+        "Small fix: scrolling the asteroid-size control now moves one step at a time instead of skipping."
+    ]},
     {"version": "9.8.5", "at": "2026-09-08T22:30:00Z", "changes": [
         "The Odyssey custom-lobby builder has a drag-to-draw map editor. When you open a lobby, the Custom settings now include a grid you can paint asteroids onto — pick an asteroid size and drag to place them, erase or clear, and it fills the whole map live. Prefer to type? Paste a raw Starblast custom map into the box and hit “Apply pasted” to load it onto the grid, then tweak it by hand. A custom map makes the game unrated (it still records who played, their teams, time and score)."
     ]},
@@ -12087,7 +12092,8 @@ def api_customgame_set():
     # "clear the link" (no error field, e.g. finish/boot) leaves the error alone
     # so a mod rejection's message survives the finish() clear that follows it.
     if link:
-        c.execute("UPDATE custom_game SET last_error='' WHERE id = 1")
+        # fresh lobby up: clear any prior error and any stale stop request
+        c.execute("UPDATE custom_game SET last_error='', stop_requested=0 WHERE id = 1")
     elif 'error' in d:
         c.execute("UPDATE custom_game SET last_error=? WHERE id = 1",
                   (str(d.get('error') or '')[:400],))
@@ -12127,11 +12133,11 @@ def api_customgame_open():
     if row and row[0]:
         conn.close()
         return jsonify({"ok": True, "already": True, "message": "A lobby is already up."}), 200
-    c.execute("INSERT INTO custom_game (id, wanted_at, options_json, mod_code, rated, join_gate, last_error, extracted_json, custom_map) "
-              "VALUES (1, ?, ?, ?, ?, ?, '', '', ?) ON CONFLICT(id) DO UPDATE SET "
+    c.execute("INSERT INTO custom_game (id, wanted_at, options_json, mod_code, rated, join_gate, last_error, extracted_json, custom_map, stop_requested) "
+              "VALUES (1, ?, ?, ?, ?, ?, '', '', ?, 0) ON CONFLICT(id) DO UPDATE SET "
               "wanted_at=excluded.wanted_at, options_json=excluded.options_json, "
               "mod_code=excluded.mod_code, rated=excluded.rated, join_gate=excluded.join_gate, "
-              "last_error='', extracted_json='', custom_map=excluded.custom_map",
+              "last_error='', extracted_json='', custom_map=excluded.custom_map, stop_requested=0",
               (time.strftime('%Y-%m-%d %H:%M:%S'), json.dumps(opts), mod_code, rated, join_gate, custom_map))
     conn.commit()
     conn.close()
@@ -12196,6 +12202,38 @@ def api_customgame_status():
                     "region": region, "opening": bool(wanted_at and not link),
                     # only the host needs to see why their open failed
                     "error": (last_error if (can_host and last_error and not link) else None)}), 200
+
+
+@app.route('/api/customgame/stop', methods=['POST'])
+def api_customgame_stop():
+    """The host (owner only) asks to shut the running lobby down now. Sets the
+    stop flag the droplet host checks each tick, and clears wanted_at so it
+    doesn't just re-open. The host then ends the game and clears the link."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    if not _can_host_custom(sub_id):
+        return jsonify({"ok": False, "message": "Only the host can stop a lobby."}), 403
+    conn = db()
+    c = conn.cursor()
+    c.execute("INSERT INTO custom_game (id, stop_requested, wanted_at) VALUES (1, 1, '') "
+              "ON CONFLICT(id) DO UPDATE SET stop_requested=1, wanted_at=''")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/api/customgame/stopcheck')
+def api_customgame_stopcheck():
+    """The droplet host polls this while a lobby runs: has the owner asked to
+    stop it? Key-gated."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT stop_requested FROM custom_game WHERE id = 1").fetchone()
+    conn.close()
+    return jsonify({"stop": bool(row and row[0])}), 200
 
 
 @app.route('/api/customgame/discord', methods=['GET', 'POST'])

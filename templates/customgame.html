@@ -54,8 +54,16 @@
 .cgmap button{background:rgba(127,127,127,.14);border:1px solid var(--line);border-radius:6px;
   padding:5px 10px;color:var(--text);font-size:11.5px;cursor:pointer}
 .cgmap button:hover{border-color:var(--green,#66e6b8)}
+.cgmapxy{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:var(--muted)}
+.cgmapxy input[type=number]{width:56px;text-align:center;-moz-appearance:textfield}
+.cgmapxy input::-webkit-outer-spin-button,.cgmapxy input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.cgxyhint{color:var(--text);font-variant-numeric:tabular-nums}
 #mapcanvas{width:100%;max-width:320px;border:1px solid var(--line);border-radius:8px;
   background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
+.cgstop{display:block;margin:14px 0 0;width:100%;padding:9px 14px;border-radius:9px;cursor:pointer;
+  font-size:13px;font-weight:600;color:#ff8a8a;background:rgba(255,90,90,.08);border:1px solid rgba(255,90,90,.35)}
+.cgstop:hover{background:rgba(255,90,90,.16)}
+.cgstop:disabled{opacity:.6;cursor:default}
 {% endblock %}
 {% block body %}
 <div class="cgwrap">
@@ -111,7 +119,15 @@
       + '<a class="cglink" href="'+esc(l)+'" target="_blank" rel="noopener">▶ Join the lobby</a>'
       + '<div class="cgmeta">'+(region?('<b>'+esc(region.charAt(0).toUpperCase()+region.slice(1))+'</b> · '):'')
       + 'live now. Plays like regular team mode. Keep your verified Odyssey name — anyone the lobby doesn’t recognise as Odyssey is removed automatically.</div>'
-      + '<div class="cghint">Opens Starblast in a new tab — it takes a few seconds to load the arena. An empty lobby closes after ~3&nbsp;minutes, so hop in.</div>';
+      + '<div class="cghint">Opens Starblast in a new tab — it takes a few seconds to load the arena. An empty lobby closes after ~3&nbsp;minutes, so hop in.</div>'
+      + (canHost ? '<button class="cgstop" id="cgstop" type="button">Stop lobby</button>' : '');
+    var sb = document.getElementById('cgstop');
+    if(sb) sb.onclick = function(){
+      sb.disabled = true; sb.textContent = 'Stopping…';
+      fetch('/api/customgame/stop', {method:'POST'})
+        .catch(function(){ sb.disabled=false; sb.textContent='Stop lobby'; });
+      // the status poll will see the link clear and flip back to the open form
+    };
   }
   function opt(id,label,type,attrs,val){
     return '<label>'+label+'<input id="'+id+'" type="'+type+'" '+(attrs||'')+' value="'+(val==null?'':val)+'"></label>';
@@ -132,7 +148,10 @@
   }
 
   // ---- custom map editor: a painted grid <-> the Starblast custom_map string ----
-  var mapGrid = null, mapErase = false;
+  var mapGrid = null, mapErase = false, mapUndo = [];
+  function pushUndo(){ if(!mapGrid) return; mapUndo.push(mapGrid.map(function(row){ return row.slice(); }));
+    if(mapUndo.length>60) mapUndo.shift(); }
+  function doUndo(){ if(mapUndo.length){ mapGrid=mapUndo.pop(); drawMap(); syncMapText(); } }
   function mapSize(){ var e=document.getElementById('o_map_size'); return e?(parseInt(e.value,10)||80):80; }
   function newGrid(n){ var g=[]; for(var r=0;r<n;r++){ var row=[]; for(var c=0;c<n;c++) row.push(0); g.push(row); } return g; }
   function gridToStr(g){ return g.map(function(row){ return row.map(function(c){ return c?String(c):' '; }).join(''); }).join('\n'); }
@@ -148,33 +167,101 @@
     var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
     return {r:Math.floor(y/cs), c:Math.floor(x/cs), n:n}; }
   function syncMapText(){ var t=document.getElementById('o_custom_map'); if(t&&mapGrid) t.value=gridToStr(mapGrid); }
+  // ---- image -> asteroids: sample the picture onto the grid, brightness = size, black = empty ----
+  function imageToGrid(img){
+    var n=mapSize();
+    var oc=document.createElement('canvas'); oc.width=n; oc.height=n;
+    var x=oc.getContext('2d');
+    x.fillStyle='#000'; x.fillRect(0,0,n,n);                       // black = empty background
+    var scale=Math.min(n/img.width, n/img.height);                 // contain-fit, keep the design's shape
+    var w=Math.max(1,img.width*scale), h=Math.max(1,img.height*scale);
+    x.drawImage(img,(n-w)/2,(n-h)/2,w,h);
+    var d; try { d=x.getImageData(0,0,n,n).data; } catch(e){ return null; }
+    var g=newGrid(n);
+    for(var r=0;r<n;r++) for(var c=0;c<n;c++){
+      var i=(r*n+c)*4, a=d[i+3], L=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+      g[r][c] = (a<40 || L<28) ? 0 : Math.max(1, Math.min(9, Math.round(L/255*9)));  // dark/transparent = empty
+    }
+    return g;
+  }
+  function loadImageSrc(src){
+    var img=new Image();
+    img.onload=function(){ var g=imageToGrid(img); if(g){ pushUndo(); mapGrid=g; drawMap(); syncMapText(); } };
+    img.src=src;
+  }
+  function handleImageFile(file){
+    if(!file || !/^image\//.test(file.type||'')) return;
+    var rd=new FileReader(); rd.onload=function(){ loadImageSrc(rd.result); }; rd.readAsDataURL(file);
+  }
   function initMapEditor(){
     var cv=document.getElementById('mapcanvas'); if(!cv) return;
     mapGrid=newGrid(mapSize()); drawMap();
     var painting=false;
+    function showXY(r,c){ var xi=document.getElementById('mapx'), yi=document.getElementById('mapy'),
+      h=document.getElementById('mapxyhint');
+      if(xi) xi.value=c; if(yi) yi.value=r;
+      if(h) h.textContent='('+c+', '+r+') = '+(mapGrid[r][c]?('size '+mapGrid[r][c]):'empty'); }
     function apply(pt){ var p=mapCell(cv,pt); if(p.r<0||p.c<0||p.r>=p.n||p.c>=p.n) return;
       var b=parseInt((document.getElementById('mapbrush')||{}).value||'9',10);
-      mapGrid[p.r][p.c]=mapErase?0:b; drawMap(); syncMapText(); }
+      mapGrid[p.r][p.c]=mapErase?0:b; drawMap(); syncMapText(); showXY(p.r,p.c); }
     function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY}; }
-    cv.addEventListener('mousedown', function(e){ painting=true; apply(pt(e)); e.preventDefault(); });
+    cv.addEventListener('mousedown', function(e){ pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
     cv.addEventListener('mousemove', function(e){ if(painting) apply(pt(e)); });
     window.addEventListener('mouseup', function(){ painting=false; });
-    cv.addEventListener('touchstart', function(e){ painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
+    cv.addEventListener('touchstart', function(e){ pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
     cv.addEventListener('touchmove', function(e){ if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
     window.addEventListener('touchend', function(){ painting=false; });
-    var bv=document.getElementById('mapbrush'); if(bv) bv.addEventListener('input', function(){
+    var bv=document.getElementById('mapbrush'); if(bv){ bv.addEventListener('input', function(){
       document.getElementById('mapbrush_v').textContent=this.value; mapErase=false;
       var er=document.getElementById('maperase'); if(er) er.textContent='Erase'; });
+      bv.addEventListener('wheel', function(e){ e.preventDefault();          // scroll steps by exactly 1
+        var v=parseInt(this.value,10)+(e.deltaY<0?1:-1); v=Math.max(1,Math.min(9,v));
+        if(String(v)!==this.value){ this.value=v; this.dispatchEvent(new Event('input')); } }, {passive:false}); }
     var er=document.getElementById('maperase'); if(er) er.onclick=function(){ mapErase=!mapErase; er.textContent=mapErase?'Erasing ✓':'Erase'; };
-    var cl=document.getElementById('mapclear'); if(cl) cl.onclick=function(){ mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
+    // image import: button -> file picker, plus drag-drop onto the canvas and Ctrl-V paste
+    var fi=document.getElementById('mapimgfile');
+    var ib=document.getElementById('mapimg'); if(ib&&fi) ib.onclick=function(){ fi.click(); };
+    if(fi) fi.onchange=function(){ if(this.files&&this.files[0]) handleImageFile(this.files[0]); this.value=''; };
+    cv.addEventListener('dragover', function(e){ e.preventDefault(); });
+    cv.addEventListener('drop', function(e){ e.preventDefault();
+      var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(f) handleImageFile(f); });
+    if(!window.__cgPasteBound){ window.__cgPasteBound=true;
+      document.addEventListener('paste', function(e){
+        if(!document.getElementById('mapcanvas')) return;               // only on the editor page
+        var items=(e.clipboardData||{}).items||[];
+        for(var i=0;i<items.length;i++){ if(items[i].type && items[i].type.indexOf('image')===0){
+          var f=items[i].getAsFile(); if(f){ e.preventDefault(); handleImageFile(f); } return; } }
+      }); }
+    var cl=document.getElementById('mapclear'); if(cl) cl.onclick=function(){ pushUndo(); mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
     var im=document.getElementById('mapimport'); if(im) im.onclick=function(){   // paste -> auto-fill the size, load the grid, re-serialise
       var t=document.getElementById('o_custom_map'); var raw=t?t.value:'';
       var lines=String(raw).replace(/\n+$/,'').split('\n');
       var cols=0; for(var i=0;i<lines.length;i++){ var L=lines[i].replace(/\s+$/,'').length; if(L>cols) cols=L; }
       var size=Math.max(20, Math.min(200, Math.max(lines.length, cols)));
       var r=document.getElementById('o_map_size'); if(r){ r.value=size; var nn=document.getElementById('o_map_size_n'); if(nn) nn.value=r.value; }
-      mapGrid=strToGrid(raw, mapSize()); drawMap(); syncMapText(); };
-    var ms=document.getElementById('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); });
+      pushUndo(); mapGrid=strToGrid(raw, mapSize()); drawMap(); syncMapText(); xyBounds(); };
+    // Undo (button + Ctrl-Z)
+    var ub=document.getElementById('mapundo'); if(ub) ub.onclick=doUndo;
+    if(!window.__cgUndoBound){ window.__cgUndoBound=true;
+      document.addEventListener('keydown', function(e){
+        if((e.ctrlKey||e.metaKey) && (e.key==='z'||e.key==='Z') && document.getElementById('mapcanvas')){
+          var tag=(e.target&&e.target.tagName)||''; if(tag==='TEXTAREA') return;   // let text undo work
+          e.preventDefault(); doUndo(); } }); }
+    // Exact point editor: type X,Y then Place (current brush size) or Remove
+    function xyBounds(){ var n=mapSize()-1;
+      var xi=document.getElementById('mapx'), yi=document.getElementById('mapy');
+      if(xi) xi.max=n; if(yi) yi.max=n; }
+    function xyCell(){ var n=mapSize();
+      var c=parseInt((document.getElementById('mapx')||{}).value,10),
+          r=parseInt((document.getElementById('mapy')||{}).value,10);
+      if(isNaN(c)||isNaN(r)||r<0||c<0||r>=n||c>=n) return null; return {r:r,c:c}; }
+    var pl=document.getElementById('mapplace'); if(pl) pl.onclick=function(){ var p=xyCell(); if(!p) return;
+      var b=parseInt((document.getElementById('mapbrush')||{}).value||'9',10);
+      pushUndo(); mapGrid[p.r][p.c]=b; drawMap(); syncMapText(); showXY(p.r,p.c); };
+    var rm=document.getElementById('mapremove'); if(rm) rm.onclick=function(){ var p=xyCell(); if(!p) return;
+      pushUndo(); mapGrid[p.r][p.c]=0; drawMap(); syncMapText(); showXY(p.r,p.c); };
+    xyBounds();
+    var ms=document.getElementById('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); pushUndo(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); xyBounds(); });
   }
   function renderOpen(){          // host (owner) only
     if(shown === 'open'){ return; }
@@ -193,12 +280,19 @@
       + '<label class="full">Map name<input id="o_map_name" type="text" maxlength="24" value=""></label>'
       + '<div class="full cgmap">'
         + '<div class="cgmaptools"><span>Asteroid size</span>'
-          + '<input type="range" id="mapbrush" min="1" max="9" value="9"><span class="cgval" id="mapbrush_v">9</span>'
+          + '<input type="range" id="mapbrush" min="1" max="9" step="1" value="9"><span class="cgval" id="mapbrush_v">9</span>'
           + '<button type="button" id="maperase">Erase</button>'
+          + '<button type="button" id="mapundo" title="Undo the last change">↶ Undo</button>'
           + '<button type="button" id="mapclear">Clear</button>'
-          + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button></div>'
+          + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button>'
+          + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button>'
+          + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
         + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
-        + '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Custom map — drag on the grid to place asteroids, or paste a raw map below and hit “Apply pasted” (a custom map makes the game unrated)'
+        + '<div class="cgmapxy">By point: X<input type="number" id="mapx" min="0" value="0">Y<input type="number" id="mapy" min="0" value="0">'
+          + '<button type="button" id="mapplace" title="Place an asteroid of the current size at X,Y">Place</button>'
+          + '<button type="button" id="mapremove" title="Remove the asteroid at X,Y">Remove</button>'
+          + '<span id="mapxyhint" class="cgxyhint"></span></div>'
+        + '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Custom map — drag on the grid to place asteroids (click a cell to pick its X,Y), set an exact point with the boxes above, paste a raw map below and hit “Apply pasted”, or drop/paste an image (a design on a black background) and “From image” traces it into asteroids. Any custom map makes the game unrated.'
           + '<textarea id="o_custom_map" spellcheck="false" placeholder="Optional. Paste a Starblast custom_map string here, or just draw on the grid above."></textarea></label></div>'
       + '<label class="full">Import a mod (JS — team mode only, unrated)<textarea id="o_mod_code" placeholder="Optional: paste a Starblast mod here. Its settings are pulled in automatically. Must be a team-mode mod."></textarea></label>'
       + '<p class="note">Leave everything as-is for the <b>standard rated</b> lobby. Change anything (or import a mod) and it’s <b>unrated</b> — but it still records who won/lost, their teams, how long they played and their score.</p>';
