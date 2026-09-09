@@ -314,6 +314,24 @@
       fetch('/api/maps/'+encodeURIComponent(id),{cache:'no-store'}).then(function(r){return r.json();})
         .then(function(j){ if(j&&j.map){ MapEd.load(j.map); } }).catch(function(){}); };
     var none=document.getElementById('mapnone'); if(none) none.onclick=function(){ MapEd.load(''); s.value=''; };
+    // A map file straight from the host's device, without a trip through My Maps.
+    var fb=document.getElementById('mapfilebtn'), fi=document.getElementById('mapfile');
+    if(fb&&fi){
+      fb.onclick=function(){ fi.click(); };
+      fi.onchange=function(){
+        var f=this.files&&this.files[0]; this.value='';
+        if(!f) return;
+        var msg=document.getElementById('cgmsg');
+        function say(t,bad){ if(msg){ msg.className='cgmsg'+(bad?' err':''); msg.textContent=t; } }
+        if(f.size>200000){ say('That file is too big for a map.', true); return; }
+        var rd=new FileReader();
+        rd.onload=function(){ var txt=String(rd.result||'');
+          if(!/[1-9]/.test(txt)){ say('No asteroids in that file.', true); return; }
+          MapEd.load(txt); s.value=''; say('Loaded '+f.name+' — this lobby will be unrated.'); };
+        rd.onerror=function(){ say('Couldn’t read that file.', true); };
+        rd.readAsText(f);
+      };
+    }
   }
   function renderOpen(errMsg){    // host (owner) only; errMsg = a rejection to show above the form
     if(shown === 'open'){ return; }
@@ -324,6 +342,8 @@
         + '<select id="mapsel"><option value="">— pick one of your saved maps —</option></select>'
         + '<button type="button" id="mapuse">Use this map</button>'
         + '<button type="button" id="mapnone">No custom map</button>'
+        + '<button type="button" id="mapfilebtn" title="Load a map file from your device">Import map</button>'
+        + '<input type="file" id="mapfile" accept=".txt,.map,text/plain" style="display:none">'
         + '<a class="cgmaplink" href="/mymaps">Build maps in My Maps ↗</a></div>'
         + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
         + '<details class="cgsub adv"><summary>Paste a map instead</summary>'

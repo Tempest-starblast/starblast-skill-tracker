@@ -51,6 +51,9 @@
     <button class="mmbtn primary" id="mmsave" type="button">Save</button>
     <button class="mmbtn" id="mmnew" type="button">New</button>
     <button class="mmbtn" id="mmcopy" type="button" title="Copy the map text to your clipboard">Copy map</button>
+    <button class="mmbtn" id="mmdownload" type="button" title="Save this map to your device as a .txt file">Download</button>
+    <button class="mmbtn" id="mmopen" type="button" title="Load a map file from your device">Import map</button>
+    <input type="file" id="mmfile" accept=".txt,.map,text/plain" style="display:none">
     <span class="mmstatus" id="mmstatus"></span>
   </div>
   <div class="mmform" id="mmform"></div>
@@ -111,9 +114,11 @@
         li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids · '+esc(fmtWhen(m.updated_at))+'</span>'
           +'<button class="mmbtn" data-act="load" type="button">Load</button>'
           +'<button class="mmbtn" data-act="copy" type="button">Copy</button>'
+          +'<button class="mmbtn" data-act="dl" type="button">Download</button>'
           +'<button class="mmbtn" data-act="del" type="button">Delete</button>';
         li.querySelector('[data-act=load]').onclick=function(){ loadMap(m.id); };
         li.querySelector('[data-act=copy]').onclick=function(){ fetchMap(m.id, function(d){ copyText(d.map, 'Copied “'+m.name+'” — paste it into the lobby’s map box.'); }); };
+        li.querySelector('[data-act=dl]').onclick=function(){ fetchMap(m.id, function(d){ downloadMap(d.map, d.name); }); };
         li.querySelector('[data-act=del]').onclick=function(){
           if(!confirm('Delete “'+m.name+'”?')) return;
           fetch('/api/maps/'+m.id,{method:'DELETE'}).then(function(r){return r.json();}).then(function(){
@@ -145,6 +150,40 @@
         cur={id:j.id,name:j.name}; $('mmname').value=j.name; setDirty(false); status('Saved','ok'); listMaps(); })
       .catch(function(){ b.disabled=false; status('Save failed — network','err'); });
   }
+  // Save a map to the user's device. The file is the raw Starblast map text, so it
+  // can be opened again here, pasted into a lobby, or kept as a backup.
+  function safeFileName(name){
+    var n=String(name||'').replace(/[^a-z0-9 _-]/gi,'').trim().replace(/\s+/g,'-');
+    return (n || 'starblast-map') + '.txt';
+  }
+  function downloadMap(text, name){
+    if(!text){ status('Nothing to download — the map is empty','err'); return; }
+    try{
+      var blob=new Blob([text], {type:'text/plain;charset=utf-8'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url; a.download=safeFileName(name); document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+      status('Downloaded '+safeFileName(name),'ok');
+    }catch(e){ status('Download failed — use Copy map instead','err'); }
+  }
+  function openMapFile(file){
+    if(!file) return;
+    if(file.size > 200000){ status('That file is too big for a map','err'); return; }
+    var rd=new FileReader();
+    rd.onload=function(){
+      var txt=String(rd.result||'');
+      if(!/[1-9]/.test(txt)){ status('No asteroids in that file','err'); return; }
+      if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+      MapEd.load(txt); MapEd.resetUndo();
+      cur={id:null, name:''};                      // an opened file is a NEW map until saved
+      $('mmname').value=(file.name||'').replace(/\.[^.]+$/,'').slice(0,40);
+      setDirty(true); status('Opened '+file.name+' — Save to keep it','ok');
+    };
+    rd.onerror=function(){ status('Couldn’t read that file','err'); };
+    rd.readAsText(file);
+  }
   function copyText(text, okMsg){
     if(!text){ status('Nothing to copy — the map is empty','err'); return; }
     var done=function(){ status(okMsg||'Copied','ok'); },
@@ -157,6 +196,9 @@
   $('mmnew').onclick=function(){ if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
     MapEd.clear(); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };
   $('mmcopy').onclick=function(){ copyText(MapEd.str(), 'Copied — paste it into the lobby’s map box.'); };
+  $('mmdownload').onclick=function(){ downloadMap(MapEd.str(), ($('mmname').value||'').trim() || cur.name); };
+  $('mmopen').onclick=function(){ $('mmfile').click(); };
+  $('mmfile').onchange=function(){ openMapFile(this.files && this.files[0]); this.value=''; };
   $('mmname').addEventListener('input', function(){ setDirty(true); });
   document.addEventListener('keydown', function(e){ if((e.ctrlKey||e.metaKey) && (e.key==='s'||e.key==='S')){ e.preventDefault(); save(); } });
   listMaps();

@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.8"
+APP_VERSION = "9.12.9"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4496,6 +4496,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.9", "at": "2026-09-09T21:00:00Z", "changes": [
+        "You can now save a map to your device: <b>Download</b> in My Maps writes it out as a plain .txt file, named after the map. Handy as a backup, or for sending a map to someone.",
+        "And load one back: <b>Import map</b> in My Maps opens a map file from your device into the editor (it comes in as a new map, so it never overwrites one you already saved). The lobby has the same button, so the host can drop a map file straight into a game without going through My Maps first."
+    ]},
     {"version": "9.12.8", "at": "2026-09-09T20:00:00Z", "changes": [
         "The map editor’s orbit is much smoother — it now moves by real elapsed time at around 60 frames a second, so it glides instead of stepping, and runs at the same speed on any machine.",
         "New “Move” mode in the map editor: switch to it and you can grab the stations and swing them around their ring yourself, to line the map up exactly how you want. Painting is paused while you’re moving them, and taking hold of a station stops the automatic orbit so the two never fight each other."
