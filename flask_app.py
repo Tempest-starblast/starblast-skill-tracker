@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.11.0"
+APP_VERSION = "9.11.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4494,6 +4494,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.11.1", "at": "2026-09-09T08:30:00Z", "changes": [
+        "The custom-lobby defaults were checked against what the game server actually applies to a plain team game (and what the public team servers run) and corrected: crystal value ×2.5, no survival time trigger, survival level “never”, lives 4, ship speed 1.2, RCS on. Asteroid density now stays on the game's automatic setting unless you change it."
+    ]},
     {"version": "9.11.0", "at": "2026-09-09T07:30:00Z", "changes": [
         "The custom-lobby builder now has the game's full set of settings, grouped like the game's own creator: map pattern (seed) and asteroid density; the survival triggers (time and level); crystal value, gems dropped on death, weapon drops, gem release and asteroid strength; starting ship (and fully upgraded), max level, lives and lives at max level; ship speed, friction, strafe, RCS and projectile speed; shield and power regen, healing on/off and its ratio, invulnerable ships; weapons store and mine lifespan; station size, station gem capacity, repair threshold, regeneration, auto-assign teams and high-tier docking/respawn; radar zoom, auto refill and three more soundtracks.",
         "The defaults now match the game's team-mode defaults (e.g. 70 players, crystal ×2), so leaving everything as-is is still exactly the standard rated lobby — change any of them and it's an unrated custom game. Reading settings from a mod and writing them back now covers all of these, on/off switches included."
@@ -11992,15 +11995,15 @@ CUSTOM_GAME_OPTIONS = {
     "map_name":        ("", "str", 24),
     "map_size":        (80, "int", 20, 200),          # even only (normalize rounds down)
     "map_id":          (0, "int", 0, 9999),           # the "map pattern" seed; 0 = let the game pick
-    "map_density":     (1.0, "float", 0.0, 2.0),
+    "map_density":     (1.0, "float", 0.0, 1.0),      # server clamps at 1; 1 = its automatic density (not forwarded)
     # game
     "root_mode":       ("team", "choice", ["team", "invasion", "deathmatch"]),
     "friendly_colors": (3, "int", 0, 3),              # number of teams; 3 = team-mode max
     "max_players":     (70, "int", 1, 240),
-    "survival_time":   (45, "int", 0, 600),           # survival trigger: minutes (game creator default)
-    "survival_level":  (7, "int", 2, 8),              # survival trigger: ship level (8 = never)
+    "survival_time":   (0, "int", 0, 600),            # survival trigger: minutes (0 = none; the server's default)
+    "survival_level":  (8, "int", 2, 8),              # survival trigger: ship level (8 = never; server default)
     # resources
-    "crystal_value":   (2.0, "float", 0.0, 10.0),
+    "crystal_value":   (2.5, "float", 0.0, 10.0),     # the server's team default (probed 9 Sep 2026)
     "crystal_drop":    (1.0, "float", 0.0, 1.0),      # share of gems collectible when drained
     "weapon_drop":     (0.0, "float", 0.0, 10.0),
     "release_crystal": (True, "bool"),

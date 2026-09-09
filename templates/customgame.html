@@ -152,7 +152,7 @@
   // The settings form, built from CG_SPEC and grouped like the game's own creator
   // panel. [key, label, slider step, choice labels]
   var CG_SECTIONS=[
-    ['Map',[['map_name','Map name'],['map_size','Map size',2],['map_id','Map pattern (seed; 0 = random)',1],['map_density','Asteroid density (×)',0.1]]],
+    ['Map',[['map_name','Map name'],['map_size','Map size',2],['map_id','Map pattern (seed; 0 = random)',1],['map_density','Asteroid density (×; 1 = game default)',0.1]]],
     ['Game',[['root_mode','Mode',null,{team:'Team',invasion:'Invasion',deathmatch:'Deathmatch'}],['friendly_colors','Teams',1],['max_players','Max players',1],['survival_time','Survival trigger: time (min)',1],['survival_level','Survival trigger: level (8 = never)',1]]],
     ['Resources',[['crystal_value','Crystal value (×)',0.1],['crystal_drop','Gems dropped on death (share)',0.05],['weapon_drop','Weapon drops from asteroids',0.1],['release_crystal','Players can release gems (V)'],['asteroids_strength','Asteroid strength (×)',0.1]]],
     ['Ships & lives',[['starting_ship','Starting ship'],['starting_ship_maxed','Starting ship fully upgraded'],['max_level','Max ship level',1],['lives','Lives',1],['maxtierlives','Lives at max level (0 = same)',1]]],
@@ -209,7 +209,7 @@
     return undefined; }
   function applyModToForm(){
     var ta=document.getElementById('o_mod_code'), code=ta?ta.value:''; var blk=modOptionsBlock(code);
-    if(!blk){ modHint('No “this.options = { … }” block found in that mod.'); return; }
+    if(!blk){ modHint('No “this.options = { … }” block in that mod — change any setting above and one is added to the code (Mode: Team is what the lobby needs).'); return; }
     var body=code.slice(blk.start,blk.end), n=0; modSyncing=true;
     MOD_KEYS.forEach(function(k){ var v=modReadValue(body,k); if(v===undefined) return; var el=document.getElementById('o_'+k); if(!el) return;
       if(el.tagName==='SELECT'){ var ok=[].some.call(el.options,function(o){ return o.value==String(v.value); }); if(!ok) return; el.value=String(v.value); }
@@ -222,9 +222,18 @@
   }
   function writeFormToMod(key){
     if(modSyncing) return; var ta=document.getElementById('o_mod_code'); if(!ta||!ta.value.trim()) return;
-    var code=ta.value, blk=modOptionsBlock(code); if(!blk) return;
-    var body=code.slice(blk.start,blk.end);
+    var code=ta.value, blk=modOptionsBlock(code);
     var el=document.getElementById(key==='custom_map'?'o_custom_map':'o_'+key); if(!el) return;
+    if(!blk){                                   // no this.options block: create one with this setting
+      var k0=(CG_SPEC[key]||{}).kind||'str', l0;
+      if(k0==='bool') l0 = el.checked ? 'true' : 'false';
+      else if(k0==='str'||key==='root_mode'||key==='soundtrack'||key==='custom_map') l0 = JSON.stringify(String(el.value));
+      else { if(isNaN(parseFloat(el.value))) return; l0 = String(parseFloat(el.value)); }
+      if(((key==='soundtrack'||key==='map_name'||key==='custom_map') && !el.value) || (key==='map_id' && !(parseFloat(el.value)>0))) return;
+      ta.value='this.options = {\n  '+key+': '+l0+'\n};\n'+code;
+      modHint('Added a this.options block to the mod with '+key+' — more settings you change go in there too.');
+      return; }
+    var body=code.slice(blk.start,blk.end);
     var kind=(CG_SPEC[key]||{}).kind||(key==='custom_map'?'str':'float'), raw=el.value, lit;
     if(kind==='bool') lit = el.checked ? 'true' : 'false';
     else if(kind==='str'||key==='root_mode'||key==='soundtrack'||key==='custom_map') lit = JSON.stringify(String(raw));
