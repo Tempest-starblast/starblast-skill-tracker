@@ -51,6 +51,8 @@
   font-size:13px;font-weight:600;color:#ff8a8a;background:rgba(255,90,90,.08);border:1px solid rgba(255,90,90,.35)}
 .cgstop:hover{background:rgba(255,90,90,.16)}
 .cgstop:disabled{opacity:.6;cursor:default}
+.cgerr{background:rgba(255,90,90,.1);border:1px solid rgba(255,90,90,.35);color:#ff8a8a;border-radius:9px;
+  padding:9px 12px;font-size:13px;margin:0 0 10px;line-height:1.5}
 .cgform .cgsec{grid-column:1/-1;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
   border-top:1px solid var(--line);padding-top:10px;margin-top:4px;font-weight:700}
 .cgform .cgchkrow{flex-direction:row;align-items:center;gap:8px;font-size:12.5px;color:var(--text);padding:6px 0;cursor:pointer}
@@ -283,7 +285,7 @@
         .then(function(j){ if(j&&j.map){ MapEd.load(j.map); } }).catch(function(){}); };
     var none=document.getElementById('mapnone'); if(none) none.onclick=function(){ MapEd.load(''); s.value=''; };
   }
-  function renderOpen(){          // host (owner) only
+  function renderOpen(errMsg){    // host (owner) only; errMsg = a rejection to show above the form
     if(shown === 'open'){ return; }
     shown = 'open'; stopAnim(); startPoll(3000);
     var form = buildOptionsForm()
@@ -304,12 +306,14 @@
         + '<span id="modfile_hint">…or drop a file onto the box above.</span></div>'
       + '<p class="note">Leave everything as-is for the <b>standard rated</b> lobby. Change anything (or import a mod) and it’s <b>unrated</b> — but it still records who won/lost, their teams, how long they played and their score.</p>';
     box.innerHTML = '<h2>Open a lobby</h2>'
+      + (errMsg ? '<div class="cgerr">'+esc(errMsg)+'</div>' : '')
       + '<p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Open one — the join link appears here for you and every Odyssey player. You can stop it anytime from the lobby screen, and it also closes on its own once everyone leaves.</p>'
-      + '<details class="cgcustom"><summary>Custom settings</summary><div class="cgform">'+form+'</div></details>'
+      + '<details class="cgcustom"'+((errMsg || lastConfig) ? ' open' : '')+'><summary>Custom settings</summary><div class="cgform">'+form+'</div></details>'
       + '<button class="primary" id="cgopen" type="button">Open lobby</button>'
       + '<div class="cgmsg" id="cgmsg"></div>';
     document.getElementById('cgopen').onclick = openLobby;
     MapEd.init({readOnly:true}); loadMapPicker(); bindMod();
+    restoreConfig();
   }
   function renderWait(){          // Odyssey players who aren't the host
     if(shown === 'wait'){ return; }
@@ -318,13 +322,25 @@
       + '<p style="margin:0;font-size:14px;color:var(--muted)">There&rsquo;s no Odyssey lobby running right now. The <b>host</b> opens these — keep this page open and the <b>Join</b> button appears here the moment one goes live.</p>';
   }
   function renderIdle(){ if(canHost){ renderOpen(); } else { renderWait(); } }
-  function renderError(m){        // host only: an open was rejected (e.g. non-team mod)
-    if(shown === 'errored'){ return; }
-    shown = 'errored'; stopAnim(); startPoll(3000);
-    box.innerHTML = '<h2>Couldn’t open that</h2>'
-      + '<p style="margin:0 0 13px;font-size:14px;color:#ff7a7a">'+esc(m)+'</p>'
-      + '<button class="primary" id="cgopen" type="button">Back</button>';
-    document.getElementById('cgopen').onclick = function(){ shown=''; renderIdle(); };
+  // Host only: an open was rejected (e.g. a mod that isn't team mode). Show it ON
+  // the form with everything the host entered still there, and tell the site it's
+  // been seen - otherwise the poll kept flipping back to an error screen, and each
+  // re-render wiped the mod they'd pasted.
+  var dismissedError = null;
+  function renderError(m){
+    dismissedError = m;
+    fetch('/api/customgame/dismiss', {method:'POST'}).catch(function(){});
+    shown = ''; renderOpen(m);
+  }
+  function restoreConfig(){       // put back what the host had entered (after an error / re-render)
+    if(!lastConfig) return;
+    var o = lastConfig.options || {};
+    Object.keys(CG_SPEC).forEach(function(k){ if(!(k in o)) return; var el=document.getElementById('o_'+k); if(!el) return;
+      if(CG_SPEC[k].kind==='bool') el.checked=!!o[k];
+      else { el.value=o[k]; var nb=document.getElementById('o_'+k+'_n'); if(nb) nb.value=el.value; } });
+    var jg=document.getElementById('o_join_gate'); if(jg && lastConfig.join_gate) jg.value=lastConfig.join_gate;
+    var mc=document.getElementById('o_mod_code'); if(mc) mc.value=lastConfig.mod_code||'';
+    if(lastConfig.custom_map && /[1-9]/.test(lastConfig.custom_map)) MapEd.load(lastConfig.custom_map); else MapEd.draw();
   }
   function renderOpening(){
     shown = 'opening'; stopAnim();
@@ -384,7 +400,7 @@
       .then(function(s){
         if(!s.allowed){ location.reload(); return; }
         if(s.link){ renderJoin(s.link, s.region); }
-        else if(s.error){ renderError(s.error); }
+        else if(s.error){ if(s.error !== dismissedError) renderError(s.error); }
         else if(!s.opening && !anim){ renderIdle(); }
       }).catch(function(){});
   }

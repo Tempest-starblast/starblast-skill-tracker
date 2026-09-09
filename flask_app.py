@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.11.1"
+APP_VERSION = "9.11.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4494,6 +4494,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.11.2", "at": "2026-09-09T09:00:00Z", "changes": [
+        "Fixed: when the host's open was rejected (say, a mod that isn't team mode), the page kept snapping back to an error screen and the form came back empty, so you couldn't fix the mod. The message now shows above the settings with everything you'd entered still there — settings, mod and map — so you can correct it and open again."
+    ]},
     {"version": "9.11.1", "at": "2026-09-09T08:30:00Z", "changes": [
         "The custom-lobby defaults were checked against what the game server actually applies to a plain team game (and what the public team servers run) and corrected: crystal value ×2.5, no survival time trigger, survival level “never”, lives 4, ship speed 1.2, RCS on. Asteroid density now stays on the game's automatic setting unless you change it."
     ]},
@@ -12341,6 +12344,21 @@ def api_customgame_status():
                     "region": region, "opening": bool(wanted_at and not link),
                     # only the host needs to see why their open failed
                     "error": (last_error if (can_host and last_error and not link) else None)}), 200
+
+
+@app.route('/api/customgame/dismiss', methods=['POST'])
+def api_customgame_dismiss():
+    """The host has seen the last open error - clear it, so the page shows the
+    form again (the error otherwise survives until the next open)."""
+    sub_id = current_user()
+    if not sub_id or not _can_host_custom(sub_id):
+        return jsonify({"ok": False}), 403
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE custom_game SET last_error='' WHERE id = 1")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
 
 
 @app.route('/api/customgame/stop', methods=['POST'])
