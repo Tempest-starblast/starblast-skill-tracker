@@ -493,6 +493,30 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
   {% endif %}
 </div>
 
+{% if custom_games %}
+<div class="card">
+  <h2>Custom games</h2>
+  <p class="empty" style="margin:-4px 0 10px">Unrated games from the Odyssey custom lobby &mdash; they don&rsquo;t affect the rating.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>When</th><th>Game</th><th>Team</th><th>Result</th><th class="num">Score</th><th class="num">Played</th></tr></thead>
+    <tbody>
+    {% for g in custom_games %}
+      <tr>
+        <td><a href="/customgames#m{{ g.id }}" style="color:inherit">{{ g.when }}</a></td>
+        <td style="color:var(--muted)">{{ g.mode }}</td>
+        <td style="color:var(--muted)">{{ g.team or '&mdash;'|safe }}</td>
+        <td style="color:{{ 'var(--green)' if g.won else ('var(--red)' if g.finished else 'var(--muted)') }};font-weight:600">{{ g.result }}</td>
+        <td class="num" style="color:var(--muted)">{{ g.score }}</td>
+        <td class="num" style="color:var(--muted)">{{ g.play_min }} min</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
 {# The TrueSkill trial card was retired 8.7.0 (owner decision, 1 Sep): the
    trial numbers are abandoned - the board keeps its elo, and the raw engine
    takes over UNDER it rather than beside it. #}

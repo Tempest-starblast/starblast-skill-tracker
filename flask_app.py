@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.9.1"
+APP_VERSION = "9.10.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2044,6 +2044,20 @@ def init_db():
         created_at TEXT,
         updated_at TEXT)''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_custom_maps_owner ON custom_maps(owner_sub)")
+    # Recorded UNRATED custom-lobby games (Phase 3): who played, which team,
+    # score, time, and who won - never rating-bearing. Posted by the host.
+    c.execute('''CREATE TABLE IF NOT EXISTS custom_matches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        started_at TEXT, ended_at TEXT, duration_s INTEGER,
+        mode TEXT, kind TEXT, mod INTEGER DEFAULT 0, has_map INTEGER DEFAULT 0,
+        n_teams INTEGER DEFAULT 0, outcome TEXT, winner_team INTEGER, winner_name TEXT,
+        reason TEXT, options_json TEXT, teams_json TEXT, sid INTEGER, link TEXT,
+        announced INTEGER DEFAULT 0, created_at TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS custom_match_players (
+        match_id INTEGER, norm_name TEXT, name TEXT, team INTEGER,
+        score INTEGER DEFAULT 0, play_s INTEGER DEFAULT 0, won INTEGER DEFAULT 0, ship INTEGER)''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_cmp_norm ON custom_match_players(norm_name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_cmp_match ON custom_match_players(match_id)")
     # The game's own deathmatch ladder, snapshotted daily by the bot
     # (the free tier here cannot fetch starblast.io itself). account_id
     # is the game's stable ECP id, so across days this table remembers
@@ -4480,6 +4494,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.10.0", "at": "2026-09-09T06:00:00Z", "changes": [
+        "Custom games are recorded. Every unrated game from the Odyssey custom lobby (custom settings, a custom map or a mod) now saves who played, the team each was on, their score, how long they played, and which team won — the last station standing (or the top scorer in deathmatch). A lobby that closes before a station falls is kept as “no result”. None of it touches the leaderboard.",
+        "New Custom games page (More → Custom games) listing them, a Custom games card on player profiles, and each result is posted to a #custom-games channel in Discord."
+    ]},
     {"version": "9.9.1", "at": "2026-09-09T05:00:00Z", "changes": [
         "My Maps is now the host's workshop only, like the lobby builder itself (Odyssey players still see the lobby's join link as before).",
         "An imported mod can be loaded straight from a file (.js or .txt) — a button under the mod box, or drop the file onto it.",
@@ -6488,6 +6506,22 @@ def player_profile(name):
     # Read while the connection is open - the dict below is built after
     # close, and a query there is exactly the 500 this line replaces.
     clan_shown = clan_display(c, clan) if clan else ""
+    # This player's recorded custom-lobby games (unrated) for the profile card.
+    custom_games = []
+    try:
+        for (mid, started_at, mode, outcome, team, score, play_s, won, n_teams) in c.execute(
+                "SELECT m.id, m.started_at, m.mode, m.outcome, p.team, p.score, p.play_s, p.won, m.n_teams "
+                "FROM custom_match_players p JOIN custom_matches m ON m.id = p.match_id "
+                "WHERE p.norm_name = ? ORDER BY m.id DESC LIMIT 10",
+                (normalize_name(stored_name),)).fetchall():
+            custom_games.append({"id": mid, "when": (started_at or "")[:16].replace("T", " "),
+                                 "mode": CUSTOM_MODE_LABEL.get(mode, (mode or "Custom").title()),
+                                 "team": ("Team %d" % (team + 1)) if (team is not None and n_teams) else None,
+                                 "result": ("Won" if won else ("Lost" if outcome == "finished" else "No result")),
+                                 "won": bool(won), "finished": outcome == "finished",
+                                 "score": int(score or 0), "play_min": int(round((play_s or 0) / 60.0))})
+    except sqlite3.Error:
+        custom_games = []
     conn.close()
 
     played = (wins or 0) + (losses or 0)
@@ -6524,7 +6558,7 @@ def player_profile(name):
                                   if played < PROVISIONAL_GAMES else 0),
               "owned": bool(owner_sub), "protected": bool(protected),
               "bio": bio or "", "is_me": is_me}
-    return render_template('player.html', player=player,
+    return render_template('player.html', player=player, custom_games=custom_games,
                            region_ranks=region_ranks, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='players', history=history,
                            ts_history=ts_history,
@@ -12385,6 +12419,158 @@ def api_map_one(mid):
     conn.close()
     return jsonify({"ok": True, "id": row[0], "name": row[2], "size": row[3], "map": row[4],
                     "cells": row[5] or 0}), 200
+
+
+CUSTOM_MODE_LABEL = {"team": "Team mode", "invasion": "Invasion", "deathmatch": "Deathmatch"}
+_CM_COLS = ("id, started_at, ended_at, duration_s, mode, kind, mod, has_map, n_teams, outcome, "
+            "winner_team, winner_name, reason, options_json, teams_json, sid, link")
+
+
+def _custom_team_label(t):
+    f = (t.get("faction") or "").strip()
+    return f if f and f.lower() != "unknown" else "Team %d" % (int(t.get("id") or 0) + 1)
+
+
+def _custom_match_view(c, row):
+    """One recorded custom game shaped for the page / the bot: teams (with
+    their players, winner flagged) or a flat player list for team-less modes."""
+    from ship_shapes import SHIP_NAME
+    (mid, started_at, ended_at, duration_s, mode, kind, mod, has_map, n_teams,
+     outcome, winner_team, winner_name, reason, options_json, teams_json, sid, link) = row
+    try:
+        teams_meta = json.loads(teams_json or "[]")
+    except (TypeError, ValueError):
+        teams_meta = []
+    prow = c.execute("SELECT name, team, score, play_s, won, ship FROM custom_match_players "
+                     "WHERE match_id = ? ORDER BY score DESC, name", (mid,)).fetchall()
+    players = [{"name": n, "team": t, "score": int(s or 0), "play_s": int(p or 0),
+                "play_min": int(round((p or 0) / 60.0)), "won": bool(w),
+                "ship": SHIP_NAME.get(sh) if sh else None}
+               for n, t, s, p, w, sh in prow]
+    teams = []
+    for tm in sorted(teams_meta, key=lambda x: int(x.get("id") or 0)):
+        tid = tm.get("id")
+        teams.append({"id": tid, "hue": int(tm.get("hue") or 0), "label": _custom_team_label(tm),
+                      "score": int(tm.get("score") or 0),
+                      "won": (outcome == "finished" and winner_team is not None and tid == winner_team),
+                      "destroyed_at": tm.get("destroyed_at"),
+                      "players": [p for p in players if p["team"] == tid]})
+    return {"id": mid, "when": (started_at or "")[:16].replace("T", " "),
+            "started_at": started_at, "ended_at": ended_at, "duration_s": int(duration_s or 0),
+            "duration_min": int(round((duration_s or 0) / 60.0)),
+            "mode": mode, "mode_label": CUSTOM_MODE_LABEL.get(mode, (mode or "Custom").title()),
+            "kind": kind, "mod": bool(mod), "has_map": bool(has_map), "n_teams": int(n_teams or 0),
+            "n_players": len(players), "outcome": outcome, "winner_team": winner_team,
+            "winner_name": winner_name, "reason": reason, "teams": teams, "players": players,
+            "sid": sid, "link": link}
+
+
+@app.route('/api/customgame/record', methods=['POST'])
+def api_customgame_record():
+    """The droplet host posts one finished (or abandoned) UNRATED custom game
+    here (key-gated). Stored for the Custom Games page, profiles and Discord.
+    Nothing here ever touches a rating."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    players = d.get("players") or []
+    if not isinstance(players, list) or not players:
+        return jsonify({"ok": False, "message": "no players"}), 400
+    mode = str(d.get("mode") or "team")[:16]
+    outcome = "finished" if d.get("outcome") == "finished" else "unfinished"
+    winner_team = d.get("winner_team")
+    try:
+        winner_team = int(winner_team) if winner_team is not None else None
+    except (TypeError, ValueError):
+        winner_team = None
+    winner_name = str(d.get("winner_name") or "")[:40] or None
+    teams = d.get("teams") if isinstance(d.get("teams"), list) else []
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    conn = db()
+    c = conn.cursor()
+    c.execute("INSERT INTO custom_matches (started_at, ended_at, duration_s, mode, kind, mod, has_map, "
+              "n_teams, outcome, winner_team, winner_name, reason, options_json, teams_json, sid, link, "
+              "announced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)",
+              (str(d.get("started_at") or now)[:32], str(d.get("ended_at") or now)[:32],
+               int(d.get("duration_s") or 0), mode, str(d.get("kind") or "custom")[:16],
+               1 if d.get("mod") else 0, 1 if d.get("has_map") else 0, len(teams), outcome,
+               winner_team, winner_name, str(d.get("reason") or "")[:80],
+               json.dumps(d.get("options"))[:20000] if d.get("options") is not None else None,
+               json.dumps(teams)[:20000], d.get("sid"), str(d.get("link") or "")[:200], now))
+    mid = c.lastrowid
+    norm_winner = normalize_name(winner_name) if winner_name else None
+    rows = []
+    for p in players[:150]:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name") or "").strip()[:40]
+        if not name:
+            continue
+        team = p.get("team")
+        try:
+            team = int(team) if team is not None else None
+        except (TypeError, ValueError):
+            team = None
+        won = 1 if (outcome == "finished" and (
+            (winner_team is not None and team == winner_team) or
+            (norm_winner and normalize_name(name) == norm_winner))) else 0
+        try:
+            ship = int(p.get("ship")) if p.get("ship") else None
+        except (TypeError, ValueError):
+            ship = None
+        rows.append((mid, normalize_name(name), name, team, int(p.get("score") or 0),
+                     int(p.get("play_s") or 0), won, ship))
+    c.executemany("INSERT INTO custom_match_players (match_id, norm_name, name, team, score, play_s, won, ship) "
+                  "VALUES (?,?,?,?,?,?,?,?)", rows)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "id": mid, "players": len(rows)}), 200
+
+
+@app.route('/api/bot/customgames/undelivered')
+def bot_customgames_undelivered():
+    """Recorded custom games not yet posted to #custom-games, oldest first."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    rows = c.execute("SELECT " + _CM_COLS + " FROM custom_matches WHERE COALESCE(announced, 0) = 0 "
+                     "ORDER BY id LIMIT 10").fetchall()
+    out = [_custom_match_view(c, r) for r in rows]
+    conn.close()
+    return jsonify({"games": out}), 200
+
+
+@app.route('/api/bot/customgames/delivered', methods=['POST'])
+def bot_customgames_delivered():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = []
+    for k in ((request.json or {}).get('ids') or [])[:50]:
+        try:
+            ids.append(int(k))
+        except (TypeError, ValueError):
+            pass
+    if not ids:
+        return jsonify({"ok": True, "count": 0}), 200
+    conn = db()
+    c = conn.cursor()
+    c.executemany("UPDATE custom_matches SET announced = 1 WHERE id = ?", [(i,) for i in ids])
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": len(ids)}), 200
+
+
+@app.route('/customgames')
+def customgames_page():
+    """Results of the custom lobby's unrated games."""
+    conn = db()
+    c = conn.cursor()
+    rows = c.execute("SELECT " + _CM_COLS + " FROM custom_matches ORDER BY id DESC LIMIT 60").fetchall()
+    matches = [_custom_match_view(c, r) for r in rows]
+    conn.close()
+    return render_template('customgames.html', page='customgames', version=APP_VERSION,
+                           matches=matches)
 
 
 @app.route('/mymaps')

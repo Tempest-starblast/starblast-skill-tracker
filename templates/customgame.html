@@ -203,7 +203,9 @@
     var v=modReadValue(body,key), nb;
     if(v && lit!==null){ nb=body.slice(0,v.from)+lit+body.slice(v.to); }
     else if(v && lit===null){ var pre=body.slice(0,v.keyFrom), rest=body.slice(v.to).replace(/^\s*,/,'');
-      if(/^\s*\}/.test(rest)) pre=pre.replace(/,\s*$/,''); nb=pre+rest; }
+      if(/^\s*\}/.test(rest)) pre=pre.replace(/,\s*$/,'');
+      pre=pre.replace(/[ \t]+$/,''); if(/\n$/.test(pre)) rest=rest.replace(/^[ \t]*\n/,'');   // no blank line left behind
+      nb=pre+rest; }
     else if(!v && lit!==null){ nb='{\n  '+key+': '+lit+','+body.slice(1); }
     else return;
     ta.value=code.slice(0,blk.start)+nb+code.slice(blk.end);
