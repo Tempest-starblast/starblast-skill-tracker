@@ -42,6 +42,25 @@ window.MapEd = (function(){
   // ---- the grid <-> the Starblast custom_map string (map_size rows of map_size chars,
   // digit 1-9 = an asteroid of that size, space = empty) ----
   var mapGrid = null, mapErase = false, mapUndo = [], readOnly = false, fallbackSize = 80;
+  // "Clear station path": the stations sweep a ring once an hour, so anything on
+  // that ring is in their way. This is a MASK, not a delete - mapGrid keeps every
+  // asteroid, and the band is removed only on the way out (drawing, the map text,
+  // saving). Turn it off and a traced image comes back untouched.
+  var clearPath = false;
+  function pathBand(n){
+    var ss=parseFloat(($('o_station_size')||{}).value); if(isNaN(ss)) ss=2;
+    return {r:n*Math.SQRT2/4, half:Math.max(2, 1.5*ss+1)};   // ring radius + station half-width, in cells
+  }
+  function inPath(row,col,n,band){
+    var dx=(col+0.5)-n/2, dy=(row+0.5)-n/2;
+    return Math.abs(Math.sqrt(dx*dx+dy*dy)-band.r) <= band.half;
+  }
+  // The grid as it leaves the editor: the drawing, minus the station path when on.
+  function outGrid(){
+    if(!clearPath || !mapGrid) return mapGrid;
+    var n=mapGrid.length, band=pathBand(n);
+    return mapGrid.map(function(row,r){ return row.map(function(v,c){ return inPath(r,c,n,band)?0:v; }); });
+  }
   var api = { onChange: null };
   function $(id){ return document.getElementById(id); }
   function pushUndo(){ if(!mapGrid) return; mapUndo.push(mapGrid.map(function(row){ return row.slice(); }));
@@ -60,13 +79,30 @@ window.MapEd = (function(){
   function strToGrid(str,n){ var g=newGrid(n); var lines=String(str||'').split('\n');
     for(var r=0;r<n;r++){ var ln=lines[r]||''; for(var c=0;c<n;c++){ var ch=ln.charAt(c); g[r][c]=(ch>='0'&&ch<='9')?parseInt(ch,10):0; } } return g; }
   function countCells(g){ var k=0; if(!g) return 0; for(var r=0;r<g.length;r++) for(var c=0;c<g[r].length;c++) if(g[r][c]) k++; return k; }
-  function drawMap(){ var cv=$('mapcanvas'); if(!cv||!mapGrid) return;
+  // The asteroids are cached to an offscreen layer, so animating the orbit only
+  // repaints the layer + the moving stations, not every cell of the grid.
+  var mapLayer=null;
+  function renderLayer(){ var cv=$('mapcanvas'); if(!cv||!mapGrid) return;
+    var n=mapGrid.length, cs=cv.width/n, g=outGrid();
+    if(!mapLayer) mapLayer=document.createElement('canvas');
+    if(mapLayer.width!==cv.width || mapLayer.height!==cv.height){ mapLayer.width=cv.width; mapLayer.height=cv.height; }
+    var ctx=mapLayer.getContext('2d');
+    ctx.clearRect(0,0,mapLayer.width,mapLayer.height);
+    if(clearPath){                                  // show the corridor being kept clear
+      var band=pathBand(n);
+      ctx.save(); ctx.beginPath();
+      ctx.strokeStyle='rgba(255,120,120,.13)'; ctx.lineWidth=2*band.half*cs;
+      ctx.arc(cv.width/2, cv.height/2, band.r*cs, 0, 6.2832); ctx.stroke(); ctx.restore();
+    }
+    for(var r=0;r<n;r++) for(var c=0;c<n;c++){ var v=g[r][c]; if(!v) continue;
+      ctx.beginPath(); ctx.fillStyle='#9aa4b2';
+      ctx.arc(c*cs+cs/2, r*cs+cs/2, Math.max(0.8,(cs/2)*(0.4+0.065*v)), 0, 6.2832); ctx.fill(); } }
+  function paintCanvas(){ var cv=$('mapcanvas'); if(!cv||!mapGrid) return;
     var n=mapGrid.length, ctx=cv.getContext('2d'), cs=cv.width/n;
     ctx.clearRect(0,0,cv.width,cv.height);
-    for(var r=0;r<n;r++) for(var c=0;c<n;c++){ var v=mapGrid[r][c]; if(!v) continue;
-      ctx.beginPath(); ctx.fillStyle='#9aa4b2';
-      ctx.arc(c*cs+cs/2, r*cs+cs/2, Math.max(0.8,(cs/2)*(0.4+0.065*v)), 0, 6.2832); ctx.fill(); }
+    if(mapLayer) ctx.drawImage(mapLayer,0,0);
     drawBases(ctx,n,cs,cv); }
+  function drawMap(){ renderLayer(); paintCanvas(); }
   // Team-mode bases, from the game's own formula (starblast-modding Station.js: the
   // ring radius is map_size*5*sqrt(2)/2 in world units, the world spanning +-map_size*5,
   // i.e. 0.707 of the half-width = map*sqrt(2)/4 in cells; the angle is phase +
@@ -76,6 +112,16 @@ window.MapEd = (function(){
   // Team colours: evenly spaced hues for however many teams, in the game's own order
   // (a 3-team game is hues 150, 270, 30 for teams 1, 2, 3).
   function teamColor(i,n){ return 'hsl('+((150 + i*360/Math.max(1,n))%360)+',70%,58%)'; }
+  // Where the stations are on their ring right now, for the preview. In a real
+  // match this is the game clock (one full turn per hour); here it is just a dial
+  // you can spin, so you can see the whole sweep and build around it.
+  var orbitAng = 0, orbitTimer = null;
+  function orbitStep(){ orbitAng = (orbitAng + 0.018) % 6.2832; paintCanvas(); }
+  function setOrbit(on){
+    if(orbitTimer){ clearInterval(orbitTimer); orbitTimer=null; }
+    if(on) orbitTimer=setInterval(orbitStep, 45);
+    var b=$('maporbit'); if(b){ b.textContent = on ? '⏸ Orbiting' : '⟳ Orbit'; b.classList.toggle('mapadvbtn', !!on); }
+  }
   function drawBases(ctx,n,cs,cv){
     var mode=($('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
     var nt=parseInt(($('o_friendly_colors')||{}).value,10); if(isNaN(nt)) nt=3; if(nt<1) return;
@@ -87,7 +133,7 @@ window.MapEd = (function(){
     ctx.setLineDash([]);
     ctx.fillStyle='rgba(255,220,120,.9)'; ctx.beginPath(); ctx.arc(cx,cy,Math.max(2,cs*0.6),0,6.2832); ctx.fill();   // the sun
     var sr=Math.max(3, cs*1.5*ss);                                    // footprint grows with the station-size slider (approx.)
-    for(var i=0;i<nt;i++){ var ang=-Math.PI/2 + i*2*Math.PI/nt;        // team 1 at the top; the real phase varies per match
+    for(var i=0;i<nt;i++){ var ang=-Math.PI/2 + orbitAng + i*2*Math.PI/nt;   // spun by the orbit dial; the real phase varies per match
       var x=cx+R*Math.cos(ang), y=cy+R*Math.sin(ang);
       ctx.globalAlpha=0.85; ctx.fillStyle=teamColor(i,nt);
       ctx.beginPath(); ctx.rect(x-sr,y-sr,2*sr,2*sr); ctx.fill();
@@ -100,7 +146,7 @@ window.MapEd = (function(){
     return {r:Math.floor(y/cs), c:Math.floor(x/cs), n:n}; }
   // An empty grid serialises to '' (not a page of spaces) so a lobby with no rocks
   // placed is NOT treated as a custom map.
-  function syncMapText(){ var t=$('o_custom_map'); if(t&&mapGrid) t.value = countCells(mapGrid) ? gridToStr(mapGrid) : '';
+  function syncMapText(){ var t=$('o_custom_map'), g=outGrid(); if(t&&g) t.value = countCells(g) ? gridToStr(g) : '';
     if(typeof api.onChange==='function') api.onChange(); }
   // A pasted / picked map string -> auto-fill the size control, load the grid, re-serialise.
   function loadMapString(raw){
@@ -148,6 +194,7 @@ window.MapEd = (function(){
     set('mapbrush',9); set('imgcut',11); set('imgsize',9); set('imgspace',1);
     var sm=$('imgsizemode'); if(sm) sm.value='bright'; var inv=$('mapinvert'); if(inv) inv.checked=false;
     var er=$('maperase'); if(er) er.textContent='Erase'; var fi=$('mapimgfile'); if(fi) fi.value='';
+    clearPath=false; var cp=$('mapclearpath'); if(cp) cp.checked=false;
     drawMap(); syncMapText(); }
   function loadImageSrc(src){ var img=new Image(); img.onload=function(){ mapLastImg=img; applyLastImage(); }; img.src=src; }
   function handleImageFile(file){
@@ -168,6 +215,8 @@ window.MapEd = (function(){
       + '<button type="button" id="maperase">Erase</button>'
       + '<button type="button" id="mapundo" title="Undo the last change">↶ Undo</button>'
       + '<button type="button" id="mapclear" title="Clear the asteroids (keeps the loaded image and the options)">Clear</button>'
+      + '<label class="cgchk" title="Keep the ring the stations orbit free of asteroids. Nothing is lost - turn it off and they come back."><input type="checkbox" id="mapclearpath">Clear station path</label>'
+      + '<button type="button" id="maporbit" title="Spin the stations around their ring, the way they orbit in game">⟳ Orbit</button>'
       + '<button type="button" id="mapadv" class="mapadvbtn" data-advtoggle data-on="More tools ▾" data-off="Fewer tools ▴">More tools ▾</button>'
       + '<span class="adv cgmapmore">'
         + '<button type="button" id="mapreset" title="Start over: clear the asteroids, forget the loaded image and put every option back to default">Reset all</button>'
@@ -192,16 +241,19 @@ window.MapEd = (function(){
     opts=opts||{}; readOnly=!!opts.readOnly; if(opts.size) fallbackSize=opts.size;
     var cv=$('mapcanvas'); if(!cv) return;
     if(readOnly) cv.classList.add('ro');
+    setOrbit(false);                       // a fresh mount never inherits a running timer
     mapGrid=newGrid(mapSize()); mapUndo=[]; drawMap(); xyBounds();
     // load-ish bindings (both modes)
     var im=$('mapimport'); if(im) im.onclick=function(){ var t=$('o_custom_map'); loadMapString(t?t.value:''); };
     var ms=$('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); pushUndo(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); xyBounds(); });
     ['o_root_mode','o_friendly_colors','o_station_size'].forEach(function(id){ var e=$(id); if(!e) return;   // base overlay follows the game settings
-      e.addEventListener('input', drawMap); e.addEventListener('change', drawMap); });
+      var upd=function(){ drawMap(); if(clearPath) syncMapText(); };   // a wider station clears a wider lane
+      e.addEventListener('input', upd); e.addEventListener('change', upd); });
     if(readOnly) return;
     // ---- editing bindings ----
     var painting=false;
     function apply(pt){ var p=mapCell(cv,pt); if(p.r<0||p.c<0||p.r>=p.n||p.c>=p.n) return;
+      if(clearPath && !mapErase && inPath(p.r,p.c,p.n,pathBand(p.n))) return;   // the stations need this lane
       mapGrid[p.r][p.c]=mapErase?0:brush(); drawMap(); syncMapText(); showXY(p.r,p.c); }
     function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY}; }
     cv.addEventListener('mousedown', function(e){ pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
@@ -228,6 +280,8 @@ window.MapEd = (function(){
           var f=items[i].getAsFile(); if(f){ e.preventDefault(); handleImageFile(f); } return; } }
       }); }
     var inv=$('mapinvert'); if(inv) inv.onchange=applyLastImage;   // re-trace the last image flipped
+    var cp=$('mapclearpath'); if(cp) cp.onchange=function(){ clearPath=this.checked; drawMap(); syncMapText(); };
+    var ob=$('maporbit'); if(ob) ob.onclick=function(){ setOrbit(!orbitTimer); };
     ['imgcut','imgsize','imgspace'].forEach(function(id){ var e=$(id); if(!e) return;   // image options
       e.addEventListener('input', function(){ var b=$(id+'_v'); if(b) b.textContent=this.value+(id==='imgcut'?'%':''); });
       e.addEventListener('change', applyLastImage); wheelStep(e); });
@@ -264,13 +318,15 @@ window.MapEd = (function(){
   api.setAdvanced = setAdvanced;
   api.toolsHtml = toolsHtml;
   api.load = loadMapString;                       // a map string -> size control + grid + textarea
-  api.str = function(){ return (mapGrid && countCells(mapGrid)) ? gridToStr(mapGrid) : ''; };
-  api.count = function(){ return countCells(mapGrid); };
+  api.str = function(){ var g=outGrid(); return (g && countCells(g)) ? gridToStr(g) : ''; };
+  api.count = function(){ return countCells(outGrid()); };
   api.size = function(){ return mapGrid ? mapGrid.length : mapSize(); };
   api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
   api.draw = drawMap;
   api.resetUndo = function(){ mapUndo=[]; };
   api.resetAll = resetAll;
+  api.clearPath = function(on){ if(on===undefined) return clearPath;
+    clearPath=!!on; var cp=$('mapclearpath'); if(cp) cp.checked=clearPath; drawMap(); syncMapText(); };
   return api;
 })();
 </script>

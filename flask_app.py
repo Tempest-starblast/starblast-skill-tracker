@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.6"
+APP_VERSION = "9.12.7"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4496,6 +4496,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.7", "at": "2026-09-09T19:00:00Z", "changes": [
+        "Map editor: a “Clear station path” switch. The stations circle the map once an hour, so anything sitting on that ring is in their way — turn it on and the ring is cleared and blocked off, so you can’t drop asteroids there by accident. Nothing is thrown away: turn it off and everything comes straight back, which matters most after tracing an image over the whole map.",
+        "Map editor: an “Orbit” button that spins the stations around their ring the way they travel in game, so you can see the whole path they sweep instead of a single frozen moment, and build around it."
+    ]},
     {"version": "9.12.6", "at": "2026-09-09T18:00:00Z", "changes": [
         "Replay radar: each team's base is now placed by the game's own geometry — the station ring turns once an hour and every team sits at its own fixed offset on it — instead of being worked out from where the ships happened to be. That guesswork could put a team's base on top of its enemy's; the positions are now computed, not inferred. Matches recorded from now on use it, older ones keep the old estimate. (Thanks to ServerList+ by @dankdmitron, whose spectator showed how it's done.)"
     ]},
