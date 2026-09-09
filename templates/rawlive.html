@@ -124,6 +124,13 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
 (function(){
   var COLORS={team_1:'#99DDFF',team_2:'#66E6B8',team_3:'#FFCC66'};
   var COL=[COLORS.team_1,COLORS.team_2,COLORS.team_3];
+  var DEF_COLORS={team_1:COLORS.team_1,team_2:COLORS.team_2,team_3:COLORS.team_3};
+  // The lobby's own team hues (once the watcher reports them) so the live view is
+  // coloured the way the game is; the fixed palette stays the fallback.
+  function applyHues(m){ (m.teams||[]).forEach(function(t){
+    var i=parseInt(String(t.key||'').slice(-1),10)-1; if(!(i>=0&&i<3)) return;
+    var h=t.hue, c=(h!=null&&isFinite(h))?('hsl('+(((h%360)+360)%360)+',72%,64%)'):DEF_COLORS[t.key];
+    COLORS[t.key]=c; COL[i]=c; }); }
   var GEM_CAPS=[800,1600,3200,6400];
   var BASE_ANG=[28,148,268],BASE_R=90,MAPE=132;
   var astCache={};            // seed -> [[x,y,size],...] in radar space, or 'pending'
@@ -299,6 +306,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
 
   function updateCard(m){
     var c=cards[m.sys_id]||buildCard(m.sys_id);
+    applyHues(m);
     // We poll faster than the watcher posts, so most polls are byte-for-byte
     // the same. Only touch the panels when the slow data actually changes -
     // rebuilding every poll is what made it flicker.

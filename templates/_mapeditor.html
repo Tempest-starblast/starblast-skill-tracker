@@ -73,9 +73,9 @@ window.MapEd = (function(){
   // step/60/3600*2*PI, one revolution per hour). Teams sit evenly spaced; only the
   // starting phase differs per match. Drawn so you can build around them; the whole
   // ring gets swept, so keep it in mind.
-  // Team colours: evenly spaced hues for however many teams (the game does the same;
-  // its 3-team set is hues 30/150/270).
-  function teamColor(i,n){ return 'hsl('+((30 + i*360/Math.max(1,n))%360)+',70%,58%)'; }
+  // Team colours: evenly spaced hues for however many teams, in the game's own order
+  // (a 3-team game is hues 150, 270, 30 for teams 1, 2, 3).
+  function teamColor(i,n){ return 'hsl('+((150 + i*360/Math.max(1,n))%360)+',70%,58%)'; }
   function drawBases(ctx,n,cs,cv){
     var mode=($('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
     var nt=parseInt(($('o_friendly_colors')||{}).value,10); if(isNaN(nt)) nt=3; if(nt<1) return;

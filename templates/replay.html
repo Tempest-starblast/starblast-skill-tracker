@@ -102,6 +102,12 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 .rfs:hover{color:var(--text);border-color:var(--blue,#66E6B8)}
 .radarwrap:fullscreen{background:#04070d;padding:2vmin;display:flex;flex-direction:column;justify-content:center}
 .radarwrap:fullscreen #radarMap{max-height:94vh;max-width:94vw}
+/* Fullscreen the WHOLE replay box (header + arena + play bar), not only the radar. */
+.cfs{position:static;top:auto;margin-left:8px}
+.console:fullscreen{height:100vh;width:100vw;border:0;border-radius:0;background:#04070d}
+.console:fullscreen .arena{min-height:0}
+/* A team panel that changes slot slides there instead of snapping (FLIP, see JS). */
+.arena > .team.flip{will-change:transform}
 
 .ctransport{display:flex;align-items:center;gap:13px;padding:10px 16px;border-top:1px solid var(--line);
   background:rgba(8,16,28,.35)}
@@ -142,6 +148,7 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 <div class="console">
   <div class="chead">
     <div class="rphead" id="rpHead"><span class="sub">Loading&hellip;</span></div>
+    <button type="button" class="rfs cfs" id="consoleFs" title="Fullscreen the replay">&#9974;</button>
   </div>
   <div class="arena a2" id="arena">
     <div class="cempty" id="arenaEmpty">Loading the replay&hellip;</div>
@@ -206,6 +213,32 @@ let LBL = ['Team 1', 'Team 2', 'Team 3'];
     });
   });
 })();
+  // Fullscreen the whole replay box from the header's expand button.
+  (function(){
+    var b = document.getElementById('consoleFs'); if(!b) return;
+    b.addEventListener('click', function(){
+      var c = document.querySelector('.console');
+      if(!document.fullscreenElement){ if(c && c.requestFullscreen) c.requestFullscreen(); }
+      else if(document.exitFullscreen){ document.exitFullscreen(); }
+    });
+  })();
+  // FLIP helper: call flipStart() on a set of elements before re-laying them out,
+  // then flipPlay() after - every element that moved slides from where it was to
+  // where it is now instead of snapping. Keyed by a function so rebuilt rows can
+  // be matched up with their previous selves.
+  function flipStart(els, keyOf){ var m = {}; els.forEach(function(el){ var k = keyOf(el); if(k == null) return;
+      var r = el.getBoundingClientRect(); m[k] = {x: r.left, y: r.top}; }); return m; }
+  function flipPlay(els, keyOf, before, ms){
+    els.forEach(function(el){ var k = keyOf(el); var b = before && before[k]; if(!b) return;
+      var r = el.getBoundingClientRect(); var dx = b.x - r.left, dy = b.y - r.top;
+      if(Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      if(!el.animate) return;
+      el.classList.add('flip');
+      var a = el.animate([{transform: 'translate(' + dx + 'px,' + dy + 'px)'}, {transform: 'none'}],
+                         {duration: ms || 650, easing: 'cubic-bezier(.2,.8,.2,1)'});
+      a.onfinish = function(){ el.classList.remove('flip'); };
+    });
+  }
   // The lobby's own faction names, when the match recorded its welcome
   // frame (7.3.0) - 'Rebel Alliance' reads better than 'Team 3'.
   function applyWelcome(d){
@@ -214,6 +247,13 @@ let LBL = ['Team 1', 'Team 2', 'Team 3'];
       LBL = LBL.map((v, i) => {
         const f = w.teams[i] && String(w.teams[i].faction || '').trim();
         return f ? f.slice(0, 28) : v;
+      });
+      // The game's OWN team colours (each lobby's welcome carries a hue per team),
+      // so ships, station blueprints, base icons and the legend all match what the
+      // players saw in-game - the fixed blue/green/gold palette is only the fallback.
+      w.teams.forEach((t, i) => {
+        const h = t && Number(t.hue);
+        if(i < COLS.length && isFinite(h)) COLS[i] = 'hsl(' + ((h % 360) + 360) % 360 + ',72%,64%)';
       });
     }
   }
@@ -684,10 +724,18 @@ function buildReplay(ST, RD){
         order = order.filter(function(k, i){ return order.indexOf(k) === i; }).slice(0, teams.length);
       }
       var slots = teams.length >= 3 ? ['left','middle','right'] : ['left','right'];
+      // Only touch the DOM when a slot really changes - and then SLIDE the panels
+      // to their new places (FLIP) instead of snapping them across the arena.
+      var moving = order.some(function(k, idx){ var p = teamPanel[k]; return p && p.getAttribute('data-slot') !== (slots[idx] || 'middle'); });
+      if(!moving) return;
+      var panels = teams.map(function(k){ return teamPanel[k]; }).filter(Boolean);
+      var keyOf = function(el){ return el.getAttribute('data-team'); };
+      var before = flipStart(panels, keyOf);
       order.forEach(function(k, idx){
         var p = teamPanel[k], slot = slots[idx] || 'middle';
         if(p && p.getAttribute('data-slot') !== slot) p.setAttribute('data-slot', slot);
       });
+      flipPlay(panels, keyOf, before, 700);
     }
     function renderAt(pos){
       var n = frames.length;
@@ -707,8 +755,12 @@ function buildReplay(ST, RD){
         var want = rws.slice().sort(function(x, y){
           return (rowRef[y.getAttribute('data-key')].cur || 0)
                - (rowRef[x.getAttribute('data-key')].cur || 0); });
-        if(want.some(function(el, idx){ return rws[idx] !== el; }))
+        if(want.some(function(el, idx){ return rws[idx] !== el; })){
+          var kf = function(el){ return el.getAttribute('data-key'); };
+          var bef = flipStart(rws, kf);                  // rows slide to their new rank
           want.forEach(function(rw){ rel.appendChild(rw); });
+          flipPlay(want, kf, bef, 450);
+        }
       });
       if(haveWp){
         var rI = wp[i] || [0,0,0], rJ = wp[j] || [0,0,0];

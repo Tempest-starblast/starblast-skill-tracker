@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.1"
+APP_VERSION = "9.12.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2661,6 +2661,7 @@ def rawlive_matches():
         impacts = (_wp_player_impacts(d, elo_map, wp_w, prog, probs)
                    if _owner else {})
         facs = d.get("factions") or []
+        _hues = d.get("hues") or []      # the lobby's team hues (once the observer sends them)
         _sh = d.get("sh") or []
         _lay = d.get("stlay") or []
         teams = []
@@ -2689,6 +2690,7 @@ def rawlive_matches():
             teams.append({
                 "key": k,
                 "label": (facs[idx] if idx < len(facs) and facs[idx] else "Team %d" % (idx+1)),
+                "hue": (_hues[idx] if idx < len(_hues) and isinstance(_hues[idx], (int, float)) else None),
                 "count": d.get("counts", {}).get(k, 0),
                 "score": d.get("scores", {}).get(k, 0),
                 "station": station,
@@ -4494,6 +4496,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.2", "at": "2026-09-09T11:00:00Z", "changes": [
+        "Replays now use each lobby's real team colours — the same hues the players saw in-game — for the ship dots, the station blueprints, the base markers and the legend, instead of a fixed blue/green/gold palette. (Ships and stations were already coloured by the same team; they just weren't the game's colours.)",
+        "The whole replay box can go fullscreen now (the ⛶ button top-right), not only the radar.",
+        "The map editor's team colours follow the game's order too (a 3-team game is green, purple, orange for teams 1, 2, 3)."
+    ]},
     {"version": "9.12.1", "at": "2026-09-09T10:30:00Z", "changes": [
         "Fixed the dropdown lists on the custom-lobby and My Maps pages (saved maps, starting ship, soundtrack and the rest) showing light text on a light popup — the options are dark now and readable."
     ]},
