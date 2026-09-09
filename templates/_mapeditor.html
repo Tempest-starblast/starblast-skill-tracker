@@ -24,6 +24,12 @@
 .cgimgopts select{padding:3px 6px;font-size:11.5px}
 .cgimglbl{color:var(--text);font-weight:600}
 .cgimghint{flex-basis:100%;font-size:11px;opacity:.8}
+/* Dropdown lists: the page text is light, but a native <select> popup is drawn on a
+   light background, so options were unreadable. Ask for dark form controls and paint
+   the options explicitly (every select on the lobby and My Maps pages). */
+.cgform select,.cgmap select,.cgmappick select,.cgimgopts select,.mmform select,.mmbar select{color-scheme:dark}
+.cgform select option,.cgmap select option,.cgmappick select option,.cgimgopts select option,.mmform select option{background:#141920;color:#e8ecf2}
+.cgform select optgroup,.cgmappick select optgroup{background:#141920;color:#9aa4b2}
 html:not(.mapadv) .adv{display:none!important}
 .cgmaptools .cgmapmore{display:inline-flex;gap:8px;align-items:center}
 .mapadvbtn,.cgadvbtn{background:rgba(102,230,184,.10)!important;border:1px solid rgba(102,230,184,.35)!important;color:var(--green,#66e6b8)!important}

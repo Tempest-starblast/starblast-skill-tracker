@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.0"
+APP_VERSION = "9.12.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4494,6 +4494,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.1", "at": "2026-09-09T10:30:00Z", "changes": [
+        "Fixed the dropdown lists on the custom-lobby and My Maps pages (saved maps, starting ship, soundtrack and the rest) showing light text on a light popup — the options are dark now and readable."
+    ]},
     {"version": "9.12.0", "at": "2026-09-09T10:00:00Z", "changes": [
         "The custom-lobby builder is beginner-friendly now: a short Basics panel (teams, map size, players, crystal value, lives, starting ship, map name) and one “Show advanced settings” switch that reveals everything else, grouped. Pasting a map and importing a mod fold away until you want them, and the survival triggers and mode picker are gone — the lobby is team mode, full stop. A mod you import is made team-mode automatically.",
         "Up to 5 teams (the game's limit) — the map editor's base markers and orbit follow the team count, with a distinct colour per team.",
