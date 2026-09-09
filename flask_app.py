@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.12.2"
+APP_VERSION = "9.12.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4496,6 +4496,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.12.3", "at": "2026-09-09T11:45:00Z", "changes": [
+        "Fixed the replay radar drawing each team's base too close to the centre, so the base markers didn't line up with the ships flying around them. Stations orbit at about 71% of the way from the middle to the edge; the markers were being placed at 50%. They now sit on the real ring, in every replay including old ones.",
+        "A station's blueprint in the team panel is drawn in that team's own colour while its modules are intact, instead of green for every team — so the station under a gold or blue team now matches that team. Damage still reads the same: amber for hurt, red for nearly gone, dark red for destroyed and grey for no reading."
+    ]},
     {"version": "9.12.2", "at": "2026-09-09T11:00:00Z", "changes": [
         "Replays now use each lobby's real team colours — the same hues the players saw in-game — for the ship dots, the station blueprints, the base markers and the legend, instead of a fixed blue/green/gold palette. (Ships and stations were already coloured by the same team; they just weren't the game's colours.)",
         "The whole replay box can go fullscreen now (the ⛶ button top-right), not only the radar.",

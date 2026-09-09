@@ -524,10 +524,18 @@ function buildReplay(ST, RD){
       for(var ii=0; ii<3; ii++){ var a0 = RANG[ii]*Math.PI/180, cx0 = Math.cos(a0)*RBR, cy0 = -Math.sin(a0)*RBR, s0 = RMX/12;
         rIcons += '<rect x="'+(cx0-s0)+'" y="'+(cy0-s0)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+COLS[ii]+'" opacity="0.85"/>'; }
       // TRUE base positions (8.6.0): stations sit on a ring that ORBITS the sun
-      // once an hour. Newer replays carry the fitted ring (res.bs = radius,
-      // angular velocity, per-team angle at t0), so the icons sit where the
-      // bases really are and revolve as the match plays. Older replays keep the
-      // fixed decorative ring above.
+      // once an hour. Newer replays carry the fitted ring (res.bs = angular
+      // velocity + per-team angle at t0), so the icons sit where the bases really
+      // are and revolve as the match plays. Older replays keep the fixed
+      // decorative ring above.
+      // The RADIUS is NOT fitted - it's a known constant of the game: stations
+      // orbit at map_size*5*sqrt(2)/2 world units and the world spans
+      // +-map_size*5, i.e. sqrt(2)/2 of the half-width = 90.5 in radar units
+      // (starblast-modding Station.js/BaseEntity.js). The stored fit hard-coded
+      // 64, which drew every base a third of the way too far in while the ships
+      // clustered out at ~90 - the icons and the dots visibly disagreed. Use the
+      // real radius and ignore the stored one, so old replays are right too.
+      var RING_R = 128 * Math.SQRT2 / 2;
       // Gate on the fit's own confidence (q = fraction of ships nearest their
       // own base): a shaky fit could draw a base on the wrong vertex, and a
       // decorative ring is better than a confidently wrong marker.
@@ -537,7 +545,7 @@ function buildReplay(ST, RD){
         var out = '', s0 = RMX/12;
         Object.keys(bsFit.a).forEach(function(k){
           var ang = bsFit.a[k] + (bsFit.w || 0) * el;
-          var x = bsFit.r * Math.cos(ang), y = -(bsFit.r * Math.sin(ang));
+          var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
           out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[k]||'#888')+'" opacity="0.85"/>';
         });
         return out;
@@ -932,8 +940,12 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   //      at the scrubbed moment, with that module's whole history on hover.
   const stFrames = d.points.filter(p => p.st);
   if(stFrames.length >= 2 && d.stlay && d.stlay.length){
-    const modColor = hp => hp === null || hp === undefined ? '#3a4655'
-      : hp === 0 ? '#63263a' : hp >= 252 ? '#66e6b8'
+    // An INTACT module is drawn in its own team's colour, so a station always
+    // matches the team it belongs to (it used to be green for every team, which
+    // read as the colours being mixed up). Damage keeps its own reading:
+    // amber = hurt, red = nearly gone, dark red = destroyed, grey = no reading.
+    const modColor = (hp, team) => hp === null || hp === undefined ? '#3a4655'
+      : hp === 0 ? '#63263a' : hp >= 252 ? (COLS[team] || '#66e6b8')
       : hp >= 140 ? '#f0c04a' : '#ff7a7a';
     // One team's station blueprint (coloured by module health) + its meta line,
     // for the team panel. i indexes stFrames (a browser-feed moment).
@@ -953,7 +965,7 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
       lay.forEach(m => {
         if(m[2] == null) return;
         const hp = (s && s[2] && s[2].length > m[0]) ? s[2][m[0]] : null;
-        const c = modColor(hp), ty = String(m[1] || ''), x = +m[2], y = -m[3];
+        const c = modColor(hp, team), ty = String(m[1] || ''), x = +m[2], y = -m[3];
         const r = ty[0] === 'd' ? 0.44 : ty.slice(0,2) === 'sp' ? 0.36 : 0.3;
         const shape = ty.slice(0,2) === 'sp'
           ? '<circle cx="'+x+'" cy="'+y+'" r="'+r+'"'
