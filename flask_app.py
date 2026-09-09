@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.0"
+APP_VERSION = "9.13.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4503,6 +4503,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.1", "at": "2026-09-09T23:00:00Z", "changes": [
+        "The seed-to-map generator has been rewritten as plain, readable code. 9.13.0 shipped the game’s own generator as-is, which is deliberately scrambled and impossible to check or maintain; the new version is ordinary code with real names and comments, and it reproduces the game’s fields exactly — checked cell for cell against the original across thousands of seeds, every map size and both team settings. Nothing changes for players: the same seed still gives the same map."
+    ]},
     {"version": "9.13.0", "at": "2026-09-09T22:00:00Z", "changes": [
         "Build a map from a seed. Type a seed (or hit the dice) in My Maps or in the lobby and it builds the exact asteroid field that seed produces in game — then you can edit it like any other map. It is the game’s own map generator, so what you see is what would be flown.",
         "A map traced from a picture now keeps the picture. Save it, load it back later, and the image is still attached along with the trace settings — so you can nudge the cutoff or the asteroid size and re-trace, instead of hunting for the original file. Saved maps that carry one are marked in the list.",
