@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.14"
+APP_VERSION = "9.13.15"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4528,6 +4528,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.15", "at": "2026-09-10T13:30:00Z", "changes": [
+        "Map editor: <b>painted asteroids are selectable too</b>, not just shapes. With the Select tool, click an asteroid to grab the whole clump it belongs to, or drag a box round any mix of asteroids and shapes — then move, copy, delete or resize them together. Let go of the selection and the asteroids settle back into the map exactly where you left them.",
+        "Map editor: <b>type a word and insert it</b> as asteroids (Insert › Text). It lands selected so you can drag it into place, with a height slider for how big the letters are. Words are checked against the site’s blocked-word list first, and a blocked word is refused."
+    ]},
     {"version": "9.13.14", "at": "2026-09-10T12:40:00Z", "changes": [
         "Map editor: the full grid is drawn (every cell, every tenth line stronger), and brush strokes are continuous — a fast mouse no longer skips cells.",
         "Map editor: <b>Line mode</b> for the brush. A stroke locks to horizontal, vertical or a 45° diagonal from its first movement and only re-locks if you pull well off the line, so rows, columns and patterns come out straight. Shift+drag paints an exact straight line with a preview.",
@@ -12603,6 +12607,24 @@ MAP_IMAGE_MAX = 1200000     # data URL chars; the client shrinks to 420px first
 def _can_use_maps(sub_id):
     """My Maps is the host's workshop - owner only (owner's call, 9.9.1)."""
     return bool(sub_id) and _can_host_custom(sub_id)
+
+
+@app.route('/api/wordcheck')
+def api_wordcheck():
+    """Is this word allowed to be drawn onto a map?
+
+    The map editor can stamp a typed word into a lobby's asteroid field, where
+    it is as public as a name - so it goes through the same blocked lists.
+    Gated to the accounts that can use the editor at all, so the lists cannot
+    be enumerated from outside. Each whitespace-separated word is screened
+    separately, exactly as a bio is."""
+    sub_id = current_user()
+    if not sub_id or not _can_use_maps(sub_id):
+        return jsonify({"ok": False, "message": "Not allowed."}), 403
+    q = (request.args.get('q') or '')[:64]
+    words = [w for w in re.split(r'[^0-9A-Za-z]+', q) if w]
+    blocked = any(is_blocked_word(w) for w in words) or is_blocked_word(q.replace(' ', ''))
+    return jsonify({"ok": True, "blocked": bool(blocked)}), 200
 
 
 @app.route('/api/maps', methods=['GET', 'POST'])

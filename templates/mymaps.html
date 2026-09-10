@@ -194,6 +194,7 @@
     var ins=$('mmInsert'); var im=mv('mapimg',ins); if(im) im.textContent='From image\u2026';
     mv('mapimgfile', ins);
     var ap=mv('mapimport',ins); if(ap) ap.textContent='Apply pasted text';
+    var textRow=$('maptext') && $('maptext').closest('.cgmapxy'); if(textRow){ var sep0=document.createElement('div'); sep0.className='mmmenu-sep'; ins.appendChild(sep0); mv(textRow, ins); }
     var seedRow=$('mapseed') && $('mapseed').closest('.cgmapxy'); if(seedRow){ var sep=document.createElement('div'); sep.className='mmmenu-sep'; ins.appendChild(sep); mv(seedRow, ins); }
     // View
     var vw=$('mmView'); var ob=mv('maporbit',vw); var ms=mv('mapselect',vw); if(ms) ms.title='Drag the stations around their ring yourself';
