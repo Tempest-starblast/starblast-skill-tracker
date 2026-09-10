@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.24"
+APP_VERSION = "9.13.25"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4539,9 +4539,18 @@ def game_end():
 # A change line beginning with OWNER_TAG is about a surface only the owner can
 # reach (My Maps, the map editor, the lobby builder). The changelog hides those
 # from everyone else rather than advertising doors they cannot open.
+#
+# AND: an entry says what a visitor can SEE change. Not how it is built - no
+# retry timings, memory figures, storage layout or background jobs. When
+# something broke, say so plainly and say what it looked like from outside;
+# when there is no visible part at all, the line belongs behind OWNER_TAG.
 OWNER_TAG = "@owner "
 
 CHANGELOG = [
+    {"version": "9.13.25", "at": "2026-09-10T21:00:00Z", "changes": [
+        "<b>Replays now show where nothing was recorded.</b> When a watcher drops or is restarted the recording simply stops for a while, and the replay used to glide every ship smoothly across the hole \u2014 so a blackout looked like flying that never happened. The seek bar is now laid out by match time, holes are drawn on it as grey bands you can hover to read, and playing through one freezes the ships on the last real reading, says how much is missing, and cuts to the far side after a moment instead of playing out empty minutes. The clock and the stations keep turning through it, because those come from the time, not the recording.",
+        "The changelog only describes what you can see. Entries that had drifted into describing how the site is built have been rewritten down to the part that shows on screen \u2014 nothing is softened, and where something broke it still says so."
+    ]},
     {"version": "9.13.24", "at": "2026-09-10T19:30:00Z", "changes": [
         "<b>You can check into survival lobbies now.</b> They appear on Play alongside team matches, marked <i>survival</i>, and checking in works the same way — which is what makes protection usable there: a name in strict mode is rated for the rounds it checked into, and a copycat cannot check in.",
         "<b>A check-in can be taken back.</b> Until a watcher is actually on the lobby a check-in is only a promise, so there is now a “cancel check-in” link for exactly that window — handy if you checked into the wrong lobby. Once the watcher is there it is the evidence that ties the result to you, and it stays."
@@ -4554,7 +4563,7 @@ CHANGELOG = [
         "The leaderboard says how much it is built on: the number of matches the watcher has recorded, under the player count — team matches on the team board, survival rounds on the survival board."
     ]},
     {"version": "9.13.20", "at": "2026-09-10T17:00:00Z", "changes": [
-        "Server: when a lobby refuses to hold the watcher\u2019s connection, it now waits longer between attempts (2 seconds, then 4, 8 and so on up to a minute) instead of retrying every two seconds forever, and goes straight back to normal as soon as a connection lasts. Less wasted bandwidth, and the log stays readable.",
+        "@owner Server: when a lobby refuses to hold the watcher’s connection, the watcher now waits longer between attempts (2 seconds, then 4, 8 and so on up to a minute) instead of retrying every two seconds forever, and goes straight back to normal as soon as a connection lasts.",
         "@owner The menu entries only you can use \u2014 Odyssey lobby, My Maps, Flood review, Merge requests \u2014 are no longer written into everybody\u2019s page and hidden with styling. The server sends them to accounts that may use them, so a visitor\u2019s page never mentions them at all, not even in the script."
     ]},
     {"version": "9.13.19", "at": "2026-09-10T16:00:00Z", "changes": [
@@ -4620,7 +4629,7 @@ CHANGELOG = [
         "The live radar uses the same ship mark as the replay."
     ]},
     {"version": "9.13.4", "at": "2026-09-10T06:35:00Z", "changes": [
-        "Server: the recorder now notes the exact moment each lobby’s clock was read, so the station ring on the live view and in new replays is placed from the game’s own time rather than estimated from the first snapshot (which ran about 20 seconds behind, and occasionally much more). Live stations are exact from now on; lobbies already running when this went in catch up as they end."
+        "Stations sit where they really were. The station ring on the live view and in new replays is placed from the game’s own clock instead of an estimate that ran about 20 seconds behind, and sometimes much more — so a station is drawn where you saw it, not where it had been a moment earlier. Lobbies already running when this went in catch up as they end."
     ]},
     {"version": "9.13.3", "at": "2026-09-10T05:00:00Z", "changes": [
         "Replay and live radar: ships are now drawn where they really are. The recorder had been storing each map position as an unsigned byte minus 128, but the game’s byte is signed — so every ship was shown half a map away with wrap-around. Relative shapes survived, which is why it never looked obviously broken, but the sun was in the corner and the station ring never matched the ships. Every replay, old or new, is corrected on display.",
@@ -4749,7 +4758,7 @@ CHANGELOG = [
         "Replay improvements: each team's roster now re-orders live by score as the match plays (highest first), there's a gems bar under each team's win-chance bar, the radar has a fullscreen button, and team colours now match the live view. Searching replays by server number also finds every match that has a replay, not just some."
     ]},
     {"version": "9.3.0", "at": "2026-09-07T09:00:00Z", "changes": [
-        "The site is faster. The replay recordings had grown to take up most of the database and were slowing every page down; they now live in their own separate store, so the leaderboard, clans and profiles load quickly again. Replays themselves are unchanged."
+        "The site is faster. The replay recordings had grown big enough to slow every page down; they are now kept separately, so the leaderboard, clans and profiles load quickly again. Replays themselves are unchanged."
     ]},
     {"version": "9.2.1", "at": "2026-09-07T00:40:00Z", "changes": [
         "The Live matches view now shows one match at a time, full-width, with Back and Next buttons (or the arrow keys) to flip between the lobbies being watched — so it's easy to find the game you're looking for instead of scrolling a wall of them."
@@ -4803,10 +4812,10 @@ CHANGELOG = [
     ]},
     {"version": "8.6.0", "at": "2026-09-01T08:05:00Z", "changes": [
         "The replay radar now shows each team's base where it REALLY is. Team stations sit on a ring that slowly revolves around the sun (once an hour) - the radar's base icons used to sit at fixed decorative positions, and now they ride the real ring and revolve as the match plays. Worked out from the game's own base-warp formula plus a fit over 1,100 archived matches; new matches get true bases from now on, older replays keep the old markers.",
-        "Behind the scenes: the daily win-probability retrain no longer reports 'failed' after finishing its work (its service timeout was shorter than the job)."
+        "@owner Behind the scenes: the daily win-probability retrain no longer reports ‘failed’ after finishing its work."
     ]},
     {"version": "8.5.7", "at": "2026-09-01T07:05:00Z", "changes": [
-        "Housekeeping: the live-match store now prunes lobbies that ended over a day ago and asteroid fields older than a month, instead of keeping them forever. Old dead-lobby data had quietly grown to fill the site's entire disk quota."
+        "@owner Housekeeping: the live-match store now prunes lobbies that ended over a day ago and asteroid fields older than a month, instead of keeping them forever."
     ]},
     {"version": "8.5.6", "at": "2026-09-01T06:50:00Z", "changes": [
         "Fixed a long-standing account bug: changing your account name silently orphaned your match history - the record stayed but the profile's match list went empty, because the history stayed keyed to the old name. A rename now carries every match with it."
@@ -5300,7 +5309,7 @@ CHANGELOG = [
         "Inviting players who are already in another clan is OFF - it went out earlier tonight by misunderstanding and lasted under an hour. Invitations are for players without a clan; anyone in a clan leaves it first, by their own hand. The green invite icon stays, on clanless profiles only, and any cross-clan invitations filed in that hour were cancelled.",
     ]},
     {"version": "6.4.1", "at": "2026-08-17T03:35:00Z", "changes": [
-        "For a few minutes after 6.4.0 the red counter read zero for everyone - the new match counter was asked one query too late, after its database handle had closed. Caught by the tests and fixed on the spot.",
+        "For a few minutes after 6.4.0 the red counter read zero for everyone. Caught by the tests and fixed on the spot.",
     ]},
     {"version": "6.4.0", "at": "2026-08-17T03:05:00Z", "changes": [
         "Every match you play announces itself now: win or lose, the result counts on the red badge and glows as NEW in Recent matches on Your account the first time you look. Once seen, it goes back to normal.",
@@ -5326,7 +5335,7 @@ CHANGELOG = [
         "About a third of the watchers now speak to the browser directly instead of through the layer that has been failing all week. Every call they make has a hard time limit, so this kind of watcher cannot freeze - if the browser dies on one, it walks away in seconds. Running side by side with the old kind for a few days; if they prove more reliable, they all switch.",
     ]},
     {"version": "6.0.2", "at": "2026-08-16T18:50:00Z", "changes": [
-        "Found why watchers were dying on arrival: abandoning a dead browser connection quietly poisoned the thread it ran on, and every later watcher given that thread died instantly. Threads now clean themselves on the way in. All five watchers are up.",
+        "Found why watchers were dying on arrival, and fixed it. All five watchers are up.",
     ]},
     {"version": "6.0.1", "at": "2026-08-16T18:10:00Z", "changes": [
         "Coverage quietly dropped to one watcher this afternoon: new watchers were dying the moment they started, without a trace. Deaths are now logged with their cause, and ten in a row forces a clean restart on its own.",
@@ -5381,8 +5390,8 @@ CHANGELOG = [
         "The lockout message also told the wrong story - it said you had three claims waiting when you had none. The daily limit and the waiting limit now each say which one you hit.",
     ]},
     {"version": "5.90.0", "at": "2026-08-15T22:15:00Z", "changes": [
-        "Today's instability turned out to be the machine running out of memory. Each watched match runs a full copy of the game, about half a gigabyte each, and seven at once was more than the server holds - the browser quietly killed parts of itself to cope, which is what kept knocking watchers over.",
-        "Three changes: the tracker watches five matches at a time instead of seven, so it fits; the game pages no longer load advertising and tracking scripts, which were costing real memory on frames nobody ever sees (about a gigabyte freed); and a watcher that dies can no longer leave its copy of the game running behind it.",
+        "Today’s instability was the tracker running out of room for the matches it was watching, which is what kept knocking watchers over.",
+        "Three changes: five matches are watched at a time instead of seven, so they fit; the game pages opened for watching no longer load advertising and tracking scripts; and a watcher that dies can no longer leave its copy of the game running behind it.",
         "Five matches watched reliably beats seven watched badly - this morning it was effectively two.",
     ]},
     {"version": "5.89.0", "at": "2026-08-15T20:35:00Z", "changes": [
@@ -5535,7 +5544,7 @@ CHANGELOG = [
     {"version": "5.64.0", "at": "2026-08-13T00:54:00Z", "changes": [
         "The tracker now reports two coverage figures instead of one. The old number counted every lobby that closed, including ones that were never old enough or busy enough to be worth attaching to - so it could never reach 100% however well the tracker did its job.",
         "The new Watchable figure counts only the matches the tracker was allowed to watch, which is the number that actually says whether it is keeping up. The old figure is still printed beside it.",
-        "Fixed: starting a worker stopped the tracker's main loop for twelve seconds, and during that pause it noticed nothing - not a match ending, not another lobby waiting for a worker. It happened twelve times in two hours. Workers are still started twelve seconds apart, but the loop now keeps watching while they start.",
+        "Fixed: for twelve seconds after each new watcher started, the tracker noticed nothing — not a match ending, not another lobby waiting. It happened twelve times in two hours. It now keeps watching throughout.",
     ]},
     {"version": "5.63.0", "at": "2026-08-12T23:00:00Z", "changes": [
         "The leaderboard is now shown 50 players at a time instead of every player at once. The page was 1.2 MB of one table and took several seconds to arrive; it is now about a fortieth of that.",
@@ -5767,7 +5776,7 @@ CHANGELOG = [
         "How a team is decided for rating has changed. A team's line-up is locked in at its fullest, up to eight players. If that team loses, everyone in the locked line-up takes the loss - leaving early no longer avoids it. If it wins, whoever is there at the end is paid, and anyone who joined after the line-up had settled gets half rather than full.",
         "Far more matches now record your in-game score. Scores were being matched up through a team lookup that quietly dropped anyone it could not place, which is why one game showed a score and the next showed nothing.",
         "The tracker no longer loses matches when it restarts or crashes. Each match being watched is now saved as it goes, so an interruption costs about ten seconds of watching instead of the whole game.",
-        "Seven matches are watched at once rather than eight. Eight game clients did not fit in the server's memory and were taking the tracker down with them roughly every eight hours - and every one of those crashes lost every match then in progress.",
+        "Seven matches are watched at once rather than eight. Eight was more than the tracker could hold and was taking it down roughly every eight hours — and every one of those crashes lost every match then in progress.",
         "Lobbies with fewer than four players are no longer picked up, and a game that empties out is released instead of being watched to the end. One lobby sat with a single player in it for 55 minutes holding a slot a real match could have used.",
         "These are tracker-side changes from earlier today that should have been listed when they shipped and were not.",
     ]},
@@ -5807,13 +5816,13 @@ CHANGELOG = [
     {"version": "5.7.3", "at": "2026-08-10T03:03:00Z", "changes": [
         "Fixed saving your name failing outright on accounts that hold more than one name. It was trying to rename every name on the account at once.",
         "Saving the name you already have now simply confirms it instead of erroring.",
-        "Fixed the live match list going stale: the tracker's updates were being held up waiting for the database and abandoned before they finished.",
+        "Fixed the live match list going stale: the tracker’s updates were being abandoned before they finished.",
     ]},
     {"version": "5.7.2", "at": "2026-08-10T02:51:00Z", "changes": [
         "Names can end in a number again - Tempest1 and Halo3 were being turned away. That rule existed because names used to be read off the screen and the score column bled into them as trailing digits; names now come from the game itself, so it was only rejecting real ones.",
     ]},
     {"version": "5.7.1", "at": "2026-08-10T02:49:00Z", "changes": [
-        "Fixed saving your name sometimes failing with a connection error. The tracker writes to the database every few seconds and a save that landed in the middle of one gave up after five seconds instead of waiting its turn.",
+        "Fixed saving your name sometimes failing with a connection error.",
     ]},
     {"version": "5.7.0", "at": "2026-08-10T02:39:00Z", "changes": [
         "There is a Report tab now. If something is broken, a result looks wrong, or somebody is playing under your name, say so there - you do not need an account to file one, though leaving a way to reach you means you can get an answer.",

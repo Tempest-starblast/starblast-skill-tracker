@@ -88,7 +88,13 @@ body.mini .radarcap{display:none!important}
 body.mini #radarMap{max-height:100vh;max-width:100vw}
 .youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
 
-.radarwrap{display:flex;flex-direction:column;min-height:0;min-width:0;padding:12px}
+.radarwrap{display:flex;flex-direction:column;min-height:0;min-width:0;padding:12px;position:relative}
+/* Shown only while the playhead is inside a stretch the feed never recorded. */
+.rgapchip{position:absolute;z-index:3;top:8px;left:50%;transform:translateX(-50%);
+  font-size:11px;letter-spacing:.04em;color:#dfe8ef;background:rgba(20,28,40,.92);
+  border:1px solid rgba(160,175,190,.45);border-radius:20px;padding:4px 11px;white-space:nowrap;
+  pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+.rgapchip b{color:#fff}
 .radarcap{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
   color:var(--muted,#8aa0b0);opacity:.72;text-align:center;margin-bottom:8px}
 #radarMap{flex:1;min-height:0;display:block;margin:0 auto;aspect-ratio:1;max-width:100%;max-height:100%;
@@ -113,7 +119,24 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 
 .ctransport{display:flex;align-items:center;gap:13px;padding:10px 16px;border-top:1px solid var(--line);
   background:rgba(8,16,28,.35)}
-.ctransport .ctrack{flex:1;margin:0}
+.ctransport .ctrackwrap{flex:1;position:relative;display:flex;align-items:center;height:22px;min-width:0}
+/* The seek bar is drawn by hand so the stretches with no recording can show
+   THROUGH it: a native range track is opaque and would cover them. */
+.ctransport .cgaps{position:absolute;left:8px;right:8px;top:50%;transform:translateY(-50%);
+  height:6px;border-radius:4px;background:rgba(153,221,255,.14);overflow:hidden;pointer-events:none}
+.ctransport .cfill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--blue,#66E6B8);opacity:.5}
+.ctransport .cgap{position:absolute;top:0;bottom:0;min-width:3px;pointer-events:auto;cursor:help;
+  background:repeating-linear-gradient(-45deg,rgba(160,175,190,.85) 0 3px,rgba(160,175,190,.3) 3px 6px)}
+.ctransport .ctrack{flex:1;margin:0;position:relative;z-index:1;height:22px;background:none;
+  -webkit-appearance:none;appearance:none;border:0;padding:0}
+.ctransport .ctrack:focus{outline:none}
+.ctransport .ctrack:focus-visible{outline:2px solid var(--blue,#66E6B8);outline-offset:3px;border-radius:6px}
+.ctransport .ctrack::-webkit-slider-runnable-track{height:6px;background:transparent;border:0}
+.ctransport .ctrack::-moz-range-track{height:6px;background:transparent;border:0}
+.ctransport .ctrack::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;
+  margin-top:-4px;border-radius:50%;background:var(--blue,#66E6B8);border:2px solid #06202f;cursor:pointer}
+.ctransport .ctrack::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+  background:var(--blue,#66E6B8);border:2px solid #06202f;cursor:pointer}
 .ctransport .ctime{font-size:13px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;white-space:nowrap}
 .ctransport .cspd{font-size:12px;color:var(--muted,#8aa0b0);display:flex;align-items:center;gap:6px;white-space:nowrap}
 .ctransport .cspd input[type=range]{width:130px;margin:0;padding:0;border:0;background:none;accent-color:var(--blue,#66E6B8)}
@@ -164,7 +187,10 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
   </div>
   <div class="ctransport">
     <button id="lbPlay" class="primary" style="padding:7px 18px">&#9654; Play</button>
-    <input type="range" id="lbSeek" min="0" max="0" value="0" class="ctrack">
+    <span class="ctrackwrap">
+      <span class="cgaps" id="lbGaps"><i class="cfill" id="lbFill"></i></span>
+      <input type="range" id="lbSeek" min="0" max="0" value="0" class="ctrack">
+    </span>
     <span id="lbTime" class="ctime"></span>
     <label class="cspd" title="Playback speed: the bottom is real time, the top is 128&times;">Speed
       <input type="range" id="lbSpeed" min="0" max="7" step="0.05" value="3">
@@ -287,6 +313,14 @@ document.addEventListener('change', e => {
   }
 });
 let SHORT_SPAN=false; /* set from the data: one format for the whole axis */
+// A hole is measured in seconds, not the match clock's minutes: "38s" says
+// something useful, "1m" does not.
+function fmtGap(sec){
+  sec = Math.round(sec || 0);
+  if(sec < 90) return sec + 's';
+  var m = Math.floor(sec / 60), r = sec % 60;
+  return r ? (m + 'm ' + r + 's') : (m + 'm');
+}
 function fmtT(sec){
   if(SHORT_SPAN){const m=Math.floor(sec/60),s=Math.round(sec%60);return m+':'+(s<10?'0':'')+s;}
   return Math.round(sec/60)+'m';
@@ -372,6 +406,7 @@ function buildReplay(ST, RD){
   function arenaMsg(m){ arenaEl.className = 'arena'; arenaEl.innerHTML = '<div class="cempty">'+m+'</div>'; }
   function nearest(src, t){ var lo=0, a=src.frames; for(var j=0;j<a.length;j++){ if(a[j].t<=t) lo=j; else break; } return lo; }
   function radarHtml(){ return '<div class="radarwrap"><div class="radarcap">Radar</div>'
+    + '<div class="rgapchip" id="rgapChip" hidden>Not recorded &mdash; <b id="rgapLen"></b> missing</div>'
     + '<svg id="radarMap" viewBox="-132 -132 264 264"></svg></div>'; }
   function teamHtml(k, withRoster){
     var col = COLS[k] || '#8aa0b0';
@@ -625,9 +660,10 @@ function buildReplay(ST, RD){
       var wDelta = function(x0, x1){ var d = x1 - x0; if(d > HALF) d -= WRAP; else if(d < -HALF) d += WRAP; return d; };
       var wWrap = function(v){ if(v > HALF) v -= WRAP; else if(v < -HALF) v += WRAP; return v; };
       var hlKey = null, lastRadar = null;   // roster-hover -> ship spotlight state
-      drawRadarAt = function(i, j, a){
+      drawRadarAt = function(i, j, a, ta){
+        if(ta === undefined) ta = a;
         var map = document.getElementById('radarMap'); if(!map) return;
-        lastRadar = [i, j, a];
+        lastRadar = [i, j, a, ta];
         map.setAttribute('viewBox', (-RMX)+' '+(-RMX)+' '+(2*RMX)+' '+(2*RMX));
         var A = rdSeries[i] || [], B = rdSeries[j] || [], mapB = {}, pts = [];
         B.forEach(function(e){ mapB[sKey(e)] = e; });
@@ -647,7 +683,7 @@ function buildReplay(ST, RD){
           + '<line x1="'+(-RMX)+'" y1="0" x2="'+RMX+'" y2="0" stroke="rgba(153,221,255,.05)"/>'
           + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>'
           + astLayer
-          + baseIcons(lerp(frames[i][0], frames[j][0], a), i);
+          + baseIcons(lerp(frames[i][0], frames[j][0], ta), i);
         var NM = res.nm || {};
         var cross = function(x, y, r){ return '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/>'
           + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/>'; };
@@ -692,7 +728,7 @@ function buildReplay(ST, RD){
       // rebuilds each frame, so track the hovered key and redraw the current frame
       // (shows even when paused; playback keeps re-applying it).
       (function(){ if(!arenaEl) return;
-        var setKey = function(k){ if(k === hlKey) return; hlKey = k; if(lastRadar) drawRadarAt(lastRadar[0], lastRadar[1], lastRadar[2]); };
+        var setKey = function(k){ if(k === hlKey) return; hlKey = k; if(lastRadar) drawRadarAt(lastRadar[0], lastRadar[1], lastRadar[2], lastRadar[3]); };
         arenaEl.addEventListener('mouseover', function(ev){ var row = ev.target.closest && ev.target.closest('.prow[data-key]');
           if(row) setKey(row.getAttribute('data-key')); });
         arenaEl.addEventListener('mouseout', function(ev){ var row = ev.target.closest && ev.target.closest('.prow[data-key]');
@@ -780,7 +816,39 @@ function buildReplay(ST, RD){
     // The one master transport (bottom bar) runs everything.
     var seek = document.getElementById('lbSeek'), btn = document.getElementById('lbPlay'),
         tEl = document.getElementById('lbTime'), spd = document.getElementById('lbSpeed');
-    seek.max = frames.length - 1;
+    // Where the feed stopped. Readings land every ~3s, so anything past a few
+    // of those missing is a real hole - a watcher restarted, or its connection
+    // dropped - not ordinary jitter. Nothing is known about what happened
+    // inside one, so the replay refuses to guess.
+    var GAP_MIN = 12;
+    var gaps = [], gapByIdx = {};
+    for(var gi = 1; gi < frames.length; gi++){
+      var gd = frames[gi][0] - frames[gi - 1][0];
+      if(gd >= GAP_MIN){
+        var g = {a: frames[gi - 1][0], b: frames[gi][0], len: gd, i: gi - 1};
+        gaps.push(g); gapByIdx[gi - 1] = g;
+      }
+    }
+    function gapSpan(t){                   // the hole containing this match time
+      for(var q = 0; q < gaps.length; q++){
+        if(t > gaps[q].a && t < gaps[q].b) return gaps[q];
+      }
+      return null;
+    }
+    var gapChip = document.getElementById('rgapChip'),
+        gapLen = document.getElementById('rgapLen'), gapShown = null;
+    function setGapChip(g){
+      if(g === gapShown) return;
+      gapShown = g;
+      if(!gapChip) return;
+      if(g){ if(gapLen) gapLen.textContent = fmtGap(g.len); gapChip.hidden = false; }
+      else gapChip.hidden = true;
+    }
+    // The bar is laid out by MATCH TIME, not one notch per reading: that is the
+    // only way a hole can take up the width it really lasted.
+    var SEEKN = 1000;
+    seek.min = 0; seek.max = SEEKN;
+    var fillEl = document.getElementById('lbFill'), gapsEl = document.getElementById('lbGaps');
     // Smooth playback: a continuous playhead (pos, a fractional frame) advances
     // via requestAnimationFrame and everything is INTERPOLATED between the two
     // bracketing frames - scores, win%, and (matched by ship code) the radar -
@@ -831,6 +899,14 @@ function buildReplay(ST, RD){
       var n = frames.length;
       if(pos < 0) pos = 0; if(pos > n-1) pos = n-1;
       var i = Math.floor(pos), j = Math.min(n-1, i+1), a = pos - i;
+      // Inside a hole there is nothing to interpolate towards, so everything
+      // read from the feed - scores, win%, ship positions - holds at the last
+      // real reading. `ta` is the true position in time and still advances, so
+      // the clock and the station ring keep turning through it.
+      var gnow = gapByIdx[i], ta = a;
+      var inGap = !!(gnow && a > 0 && a < 1);
+      setGapChip(inGap ? gnow : null);
+      if(inGap) a = 0;
       Object.keys(rowRef).forEach(function(key){
         var tl = timeline[key], s = tl ? lerp(tl[i], tl[j], a) : 0, ref = rowRef[key];
         ref.cur = s;
@@ -868,17 +944,24 @@ function buildReplay(ST, RD){
           assignSlots((wp[fi] && wp[fi].some(function(v){ return v > 0.003; })) ? wp[fi] : wp[lastGoodIdx]); }
       }
       if(markWp) markWp(Math.round(pos));
-      if(drawRadarAt) drawRadarAt(i, j, a);
+      if(drawRadarAt) drawRadarAt(i, j, a, ta);
       if(drawRawStations){ var si = Math.round(pos); if(si !== shownStRaw){ drawRawStations(si); shownStRaw = si; } }
-      if(drawField) drawField(lerp(frames[i][0], frames[j][0], a));
-      tEl.textContent = fmtT(lerp(frames[i][0], frames[j][0], a));
-      seek.value = Math.round(pos);
+      var tnow = lerp(frames[i][0], frames[j][0], ta);
+      if(drawField) drawField(tnow);
+      tEl.textContent = fmtT(tnow);
+      var frac = (T1 > T0) ? (tnow - T0) / (T1 - T0) : 0;
+      seek.value = Math.round(SEEKN * Math.max(0, Math.min(1, frac)));
+      if(fillEl) fillEl.style.width = (100 * Math.max(0, Math.min(1, frac))) + '%';
     }
     // Playback is TIME-based: the playhead is a match time in seconds and 1x is
     // real time. (Frames are ~3.5s apart but not exactly; the old one-frame-per-
     // 640ms stepping ran ~5x faster than the match, and unevenly.)
     var timer = null, lastT = 0;
     var T0 = frames[0][0], T1 = frames[frames.length - 1][0];
+    // A hole costs the viewer a beat, not the minutes it really lasted: hold on
+    // the last real reading long enough to read the notice, then cut to the far
+    // side. Nothing can be shown in between, so there is nothing to play.
+    var GAP_DWELL = 900, holdTo = 0, holdEnd = 0;
     var tcur = T1, fi = Math.max(0, frames.length - 2);
     function posAt(t){                     // match seconds -> fractional frame index
       if(t <= T0 || frames.length < 2) return 0;
@@ -891,19 +974,28 @@ function buildReplay(ST, RD){
     function stop(){ if(timer){ clearInterval(timer); timer = null; btn.innerHTML = '&#9654; Play'; } }
     function tick(){
       var now = performance.now(), dt = Math.min(250, now - lastT); lastT = now;
-      tcur += dt / 1000 * speedOf();
+      if(holdTo){                                   // sitting out a recording hole
+        if(now < holdTo){ renderAt(posAt(tcur)); return; }
+        tcur = holdEnd; holdTo = 0;
+      } else {
+        tcur += dt / 1000 * speedOf();
+        var gh = gapSpan(tcur);
+        if(gh){ holdTo = now + GAP_DWELL; holdEnd = gh.b; tcur = (gh.a + gh.b) / 2; }
+      }
       if(tcur >= T1){ tcur = T1; renderAt(frames.length - 1); stop(); return; }
       renderAt(posAt(tcur));
     }
     function run(){
       if(tcur >= T1) tcur = T0;
+      holdTo = 0;
       btn.innerHTML = '&#10074;&#10074; Pause';
       lastT = performance.now();
       timer = setInterval(tick, 33);      // ~30fps; dt-based so it stays time-accurate
     }
     btn.onclick = function(){ if(timer) stop(); else run(); };
-    seek.oninput = function(){ stop(); var p = +seek.value; fi = Math.max(0, Math.min(frames.length - 2, Math.floor(p)));
-      tcur = frames[Math.round(p)][0]; renderAt(p); };
+    seek.oninput = function(){ stop(); holdTo = 0;
+      tcur = T0 + (+seek.value) / SEEKN * (T1 - T0);
+      renderAt(posAt(tcur)); };
     // Drag a station round its ring to scrub. The ring turns exactly once an hour,
     // so the angle you move a station by IS match time: a full turn = 60 minutes,
     // a quarter turn = 15. Ships and scores follow. Counter-clockwise on screen is
@@ -915,7 +1007,7 @@ function buildReplay(ST, RD){
         var p = pt.matrixTransform(map.getScreenCTM().inverse()); return Math.atan2(p.y, p.x); };
       map.addEventListener('pointerdown', function(ev){
         if(!(ev.target.closest && ev.target.closest('g.station'))) return;
-        stop(); drag = {a: angAt(ev)}; map.classList.add('scrubbing');
+        stop(); holdTo = 0; drag = {a: angAt(ev)}; map.classList.add('scrubbing');
         try{ map.setPointerCapture(ev.pointerId); }catch(e){}
         ev.preventDefault(); });
       map.addEventListener('pointermove', function(ev){
@@ -929,6 +1021,19 @@ function buildReplay(ST, RD){
       var end = function(){ if(drag){ drag = null; map.classList.remove('scrubbing'); } };
       map.addEventListener('pointerup', end); map.addEventListener('pointercancel', end);
     })();
+    // Paint the holes onto the bar. They are placed by match time, which is
+    // what the bar now measures, so each band is exactly as wide as the stretch
+    // it stands for.
+    if(gapsEl && T1 > T0){
+      gaps.forEach(function(g){
+        var b = document.createElement('i');
+        b.className = 'cgap';
+        b.style.left = (100 * (g.a - T0) / (T1 - T0)) + '%';
+        b.style.width = Math.max(0.35, 100 * g.len / (T1 - T0)) + '%';
+        b.title = 'Nothing was recorded here - ' + fmtGap(g.len) + ' missing';
+        gapsEl.appendChild(b);
+      });
+    }
     renderAt(frames.length - 1);
   }).catch(function(e){ console.error('replay failed:', e); arenaMsg('Could not load this replay.'); });
 
@@ -955,6 +1060,10 @@ function buildReplay(ST, RD){
         present.forEach(function(k){ var st = ST.oneStation(k, si);
           if(stEl[k]) stEl[k].innerHTML = st.svg; if(stMeta[k]) stMeta[k].innerHTML = st.meta; }); } }
       tEl.textContent = fmtT(t); seek.value = i;
+      // This path measures the bar in readings, not match time, and has no
+      // holes to mark - but the track is drawn by hand now, so fill it here too.
+      var bFill = document.getElementById('lbFill');
+      if(bFill) bFill.style.width = (pts.length > 1 ? 100 * i / (pts.length - 1) : 0) + '%';
     }
     var timer = null;
     function ms(){ return Math.max(60, Math.round(650/speedOf())); }
