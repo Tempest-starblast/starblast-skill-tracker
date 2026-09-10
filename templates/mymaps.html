@@ -2,10 +2,14 @@
 {% block title %}My Maps - Starblast Skill Leaderboard{% endblock %}
 {% block meta_description %}Build, save and share custom asteroid maps for the Odyssey custom lobby.{% endblock %}
 {% block head %}
+{# Only the host installs the workshop. A guest pin lasts a day; an installed
+   app and its worker last until someone removes them. #}
+{% if host %}
 <link rel="manifest" href="/mapapp.webmanifest">
 <meta name="theme-color" content="#0b0e13">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="/mapapp-192.png">
+{% endif %}
 {% endblock %}
 {% block css %}
 .mmwrap{max-width:1560px}
@@ -89,6 +93,20 @@
 .mmsectitle{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;flex:1}
 .mmcount{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
 .mmnote2{margin:6px 0 8px;font-size:12px;line-height:1.55;color:var(--muted,#8aa0b0)}
+/* Dimmed when the chosen tool has no wall to widen. */
+.mapthickgrp.off,#mapthickgrp.off{opacity:.38}
+.mmzoom{display:inline-flex;align-items:center;gap:4px}
+.mmzoom button{min-width:26px;padding:3px 7px;font:inherit;font-size:13px;line-height:1.1;cursor:pointer;
+  color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px}
+.mmzoom button:hover{background:rgba(102,230,184,.18);color:var(--green,#66e6b8)}
+.mmzoom .zv{min-width:44px;text-align:center;font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted,#8aa0b0)}
+/* Zoomed in, the map is bigger than its shelf, so the shelf scrolls. */
+#mmstage{overflow:auto;scrollbar-width:thin}
+/* Which file on disk Save writes to. Beside the map name, because a save that
+   goes somewhere you cannot see is worse than one that asks. */
+.mmfileat{font-size:11.5px;color:var(--muted,#8aa0b0);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:190px}
+.mmfileat b{color:var(--green,#66e6b8);font-weight:600}
 .mminstall{display:none;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;
   font-family:inherit;font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;
   color:var(--green,#66e6b8);background:rgba(102,230,184,.12);border:1px solid rgba(102,230,184,.4)}
@@ -263,6 +281,9 @@
         <button type="button" onclick="document.getElementById('mmsave').click()">Save <kbd>Ctrl+S</kbd></button>
         <button type="button" id="mmsavecopy">Save as a copy</button>
         <button type="button" id="mmrestore" title="Put this map back to the version before its last save">Restore previous version</button>
+        <button type="button" id="mmfsopen" title="Open a map file and keep working on that file" hidden>Open from computer&hellip;</button>
+        <button type="button" id="mmfssave" title="Write this map back to the file it came from" hidden>Save to computer <kbd>Ctrl+Shift+S</kbd></button>
+        <button type="button" id="mmfssaveas" title="Write this map to a new file on your computer" hidden>Save to computer as&hellip;</button>
         <button type="button" id="mmopen" title="Load a map file from your device">Import map file&hellip;</button>
         <input type="file" id="mmfile" accept=".txt,.map,text/plain" style="display:none">
         <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
@@ -277,7 +298,8 @@
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
       <span class="mmstatus" id="mmstatus"></span>
       <span class="mmcur" id="mmcur"></span>
-      <button type="button" class="mminstall" id="mminstall" title="Put the workshop on your desktop as its own app, in its own window">Install app</button>
+      <span class="mmfileat" id="mmfileat"></span>
+      {% if host %}<button type="button" class="mminstall" id="mminstall" title="Put the workshop on your desktop as its own app, in its own window">Install app</button>{% endif %}
       <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
     </div>
     <div class="mmtoolbar" id="mmtoolbar"></div>
@@ -296,11 +318,13 @@
 </div>
 {% if allowed %}
 <script>
+var IS_HOST = {{ 'true' if host else 'false' }};
 // ---- the workshop as an installed app --------------------------------------
 // A service worker confined to /mymaps (it is allowed the whole site and takes
 // a fifth of it), plus the browser's own install offer surfaced as a button
 // rather than left hiding in a menu.
 (function(){
+  if(!IS_HOST) return;                    // a guest gets the workshop, not the app
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('/mapapp-sw.js', {scope: '/mymaps'})
@@ -376,8 +400,18 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       var row2=document.createElement('div'); row2.className='mmtoolrow2'; tb.appendChild(row2);
       var sizeWrap=document.createElement('span'); sizeWrap.className='cgmaptools'; sizeWrap.innerHTML='<span>Asteroid size</span>';
       row2.appendChild(sizeWrap); mv('mapbrush', sizeWrap); mv('mapbrush_v', sizeWrap); mv('maperase', sizeWrap);
-      var thickWrap=document.createElement('span'); thickWrap.className='cgmaptools'; thickWrap.innerHTML='<span class="cgsep"></span><span>Thickness</span>';
-      row2.appendChild(thickWrap); mv(tk, thickWrap); mv(tkv, thickWrap); if(thickLbl) thickLbl.remove(); }
+      var thickWrap=document.createElement('span'); thickWrap.className='cgmaptools'; thickWrap.id='mapthickgrp';
+      thickWrap.title='How many cells wide the wall of an outline shape is - Frame, Ring, Bar, Corner. Not asteroid size.';
+      thickWrap.innerHTML='<span class="cgsep"></span><span>Line width</span>';
+      row2.appendChild(thickWrap); mv(tk, thickWrap); mv(tkv, thickWrap); if(thickLbl) thickLbl.remove();
+      // Zoom lives with the other numbers that describe the tool.
+      var zoomWrap=document.createElement('span'); zoomWrap.className='cgmaptools mmzoom';
+      zoomWrap.innerHTML='<span class="cgsep"></span><span>Zoom</span>'
+        + '<button type="button" id="mmzo" title="Zoom out">&minus;</button>'
+        + '<span class="zv" id="mmzv">100%</span>'
+        + '<button type="button" id="mmzi" title="Zoom in">+</button>'
+        + '<button type="button" id="mmzf" title="Fit the whole map">Fit</button>';
+      row2.appendChild(zoomWrap); }
     // File: reset all
     var rs=$('mapreset'); if(rs) rs.style.display='none';          // New map does the full reset
     // Edit
@@ -448,11 +482,60 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   MapEd.init({readOnly:false});
   // The map fills what is left of the viewport below the menubar, toolbar and
   // selection bar (the stage is sticky, so the canvas top is a viewport position).
+  // How big the map is when it all fits, and how much bigger you have asked to
+  // see it. The shelf is measured, not the canvas: once zoomed the canvas is
+  // taller than the shelf and its own top is wherever you scrolled to.
+  var fitPx = 600, zoomF = 1;
   function fitCanvas(){ var cv=$('mapcanvas'), st=$('mmstage'); if(!cv||!st) return;
-    var top=cv.getBoundingClientRect().top, avail=Math.floor(innerHeight-top-34);
-    var wide=st.getBoundingClientRect().width;
-    cv.style.maxWidth=Math.max(300, Math.min(avail, wide))+'px'; }
+    var box=st.getBoundingClientRect();
+    var avail=Math.floor(innerHeight-box.top-34);
+    fitPx = Math.max(300, Math.min(avail, Math.floor(box.width)));
+    st.style.maxHeight = Math.max(300, avail)+'px';
+    applyZoom(); }
+  function applyZoom(){ var cv=$('mapcanvas'); if(!cv) return;
+    var px = Math.round(fitPx * zoomF);
+    cv.style.maxWidth='none'; cv.style.width=px+'px'; cv.style.height=px+'px';
+    var v=$('mmzv'); if(v) v.textContent=Math.round(zoomF*100)+'%';
+    if(MapEd.zoom) MapEd.zoom(zoomF); }
+  // Zooming about a point: keep whatever is under the pointer under the pointer,
+  // which is the difference between zooming and being thrown across the map.
+  function setZoom(z, ev){
+    var st=$('mmstage'); if(!st) return;
+    var old=zoomF; z=Math.max(1, Math.min(6, z));
+    if(Math.abs(z-old) < 0.001) return;
+    var ax=0.5, ay=0.5;
+    if(ev){ var b=st.getBoundingClientRect();
+      ax=(ev.clientX-b.left+st.scrollLeft)/(fitPx*old);
+      ay=(ev.clientY-b.top +st.scrollTop )/(fitPx*old); }
+    else { var b2=st.getBoundingClientRect();
+      ax=(st.scrollLeft+b2.width/2)/(fitPx*old);
+      ay=(st.scrollTop +b2.height/2)/(fitPx*old); }
+    zoomF=z; applyZoom();
+    var b3=st.getBoundingClientRect();
+    var offx = ev ? (ev.clientX-b3.left) : b3.width/2;
+    var offy = ev ? (ev.clientY-b3.top ) : b3.height/2;
+    st.scrollLeft = ax*fitPx*z - offx;
+    st.scrollTop  = ay*fitPx*z - offy;
+  }
   fitCanvas(); window.addEventListener('resize', fitCanvas); setTimeout(fitCanvas, 300);
+  (function(){
+    var zi=$('mmzi'), zo=$('mmzo'), zf=$('mmzf'), st=$('mmstage');
+    if(zi) zi.onclick=function(){ setZoom(zoomF*1.25); };
+    if(zo) zo.onclick=function(){ setZoom(zoomF/1.25); };
+    if(zf) zf.onclick=function(){ setZoom(1); };
+    // Ctrl+wheel, the same gesture every map and every document uses.
+    if(st) st.addEventListener('wheel', function(e){
+      if(!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoom(zoomF * (e.deltaY < 0 ? 1.12 : 1/1.12), e);
+    }, {passive:false});
+    document.addEventListener('keydown', function(e){
+      if(!(e.ctrlKey||e.metaKey) || e.shiftKey) return;
+      if(e.key==='='||e.key==='+'){ e.preventDefault(); setZoom(zoomF*1.25); }
+      else if(e.key==='-'||e.key==='_'){ e.preventDefault(); setZoom(zoomF/1.25); }
+      else if(e.key==='0'){ e.preventDefault(); setZoom(1); }
+    });
+  })();
   new MutationObserver(function(){ fitCanvas(); }).observe($('mmstageTop'), {childList:true, subtree:true, attributes:true});
 
   var cur = {id:null, name:''}, dirty = false;
@@ -728,8 +811,84 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   };
   $('mmname').addEventListener('input', showCur);
   showCur(); showRestore();
-  $('mmnew').onclick=function(){ if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+  $('mmnew').onclick=function(){
+    fileHandle=null; showFileAt();       // a new map is not the old map's file if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
     MapEd.resetAll(); if(MapEd.setImage) MapEd.setImage(null); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };   // the full reset: asteroids, shapes, image, options
+  // ---- files on your computer ---------------------------------------------
+  // The picker exists on Chrome and Edge for the desktop, which is where the
+  // installed app runs. Everywhere else the Import / Download pair is still the
+  // whole story, and none of this is drawn.
+  var HAS_PICKER = (typeof window.showSaveFilePicker === 'function' &&
+                    typeof window.showOpenFilePicker === 'function');
+  var fileHandle = null;                 // the file this map is linked to
+  var MAP_TYPES = [{description: 'Starblast map', accept: {'text/plain': ['.txt', '.map']}}];
+
+  function showFileAt(){
+    var e=$('mmfileat'); if(!e) return;
+    e.innerHTML = fileHandle ? ('saves to <b>'+esc(fileHandle.name)+'</b>') : '';
+    var sv=$('mmfssave');
+    if(sv) sv.textContent = fileHandle ? ('Save to ' + fileHandle.name) : 'Save to computer';
+  }
+  async function canWrite(h){
+    try{
+      if(await h.queryPermission({mode:'readwrite'}) === 'granted') return true;
+      return await h.requestPermission({mode:'readwrite'}) === 'granted';
+    }catch(e){ return true; }            // older builds have no permission API
+  }
+  async function writeTo(h){
+    var text = MapEd.str();
+    if(!text){ status('Nothing to save — the map is empty','err'); return false; }
+    if(!(await canWrite(h))){ status('Not allowed to write that file','err'); return false; }
+    var w = await h.createWritable();
+    await w.write(text);
+    await w.close();
+    fileHandle = h; showFileAt();
+    status('Saved to ' + h.name, 'ok');
+    return true;
+  }
+  async function saveToComputer(pickNew){
+    if(!HAS_PICKER) return;
+    try{
+      var h = (!pickNew && fileHandle) ? fileHandle : await window.showSaveFilePicker({
+        suggestedName: safeFileName(($('mmname').value||'').trim() || cur.name),
+        types: MAP_TYPES});
+      await writeTo(h);
+    }catch(e){ if(e && e.name !== 'AbortError') status('Could not save that file','err'); }
+  }
+  async function openFromComputer(){
+    if(!HAS_PICKER) return;
+    try{
+      var picked = await window.showOpenFilePicker({types: MAP_TYPES, multiple:false});
+      var h = picked[0];
+      var f = await h.getFile();
+      if(f.size > 200000){ status('That file is too big for a map','err'); return; }
+      var txt = await f.text();
+      if(!/[1-9]/.test(txt)){ status('No asteroids in that file','err'); return; }
+      if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+      MapEd.load(txt); MapEd.resetUndo();
+      cur={id:null, name:''};            // a file is a NEW map here until it is saved
+      $('mmname').value=(f.name||'').replace(/\.[^.]+$/,'').slice(0,40);
+      fileHandle = h; showFileAt();
+      setDirty(false);                   // it matches the file on disk right now
+      status('Opened ' + f.name, 'ok');
+    }catch(e){ if(e && e.name !== 'AbortError') status('Could not open that file','err'); }
+  }
+  if(HAS_PICKER){
+    ['mmfsopen','mmfssave','mmfssaveas'].forEach(function(id){ var b=$(id); if(b) b.hidden=false; });
+    // With a real picker there is no reason to fling copies into Downloads.
+    ['mmopen','mmdownload'].forEach(function(id){ var b=$(id); if(b) b.hidden=true; });
+    $('mmfsopen').onclick=function(){ openFromComputer(); };
+    $('mmfssave').onclick=function(){ saveToComputer(false); };
+    $('mmfssaveas').onclick=function(){ saveToComputer(true); };
+    // Ctrl+S saves to the site, Ctrl+Shift+S to the file - the same pair of
+    // meanings every editor uses.
+    document.addEventListener('keydown', function(e){
+      if((e.ctrlKey||e.metaKey) && e.shiftKey && (e.key==='S'||e.key==='s')){
+        e.preventDefault(); saveToComputer(false); }
+    });
+  }
+  showFileAt();
+
   $('mmcopy').onclick=function(){ copyText(MapEd.str(), 'Copied — paste it into the lobby’s map box.'); };
   $('mmdownload').onclick=function(){ downloadMap(MapEd.str(), ($('mmname').value||'').trim() || cur.name); };
   $('mmopen').onclick=function(){ $('mmfile').click(); };

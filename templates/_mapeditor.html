@@ -409,9 +409,21 @@ window.MapEd = (function(){
     if(!shapeCells(s.type, s.p0, s.p1, s.t, mapGrid.length).length) return;
     pushUndo(); addShape(s); setShape('select'); drawMap(); syncMapText(); updateSelBar();
   }
+  // Only the outline shapes have a wall to widen. Rect, Disc and the brush fill
+  // what you drag, so the control is dimmed rather than silently ignored.
+  var THICK_TOOLS = {frame:1, ring:1, bar:1, corner:1};
+  function syncThick(){
+    var on = !!THICK_TOOLS[shapeTool];
+    var i = $('mapthick'); if(i) i.disabled = !on;
+    var g = $('mapthickgrp');
+    if(g){ g.classList.toggle('off', !on);
+      g.title = on ? 'How many cells wide the wall of this shape is. Not asteroid size.'
+                   : 'Only Frame, Ring, Bar and Corner have a wall to widen.'; }
+  }
   function setShape(t){
     shapeTool = t || 'brush';
     document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-shape')===shapeTool); });
+    syncThick();
     if(mapMode==='move') setMode('draw');
   }
   function setMode(m){
@@ -563,13 +575,13 @@ window.MapEd = (function(){
         + '<button type="button" class="mapshape on" data-shape="brush" title="Paint cells (also grabs a shape you press on). Shift+drag paints an exact straight line.">✏ Brush</button>'
         + '<button type="button" id="mapline" title="Line mode: a brush stroke locks to horizontal, vertical or diagonal from its first movement and only re-locks if you pull well off the line - straight rows and patterns without a shaky hand">─ Line</button>'
         + '<button type="button" class="mapshape" data-shape="rect" title="Drag a filled rectangle">▰ Rect</button>'
-        + '<button type="button" class="mapshape" data-shape="frame" title="Drag a hollow rectangle (thickness below)">▢ Frame</button>'
+        + '<button type="button" class="mapshape" data-shape="frame" title="Drag a hollow rectangle - Line width sets how thick its wall is">▢ Frame</button>'
         + '<button type="button" class="mapshape" data-shape="disc" title="Drag from the centre outwards: a filled circle">● Disc</button>'
-        + '<button type="button" class="mapshape" data-shape="ring" title="Drag from the centre outwards: a ring (thickness below)">◯ Ring</button>'
-        + '<button type="button" class="mapshape" data-shape="bar" title="Drag a straight bar at any angle (thickness below)">▬ Bar</button>'
+        + '<button type="button" class="mapshape" data-shape="ring" title="Drag from the centre outwards: a ring - Line width sets how thick it is">◯ Ring</button>'
+        + '<button type="button" class="mapshape" data-shape="bar" title="Drag a straight bar at any angle - Line width sets how thick it is">▬ Bar</button>'
         + '<button type="button" class="mapshape" data-shape="corner" title="Drag an L: two bars meeting at the corner you start from">◟ Corner</button>'
-        + '<span class="cgsep"></span><span>Thickness</span>'
-        + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span>'
+        + '<span class="cgsep"></span><span id="mapthickgrp" class="mapthickgrp" title="How many cells wide the wall of an outline shape is - Frame, Ring, Bar and Corner. Not asteroid size.">Line width'
+        + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span></span>'
         + '<span id="maphover" class="cgxyhint" style="margin-left:auto"></span></div>'
       + '<div class="cgmaptools mapselbar" id="mapselbar"><span class="cgxyhint" id="mapselinfo"></span><span id="mapselctl" style="display:contents">'
         + '<span class="cgsep"></span><span>Size</span><input type="range" id="mapselv" min="0" max="9" step="1" value="9"><span class="cgval" id="mapselv_v">9</span>'
@@ -868,6 +880,23 @@ window.MapEd = (function(){
   api.size = function(){ return mapGrid ? mapGrid.length : mapSize(); };
   api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; setSel([]); updateSelBar(); drawMap(); syncMapText(); };
   api.draw = drawMap;
+  // Zoom by giving the canvas MORE PIXELS, not by scaling an 800-pixel picture:
+  // at 4x a single cell is still a crisp dot, which is the whole reason to zoom
+  // into a grid you are placing one asteroid at a time on. The backing store is
+  // capped so a huge map at maximum zoom cannot eat the video memory.
+  var ZOOM_BASE = 800, ZOOM_MAX_PX = 3600, zoomF = 1;
+  api.zoom = function(z){
+    if(z !== undefined){
+      zoomF = Math.max(1, Math.min(6, +z || 1));
+      var cv = $('mapcanvas');
+      if(cv){
+        var px = Math.min(ZOOM_MAX_PX, Math.round(ZOOM_BASE * zoomF));
+        if(cv.width !== px){ cv.width = px; cv.height = px; }
+        drawMap();
+      }
+    }
+    return zoomF;
+  };
   api.resetUndo = function(){ mapUndo=[]; };
   // Build the field a given seed produces in game, straight into the editor.
   // Same generator the asteroid baker uses, so it matches what players would fly.
