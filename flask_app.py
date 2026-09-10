@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.26"
+APP_VERSION = "9.13.27"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4575,6 +4575,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.27", "at": "2026-09-10T16:35:00Z", "changes": [
+        "@owner The map editor\u2019s side panel folds away. Fullscreen was giving the map the whole window and then spending 400 pixels of it on controls you are not touching while you draw \u2014 there is a Hide panel button beside Fullscreen, a matching View entry, and the choice is remembered between visits."
+    ]},
     {"version": "9.13.26", "at": "2026-09-10T16:10:00Z", "changes": [
         "Site updates posted to Discord read as sentences again. The changelog is written for a web page, and its emphasis was arriving in the channel as raw tags; it is converted properly now.",
         "@owner Owner-only changelog lines were only ever filtered by the changelog PAGE. Both bot routes \u2014 the /changelog command and the #site-updates feed \u2014 were handing them out verbatim, so past owner-only releases were posted to Discord in full. The filter now runs at the source: those lines never leave the site, and a release that is nothing but owner work is not announced at all."

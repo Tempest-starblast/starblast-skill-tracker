@@ -7,6 +7,9 @@
    The shared editor emits the canvas inside its tools; the page moves it (and the
    selection bar + hover readout) into the stage by id, so nothing scrolls away. */
 .mmide{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
+/* Panel folded away: the map takes the whole width. */
+.mmide.nopanel{grid-template-columns:minmax(0,1fr)}
+.mmide.nopanel > .mmside{display:none}
 .mmside{position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto;padding-right:4px;scrollbar-width:thin}
 .mmside .mmcard{margin-bottom:12px}
 .mmstage{position:sticky;top:10px}
@@ -42,6 +45,12 @@
   font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
 .mmfs:hover{background:rgba(102,230,184,.2);color:#fff}
+/* Same shape as the fullscreen button, quieter - it is a layout choice, not an action. */
+.mmpanel{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:8px;cursor:pointer;
+  font-family:inherit;font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;
+  color:var(--muted,#8aa0b0);background:rgba(255,255,255,.05);border:1px solid var(--line)}
+.mmpanel:hover{background:rgba(255,255,255,.1);color:var(--text)}
+.mmpanel .mmpanelic{font-size:13px;line-height:1}
 .mmfs .mmfsic{font-size:15px;line-height:1}
 /* fullscreen: the whole editor (side panel + stage) on a dark ground */
 .mmide:fullscreen{background:#0b0e13;padding:12px;box-sizing:border-box;overflow:auto;width:100vw;height:100vh}
@@ -133,6 +142,7 @@
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
       <span class="mmstatus" id="mmstatus"></span>
       <span class="mmcur" id="mmcur"></span>
+      <button type="button" class="mmpanel" id="mmpanel" title="Fold the side panel away and give the map the room"><span class="mmpanelic">&#9666;</span><span class="mmpaneltx">Hide panel</span></button>
       <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
     </div>
     <div class="mmtoolbar" id="mmtoolbar"></div>
@@ -205,6 +215,32 @@
     var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp){ mv(cp, ed); cp.title='Keep the ring the stations orbit free of asteroids (nothing is deleted - turn it off and they come back)'; }   // Edit: it changes the map
     var adv=mv('mapadv',vw);
     var fsi=document.createElement('button'); fsi.type='button'; fsi.textContent='Fullscreen editor'; fsi.onclick=function(){ var b=$('mmfs'); if(b) b.click(); }; vw.insertBefore(fsi, vw.firstChild);
+    // Fold the side panel away. Drawing does not need it, and in fullscreen it is
+    // 400px of window spent on controls you are not touching. The choice is kept,
+    // because someone who works with it shut would otherwise shut it every visit.
+    var pnl=$('mmpanel'), ideEl=document.querySelector('.mmide');
+    var pvi=document.createElement('button'); pvi.type='button';
+    pvi.onclick=function(){ if(pnl) pnl.click(); }; vw.insertBefore(pvi, vw.firstChild);
+    function setPanel(hidden){
+      if(!ideEl) return;
+      ideEl.classList.toggle('nopanel', !!hidden);
+      if(pnl){
+        var t=pnl.querySelector('.mmpaneltx'), ic=pnl.querySelector('.mmpanelic');
+        if(t) t.textContent = hidden ? 'Show panel' : 'Hide panel';
+        if(ic) ic.innerHTML = hidden ? '&#9656;' : '&#9666;';
+        pnl.title = hidden ? 'Bring the side panel back'
+                           : 'Fold the side panel away and give the map the room';
+      }
+      pvi.textContent = hidden ? 'Show side panel' : 'Hide side panel';
+      try{ localStorage.setItem('mm_panel_hidden', hidden ? '1' : '0'); }catch(e){}
+      // The map is sized from what is left of the row, so it has to be remeasured.
+      setTimeout(function(){ if(typeof fitCanvas==='function') fitCanvas(); }, 30);
+    }
+    if(pnl) pnl.addEventListener('click', function(){
+      setPanel(!ideEl.classList.contains('nopanel')); });
+    var wasHidden=false;
+    try{ wasHidden = localStorage.getItem('mm_panel_hidden')==='1'; }catch(e){}
+    setPanel(wasHidden);
     // fullscreen the editor: the whole .mmide block, so the panel and the map both scale
     var fsb=$('mmfs'), ide=document.querySelector('.mmide');
     if(fsb && ide){ fsb.addEventListener('click', function(){
