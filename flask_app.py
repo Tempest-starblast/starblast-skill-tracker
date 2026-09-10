@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.21"
+APP_VERSION = "9.13.22"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4535,8 +4535,8 @@ def game_end():
 OWNER_TAG = "@owner "
 
 CHANGELOG = [
-    {"version": "9.13.21", "at": "2026-09-10T17:40:00Z", "changes": [
-        "The leaderboard now says how much it is built on: the total number of team matches and survival rounds the watcher has recorded, under the player count."
+    {"version": "9.13.22", "at": "2026-09-10T18:00:00Z", "changes": [
+        "The leaderboard says how much it is built on: the number of matches the watcher has recorded, under the player count — team matches on the team board, survival rounds on the survival board."
     ]},
     {"version": "9.13.20", "at": "2026-09-10T17:00:00Z", "changes": [
         "Server: when a lobby refuses to hold the watcher\u2019s connection, it now waits longer between attempts (2 seconds, then 4, 8 and so on up to a minute) instead of retrying every two seconds forever, and goes straight back to normal as soon as a connection lasts. Less wasted bandwidth, and the log stays readable.",
