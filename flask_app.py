@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.11"
+APP_VERSION = "9.13.12"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4528,6 +4528,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.12", "at": "2026-09-10T11:50:00Z", "changes": [
+        "My Maps: a <b>Fullscreen</b> button (top-right, and under View) puts the whole editor — side panel and map — on the full screen; the map grows to fit."
+    ]},
     {"version": "9.13.11", "at": "2026-09-10T11:30:00Z", "changes": [
         "My Maps is laid out like an editor now: the map large in the middle with a menu bar above it (File, Edit, Insert, View) and one toolbar for the drawing tools, and a side panel that keeps the map settings and your saved maps in view without scrolling. The scattered buttons are consolidated into those menus; New map is the one reset.",
         "Map editor: select several shapes at once — drag a box around them with the Select tool, or Shift-click to add — then move, delete, duplicate, copy/paste (Ctrl+C, Ctrl+X, Ctrl+V) or retune them together. Ctrl+A selects every shape. A click on a shape selects it with any tool.",

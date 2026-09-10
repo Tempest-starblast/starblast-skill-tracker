@@ -37,6 +37,14 @@
 .mmmenu-list .cgmapxy{margin:2px 0 0;padding:6px 10px;gap:6px}
 .mmmenu-list .mapadvbtn{background:none!important;border:0!important;color:var(--text)!important}
 .mmmenu-spacer{flex:1}
+.mmfs{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit;
+  font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
+.mmfs:hover{background:rgba(102,230,184,.2);color:#fff}
+.mmfs .mmfsic{font-size:15px;line-height:1}
+/* fullscreen: the whole editor (side panel + stage) on a dark ground */
+.mmide:fullscreen{background:#0b0e13;padding:12px;box-sizing:border-box;overflow:auto;width:100vw;height:100vh}
+.mmide:fullscreen .mmside{max-height:calc(100vh - 24px)}
 .mmmenubar #mmname{flex:0 1 260px;min-width:120px;background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:6px 10px;color:var(--text);font-size:13px;font-family:inherit}
 .mmtoolbar{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:2px 0 10px;font-size:11.5px;color:var(--muted)}
 .mmtoolbar .mmtoolrow2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -121,6 +129,7 @@
       <input type="text" id="mmname" maxlength="40" placeholder="Map name">
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
       <span class="mmstatus" id="mmstatus"></span>
+      <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
     </div>
     <div class="mmtoolbar" id="mmtoolbar"></div>
     <div id="mmstageTop"></div>
@@ -190,6 +199,15 @@
     var vw=$('mmView'); var ob=mv('maporbit',vw); var ms=mv('mapselect',vw); if(ms) ms.title='Drag the stations around their ring yourself';
     var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp) mv(cp, vw);
     var adv=mv('mapadv',vw);
+    var fsi=document.createElement('button'); fsi.type='button'; fsi.textContent='Fullscreen editor'; fsi.onclick=function(){ var b=$('mmfs'); if(b) b.click(); }; vw.insertBefore(fsi, vw.firstChild);
+    // fullscreen the editor: the whole .mmide block, so the panel and the map both scale
+    var fsb=$('mmfs'), ide=document.querySelector('.mmide');
+    if(fsb && ide){ fsb.addEventListener('click', function(){
+        if(!document.fullscreenElement){ if(ide.requestFullscreen) ide.requestFullscreen(); }
+        else if(document.exitFullscreen) document.exitFullscreen(); });
+      document.addEventListener('fullscreenchange', function(){ var on=!!document.fullscreenElement, t=fsb.querySelector('.mmfstx');
+        if(t) t.textContent = on ? 'Exit fullscreen' : 'Fullscreen'; fsb.title = on ? 'Leave fullscreen' : 'Work on the map fullscreen';
+        setTimeout(function(){ if(typeof fitCanvas==='function') fitCanvas(); }, 60); }); }
     // side panel: image trace options (shown once an image is in), by-point row
     var io=document.querySelector('#mmtools .cgimgopts'); if(io) mv(io,'mmimgopts');
     var ptRow=$('mapx') && $('mapx').closest('.cgmapxy'); if(ptRow) mv(ptRow,'mmpoint');
