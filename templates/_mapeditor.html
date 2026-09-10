@@ -351,7 +351,18 @@ window.MapEd = (function(){
     info.textContent = s.type==='cells'
       ? ('Asteroids · '+shapeCellsOf(s).length+' selected'+(bb?(' · '+(bb.c1-bb.c0+1)+'×'+(bb.r1-bb.r0+1)+' at ('+bb.c0+', '+bb.r0+')'):''))
       : (SHAPE_NAMES[s.type]||s.type)+(bb?(' · '+(bb.c1-bb.c0+1)+'×'+(bb.r1-bb.r0+1)+' at ('+bb.c0+', '+bb.r0+')'):'');
-    if(sv){ sv.value=s.v; $('mapselv_v').textContent = s.v ? s.v : 'hole'; }
+    if(sv){
+      // A lifted patch with v == null has not been overridden: each cell still
+      // has its own size. One cell means one honest number; several mean the
+      // slider has nothing single to show.
+      var shown = s.v, lbl;
+      if(s.type==='cells' && s.v==null){
+        var cl=s.cells||[];
+        if(cl.length===1){ shown=cl[0][2]; lbl=String(shown); }
+        else { shown=sv.value; lbl='mixed'; }
+      } else lbl = s.v ? String(s.v) : 'hole';
+      sv.value = shown; $('mapselv_v').textContent = lbl;
+    }
     if(st){ st.value=s.t; $('mapselt_v').textContent=s.t; }
     if(tw) tw.style.display = (s.type==='rect'||s.type==='disc'||s.type==='cells') ? 'none' : ''; }
   var marquee=null;                                   // {a:{x,y}, b:{x,y}} while box-selecting
@@ -572,6 +583,7 @@ window.MapEd = (function(){
       + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
       + '<div class="cgmaptools" id="mapshapes"><span>Draw</span>'
         + '<button type="button" class="mapshape" data-shape="select" title="Select shapes: click one, drag to move it, pull its handles to resize">↖ Select</button>'
+        + '<button type="button" class="mapshape" data-shape="one" title="Grab ONE asteroid and drag it. Its size is on the selection bar, the arrow keys nudge it, Delete removes it - good for close-up work.">✥ Single</button>'
         + '<button type="button" class="mapshape on" data-shape="brush" title="Paint cells (also grabs a shape you press on). Shift+drag paints an exact straight line.">✏ Brush</button>'
         + '<button type="button" id="mapline" title="Line mode: a brush stroke locks to horizontal, vertical or diagonal from its first movement and only re-locks if you pull well off the line - straight rows and patterns without a shaky hand">─ Line</button>'
         + '<button type="button" class="mapshape" data-shape="rect" title="Drag a filled rectangle">▰ Rect</button>'
@@ -689,7 +701,10 @@ window.MapEd = (function(){
       var g=outGrid(), q=mapPoint(cv,p), cs=cv.width/c.n, s=getSel();
       h.textContent='x '+c.c+', y '+c.r+(g[c.r][c.c]?(' · size '+g[c.r][c.c]):' · empty');
       if(mapMode==='move'||act||shapeDrag||painting) return;
+      // With Single, the cursor says whether there is a rock here to grab.
+      var onRock = shapeTool==='one' && mapGrid[c.r] && mapGrid[c.r][c.c];
       cv.style.cursor = (s && hitHandle(s,q,cs)) ? 'nwse-resize'
+        : (shapeTool==='one') ? ((onRock || shapeAt(q)) ? 'move' : 'default')
         : ((shapeTool==='select'||shapeTool==='brush') && shapeAt(q)) ? 'move'
         : shapeTool==='select' ? 'default' : 'crosshair'; }
     // press on a shape: select it and drag it; on a handle of the selected shape: resize;
@@ -697,6 +712,26 @@ window.MapEd = (function(){
     var act=null;
     function objDown(p){ var q=mapPoint(cv,p), cs=cv.width/q.n, s=getSel();
       if(s){ var hd=hitHandle(s,q,cs); if(hd){ act={kind:'resize', s:s, h:hd.k, pushed:false}; return true; } }
+      // One at a time: the cell under the pointer, not the blob it belongs to.
+      // The painted cell wins over any shape covering it - that is the whole
+      // point of the tool - and the tool never falls through to drawing.
+      if(shapeTool==='one'){
+        var r1=Math.floor(q.y), c1=Math.floor(q.x);
+        if(mapGrid[r1] && mapGrid[r1][c1]){
+          if(selIds.length) setSel([]);
+          var one=liftCells([[r1,c1]]);
+          if(one){
+            setSel([one.id]); updateSelBar();
+            act={kind:'move', list:[one], last:q, acc:{x:0,y:0}, pushed:false};
+            drawMap(); syncMapText(); return true; } }
+        var hit1=shapeAt(q);
+        if(hit1){
+          if(!isSel(hit1.id)){ setSel([hit1.id]); updateSelBar(); }
+          act={kind:'move', list:getSels(), last:q, acc:{x:0,y:0}, pushed:false};
+          paintCanvas(); return true; }
+        if(selIds.length){ setSel([]); updateSelBar(); paintCanvas(); }
+        return true;
+      }
       if(shapeTool==='select' || shapeTool==='brush'){
         var hit=shapeAt(q);
         if(hit){
