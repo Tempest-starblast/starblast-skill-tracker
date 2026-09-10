@@ -27,7 +27,7 @@
 .mmide.nopanel > .mmside{display:none}
 /* The grip rides the panel's own edge, in the gap between the two columns, and
    its arrow points the way the panel will go. */
-.mmgrip{position:absolute;top:14px;left:400px;z-index:4;width:15px;height:52px;padding:0;
+.mmgrip{position:absolute;top:14px;left:400px;z-index:4;width:15px;height:56px;padding:0;
   display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;font-size:11px;
   color:var(--muted,#8aa0b0);background:rgba(255,255,255,.06);border:1px solid var(--line);
   border-radius:0 7px 7px 0;transition:left .16s ease, background .16s ease, color .16s ease}
@@ -502,7 +502,8 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       pvi.textContent = hidden ? 'Show side panel' : 'Hide side panel';   // (not shown)
       try{ localStorage.setItem('mm_panel_hidden', hidden ? '1' : '0'); }catch(e){}
       // The map is sized from what is left of the row, so it has to be remeasured.
-      setTimeout(function(){ if(typeof fitCanvas==='function') fitCanvas(); }, 30);
+      setTimeout(function(){ if(typeof fitCanvas==='function') fitCanvas();
+                             if(typeof placeGrip==='function') placeGrip(); }, 30);
     }
     if(pnl) pnl.addEventListener('click', function(){
       setPanel(!ideEl.classList.contains('nopanel')); });
@@ -554,7 +555,19 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     if(px===fitPx && st.style.maxHeight===mh+'px') return;
     fitPx = px; st.style.maxHeight = mh+'px';
     applyZoom(); }
+  // The grip is the panel's edge, so it starts where the panel starts. Pinning
+  // it at a guessed offset left it floating below the panel's top corner.
+  function placeGrip(){
+    var g=$('mmgrip'), ide=document.querySelector('.mmide');
+    if(!g || !ide) return;
+    var ref=ide.classList.contains('nopanel') ? document.querySelector('.mmstage')
+                                              : document.querySelector('.mmside');
+    if(!ref) return;
+    var t=Math.round(ref.getBoundingClientRect().top - ide.getBoundingClientRect().top);
+    g.style.top=Math.max(0, t)+'px';
+  }
   function applyZoom(){ var cv=$('mapcanvas'); if(!cv) return;
+    placeGrip();
     var px = Math.round(fitPx * zoomF);
     cv.style.maxWidth='none'; cv.style.width=px+'px'; cv.style.height=px+'px';
     var v=$('mmzv'); if(v) v.textContent=Math.round(zoomF*100)+'%';
