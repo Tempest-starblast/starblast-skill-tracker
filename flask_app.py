@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, session, redirect
 import re
+import html
 import unicodedata
 from urllib.parse import quote
 import random
@@ -23,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.25"
+APP_VERSION = "9.13.26"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4546,7 +4547,38 @@ def game_end():
 # when there is no visible part at all, the line belongs behind OWNER_TAG.
 OWNER_TAG = "@owner "
 
+
+def public_entries(entries):
+    """Changelog entries as anyone outside the site may see them.
+
+    Owner-only lines are dropped (not stripped of their tag - dropped), and an
+    entry left with nothing to say is dropped with them. The changelog page has
+    always done this; every other way out of the building must do it too, or the
+    filter is decoration.
+
+    <b>/<i> are the page's emphasis; Discord shows them as literal tags, so they
+    become Discord's own on the way out and any other markup is removed."""
+    out = []
+    for e in entries or []:
+        vis = [c for c in (e.get("changes") or []) if not c.startswith(OWNER_TAG)]
+        if not vis:
+            continue
+        clean = []
+        for c in vis:
+            c = re.sub(r"</?b>", "**", c)
+            c = re.sub(r"</?i>", "*", c)
+            c = re.sub(r"<[^>]+>", "", c)
+            clean.append(html.unescape(c).strip())
+        d = dict(e)
+        d["changes"] = clean
+        out.append(d)
+    return out
+
 CHANGELOG = [
+    {"version": "9.13.26", "at": "2026-09-10T16:10:00Z", "changes": [
+        "Site updates posted to Discord read as sentences again. The changelog is written for a web page, and its emphasis was arriving in the channel as raw tags; it is converted properly now.",
+        "@owner Owner-only changelog lines were only ever filtered by the changelog PAGE. Both bot routes \u2014 the /changelog command and the #site-updates feed \u2014 were handing them out verbatim, so past owner-only releases were posted to Discord in full. The filter now runs at the source: those lines never leave the site, and a release that is nothing but owner work is not announced at all."
+    ]},
     {"version": "9.13.25", "at": "2026-09-10T21:00:00Z", "changes": [
         "<b>Replays now show where nothing was recorded.</b> When a watcher drops or is restarted the recording simply stops for a while, and the replay used to glide every ship smoothly across the hole \u2014 so a blackout looked like flying that never happened. The seek bar is now laid out by match time, holes are drawn on it as grey bands you can hover to read, and playing through one freezes the ships on the last real reading, says how much is missing, and cuts to the far side after a moment instead of playing out empty minutes. The clock and the stations keep turning through it, because those come from the time, not the recording.",
         "The changelog only describes what you can see. Entries that had drifted into describing how the site is built have been rewritten down to the part that shows on screen \u2014 nothing is softened, and where something broke it still says so."
@@ -10934,8 +10966,8 @@ def bot_top_route():
 @app.route('/api/bot/changelog')
 def bot_changelog_route():
     """The most recent changelog entries, so players can read what moved
-    without leaving Discord. Public information - it is on the site - but
-    key-gated like the rest of the bot API for consistency."""
+    without leaving Discord. Only what the site itself shows a visitor: the
+    owner-only lines never leave the building."""
     if not bot_authorised():
         return jsonify({"error": "Unauthorized"}), 401
     try:
@@ -10943,7 +10975,7 @@ def bot_changelog_route():
     except (TypeError, ValueError):
         n = 3
     return jsonify({"version": APP_VERSION,
-                    "entries": CHANGELOG[:n]}), 200
+                    "entries": public_entries(CHANGELOG)[:n]}), 200
 
 
 @app.route('/api/bot/changelog/undelivered')
@@ -10959,7 +10991,10 @@ def bot_changelog_undelivered():
               "version TEXT PRIMARY KEY, announced_at TEXT)")
     done = {r[0] for r in c.execute("SELECT version FROM changelog_announced")}
     conn.close()
-    pending = [e for e in CHANGELOG
+    # Owner-only lines are removed BEFORE the version is offered for delivery,
+    # so a release that was nothing but owner-only work is never posted at all -
+    # rather than posted as an empty announcement.
+    pending = [e for e in public_entries(CHANGELOG)
                if e.get("version") and e["version"] not in done]
     pending.reverse()      # CHANGELOG is newest-first; deliver oldest-first
     return jsonify({"version": APP_VERSION, "entries": pending}), 200
