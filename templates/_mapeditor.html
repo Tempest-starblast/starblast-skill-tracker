@@ -456,7 +456,10 @@ window.MapEd = (function(){
     if(l.length>1){ if(info) info.textContent=l.length+' shapes selected · drag any of them to move all · Shift+click adds or removes one';
       if(sv){ sv.value=l[0].v; $('mapselv_v').textContent = l[0].v ? l[0].v : 'hole'; }
       if(st){ st.value=l[0].t; $('mapselt_v').textContent=l[0].t; } if(tw) tw.style.display=''; return; }
-    if(!s){ if(info) info.textContent = shapes.length
+    if(!s){ if(info) info.textContent =
+        (shapeTool==='one')
+          ? 'Single: click any asteroid to pick up that one · drag to move it · arrow keys nudge · Delete removes it'
+      : shapes.length
       ? 'Select tool: click an asteroid to grab the clump, or drag a box round anything · drag to move · Ctrl+C / Ctrl+V · Delete'
       : 'Pick a shape above and drag it out on the map · or use Select to grab painted asteroids and move them'; return; }
     var bb=shapeBBox(s);
@@ -599,6 +602,7 @@ window.MapEd = (function(){
     shapeTool = (activeTool === 'line') ? 'brush' : activeTool;
     document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-shape')===activeTool); });
     syncThick();
+    if(mapGrid) updateSelBar();          // the idle hint describes the tool in hand
     if(mapMode==='move') setMode('draw');
   }
   // A red ring, so erasing never looks like painting. Drawn as a data URI so it
@@ -919,11 +923,27 @@ window.MapEd = (function(){
       // point of the tool - and the tool never falls through to drawing.
       if(shapeTool==='one'){
         var r1=Math.floor(q.y), c1=Math.floor(q.x);
-        if(mapGrid[r1] && mapGrid[r1][c1]){
+        // What is ON SCREEN, not just what was painted. Asteroids that came from
+        // a shape are not in the painted layer at all, so testing that layer
+        // meant Single found nothing on any map built out of shapes.
+        var vis=outGrid();
+        if(vis && vis[r1] && vis[r1][c1]){
           if(selIds.length) setSel([]);
+          var note='';
+          if(!(mapGrid[r1] && mapGrid[r1][c1])){
+            // It belongs to a shape. A shape cannot give up one of its cells and
+            // remain a shape, so it becomes plain asteroids first.
+            var owner=shapeAt(q);
+            if(owner){
+              pushUndo();
+              if(owner.type==='cells') bakePatch(owner); else bakeShape(owner);
+              note=' \u00b7 the shape it was part of became plain asteroids (Undo to put it back)';
+            }
+          }
           var one=liftCells([[r1,c1]]);
           if(one){
             setSel([one.id]); updateSelBar();
+            if(note){ var ni=$('mapselinfo'); if(ni) ni.textContent += note; }
             act={kind:'move', list:[one], last:q, acc:{x:0,y:0}, pushed:false};
             drawMap(); syncMapText(); return true; } }
         var hit1=shapeAt(q);
@@ -931,7 +951,10 @@ window.MapEd = (function(){
           if(!isSel(hit1.id)){ setSel([hit1.id]); updateSelBar(); }
           act={kind:'move', list:getSels(), last:q, acc:{x:0,y:0}, pushed:false};
           paintCanvas(); return true; }
-        if(selIds.length){ setSel([]); updateSelBar(); paintCanvas(); }
+        if(selIds.length){ setSel([]); updateSelBar(); }
+        var ei=$('mapselinfo');
+        if(ei) ei.textContent='Single: no asteroid there \u2014 click one to pick it up';
+        paintCanvas();
         return true;
       }
       if(shapeTool==='select' || shapeTool==='brush'){
