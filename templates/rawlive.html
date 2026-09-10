@@ -299,7 +299,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     if(!name) return;
     for(var id in c.ships){ if(c.ships[id].nm === name){ var sh=c.ships[id];
       if(!sh.el.querySelector('.rl-hlc')){ var cc=document.createElementNS('http://www.w3.org/2000/svg','circle');
-        cc.setAttribute('class','rl-hlc'); cc.setAttribute('cx','0'); cc.setAttribute('cy','0'); cc.setAttribute('r','7');
+        cc.setAttribute('class','rl-hlc'); cc.setAttribute('cx','0'); cc.setAttribute('cy','0'); cc.setAttribute('r',(SHIP_R*2.6).toFixed(1));
         cc.setAttribute('fill',COL[sh.ti]||'#888'); cc.setAttribute('opacity','0.32'); cc.setAttribute('stroke','none');
         sh.el.insertBefore(cc, sh.el.firstChild); }
       c._shl=sh; return; } }
@@ -388,11 +388,14 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
         g.addEventListener('mouseenter', function(){ var row=c.nameRow&&c.nameRow[(c.ships[id]||{}).nm];
           if(c._hl&&c._hl!==row) c._hl.classList.remove('rl-hl'); c._hl=row; if(row) row.classList.add('rl-hl'); });
         g.addEventListener('mouseleave', function(){ if(c._hl) c._hl.classList.remove('rl-hl'); c._hl=null; });
+        // Click a ship (or its name) -> that pilot's profile, the same as a roster row.
+        g.addEventListener('click', function(){ var n=(c.ships[id]||{}).nm; if(n) location.href='/player/'+encodeURIComponent(n); });
+        if(nm) g.style.cursor='pointer';
         c.ships[id]={el:g,ti:ti,x:x,y:y,last:now,nm:nm};
         return;
       }
       if(sh.nm!==nm){   // pilot name resolved or changed - update the label
-        sh.nm=nm; var tx=sh.el.querySelector('.rl-shipnm');
+        sh.nm=nm; sh.el.style.cursor=nm?'pointer':''; var tx=sh.el.querySelector('.rl-shipnm');
         if(nm){ if(!tx){ tx=document.createElementNS('http://www.w3.org/2000/svg','text');
             tx.setAttribute('class','rl-shipnm'); tx.setAttribute('x','0'); tx.setAttribute('y','-6');
             tx.setAttribute('fill',COL[sh.ti]||'#888'); sh.el.appendChild(tx); }

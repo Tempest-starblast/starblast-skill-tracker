@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.5"
+APP_VERSION = "9.13.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4516,6 +4516,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.6", "at": "2026-09-10T07:50:00Z", "changes": [
+        "Replay: one obvious <b>Fullscreen</b> button in the top-right corner of the replay box, which fullscreens the whole replay (teams, radar and controls). The little radar-only fullscreen glyph is gone.",
+        "Replay: playback speeds are now multiples of real time — <b>1× real time</b> plays the match at the speed it was played, up to 32×. (Before, “1×” stepped one snapshot every 0.64 s, about five times faster than the match and unevenly.) The default is 8×, close to the old feel.",
+        "Replay and live view behave the same on the radar: hover a ship to light up its roster row, hover a row to halo its ship, and click either a row <b>or a ship</b> to open that pilot’s profile."
+    ]},
     {"version": "9.13.5", "at": "2026-09-10T07:20:00Z", "changes": [
         "Replays and the live view now draw the map the same way, and ships stop “flying”: the map wraps at its edges (fly off one side, arrive on the other), and with the corrected frame those edges are now where ships actually mine. A ship crossing an edge is now drawn on both sides as it goes, so it slides off one edge and onto the other instead of popping across the screen. A jump no ship could make in one step (a ship id handed to a new pilot) is cut to instead of glided across the map.",
         "Every replay gets its asteroid field, including old ones: a lobby’s map is generated from its system id, so the field can always be rebuilt.",
