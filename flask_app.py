@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.13"
+APP_VERSION = "9.13.14"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4528,6 +4528,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.14", "at": "2026-09-10T12:40:00Z", "changes": [
+        "Map editor: the full grid is drawn (every cell, every tenth line stronger), and brush strokes are continuous — a fast mouse no longer skips cells.",
+        "Map editor: <b>Line mode</b> for the brush. A stroke locks to horizontal, vertical or a 45° diagonal from its first movement and only re-locks if you pull well off the line, so rows, columns and patterns come out straight. Shift+drag paints an exact straight line with a preview.",
+        "Map editor: the stations on the map are drawn the way the live view and replays draw them — a ring of modules round a hex hub in the team’s colour — instead of numbered squares."
+    ]},
     {"version": "9.13.13", "at": "2026-09-10T12:00:00Z", "changes": [
         "My Maps: “Clear station path” lives under Edit now (it changes the map), not View."
     ]},

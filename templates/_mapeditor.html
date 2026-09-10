@@ -36,7 +36,7 @@ html:not(.mapadv) .adv{display:none!important}
 #mapcanvas{width:100%;max-width:760px;border:1px solid var(--line);border-radius:8px;
   background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
 #mapcanvas.ro{cursor:default;max-width:320px}
-.cgmaptools .mapshape.on{background:rgba(102,230,184,.16);border-color:var(--green,#66e6b8);color:var(--green,#66e6b8)}
+.cgmaptools .mapshape.on,.cgmaptools #mapline.on{background:rgba(102,230,184,.16);border-color:var(--green,#66e6b8);color:var(--green,#66e6b8)}
 .cgmaptools .cgsep{width:1px;height:18px;background:var(--line);margin:0 2px}
 .cgmaptools.mapselbar{border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-height:42px;box-sizing:border-box}
 .cgmaptools.mapselbar.has{border-color:rgba(102,230,184,.45);background:rgba(102,230,184,.06)}
@@ -105,11 +105,14 @@ window.MapEd = (function(){
     if(mapLayer.width!==cv.width || mapLayer.height!==cv.height){ mapLayer.width=cv.width; mapLayer.height=cv.height; }
     var ctx=mapLayer.getContext('2d');
     ctx.clearRect(0,0,mapLayer.width,mapLayer.height);
-    // a faint grid every 10 cells, so coordinates are readable at a glance
-    ctx.save(); ctx.strokeStyle='rgba(153,221,255,.07)'; ctx.lineWidth=1;
-    for(var gi=10; gi<n; gi+=10){ ctx.beginPath(); ctx.moveTo(gi*cs,0); ctx.lineTo(gi*cs,cv.height); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,gi*cs); ctx.lineTo(cv.width,gi*cs); ctx.stroke(); }
-    ctx.restore();
+    // the full grid: every cell (when cells are big enough to show it), every tenth line stronger
+    ctx.save(); ctx.lineWidth=1;
+    if(cs>=5){ ctx.strokeStyle='rgba(153,221,255,.045)'; ctx.beginPath();
+      for(var gc=1; gc<n; gc++){ if(gc%10===0) continue; var gx=Math.round(gc*cs)+0.5; ctx.moveTo(gx,0); ctx.lineTo(gx,cv.height); ctx.moveTo(0,gx); ctx.lineTo(cv.width,gx); }
+      ctx.stroke(); }
+    ctx.strokeStyle='rgba(153,221,255,.11)'; ctx.beginPath();
+    for(var gi=10; gi<n; gi+=10){ var gy=Math.round(gi*cs)+0.5; ctx.moveTo(gy,0); ctx.lineTo(gy,cv.height); ctx.moveTo(0,gy); ctx.lineTo(cv.width,gy); }
+    ctx.stroke(); ctx.restore();
     if(clearPath){                                  // show the corridor being kept clear
       var band=pathBand(n);
       ctx.save(); ctx.beginPath();
@@ -162,7 +165,7 @@ window.MapEd = (function(){
   var mapMode = 'draw';
   // ---- shapes: rasterised straight onto the grid, so undo / clear-path / save /
   //      export all work unchanged. p0/p1 are continuous cell coordinates. ----
-  var shapeTool = 'brush', shapeDrag = null;
+  var shapeTool = 'brush', shapeDrag = null, lineMode = false;
   var shapes = [], selIds = [], nextShapeId = 1;    // the object layer + the selection (ids)
   function isSel(id){ return selIds.indexOf(id) >= 0; }
   function getSels(){ return shapes.filter(function(x){ return isSel(x.id); }); }
@@ -300,25 +303,36 @@ window.MapEd = (function(){
     var b=$('mapselect');
     if(b){ b.textContent = (mapMode==='move') ? '✋ Moving' : '✋ Move'; b.classList.toggle('mapadvbtn', mapMode==='move'); }
   }
+  // A station, the way the live view and the replays draw one (see _stationglyph.html):
+  // a glow, a ring of modules, a hex hub with a dark core - in the team's colour.
+  function drawStationGlyph(ctx, x, y, col, s){
+    ctx.save(); ctx.translate(x, y);
+    ctx.globalAlpha=0.10; ctx.fillStyle=col; ctx.beginPath(); ctx.arc(0,0,s*1.6,0,6.2832); ctx.fill();
+    ctx.globalAlpha=0.35; ctx.strokeStyle=col; ctx.lineWidth=Math.max(1,s*0.06); ctx.beginPath(); ctx.arc(0,0,s*1.15,0,6.2832); ctx.stroke();
+    ctx.globalAlpha=1;
+    for(var i=0;i<12;i++){ var a=-Math.PI/2+i*Math.PI/6; ctx.fillStyle=col; ctx.strokeStyle='rgba(4,12,24,.8)'; ctx.lineWidth=Math.max(1,s*0.05);
+      ctx.beginPath(); ctx.arc(s*0.95*Math.cos(a), s*0.95*Math.sin(a), s*0.2, 0, 6.2832); ctx.fill(); ctx.stroke(); }
+    ctx.beginPath(); for(var q=0;q<6;q++){ var a2=Math.PI/6+q*Math.PI/3, hx=s*0.5*Math.cos(a2), hy=s*0.5*Math.sin(a2); if(q) ctx.lineTo(hx,hy); else ctx.moveTo(hx,hy); }
+    ctx.closePath(); ctx.fillStyle=col; ctx.fill(); ctx.strokeStyle='rgba(4,12,24,.85)'; ctx.lineWidth=Math.max(1,s*0.1); ctx.stroke();
+    ctx.fillStyle='rgba(4,12,24,.85)'; ctx.beginPath(); ctx.arc(0,0,s*0.17,0,6.2832); ctx.fill();
+    ctx.restore();
+  }
   function drawBases(ctx,n,cs,cv){
     var mode=($('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
-    var nt=parseInt(($('o_friendly_colors')||{}).value,10); if(isNaN(nt)) nt=3; if(nt<1) return;
+    var nt=parseInt(($('o_friendly_colors')||{}).value,10); if(!(nt>=1)) nt=3; if(nt>5) nt=5;
     var ss=parseFloat(($('o_station_size')||{}).value); if(isNaN(ss)) ss=2;
-    var cx=cv.width/2, cy=cv.height/2, R=(n*Math.SQRT2/4)*cs;         // ring radius = map*sqrt(2)/4 (the game's own)
-    ctx.save();
-    ctx.setLineDash([4,4]); ctx.strokeStyle='rgba(255,255,255,.3)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.arc(cx,cy,R,0,6.2832); ctx.stroke();        // the orbit the stations ride
-    ctx.setLineDash([]);
-    ctx.fillStyle='rgba(255,220,120,.9)'; ctx.beginPath(); ctx.arc(cx,cy,Math.max(2,cs*0.6),0,6.2832); ctx.fill();   // the sun
-    var sr=Math.max(3, cs*1.5*ss);                                    // footprint grows with the station-size slider (approx.)
+    var R=(n*Math.SQRT2/4)*cs, cx=cv.width/2, cy=cv.height/2;
+    // the sun, and the ring the stations travel
+    ctx.save(); ctx.fillStyle='#ffd166'; ctx.beginPath(); ctx.arc(cx,cy,Math.max(2,cs*0.4),0,6.2832); ctx.fill();
+    ctx.strokeStyle='rgba(153,221,255,.22)'; ctx.setLineDash([cs*0.8,cs*0.6]); ctx.lineWidth=1; ctx.beginPath(); ctx.arc(cx,cy,R,0,6.2832); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+    var glyph=Math.max(9, cs*(1.6+0.55*ss));
     for(var i=0;i<nt;i++){ var ang=-Math.PI/2 + orbitAng + i*2*Math.PI/nt;   // spun by the orbit dial; the real phase varies per match
-      var x=cx+R*Math.cos(ang), y=cy+R*Math.sin(ang);
-      ctx.globalAlpha=0.85; ctx.fillStyle=teamColor(i,nt);
-      ctx.beginPath(); ctx.rect(x-sr,y-sr,2*sr,2*sr); ctx.fill();
-      ctx.globalAlpha=1; ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1; ctx.stroke();
-      ctx.fillStyle='#000'; ctx.font='bold '+Math.max(8,Math.min(12,sr))+'px system-ui';
-      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(i+1), x, y); }
-    ctx.restore(); }
+      var x=cx+R*Math.cos(ang), y=cy+R*Math.sin(ang), col=teamColor(i,nt);
+      drawStationGlyph(ctx, x, y, col, glyph);
+      ctx.save(); ctx.fillStyle='rgba(4,12,24,.85)'; ctx.font='bold '+Math.max(9,cs*1.05)+'px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.beginPath(); ctx.arc(x+glyph*1.35, y-glyph*1.35, Math.max(7,cs*0.85), 0, 6.2832); ctx.fill();
+      ctx.fillStyle=col; ctx.fillText(String(i+1), x+glyph*1.35, y-glyph*1.35+1); ctx.restore(); }
+  }
   function mapPoint(cv,ev){ var n=mapGrid.length, rect=cv.getBoundingClientRect(), cs=cv.width/n;
     var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
     return {x:x/cs, y:y/cs, n:n}; }
@@ -429,7 +443,8 @@ window.MapEd = (function(){
       + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
       + '<div class="cgmaptools" id="mapshapes"><span>Draw</span>'
         + '<button type="button" class="mapshape" data-shape="select" title="Select shapes: click one, drag to move it, pull its handles to resize">↖ Select</button>'
-        + '<button type="button" class="mapshape on" data-shape="brush" title="Paint single cells (also grabs a shape you press on)">✏ Brush</button>'
+        + '<button type="button" class="mapshape on" data-shape="brush" title="Paint cells (also grabs a shape you press on). Shift+drag paints an exact straight line.">✏ Brush</button>'
+        + '<button type="button" id="mapline" title="Line mode: a brush stroke locks to horizontal, vertical or diagonal from its first movement and only re-locks if you pull well off the line - straight rows and patterns without a shaky hand">─ Line</button>'
         + '<button type="button" class="mapshape" data-shape="rect" title="Drag a filled rectangle">▰ Rect</button>'
         + '<button type="button" class="mapshape" data-shape="frame" title="Drag a hollow rectangle (thickness below)">▢ Frame</button>'
         + '<button type="button" class="mapshape" data-shape="disc" title="Drag from the centre outwards: a filled circle">● Disc</button>'
@@ -481,9 +496,42 @@ window.MapEd = (function(){
     if(readOnly) return;
     // ---- editing bindings ----
     var painting=false;
-    function apply(pt){ var p=mapCell(cv,pt); if(p.r<0||p.c<0||p.r>=p.n||p.c>=p.n) return;
-      if(clearPath && !mapErase && inPath(p.r,p.c,p.n,pathBand(p.n))) return;   // the stations need this lane
-      mapGrid[p.r][p.c]=mapErase?0:brush(); drawMap(); syncMapText(); showXY(p.r,p.c); }
+    function paintCell(r,c,n){ if(r<0||c<0||r>=n||c>=n) return;
+      if(clearPath && !mapErase && inPath(r,c,n,pathBand(n))) return;          // the stations need this lane
+      mapGrid[r][c]=mapErase?0:brush(); }
+    function lineCells(r0,c0,r1,c1){ var out=[], dr=Math.abs(r1-r0), dc=Math.abs(c1-c0), sr=r0<r1?1:-1, sc=c0<c1?1:-1, err=dc-dr, r=r0, c=c0;
+      for(;;){ out.push([r,c]); if(r===r1&&c===c1) break; var e2=2*err; if(e2>-dr){ err-=dr; c+=sc; } if(e2<dc){ err+=dc; r+=sr; } }
+      return out; }
+    // A stroke paints EVERY cell between successive pointer positions (a fast mouse
+    // used to skip cells). In Line mode the stroke locks to horizontal, vertical or a
+    // 45-degree diagonal from its first movement, and only re-locks - from where it
+    // is - if you pull well off that line: rows, columns and patterns come out straight.
+    var stroke=null;
+    function strokeTo(p){ var q=mapCell(cv,p); var n=q.n, r=q.r, c=q.c;
+      if(r<0||c<0||r>=n||c>=n) return;
+      if(!stroke){ stroke={r0:r,c0:c,lr:r,lc:c,axis:null}; paintCell(r,c,n); drawMap(); syncMapText(); showXY(r,c); return; }
+      if(lineMode){
+        var dr=r-stroke.r0, dc=c-stroke.c0, ar=Math.abs(dr), ac=Math.abs(dc);
+        if(!stroke.axis){ if(Math.max(ar,ac)>=2) stroke.axis = (ar<=0.45*ac) ? 'h' : (ac<=0.45*ar) ? 'v' : (dr*dc>0 ? 'd1' : 'd2'); }
+        if(stroke.axis){
+          var off = stroke.axis==='h' ? ar : stroke.axis==='v' ? ac : Math.abs(ar-ac)/Math.SQRT2;
+          if(off > 4){ stroke.r0=stroke.lr; stroke.c0=stroke.lc; stroke.axis=null; dr=r-stroke.r0; dc=c-stroke.c0; ar=Math.abs(dr); ac=Math.abs(dc);   // pulled off the line: re-lock from here
+            if(Math.max(ar,ac)>=2) stroke.axis = (ar<=0.45*ac) ? 'h' : (ac<=0.45*ar) ? 'v' : (dr*dc>0 ? 'd1' : 'd2'); }
+          if(stroke.axis==='h') r=stroke.r0; else if(stroke.axis==='v') c=stroke.c0;
+          else if(stroke.axis==='d1'){ var k1=Math.round((dr+dc)/2); r=stroke.r0+k1; c=stroke.c0+k1; }
+          else if(stroke.axis==='d2'){ var k2=Math.round((dc-dr)/2); r=stroke.r0-k2; c=stroke.c0+k2; }
+        } }
+      if(r===stroke.lr && c===stroke.lc) return;
+      lineCells(stroke.lr,stroke.lc,r,c).forEach(function(rc){ paintCell(rc[0],rc[1],n); });
+      stroke.lr=r; stroke.lc=c; drawMap(); syncMapText(); showXY(r,c); }
+    function apply(pt){ strokeTo(pt); }
+    // Shift + drag: an exact straight line from the press to the pointer, previewed, painted on release
+    var lineDrag=null;
+    function lineStart(p){ var q=mapCell(cv,p); if(q.r<0||q.c<0||q.r>=q.n||q.c>=q.n) return false; lineDrag={r0:q.r,c0:q.c,r1:q.r,c1:q.c,n:q.n}; drawPreview([[q.r,q.c]]); return true; }
+    function lineMove(p){ if(!lineDrag) return; var q=mapCell(cv,p); lineDrag.r1=Math.max(0,Math.min(lineDrag.n-1,q.r)); lineDrag.c1=Math.max(0,Math.min(lineDrag.n-1,q.c));
+      drawPreview(lineCells(lineDrag.r0,lineDrag.c0,lineDrag.r1,lineDrag.c1)); }
+    function lineEnd(){ if(!lineDrag) return; var d=lineDrag; lineDrag=null; pushUndo();
+      lineCells(d.r0,d.c0,d.r1,d.c1).forEach(function(rc){ paintCell(rc[0],rc[1],d.n); }); drawMap(); syncMapText(); }
     function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY, shiftKey:!!e.shiftKey}; }
     // Angle of the pointer about the map centre, in the same frame drawBases uses.
     function pointerAngle(p){ var rect=cv.getBoundingClientRect();
@@ -545,21 +593,22 @@ window.MapEd = (function(){
       if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
       if(objDown(pt(e))){ e.preventDefault(); return; }
       if(shapeTool!=='brush'){ shapeStart(pt(e)); e.preventDefault(); return; }
-      pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
-    cv.addEventListener('mousemove', function(e){ hover(pt(e)); if(drag){ swing(pt(e)); return; } if(act){ objMove(pt(e)); return; } if(shapeDrag){ shapeMove(pt(e)); return; } if(painting) apply(pt(e)); });
+      if(e.shiftKey && lineStart(pt(e))){ e.preventDefault(); return; }
+      pushUndo(); painting=true; stroke=null; apply(pt(e)); e.preventDefault(); });
+    cv.addEventListener('mousemove', function(e){ hover(pt(e)); if(drag){ swing(pt(e)); return; } if(act){ objMove(pt(e)); return; } if(shapeDrag){ shapeMove(pt(e)); return; } if(lineDrag){ lineMove(pt(e)); return; } if(painting) apply(pt(e)); });
     cv.addEventListener('mouseleave', function(){ var h=$('maphover'); if(h) h.textContent=''; });
-    window.addEventListener('mouseup', function(){ painting=false; release(); objUp(); shapeEnd(); });
+    window.addEventListener('mouseup', function(){ painting=false; stroke=null; release(); objUp(); shapeEnd(); lineEnd(); });
     cv.addEventListener('touchstart', function(e){
       if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
       if(objDown(pt(e))){ e.preventDefault(); return; }
       if(shapeTool!=='brush'){ shapeStart(pt(e)); e.preventDefault(); return; }
-      pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
+      pushUndo(); painting=true; stroke=null; apply(pt(e)); e.preventDefault(); }, {passive:false});
     cv.addEventListener('touchmove', function(e){
       if(drag){ swing(pt(e)); e.preventDefault(); return; }
       if(act){ objMove(pt(e)); e.preventDefault(); return; }
       if(shapeDrag){ shapeMove(pt(e)); e.preventDefault(); return; }
       if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
-    window.addEventListener('touchend', function(){ painting=false; release(); objUp(); shapeEnd(); });
+    window.addEventListener('touchend', function(){ painting=false; stroke=null; release(); objUp(); shapeEnd(); lineEnd(); });
     // the selection bar: retune the selected shape live; keyboard for the rest
     var selSnap=null;
     function bindSel(id, fn){ var el=$(id); if(!el) return;
@@ -588,6 +637,7 @@ window.MapEd = (function(){
       else if(e.key.indexOf('Arrow')===0){ e.preventDefault(); var k=e.shiftKey?5:1;
         nudgeSel(e.key==='ArrowLeft'?-k:e.key==='ArrowRight'?k:0, e.key==='ArrowUp'?-k:e.key==='ArrowDown'?k:0); } });
     document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.addEventListener('click', function(){ setShape(b.getAttribute('data-shape')); }); });
+    var lm=$('mapline'); if(lm) lm.onclick=function(){ lineMode=!lineMode; lm.classList.toggle('on', lineMode); lm.textContent = lineMode ? '─ Line ✓' : '─ Line'; if(lineMode) setShape('brush'); };
     var tk=$('mapthick'); if(tk){ tk.addEventListener('input', function(){ $('mapthick_v').textContent=this.value; }); wheelStep(tk); }
     var bv=$('mapbrush'); if(bv){ bv.addEventListener('input', function(){
       $('mapbrush_v').textContent=this.value; mapErase=false; var er=$('maperase'); if(er) er.textContent='Erase'; });
@@ -689,6 +739,7 @@ window.MapEd = (function(){
   api.selected = function(){ return getSel(); };
   api.select = function(id){ setSel(id==null?[]:[id]); updateSelBar(); paintCanvas(); };
   api.selectedIds = function(){ return selIds.slice(); };
+  api.lineMode = function(on){ if(on!==undefined){ lineMode=!!on; var b=$('mapline'); if(b){ b.classList.toggle('on', lineMode); b.textContent=lineMode?'─ Line ✓':'─ Line'; } } return lineMode; };
   api.selectAll = function(){ setSel(shapes.map(function(x){ return x.id; })); setShape('select'); updateSelBar(); paintCanvas(); };
   api.shapeCells = shapeCells;          // (tool, p0, p1, thickness, n) -> [[r,c],...]
   // ---- the source image + trace settings travel with a saved map ----
