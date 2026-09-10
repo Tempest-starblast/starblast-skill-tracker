@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.27"
+APP_VERSION = "9.13.28"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4575,6 +4575,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.28", "at": "2026-09-10T16:45:00Z", "changes": [
+        "@owner The nightly backup snapshot had been failing to push for weeks. Releases go straight into the same repository the snapshot writes to, so its own copy was always behind and every push was rejected \u2014 the backup was live only because each release pushes it. The snapshot now catches up before it copies, and its one stranded commit is kept on a branch rather than thrown away."
+    ]},
     {"version": "9.13.27", "at": "2026-09-10T16:35:00Z", "changes": [
         "@owner The map editor\u2019s side panel folds away. Fullscreen was giving the map the whole window and then spending 400 pixels of it on controls you are not touching while you draw \u2014 there is a Hide panel button beside Fullscreen, a matching View entry, and the choice is remembered between visits."
     ]},
