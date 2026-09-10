@@ -77,7 +77,23 @@
 #mmEdit{min-width:300px}
 .mmmenu-list .mapadvbtn{background:none!important;border:0!important;color:var(--text)!important}
 .mmmenu-spacer{flex:1}
-.mmcur{font-size:11.5px;color:var(--muted);white-space:nowrap;max-width:34ch;overflow:hidden;text-overflow:ellipsis}
+.mmcur{font-size:11.5px;color:var(--muted);white-space:nowrap;max-width:40ch;overflow:hidden;text-overflow:ellipsis}
+.mmcur .sv{color:var(--green,#66e6b8)}
+.mmcur .un{color:var(--amber,#ffc757)}
+/* The shortcut card. A dialog rather than a menu: it is something you read. */
+.mmsheet{position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;
+  background:rgba(2,6,12,.66);padding:20px}
+.mmsheet .card{max-width:640px;width:100%;max-height:82vh;overflow:auto;background:#141920;
+  border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.mmsheet h2{margin:0 0 4px;font-size:16px}
+.mmsheet .sub{margin:0 0 14px;font-size:12px;color:var(--muted)}
+.mmsheet .grp{margin:14px 0 5px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.mmsheet dl{display:grid;grid-template-columns:1fr auto;gap:5px 18px;margin:0;font-size:13px}
+.mmsheet dt{margin:0}
+.mmsheet dd{margin:0;text-align:right}
+.mmsheet kbd{font:11.5px ui-monospace,Menlo,Consolas,monospace;color:var(--green,#66e6b8);
+  background:rgba(102,230,184,.1);border:1px solid rgba(102,230,184,.28);border-radius:5px;padding:1px 6px}
+.mmsheet .close{margin-top:18px}
 .mmfs{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit;
   font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
@@ -94,7 +110,13 @@
 .mmcount{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
 .mmnote2{margin:6px 0 8px;font-size:12px;line-height:1.55;color:var(--muted,#8aa0b0)}
 /* Dimmed when the chosen tool has no wall to widen. */
-.mapthickgrp.off,#mapthickgrp.off{opacity:.38}
+.mapthicklbl.off,#mapthickgrp.off,.cgval.off{opacity:.38}
+/* First on the toolbar, like every editor: the way back. */
+.mmhist{display:inline-flex;align-items:center;gap:4px;margin-right:2px}
+.mmhist button{min-width:30px;padding:4px 8px;font:inherit;font-size:14px;line-height:1.1;cursor:pointer;
+  color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px}
+.mmhist button:hover:not([disabled]){background:rgba(102,230,184,.18);color:var(--green,#66e6b8)}
+.mmhist button[disabled]{opacity:.32;cursor:default}
 .mmzoom{display:inline-flex;align-items:center;gap:4px}
 .mmzoom button{min-width:26px;padding:3px 7px;font:inherit;font-size:13px;line-height:1.1;cursor:pointer;
   color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px}
@@ -293,6 +315,9 @@
       <details class="mmmenu"><summary>Edit</summary><div class="mmmenu-list" id="mmEdit"></div></details>
       <details class="mmmenu"><summary>Insert</summary><div class="mmmenu-list" id="mmInsert"></div></details>
       <details class="mmmenu"><summary>View</summary><div class="mmmenu-list" id="mmView"></div></details>
+      <details class="mmmenu"><summary>Help</summary><div class="mmmenu-list" id="mmHelp">
+        <button type="button" id="mmkeys">Keyboard shortcuts <kbd>Ctrl+/</kbd></button>
+      </div></details>
       <span class="mmmenu-spacer"></span>
       <input type="text" id="mmname" maxlength="40" placeholder="Map name">
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
@@ -394,7 +419,14 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     var tb=$('mmtoolbar'), shapes=$('mapshapes');
     if(shapes){ var tk=$('mapthick'), tkv=$('mapthick_v'); var thickLbl=null;
       // pull the thickness bits out of the shapes row so the toolbar can order them
-      [].slice.call(shapes.childNodes).forEach(function(n){ if(n.nodeType===1 && /^SPAN$/.test(n.tagName) && /Thickness/.test(n.textContent) && !n.id) thickLbl=n; });
+      // Match the control's real name; matching the old one left it on screen.
+      [].slice.call(shapes.childNodes).forEach(function(n){ if(n.nodeType===1 && /^SPAN$/.test(n.tagName) && /Line width/.test(n.textContent) && !n.id) thickLbl=n; });
+      // The way back comes first, before the tools that make more to undo.
+      var hist=document.createElement('span'); hist.className='cgmaptools mmhist';
+      hist.innerHTML='<button type="button" id="mmtbu" title="Undo (Ctrl+Z)">&#8630;</button>'
+        + '<button type="button" id="mmtbr" title="Redo (Ctrl+Y)">&#8631;</button>'
+        + '<span class="cgsep"></span>';
+      tb.appendChild(hist);
       mv(shapes, tb);
       // second row, on purpose: the numbers that go with the tool
       var row2=document.createElement('div'); row2.className='mmtoolrow2'; tb.appendChild(row2);
@@ -421,8 +453,9 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     mv('mmform', ed);
     var mfSep=document.createElement('div'); mfSep.className='mmmenu-sep'; ed.appendChild(mfSep);
     var un=mv('mapundo',ed); if(un){ un.textContent='Undo'; kbd(un,'Ctrl+Z'); }
+    var rn=mv('mapredo',ed); if(rn){ rn.textContent='Redo'; kbd(rn,'Ctrl+Y'); }
     var cl=mv('mapclear',ed); if(cl) cl.textContent='Clear map';
-    var sa=document.createElement('button'); sa.type='button'; sa.textContent='Select all shapes'; kbd(sa,'Ctrl+A');
+    var sa=document.createElement('button'); sa.type='button'; sa.textContent='Select everything'; kbd(sa,'Ctrl+A');
     sa.onclick=function(){ if(MapEd.selectAll) MapEd.selectAll(); }; ed.insertBefore(sa, cl);
     // Insert
     var ins=$('mmInsert'); var im=mv('mapimg',ins); if(im) im.textContent='From image\u2026';
@@ -517,6 +550,17 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     st.scrollLeft = ax*fitPx*z - offx;
     st.scrollTop  = ay*fitPx*z - offy;
   }
+  // The toolbar pair drives the same actions as the Edit entries and greys out
+  // with them - one source of truth for whether there is anything to undo.
+  (function(){
+    var tu=$('mmtbu'), tr=$('mmtbr'), mu=$('mapundo'), mr=$('mapredo');
+    if(!tu||!tr) return;
+    tu.onclick=function(){ if(mu) mu.click(); };
+    tr.onclick=function(){ if(mr) mr.click(); };
+    MapEd.onHistory=function(u, r){ tu.disabled=!u; tr.disabled=!r; };
+    tu.disabled = !mu || mu.disabled; tr.disabled = !mr || mr.disabled;
+  })();
+
   fitCanvas(); window.addEventListener('resize', fitCanvas); setTimeout(fitCanvas, 300);
   (function(){
     var zi=$('mmzi'), zo=$('mmzo'), zf=$('mmzf'), st=$('mmstage');
@@ -541,12 +585,21 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   var cur = {id:null, name:''}, dirty = false;
   function status(msg, cls){ var s=$('mmstatus'); s.textContent=msg||''; s.className='mmstatus'+(cls?' '+cls:''); }
   function setDirty(d){ dirty=d; var b=$('mmsave'); if(b) b.textContent = d ? 'Save •' : 'Save'; showCur(); }
-  // Always visible: which saved map Save will write to, or that this is a new one.
+  // Always visible, in words: which saved map Save will write to, and whether
+  // what is on screen has reached it. A bullet on a button said neither.
   function showCur(){ var e=$('mmcur'); if(!e) return;
     var name=($('mmname').value||'').trim();
-    if(!cur.id){ e.textContent='new map'; e.title='Save will create a new map'; return; }
-    if((cur.name||'')!==name){ e.textContent='renamed → saves as a copy'; e.title='“'+cur.name+'” stays as it is'; return; }
-    e.textContent='editing “'+cur.name+'”'; e.title='Save overwrites this map'; }
+    var state = dirty ? '<span class="un">unsaved changes</span>'
+                      : '<span class="sv">all changes saved</span>';
+    if(!cur.id){
+      e.innerHTML = 'new map &middot; ' + (dirty ? state : '<span class="sv">nothing to save yet</span>');
+      e.title='Save will create a new map'; return; }
+    if((cur.name||'')!==name){
+      e.innerHTML = 'renamed &rarr; Save makes a copy';
+      e.title='“'+cur.name+'” stays exactly as it is'; return; }
+    e.innerHTML = '“'+esc(cur.name)+'” &middot; ' + state;
+    e.title = dirty ? 'Save writes these changes to “'+cur.name+'”'
+                    : 'Everything here is in “'+cur.name+'”'; }
   MapEd.onChange = function(){ setDirty(true); };
   window.addEventListener('beforeunload', function(e){ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 
@@ -895,6 +948,62 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   $('mmfile').onchange=function(){ openMapFile(this.files && this.files[0]); this.value=''; };
   $('mmname').addEventListener('input', function(){ setDirty(true); });
   document.addEventListener('keydown', function(e){ if((e.ctrlKey||e.metaKey) && (e.key==='s'||e.key==='S')){ e.preventDefault(); save(); } });
+
+  // ---- the shortcut card ---------------------------------------------------
+  // Everything here has a shortcut and none of them were written down.
+  var KEYS = [
+    ['The map', [
+      ['Save to My Maps', 'Ctrl+S'],
+      ['Save to the file on your computer', 'Ctrl+Shift+S'],
+      ['Undo', 'Ctrl+Z'],
+      ['Redo', 'Ctrl+Y'],
+    ]],
+    ['What is selected', [
+      ['Select everything', 'Ctrl+A'],
+      ['Copy', 'Ctrl+C'],
+      ['Cut', 'Ctrl+X'],
+      ['Paste', 'Ctrl+V'],
+      ['Duplicate', 'Ctrl+D'],
+      ['Delete', 'Delete'],
+      ['Let go of the selection', 'Esc'],
+      ['Nudge by one cell', 'Arrow keys'],
+      ['Nudge by five', 'Shift + arrows'],
+    ]],
+    ['Looking at it', [
+      ['Zoom in / out', 'Ctrl + / Ctrl -'],
+      ['Back to the whole map', 'Ctrl+0'],
+      ['Zoom about the pointer', 'Ctrl + wheel'],
+      ['Everything you can do here', 'Right-click the map'],
+    ]],
+    ['Drawing', [
+      ['Straight line with the brush', 'Shift + drag'],
+      ['One step on any slider', 'Wheel over it'],
+    ]],
+  ];
+  function showKeys(){
+    if($('mmsheet')) return;
+    var w=document.createElement('div'); w.className='mmsheet'; w.id='mmsheet';
+    var html='<div class="card"><h2>Keyboard shortcuts</h2>'
+      + '<p class="sub">The editor listens for these whenever you are not typing in a box.</p>';
+    KEYS.forEach(function(g){
+      html += '<div class="grp">'+esc(g[0])+'</div><dl>';
+      g[1].forEach(function(row){ html += '<dt>'+esc(row[0])+'</dt><dd><kbd>'+esc(row[1])+'</kbd></dd>'; });
+      html += '</dl>';
+    });
+    html += '<button type="button" class="mmbtn primary close" id="mmkeysclose">Close</button></div>';
+    w.innerHTML=html;
+    w.addEventListener('click', function(e){ if(e.target===w) w.remove(); });
+    document.body.appendChild(w);
+    $('mmkeysclose').onclick=function(){ w.remove(); };
+    $('mmkeysclose').focus();
+  }
+  var kb=$('mmkeys'); if(kb) kb.onclick=showKeys;
+  document.addEventListener('keydown', function(e){
+    var tag=(e.target&&e.target.tagName||'').toLowerCase();
+    if(tag==='input'||tag==='textarea'||tag==='select') return;
+    if((e.ctrlKey||e.metaKey) && e.key==='/'){ e.preventDefault(); showKeys(); }
+    else if(e.key==='Escape'){ var sh=$('mmsheet'); if(sh) sh.remove(); }
+  });
   listMaps();
 })();
 </script>

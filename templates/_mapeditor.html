@@ -37,6 +37,20 @@ html:not(.mapadv) .adv{display:none!important}
   background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
 #mapcanvas.ro{cursor:default;max-width:320px}
 .cgmaptools .mapshape.on,.cgmaptools #mapline.on{background:rgba(102,230,184,.16);border-color:var(--green,#66e6b8);color:var(--green,#66e6b8)}
+.cgmaptools button[disabled]{opacity:.35;cursor:default}
+/* Right-click menu on the map. Sits on the body so nothing can clip it. */
+#mapctx{position:fixed;z-index:9999;min-width:212px;padding:6px;border-radius:9px;
+  background:#141920;border:1px solid var(--line,#2a2f3a);box-shadow:0 12px 34px rgba(0,0,0,.55);
+  display:flex;flex-direction:column;gap:1px;font:13px system-ui,sans-serif}
+#mapctx button{display:flex;justify-content:space-between;align-items:center;gap:14px;width:100%;
+  box-sizing:border-box;text-align:left;padding:7px 10px;border:0;border-radius:6px;cursor:pointer;
+  background:none;color:var(--text,#e8ecf2);font:inherit}
+#mapctx button:hover{background:rgba(102,230,184,.12)}
+#mapctx button[disabled]{opacity:.38;cursor:default;background:none}
+#mapctx kbd{font:11px ui-monospace,Menlo,Consolas,monospace;color:var(--muted,#8aa0b0)}
+#mapctx .sep{height:1px;background:var(--line,#2a2f3a);margin:4px 2px}
+#mapctx .head{padding:4px 10px 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted,#8aa0b0)}
 .cgmaptools .cgsep{width:1px;height:18px;background:var(--line);margin:0 2px}
 .cgmaptools.mapselbar{border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-height:42px;box-sizing:border-box}
 .cgmaptools.mapselbar.has{border-color:rgba(102,230,184,.45);background:rgba(102,230,184,.06)}
@@ -45,7 +59,7 @@ html:not(.mapadv) .adv{display:none!important}
 window.MapEd = (function(){
   // ---- the grid <-> the Starblast custom_map string (map_size rows of map_size chars,
   // digit 1-9 = an asteroid of that size, space = empty) ----
-  var mapGrid = null, mapErase = false, mapUndo = [], readOnly = false, fallbackSize = 80;
+  var mapGrid = null, mapErase = false, mapUndo = [], mapRedo = [], readOnly = false, fallbackSize = 80;
   // "Clear station path": the stations sweep a ring once an hour, so anything on
   // that ring is in their way. This is a MASK, not a delete - mapGrid keeps every
   // asteroid, and the band is removed only on the way out (drawing, the map text,
@@ -79,10 +93,25 @@ window.MapEd = (function(){
   var api = { onChange: null };
   function $(id){ return document.getElementById(id); }
   function snapshot(){ return {g: mapGrid.map(function(row){ return row.slice(); }), s: cloneShapes(shapes)}; }
-  function pushUndo(){ if(!mapGrid) return; mapUndo.push(snapshot()); if(mapUndo.length>60) mapUndo.shift(); }
-  function doUndo(){ if(mapUndo.length){ var u=mapUndo.pop(); mapGrid=u.g; shapes=u.s;
+  // A new edit ends the redo path, the way it does everywhere else: you cannot
+  // undo, change your mind, do something different, and still redo the old
+  // branch - there is no longer a single "forward" to go to.
+  function pushUndo(){ if(!mapGrid) return; mapUndo.push(snapshot()); if(mapUndo.length>60) mapUndo.shift();
+    mapRedo.length=0; syncHistory(); }
+  function applySnap(u){ mapGrid=u.g; shapes=u.s;
     selIds=selIds.filter(function(id){ return shapes.some(function(x){ return x.id===id; }); });
-    drawMap(); syncMapText(); updateSelBar(); } }
+    drawMap(); syncMapText(); updateSelBar(); }
+  function doUndo(){ if(!mapUndo.length || !mapGrid) return;
+    mapRedo.push(snapshot()); applySnap(mapUndo.pop()); syncHistory(); }
+  function doRedo(){ if(!mapRedo.length || !mapGrid) return;
+    mapUndo.push(snapshot()); applySnap(mapRedo.pop()); syncHistory(); }
+  // Greyed out means "nothing to undo", which is the quickest way to tell
+  // whether what you just did registered as an edit at all.
+  function syncHistory(){
+    var u=$('mapundo'), r=$('mapredo');
+    if(u) u.disabled = !mapUndo.length;
+    if(r) r.disabled = !mapRedo.length;
+    if(typeof api.onHistory==='function') api.onHistory(mapUndo.length, mapRedo.length); }
   // Mouse-wheel on a small slider = exactly ONE step (browsers otherwise skip).
   function wheelStep(el){ if(!el) return; el.addEventListener('wheel', function(e){ e.preventDefault();
     var st=parseFloat(el.step)||1, mn=parseFloat(el.min), mx=parseFloat(el.max);
@@ -426,10 +455,13 @@ window.MapEd = (function(){
   function syncThick(){
     var on = !!THICK_TOOLS[shapeTool];
     var i = $('mapthick'); if(i) i.disabled = !on;
-    var g = $('mapthickgrp');
+    // A page that rebuilds the toolbar (My Maps) groups the control under
+    // #mapthickgrp; the editor's own layout has just the loose label.
+    var g = $('mapthickgrp') || document.querySelector('.mapthicklbl');
     if(g){ g.classList.toggle('off', !on);
       g.title = on ? 'How many cells wide the wall of this shape is. Not asteroid size.'
                    : 'Only Frame, Ring, Bar and Corner have a wall to widen.'; }
+    var v = $('mapthick_v'); if(v) v.classList.toggle('off', !on);
   }
   function setShape(t){
     shapeTool = t || 'brush';
@@ -570,7 +602,8 @@ window.MapEd = (function(){
     return '<div class="cgmaptools"><span>Asteroid size</span>'
       + '<input type="range" id="mapbrush" min="1" max="9" step="1" value="9"><span class="cgval" id="mapbrush_v">9</span>'
       + '<button type="button" id="maperase">Erase</button>'
-      + '<button type="button" id="mapundo" title="Undo the last change">↶ Undo</button>'
+      + '<button type="button" id="mapundo" title="Undo the last change (Ctrl+Z)">↶ Undo</button>'
+      + '<button type="button" id="mapredo" title="Redo what you just undid (Ctrl+Y)">↷ Redo</button>'
       + '<button type="button" id="mapclear" title="Clear the asteroids (keeps the loaded image and the options)">Clear</button>'
       + '<label class="cgchk" title="Keep the ring the stations orbit free of asteroids. Nothing is lost - turn it off and they come back."><input type="checkbox" id="mapclearpath">Clear station path</label>'
       + '<button type="button" id="mapselect" title="Grab the stations and drag them around their ring yourself, instead of painting">✋ Move</button>'
@@ -592,12 +625,12 @@ window.MapEd = (function(){
         + '<button type="button" class="mapshape" data-shape="ring" title="Drag from the centre outwards: a ring - Line width sets how thick it is">◯ Ring</button>'
         + '<button type="button" class="mapshape" data-shape="bar" title="Drag a straight bar at any angle - Line width sets how thick it is">▬ Bar</button>'
         + '<button type="button" class="mapshape" data-shape="corner" title="Drag an L: two bars meeting at the corner you start from">◟ Corner</button>'
-        + '<span class="cgsep"></span><span id="mapthickgrp" class="mapthickgrp" title="How many cells wide the wall of an outline shape is - Frame, Ring, Bar and Corner. Not asteroid size.">Line width'
-        + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span></span>'
+        + '<span class="cgsep"></span><span class="mapthicklbl" title="How many cells wide the wall of an outline shape is - Frame, Ring, Bar and Corner. Not asteroid size.">Line width</span>'
+        + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span>'
         + '<span id="maphover" class="cgxyhint" style="margin-left:auto"></span></div>'
       + '<div class="cgmaptools mapselbar" id="mapselbar"><span class="cgxyhint" id="mapselinfo"></span><span id="mapselctl" style="display:contents">'
         + '<span class="cgsep"></span><span>Size</span><input type="range" id="mapselv" min="0" max="9" step="1" value="9"><span class="cgval" id="mapselv_v">9</span>'
-        + '<span id="mapseltw"><span>Thickness</span> <input type="range" id="mapselt" min="1" max="12" step="1" value="3"><span class="cgval" id="mapselt_v">3</span></span>'
+        + '<span id="mapseltw"><span>Line width</span> <input type="range" id="mapselt" min="1" max="12" step="1" value="3"><span class="cgval" id="mapselt_v">3</span></span>'
         + '<button type="button" id="mapselcopy" title="Copy this shape to paste later (Ctrl+C · Ctrl+V pastes, Ctrl+X cuts)">Copy</button>'
         + '<button type="button" id="mapseldup" title="Duplicate this shape right here (Ctrl+D)">Duplicate</button>'
         + '<button type="button" id="mapselflat" title="Turn the shape into plain asteroids in the map. It stops being a shape you can select or move (Undo brings it back).">Bake into map</button>'
@@ -631,7 +664,7 @@ window.MapEd = (function(){
     if(readOnly) cv.classList.add('ro');
     setOrbit(false); setMode('draw');      // a fresh mount never inherits a running animation
     updateSelBar();
-    mapGrid=newGrid(mapSize()); mapUndo=[]; drawMap(); xyBounds();
+    mapGrid=newGrid(mapSize()); mapUndo=[]; mapRedo=[]; syncHistory(); drawMap(); xyBounds();
     // load-ish bindings (both modes)
     var im=$('mapimport'); if(im) im.onclick=function(){ var t=$('o_custom_map'); loadMapString(t?t.value:''); };
     var ms=$('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); pushUndo(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); xyBounds(); });
@@ -806,7 +839,7 @@ window.MapEd = (function(){
       if(!$('mapcanvas')) return;
       var tag=(e.target&&e.target.tagName||'').toLowerCase(); if(tag==='input'||tag==='textarea'||tag==='select') return;
       if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){ if(shapeClip){ e.preventDefault(); pasteClip(); } return; }   // else the image paste handles it
-      if((e.ctrlKey||e.metaKey)&&(e.key==='a'||e.key==='A')&&shapes.length){ e.preventDefault(); api.selectAll(); return; }
+      if((e.ctrlKey||e.metaKey)&&(e.key==='a'||e.key==='A')){ e.preventDefault(); api.selectAll(); return; }
       if(!getSels().length) return;
       if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
       else if(e.key==='Escape'){ setSel([]); updateSelBar(); paintCanvas(); }
@@ -815,6 +848,74 @@ window.MapEd = (function(){
       else if((e.ctrlKey||e.metaKey)&&(e.key==='x'||e.key==='X')){ e.preventDefault(); cutSel(); }
       else if(e.key.indexOf('Arrow')===0){ e.preventDefault(); var k=e.shiftKey?5:1;
         nudgeSel(e.key==='ArrowLeft'?-k:e.key==='ArrowRight'?k:0, e.key==='ArrowUp'?-k:e.key==='ArrowDown'?k:0); } });
+    // ---- right-click on the map ------------------------------------------
+    // What it offers is decided by what is under the pointer, so it is never a
+    // list of things that would do nothing.
+    var ctxEl=null;
+    function closeCtx(){ if(ctxEl){ ctxEl.remove(); ctxEl=null; } }
+    function ctxItem(label, key, fn, on){
+      var b=document.createElement('button'); b.type='button';
+      b.appendChild(document.createTextNode(label));
+      if(key){ var k=document.createElement('kbd'); k.textContent=key; b.appendChild(k); }
+      if(on===false) b.disabled=true;
+      else b.onclick=function(){ closeCtx(); fn(); };
+      return b;
+    }
+    function openCtx(e){
+      closeCtx();
+      var q=mapPoint(cv,e), r=Math.floor(q.y), c=Math.floor(q.x), n=q.n;
+      if(r<0||c<0||r>=n||c>=n) return;
+      var sel=getSels(), rock=mapGrid[r] && mapGrid[r][c], hit=shapeAt(q);
+      var m=document.createElement('div'); m.id='mapctx';
+      var head=document.createElement('div'); head.className='head';
+      head.textContent = sel.length ? (sel.length+' selected')
+                       : rock ? ('Asteroid at ' + c + ', ' + r + ' \u00b7 size ' + rock)
+                       : hit ? 'Shape' : ('Empty at ' + c + ', ' + r);
+      m.appendChild(head);
+      function sep(){ var d=document.createElement('div'); d.className='sep'; m.appendChild(d); }
+
+      if(sel.length){
+        m.appendChild(ctxItem('Cut', 'Ctrl+X', cutSel));
+        m.appendChild(ctxItem('Copy', 'Ctrl+C', function(){ copySel(); }));
+        m.appendChild(ctxItem('Duplicate', 'Ctrl+D', duplicateSel));
+        m.appendChild(ctxItem('Delete', 'Del', deleteSel));
+        sep();
+        m.appendChild(ctxItem('Deselect', 'Esc', function(){ setSel([]); updateSelBar(); paintCanvas(); }));
+      } else if(rock){
+        m.appendChild(ctxItem('Move this asteroid', null, function(){
+          setShape('one');
+          var p=liftCells([[r,c]]);
+          if(p){ setSel([p.id]); updateSelBar(); drawMap(); syncMapText(); } }));
+        m.appendChild(ctxItem('Erase this asteroid', null, function(){
+          pushUndo(); mapGrid[r][c]=0; drawMap(); syncMapText(); }));
+        sep();
+      } else if(hit){
+        m.appendChild(ctxItem('Select this shape', null, function(){
+          setSel([hit.id]); setShape('select'); updateSelBar(); paintCanvas(); }));
+        sep();
+      }
+      m.appendChild(ctxItem('Paste', 'Ctrl+V', pasteClip, !!(shapeClip && shapeClip.length)));
+      m.appendChild(ctxItem('Select everything', 'Ctrl+A', function(){ api.selectAll(); }));
+      sep();
+      m.appendChild(ctxItem('Undo', 'Ctrl+Z', doUndo, mapUndo.length>0));
+      m.appendChild(ctxItem('Redo', 'Ctrl+Y', doRedo, mapRedo.length>0));
+
+      document.body.appendChild(m);
+      // Placed at the pointer, pulled back inside the window if it would hang off.
+      var w=m.offsetWidth, h=m.offsetHeight;
+      m.style.left = Math.max(4, Math.min(e.clientX, innerWidth  - w - 6)) + 'px';
+      m.style.top  = Math.max(4, Math.min(e.clientY, innerHeight - h - 6)) + 'px';
+      ctxEl=m;
+    }
+    cv.addEventListener('contextmenu', function(e){
+      if(readOnly) return;
+      e.preventDefault(); openCtx(e); });
+    document.addEventListener('mousedown', function(e){
+      if(ctxEl && !ctxEl.contains(e.target)) closeCtx(); }, true);
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeCtx(); });
+    window.addEventListener('blur', closeCtx);
+    window.addEventListener('resize', closeCtx);
+
     document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.addEventListener('click', function(){ setShape(b.getAttribute('data-shape')); }); });
     var lm=$('mapline'); if(lm) lm.onclick=function(){ lineMode=!lineMode; lm.classList.toggle('on', lineMode); lm.textContent = lineMode ? '─ Line ✓' : '─ Line'; if(lineMode) setShape('brush'); };
     var tk=$('mapthick'); if(tk){ tk.addEventListener('input', function(){ $('mapthick_v').textContent=this.value; }); wheelStep(tk); }
@@ -881,9 +982,18 @@ window.MapEd = (function(){
     var cl=$('mapclear'); if(cl) cl.onclick=function(){ pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; setSel([]); updateSelBar(); drawMap(); syncMapText(); };   // shapes too
     var rs=$('mapreset'); if(rs) rs.onclick=resetAll;
     var ub=$('mapundo'); if(ub) ub.onclick=doUndo;
+    var rb=$('mapredo'); if(rb) rb.onclick=doRedo;
+    syncHistory();
     if(!window.__cgUndoBound){ window.__cgUndoBound=true;
       document.addEventListener('keydown', function(e){
-        if((e.ctrlKey||e.metaKey) && (e.key==='z'||e.key==='Z') && $('mapcanvas') && !readOnly){
+        // Ctrl+Y and Ctrl+Shift+Z both redo: Windows learned one, the Mac the
+        // other, and people carry the habit across.
+        if((e.ctrlKey||e.metaKey) && !readOnly && $('mapcanvas') &&
+           ((e.key==='y'||e.key==='Y') || (e.shiftKey && (e.key==='z'||e.key==='Z')))){
+          var tg0=(e.target&&e.target.tagName||'').toLowerCase();
+          if(tg0==='input'||tg0==='textarea'||tg0==='select') return;
+          e.preventDefault(); doRedo(); return; }
+        if((e.ctrlKey||e.metaKey) && !e.shiftKey && (e.key==='z'||e.key==='Z') && $('mapcanvas') && !readOnly){
           var tag=(e.target&&e.target.tagName)||''; if(tag==='TEXTAREA'||tag==='INPUT') return;   // let text undo work
           e.preventDefault(); doUndo(); } }); }
     // exact point editor: type X,Y then Place (current brush size) or Remove
@@ -932,7 +1042,7 @@ window.MapEd = (function(){
     }
     return zoomF;
   };
-  api.resetUndo = function(){ mapUndo=[]; };
+  api.resetUndo = function(){ mapUndo=[]; mapRedo=[]; syncHistory(); };
   // Build the field a given seed produces in game, straight into the editor.
   // Same generator the asteroid baker uses, so it matches what players would fly.
   api.fromSeed = function(seed, size, teams){
@@ -958,7 +1068,7 @@ window.MapEd = (function(){
     if(!mapGrid) return; mapGrid=strToGrid(base||'', mapGrid.length); shapes=[]; setSel([]);
     (list||[]).forEach(function(s){ if(!s||!SHAPE_NAMES[s.type]||!s.p0||!s.p1) return;
       addShape({type:s.type, p0:{x:+s.p0.x||0,y:+s.p0.y||0}, p1:{x:+s.p1.x||0,y:+s.p1.y||0}, t:Math.max(1,parseInt(s.t,10)||1), v:Math.max(0,Math.min(9,parseInt(s.v,10)||0))}); });
-    setSel([]); mapUndo=[]; drawMap(); syncMapText(); updateSelBar(); };
+    setSel([]); mapUndo=[]; mapRedo=[]; syncHistory(); drawMap(); syncMapText(); updateSelBar(); };
   api.shapeCount = function(){ return shapes.length; };
   api.selected = function(){ return getSel(); };
   api.select = function(id){ setSel(id==null?[]:[id]); updateSelBar(); paintCanvas(); };
@@ -966,7 +1076,15 @@ window.MapEd = (function(){
   api.lineMode = function(on){ if(on!==undefined){ lineMode=!!on; var b=$('mapline'); if(b){ b.classList.toggle('on', lineMode); b.textContent=lineMode?'─ Line ✓':'─ Line'; } } return lineMode; };
   api.textCells = textCells;
   api.insertPatch = insertPatch;
-  api.selectAll = function(){ setSel(shapes.map(function(x){ return x.id; })); setShape('select'); updateSelBar(); paintCanvas(); };
+  // Everything: the shapes AND the asteroids painted straight onto the map. It
+  // used to mean shapes only, so on a map drawn with the brush it did nothing.
+  api.selectAll = function(){
+    if(!mapGrid) return;
+    var ids = shapes.map(function(x){ return x.id; });
+    var n = mapGrid.length;
+    var painted = paintedInBox({x:0, y:0}, {x:n, y:n});
+    if(painted.length){ var p = liftCells(painted); if(p) ids.push(p.id); }
+    setSel(ids); setShape('select'); updateSelBar(); drawMap(); syncMapText(); };
   api.shapeCells = shapeCells;          // (tool, p0, p1, thickness, n) -> [[r,c],...]
   // ---- the source image + trace settings travel with a saved map ----
   api.imageSrc = function(){ return mapLastImgSrc; };
