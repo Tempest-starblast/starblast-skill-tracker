@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
+{% include "_mapgen.html" %}
+{% include "_stationglyph.html" %}
 <style>
 .rl-head{max-width:1180px;margin:0 auto 14px}
 .rl-head h1{font-size:20px;letter-spacing:.4px;margin:0 0 4px}
@@ -132,23 +134,18 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     var h=t.hue, c=(h!=null&&isFinite(h))?('hsl('+(((h%360)+360)%360)+',72%,64%)'):DEF_COLORS[t.key];
     COLORS[t.key]=c; COL[i]=c; }); }
   var GEM_CAPS=[800,1600,3200,6400];
-  var BASE_ANG=[28,148,268],BASE_R=90,MAPE=132;
-  var astCache={};            // seed -> [[x,y,size],...] in radar space, or 'pending'
-  function ensureAsteroids(seed){
-    if(seed==null) return;
-    var v=astCache[seed];
-    if(Array.isArray(v) || v==='pending') return;          // have it / in flight
-    if(v && v.t && (Date.now()-v.t)<25000) return;         // not baked yet - wait before retry
-    astCache[seed]='pending';
-    fetch('/api/asteroids/'+seed).then(function(r){return r.json();})
-      .then(function(d){
-        if(d&&d.asteroids){
-          astCache[seed]=d.asteroids;
-          Object.keys(cards).forEach(function(sid){var c=cards[sid];
-            if(c&&c.seed===seed&&c.lastM){ c.rbase.innerHTML=radarBase(c.lastM, astCache[seed]); }});
-        } else { astCache[seed]={t:Date.now()}; }           // not baked yet - retry later
-      }).catch(function(){ astCache[seed]={t:Date.now()}; });
+  var BASE_R=128*Math.SQRT2/2, MAPE=132;   // the station ring: sqrt(2)/2 of the half-width
+  var astCache={};            // seed -> SVG string of the field (the game's own generator)
+  function asteroidSvg(seed){
+    if(seed==null || !window.SBMapGen || !SBMapGen.Field) return '';
+    if(astCache[seed]!=null) return astCache[seed];
+    var f=new SBMapGen.Field(seed, 40, 3), K=256/80, parts=[];
+    for(var y=-40;y<40;y++) for(var x=-40;x<40;x++){ var c=f.cell(x,y); if(!c) continue;
+      parts.push('<circle cx="'+(c.x*K).toFixed(1)+'" cy="'+(-c.y*K).toFixed(1)+'" r="'+Math.max(0.6,c.size*K*1.25).toFixed(1)+'"/>'); }
+    astCache[seed]='<g fill="rgba(150,170,190,.26)">'+parts.join('')+'</g>';
+    return astCache[seed];
   }
+  function ensureAsteroids(seed){ asteroidSvg(seed); }
   var wrap=document.getElementById('rlWrap');
   var empty=document.getElementById('rlEmpty');
   var status=document.getElementById('rlStatus');
@@ -229,19 +226,29 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     var out='<rect x="'+(-E)+'" y="'+(-E)+'" width="'+(2*E)+'" height="'+(2*E)+'" rx="'+(E/16)+'" fill="rgba(3,12,26,.65)" stroke="rgba(153,221,255,.16)" stroke-width="'+(E/170)+'"/>'
       +'<line x1="'+(-E)+'" y1="0" x2="'+E+'" y2="0" stroke="rgba(153,221,255,.05)" stroke-width="'+(E/240)+'"/>'
       +'<line x1="0" y1="'+(-E)+'" x2="0" y2="'+E+'" stroke="rgba(153,221,255,.05)" stroke-width="'+(E/240)+'"/>';
-    // asteroids (static per seed) - faint rocks behind the ships
-    if(Array.isArray(ast)&&ast.length){
-      for(var j=0;j<ast.length;j++){var a=ast[j];
-        out+='<circle cx="'+a[0]+'" cy="'+(-a[1])+'" r="'+Math.max(0.7,Math.min(4,a[2]*2.4))+'" fill="rgba(150,170,190,.30)"/>';}
-    }
-    for(var i=0;i<3;i++){
-      var st=((m.teams[i]||{}).station)||[];
-      var gone=(st[3]>0)&&((st[5]||0)>=st[3]);
-      var a=BASE_ANG[i]*Math.PI/180;
-      out+=stationIcon(Math.cos(a)*BASE_R,-Math.sin(a)*BASE_R,COL[i],gone,E/11,E/200);
-    }
+    // the asteroid field as the match started (rocks that get mined away stay drawn)
+    if(typeof ast==='string') out+=ast;
+    // the orbit the stations travel
+    out+='<circle cx="0" cy="0" r="'+BASE_R.toFixed(1)+'" fill="none" stroke="rgba(153,221,255,.16)" stroke-width="0.8" stroke-dasharray="4 5"/>';
     return out;
   }
+  // Stations, where the game puts them right now: theta = match_seconds/3600 % 1 * 2pi,
+  // (R cos(theta+phase_i), R sin(theta+phase_i)) in world coords, y negated for the
+  // screen. match_seconds = the feed's exact clock at its read + the time since.
+  function drawStations(c, m){
+    var g=c.rst; if(!g) return;
+    var ph=m.phases;
+    if(!Array.isArray(ph)||!ph.length||typeof m.mt!=='number'){ g.innerHTML=''; return; }
+    var secs=m.mt+(m.age||0)+(performance.now()-(c.mAt||performance.now()))/1000;
+    var th=(secs/3600%1)*2*Math.PI, out='';
+    ph.forEach(function(p,i){ if(typeof p!=='number') return;
+      var x=BASE_R*Math.cos(th+p), y=-BASE_R*Math.sin(th+p);
+      var t=(m.teams||[])[i]||{}, st=t.station||[], gone=(st[3]>0)&&((st[5]||0)>=st[3]);
+      var mods=(st.length>6&&st[6])?st[6]:null;
+      out+=stationGlyph(x,y,COL[i]||'#888',MAPE/11,mods,gone,t.layout||null); });
+    g.innerHTML=out;
+  }
+  setInterval(function(){ for(var sid in cards){ var c=cards[sid]; if(c&&c.lastM) drawStations(c,c.lastM); } }, 500);
 
   // one persistent card per lobby, kept in stable order; only inner values
   // refresh, and the radar ships GLIDE via requestAnimationFrame.
@@ -290,9 +297,10 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     var el=document.createElement('div'); el.className='rl-card';
     el.innerHTML='<div class="rl-ctop"></div><div class="rl-stwrap"></div>'
       +'<svg class="rl-radar" viewBox="'+(-MAPE)+' '+(-MAPE)+' '+(2*MAPE)+' '+(2*MAPE)+'" preserveAspectRatio="xMidYMid meet">'
-      +'<g class="rl-rbase"></g><g class="rl-rships"></g></svg><div class="rl-ros"></div>';
+      +'<g class="rl-rbase"></g><g class="rl-rst"></g><g class="rl-rships"></g></svg><div class="rl-ros"></div>';
     var c={el:el, top:el.querySelector('.rl-ctop'), stEl:el.querySelector('.rl-stwrap'),
            rosEl:el.querySelector('.rl-ros'), rbase:el.querySelector('.rl-rbase'),
+           rst:el.querySelector('.rl-rst'),
            shipLayer:el.querySelector('.rl-rships'), ships:{}};
     // hover a roster row -> halo that pilot's ship on the radar
     c.rosEl.addEventListener('mouseover', function(ev){ var row=ev.target.closest&&ev.target.closest('.rl-prow');
@@ -316,13 +324,15 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
               (t.players||[]).map(function(p){return p.name+'|'+p.score+'|'+p.tier+'|'+(p.dead?1:0)+'|'+(p.impact==null?'':p.impact);})];})]);
     c.seed=m.seed; c.lastM=m;
     ensureAsteroids(m.seed);
+    c.mAt=performance.now();
+    drawStations(c, m);
     if(c.psig!==psig){
       c.psig=psig;
       var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
       c.top.innerHTML='<b>'+esc(m.name)+'</b><span>'+reg+(m.cap?' &middot; cap '+m.cap:'')
         +'<span class="rl-fw '+(m.full_watch?'yes':'no')+'">'+(m.full_watch?'from start':'joined mid')+'</span></span>';
       c.stEl.innerHTML=stationsPanel(m);
-      c.rbase.innerHTML=radarBase(m, Array.isArray(astCache[m.seed])?astCache[m.seed]:null);
+      c.rbase.innerHTML=radarBase(m, asteroidSvg(m.seed));
       c.rosEl.innerHTML=teams.map(function(t){
         var rows=(t.players||[]).map(function(p){
           var imp='';
@@ -351,7 +361,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     var now=performance.now(), seen={};
     var idName=m.names||{};   // owner-only: ship id -> pilot name
     (m.radar||[]).forEach(function(e){
-      var ti=e[0],id=e[1],x=e[2],y=-e[3]; seen[id]=1;
+      var ti=e[0],id=e[1],x=sbToWorld(e[2]),y=-sbToWorld(e[3]); seen[id]=1;
       var nm=idName[id];
       var sh=c.ships[id];
       if(!sh){

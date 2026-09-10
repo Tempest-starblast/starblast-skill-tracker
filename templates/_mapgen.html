@@ -166,7 +166,9 @@
   // ---------------------------------------------------------------------------
   // 4. Seed -> custom-map string. The field's grid IS the custom-map grid; a
   //    cell's size maps to a digit by round(size * 18), because the game reads
-  //    a digit d back as size = 0.5 * d / 9.
+  //    a digit d back as size = 0.5 * d / 9. Row 0 of a custom map is the TOP
+  //    of the world (y = half-1): the game reads rows top-down, so we emit them
+  //    top-down. (Verified cell-for-cell against ServerList+'s getMap.)
   // ---------------------------------------------------------------------------
   function grid(seed, mapSize, teams) {
     var half = Math.max(2, Math.round(mapSize / 2));
@@ -175,7 +177,7 @@
     for (var r = 0; r < n; r++) {
       var line = '';
       for (var c = 0; c < n; c++) {
-        var cell = field.cell(c - half, r - half), d = 0;
+        var cell = field.cell(c - half, half - 1 - r), d = 0;
         if (cell) { d = Math.round(cell.size * 18); if (d < 1) d = 1; if (d > 9) d = 9; }
         line += d ? String(d) : ' ';
       }

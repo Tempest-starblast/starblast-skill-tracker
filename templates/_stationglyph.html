@@ -1,0 +1,50 @@
+{# A station on a radar, as an SVG string. Shared by the replay and the live page.
+   stationGlyph(cx, cy, colour, size, mods, gone, layout)
+     mods   - per-module HP (255 intact, 0 dead), when known
+     layout - the station's real module layout from the welcome ([idx, type, x, y, ...]),
+              when known: the glyph is then the station's actual shape.
+   Without a layout it is a hub with a ring of modules. Screen coordinates (y down). #}
+<script>
+window.stationGlyph = function(cx, cy, col, s, mods, gone, layout){
+  var hpCol = function(hp){ return hp === 0 ? '#63263a' : hp == null || hp >= 252 ? col : hp >= 140 ? '#f0c04a' : '#ff7a7a'; };
+  var f1 = function(v){ return (+v).toFixed(2); };
+  var out = '<g class="station" transform="translate(' + f1(cx) + ',' + f1(cy) + ')" opacity="' + (gone ? 0.45 : 1) + '">'
+    + '<circle r="' + f1(s * 1.6) + '" fill="' + col + '" opacity="0.10"/>'
+    + '<circle r="' + f1(s * 1.15) + '" fill="none" stroke="' + col + '" stroke-width="' + f1(s * 0.06) + '" opacity="0.35"/>';
+  var hasLay = Array.isArray(layout) && layout.some(function(m){ return m && m[2] != null; });
+  if(hasLay){
+    var ext = 1.2;
+    layout.forEach(function(m){ if(m && m[2] != null) ext = Math.max(ext, Math.abs(m[2]), Math.abs(m[3])); });
+    var k = (s * 0.95) / ext;
+    // struts between neighbouring modules, then the modules themselves
+    layout.forEach(function(a){ layout.forEach(function(b){
+      if(!a || !b || a[0] >= b[0] || a[2] == null || b[2] == null) return;
+      if(Math.hypot(a[2] - b[2], a[3] - b[3]) <= 1.3)
+        out += '<line x1="' + f1(a[2] * k) + '" y1="' + f1(-a[3] * k) + '" x2="' + f1(b[2] * k) + '" y2="' + f1(-b[3] * k) + '" stroke="' + col + '" stroke-width="' + f1(s * 0.07) + '" opacity="0.45"/>';
+    }); });
+    layout.forEach(function(m){
+      if(!m || m[2] == null) return;
+      var hp = (mods && mods.length > m[0]) ? mods[m[0]] : null, c = hpCol(hp), ty = String(m[1] || '');
+      var x = m[2] * k, y = -m[3] * k, r = ty[0] === 'd' ? 0.36 * k : ty.slice(0, 2) === 'sp' ? 0.3 * k : 0.26 * k;
+      if(ty.slice(0, 2) === 'sp') out += '<circle cx="' + f1(x) + '" cy="' + f1(y) + '" r="' + f1(r) + '" fill="' + c + '" stroke="rgba(4,12,24,.8)" stroke-width="' + f1(s * 0.05) + '"/>';
+      else out += '<rect x="' + f1(x - r) + '" y="' + f1(y - r) + '" width="' + f1(2 * r) + '" height="' + f1(2 * r) + '" rx="' + f1(r * 0.25) + '" fill="' + c + '" stroke="rgba(4,12,24,.8)" stroke-width="' + f1(s * 0.05) + '"/>';
+    });
+  } else {
+    var n = (mods && mods.length) ? mods.length : 12, rr = s * 0.95;
+    for(var i = 0; i < n; i++){
+      var a = -Math.PI / 2 + i * 2 * Math.PI / n, hp = mods ? mods[i] : null;
+      out += '<circle cx="' + f1(rr * Math.cos(a)) + '" cy="' + f1(rr * Math.sin(a)) + '" r="' + f1(s * 0.2) + '" fill="' + hpCol(hp) + '" stroke="rgba(4,12,24,.8)" stroke-width="' + f1(s * 0.05) + '"/>';
+    }
+  }
+  // the hub: a hexagon with a dark core
+  var hex = '';
+  for(var q = 0; q < 6; q++){ var a2 = Math.PI / 6 + q * Math.PI / 3; hex += (q ? ' ' : '') + f1(s * 0.5 * Math.cos(a2)) + ',' + f1(s * 0.5 * Math.sin(a2)); }
+  out += '<polygon points="' + hex + '" fill="' + (gone ? '#3a1a26' : col) + '" stroke="rgba(4,12,24,.85)" stroke-width="' + f1(s * 0.1) + '"/>'
+       + '<circle r="' + f1(s * 0.17) + '" fill="rgba(4,12,24,.85)"/>'
+       + (gone ? '<line x1="' + f1(-s * 0.4) + '" y1="' + f1(-s * 0.4) + '" x2="' + f1(s * 0.4) + '" y2="' + f1(s * 0.4) + '" stroke="#ff7a7a" stroke-width="' + f1(s * 0.12) + '"/><line x1="' + f1(-s * 0.4) + '" y1="' + f1(s * 0.4) + '" x2="' + f1(s * 0.4) + '" y2="' + f1(-s * 0.4) + '" stroke="#ff7a7a" stroke-width="' + f1(s * 0.12) + '"/>' : '');
+  return out + '</g>';
+};
+// The observer stores a map byte as (unsigned - 128), but the game's byte is a SIGNED
+// Int8 (world fraction, y up). Undo that: half a map's translation with wrap-around.
+window.sbToWorld = function(v){ return v >= 0 ? v - 128 : v + 128; };
+</script>

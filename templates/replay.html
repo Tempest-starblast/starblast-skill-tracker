@@ -143,6 +143,8 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 }
 {% endblock %}
 {% block body %}
+{% include "_mapgen.html" %}
+{% include "_stationglyph.html" %}
 <h1 class="ptitle">Match replay</h1>
 
 <div class="console">
@@ -525,6 +527,7 @@ function buildReplay(ST, RD){
     // Radar: prefer the RAW full-match ship positions (res.rd, aligned to the
     // leaderboard frames) so it plays the WHOLE match. The browser feed only saw
     // the late portion, which is why the radar looked frozen through the early game.
+    var stSeries = null, stlayRaw = null;         // assigned below; read by baseIcons at draw time
     var rdSeries = (res.rd && res.rd.length === frames.length) ? res.rd : null;
     var drawRadarAt = null;
     if(rdSeries){
@@ -564,33 +567,49 @@ function buildReplay(ST, RD){
       var clockPh = (typeof res.mt0 === 'number' && Array.isArray(res.phases)
                      && res.phases.length && res.phases.every(function(p){ return typeof p === 'number'; }))
                     ? {mt0: res.mt0, ph: res.phases} : null;
-      var baseIcons = function(el){
-        var out = '', s0 = RMX/12;
-        if(clockPh){                                   // the game's own geometry
-          var theta = ((clockPh.mt0 + el) / 3600 % 1) * 2 * Math.PI;
-          clockPh.ph.forEach(function(p, i){
-            var x = RING_R * Math.cos(theta + p), y = -(RING_R * Math.sin(theta + p));
-            out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[i]||'#888')+'" opacity="0.85"/>';
-          });
-          return orbitPath + out;
+      // The asteroid field is a pure function of the lobby's seed (the game's own
+      // generator, verified cell-for-cell). Drawn once, faint, under everything:
+      // the field as the match STARTED - rocks that get mined away stay drawn.
+      var astLayer = '';
+      if(typeof res.seed === 'number' && window.SBMapGen && SBMapGen.Field){
+        var fld = new SBMapGen.Field(res.seed, 40, 3), K = 256 / 80, parts = [];
+        for(var ay = -40; ay < 40; ay++) for(var ax = -40; ax < 40; ax++){
+          var cel = fld.cell(ax, ay); if(!cel) continue;
+          parts.push('<circle cx="'+(cel.x*K).toFixed(1)+'" cy="'+(-cel.y*K).toFixed(1)+'" r="'+Math.max(0.6, cel.size*K*1.25).toFixed(1)+'"/>');
         }
-        if(bsFit){                                     // older replays: the fit
-          Object.keys(bsFit.a).forEach(function(k){
-            var ang = bsFit.a[k] + (bsFit.w || 0) * el;
-            var x = RING_R * Math.cos(ang), y = -(RING_R * Math.sin(ang));
-            out += '<rect x="'+(x-s0).toFixed(1)+'" y="'+(y-s0).toFixed(1)+'" width="'+(2*s0)+'" height="'+(2*s0)+'" rx="'+(s0*0.3)+'" fill="'+(COLS[k]||'#888')+'" opacity="0.85"/>';
-          });
-          return orbitPath + out;
-        }
-        return orbitPath;
+        astLayer = '<g fill="rgba(150,170,190,.26)">'+parts.join('')+'</g>';
+      }
+      // Stations, where the game puts them:  theta = match_seconds/3600 % 1 * 2pi,
+      // station_i = (R cos(theta+phase_i), R sin(theta+phase_i)) in world coords,
+      // R = sqrt(2)/2 of the half-width (the client's updateStations). Screen y is
+      // down, so the y is negated - the same as the ships above.
+      var baseIcons = function(el, fi){
+        if(!clockPh) return orbitPath;               // no clock recorded: just the orbit
+        var theta = ((clockPh.mt0 + el) / 3600 % 1) * 2 * Math.PI, out = '';
+        clockPh.ph.forEach(function(p, i){
+          var x = RING_R * Math.cos(theta + p), y = -(RING_R * Math.sin(theta + p));
+          var st = (stSeries && fi != null) ? ((stSeries[fi] || [])[i] || null) : null;
+          var mods = (st && st[2] && st[2].length) ? st[2] : null;
+          var gone = !!(mods && mods.length && mods.every(function(h){ return h === 0; }));
+          out += stationGlyph(x, y, COLS[i] || '#888', RMX / 11, mods, gone, stlayRaw ? stlayRaw[i] : null);
+        });
+        return orbitPath + out;
       };
       // A ship row is [team, code, x, y] (older rows [team, x, y]). The code lets
       // us MATCH a ship in the next frame and glide it there, so ships flow
       // instead of teleporting across the ~13s gap between reads.
       var has4 = function(e){ return e.length >= 4; };
       var sKey = function(e){ return e[0] + '|' + (has4(e) ? e[1] : ''); };
-      var sX = function(e){ return has4(e) ? e[2] : e[1]; };
-      var sY = function(e){ return has4(e) ? e[3] : e[2]; };
+      // Stored radar values are (unsigned byte - 128). The game's byte is a SIGNED Int8
+      // (world fraction, y up), so that storage is a half-map translation with wrap-
+      // around: the sun ended up drawn at the corner and the corners at the centre.
+      // Relative layouts survived that, which is why it never looked obviously wrong -
+      // but the station ring (which IS centred on the sun) never matched the ships.
+      // Undo it here, for every replay old or new. Verified on ~157k ship samples:
+      // in this frame ships sit on asteroid cells at 2x the random rate (they mine),
+      // and station attackers land on their target's computed position.
+      var sX = function(e){ return sbToWorld(has4(e) ? e[2] : e[1]); };
+      var sY = function(e){ return sbToWorld(has4(e) ? e[3] : e[2]); };
       // The arena is a torus: it wraps at the edges (radar coords span ~[-128,128],
       // period 256). A ship leaving one edge reappears on the opposite one, so its
       // coordinate jumps by nearly a full period between frames. Interpolate along
@@ -615,7 +634,8 @@ function buildReplay(ST, RD){
         var g = '<rect x="'+(-RMX)+'" y="'+(-RMX)+'" width="'+(2*RMX)+'" height="'+(2*RMX)+'" rx="'+(RMX/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)"/>'
           + '<line x1="'+(-RMX)+'" y1="0" x2="'+RMX+'" y2="0" stroke="rgba(153,221,255,.05)"/>'
           + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>'
-          + baseIcons(lerp(frames[i][0], frames[j][0], a));
+          + astLayer
+          + baseIcons(lerp(frames[i][0], frames[j][0], a), i);
         var NM = res.nm || {};
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
           var nm = (p[3] != null) ? NM[p[3]] : null;
@@ -663,8 +683,8 @@ function buildReplay(ST, RD){
     // onto match time.
     // Stations: prefer the RAW full-match state (res.st + res.stlay, aligned to
     // frames) so each team's station plays the whole match too.
-    var stSeries = (res.st && res.st.length === frames.length) ? res.st : null;
-    var stlayRaw = res.stlay || null;
+    stSeries = (res.st && res.st.length === frames.length) ? res.st : null;
+    stlayRaw = res.stlay || null;
     var drawRawStations = null;
     if(stSeries && stlayRaw){
       // Intact = the team's own colour (see modColor below - this is the RAW
@@ -847,7 +867,7 @@ function buildReplay(ST, RD){
     btn.onclick = function(){ if(timer) stop(); else run(); };
     seek.oninput = function(){ stop(); pos = +seek.value; renderAt(pos); };
     renderAt(frames.length - 1);
-  }).catch(function(){ arenaMsg('Could not load this replay.'); });
+  }).catch(function(e){ console.error('replay failed:', e); arenaMsg('Could not load this replay.'); });
 
   // Match with a battlefield but no raw leaderboard: radar + stations only.
   function fieldOnly(ST, RD){
@@ -1067,7 +1087,7 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   // One master transport: the leaderboard timeline drives the win-prob playhead
   // and the battlefield (radar + stations) too - a single play button for all.
   buildReplay(ST, RD);
-}).catch(()=>{document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
+}).catch((e)=>{console.error('replay head failed:', e);document.getElementById('rpHead').innerHTML='<span class="sub">Could not load this replay.</span>';});
 </script>
 <script>
 // Mini-player: in ?mini=1 this page strips to the radar and autoplays from ?t;

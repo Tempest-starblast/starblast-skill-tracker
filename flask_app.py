@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.2"
+APP_VERSION = "9.13.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2520,9 +2520,15 @@ def rawlive_ingest():
                 pj = json.loads(prev[0])
                 if pj.get("match_seq") == d.get("match_seq") and pj.get("_mstart"):
                     _mstart = pj["_mstart"]
+                # same connection (same welcome servertime): keep its first-seen ts
+                if (pj.get("servertime") is not None and pj.get("servertime") == d.get("servertime")
+                        and pj.get("_ct0")):
+                    d["_ct0"] = pj["_ct0"]
             except Exception:
                 pass
         d["_mstart"] = _mstart
+        if d.get("_ct0") is None:
+            d["_ct0"] = _now_ts
         _blob = json.dumps(d, ensure_ascii=False)
         _wall = time.time()
         c.execute("INSERT INTO rawlive (sys_id, updated, payload) VALUES (?,?,?) "
@@ -2721,6 +2727,13 @@ def rawlive_matches():
             "match_seq": d.get("match_seq"), "full_watch": bool(d.get("full_watch")),
             "cap": d.get("cap"), "age": round(now - updated, 1),
             "seed": d.get("seed"),
+            # Station ring clock: the observer's exact `mt` when present, else the
+            # welcome servertime walked forward from the connection's first snapshot.
+            "mt": (round(d["mt"], 1) if isinstance(d.get("mt"), (int, float))
+                   else (round(d["servertime"] / 1000.0
+                               + (float(d.get("ts") or 0) - float(d.get("_ct0") or d.get("ts") or 0)), 1)
+                         if isinstance(d.get("servertime"), (int, float)) and d.get("ts") else None)),
+            "phases": (d.get("phases") if isinstance(d.get("phases"), list) else None),
             "radar": d.get("radar") or [],
             "names": _names,
             "prog": round(prog, 3),
@@ -4503,6 +4516,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.3", "at": "2026-09-10T05:00:00Z", "changes": [
+        "Replay and live radar: ships are now drawn where they really are. The recorder had been storing each map position as an unsigned byte minus 128, but the game’s byte is signed — so every ship was shown half a map away with wrap-around. Relative shapes survived, which is why it never looked obviously broken, but the sun was in the corner and the station ring never matched the ships. Every replay, old or new, is corrected on display.",
+        "Station colours and player colours line up. They were mapped correctly all along; the positions were what was off. Checked on the recorded data: in the corrected frame, the ships attacking a station cluster on that station’s computed position for all three teams.",
+        "Stations are drawn as stations: each team’s real module layout in its colour, modules going amber when damaged and dark when destroyed, sitting on the ring they orbit — placed by the game’s own clock. The live view now moves them too, instead of parking them at fixed angles.",
+        "The asteroid field is drawn behind the replay and the live radar — the real field for that lobby, from its seed, using the game’s own generator. It shows the field as the match started; rocks that get mined away stay drawn."
+    ]},
     {"version": "9.13.2", "at": "2026-09-10T00:00:00Z", "changes": [
         "The lobby now reads a mod’s map the way mods actually write it. Paste or load a mod and its custom_map shows up in the map preview straight away — whether it’s a literal string, a variable holding the map, rows joined with .join(), or pieces added together. Before, only a literal string was understood, so most mods’ maps were silently ignored.",
         "And it goes both ways: change the map — draw one in, pick from My Maps, generate from a seed, import a file — and the mod’s code is updated in the place the map already lives (a variable stays a variable, an array stays an array). Clearing the map removes it from the mod so the game builds its own field. If a mod builds its map with code that can’t be rewritten safely, the lobby says so instead of guessing.",
@@ -7213,6 +7232,9 @@ def trueskill_replay_push():
             obj["mt0"] = m['mt0']
             if isinstance(m.get('phases'), list):
                 obj["phases"] = m['phases']
+        # The lobby's map seed: the replay draws the real asteroid field from it.
+        if isinstance(m.get('seed'), int) and m['seed'] >= 0:
+            obj["seed"] = m['seed']
         # id -> player name, so the replay radar can label each ship dot.
         if isinstance(nm, dict) and nm:
             obj["nm"] = nm
@@ -7261,7 +7283,7 @@ def trueskill_replay_read():
                        (sys_id,)).fetchall()
     rc.close()
     best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = (None,) * 8
-    best_hues = best_gt0 = best_phases = best_mt0 = None
+    best_hues = best_gt0 = best_phases = best_mt0 = best_seed = None
     for data, first_ts in cands:
         try:
             obj = json.loads(zlib.decompress(data).decode('utf-8'))
@@ -7273,10 +7295,10 @@ def trueskill_replay_read():
             frames = obj.get("f"); mwp = obj.get("wp"); mrd = obj.get("rd")
             mstl = obj.get("stlay"); mst = obj.get("st"); mbs = obj.get("bs")
             mnm = obj.get("nm"); mhu = obj.get("hues")
-            mgt = obj.get("gt0"); mph = obj.get("phases"); mmt = obj.get("mt0")
+            mgt = obj.get("gt0"); mph = obj.get("phases"); mmt = obj.get("mt0"); msd = obj.get("seed")
         else:
             frames, mwp, mrd, mstl, mst, mbs = obj, None, None, None, None, None
-            mnm = None; mhu = None; mgt = None; mph = None; mmt = None
+            mnm = None; mhu = None; mgt = None; mph = None; mmt = None; msd = None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
@@ -7285,7 +7307,7 @@ def trueskill_replay_read():
         if best is None or gap < best_gap:
             best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = \
                 frames, gap, mwp, mrd, mstl, mst, mbs, mnm
-            best_hues = mhu; best_gt0 = mgt; best_phases = mph; best_mt0 = mmt
+            best_hues = mhu; best_gt0 = mgt; best_phases = mph; best_mt0 = mmt; best_seed = msd
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
         # Prefer the raw multi-factor model's own win-prob; fall back to the
@@ -7305,9 +7327,10 @@ def trueskill_replay_read():
         phases = best_phases if isinstance(best_phases, list) else None
         conn.close()
         mt0 = best_mt0 if isinstance(best_mt0, (int, float)) else None
+        seed = best_seed if isinstance(best_seed, int) else None
         return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
                         "st": st, "bs": bs, "nm": nm, "hues": hues,
-                        "gt0": gt0, "phases": phases, "mt0": mt0}), 200
+                        "gt0": gt0, "phases": phases, "mt0": mt0, "seed": seed}), 200
     conn.close()
     return jsonify({"frames": None}), 200
 
