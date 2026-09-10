@@ -158,11 +158,30 @@ window.MapEd = (function(){
     for(var r=0;r<n;r++) for(var c=0;c<n;c++){ var v=g[r][c]; if(!v) continue;
       ctx.beginPath(); ctx.fillStyle='#9aa4b2';
       ctx.arc(c*cs+cs/2, r*cs+cs/2, Math.max(0.8,(cs/2)*(0.4+0.065*v)), 0, 6.2832); ctx.fill(); } }
+  // A ghost of something not yet committed - the word being typed. Held here
+  // rather than painted once, so the orbit tick and every other repaint do not
+  // wipe it a frame later.
+  var ghostCells=null, ghostBad=false;
+  function setGhost(cells, bad){
+    ghostCells = (cells && cells.length) ? cells : null;
+    ghostBad = !!bad;
+    paintCanvas();
+  }
+  function drawGhost(ctx, cs){
+    if(!ghostCells) return;
+    var v=brush(), r=Math.max(0.8,(cs/2)*(0.4+0.065*v));
+    ctx.save();
+    ctx.fillStyle = ghostBad ? 'rgba(255,110,110,.5)' : 'rgba(255,255,255,.5)';
+    ghostCells.forEach(function(rc){ ctx.beginPath();
+      ctx.arc(rc[1]*cs+cs/2, rc[0]*cs+cs/2, r, 0, 6.2832); ctx.fill(); });
+    ctx.restore();
+  }
   function paintCanvas(){ var cv=$('mapcanvas'); if(!cv||!mapGrid) return;
     var n=mapGrid.length, ctx=cv.getContext('2d'), cs=cv.width/n;
     ctx.clearRect(0,0,cv.width,cv.height);
     if(mapLayer) ctx.drawImage(mapLayer,0,0);
     drawBases(ctx,n,cs,cv);
+    drawGhost(ctx, cs);
     if(!readOnly) drawSelection(ctx, cs); }
   function drawMap(){ renderLayer(); paintCanvas(); }
   // Team-mode bases, from the game's own formula (starblast-modding Station.js: the
@@ -1137,29 +1156,83 @@ window.MapEd = (function(){
     // text -> asteroids. The word is screened by the server before anything is drawn.
     var tx=$('maptext'), tg=$('maptextgo'), th=$('maptexth'), tv=$('maptexth_v'), tHint=$('maptexthint');
     if(th && tv){ th.addEventListener('input', function(){ tv.textContent=this.value; }); wheelStep(th); }
-    function insertText(){
-      if(!tx || !tHint) return;
-      var w=(tx.value||'').trim();
-      if(!w){ tHint.textContent='Type a word first'; return; }
-      tHint.textContent='Checking\u2026'; if(tg) tg.disabled=true;
+    // What the word looks like right now, drawn but NOT added to the map. The
+    // shape of it updates on every keystroke; whether it is allowed is settled
+    // separately, because that answer comes from the server.
+    var textOK=null, textAsked='', drawTimer=null, checkTimer=null;
+    function currentWord(){ return (tx && tx.value || '').trim(); }
+    function paintWord(){
+      if(!tx || !mapGrid) return;
+      var w=currentWord();
+      if(!w){ setGhost(null); if(tHint) tHint.textContent=''; return; }
+      var askH=parseInt((th||{}).value,10)||12;
+      var cells=textCells(w, askH, brush());
+      if(!cells.length){
+        setGhost(null);
+        if(tHint) tHint.textContent='\u201C'+w+'\u201D will not fit on a '+mapGrid.length
+          +'\u00d7'+mapGrid.length+' map, even at the smallest size';
+        if(tg) tg.disabled=true;
+        return; }
+      // Shown red while the word has not come back allowed, so it never looks
+      // like something that is going onto the map when it is not.
+      setGhost(cells, textOK !== true);
+      if(tg) tg.disabled = (textOK === false);
+      if(tHint) tHint.textContent = (textOK === false)
+        ? 'That word isn\u2019t allowed on a map'
+        : (textOK === true)
+          ? (cells.length + ' asteroids \u2014 press Insert to place it')
+          : (cells.length + ' asteroids \u2014 checking the word\u2026');
+    }
+    function checkWord(){
+      var w=currentWord();
+      if(!w){ textOK=null; textAsked=''; return; }
+      if(w === textAsked) return;                 // already answered
+      textAsked=w; textOK=null; paintWord();
       fetch('/api/wordcheck?q='+encodeURIComponent(w), {cache:'no-store'})
         .then(function(r){ return r.json(); })
         .then(function(j){
-          if(tg) tg.disabled=false;
-          if(!j || !j.ok){ tHint.textContent='Couldn\u2019t check that word \u2014 not inserted'; return; }
-          if(j.blocked){ tHint.textContent='That word isn\u2019t allowed on a map'; return; }
-          var askH=parseInt((th||{}).value,10)||12;
-          var cells=textCells(w, askH, brush());
-          if(!cells.length){
-            tHint.textContent='\u201C'+w+'\u201D will not fit on a '+mapGrid.length
-              +'\u00d7'+mapGrid.length+' map, even at the smallest size';
-            return; }
-          insertPatch(cells, true);   // a word you inserted stays one object
-          tHint.textContent=cells.length+' asteroids \u2014 drag it where you want'; })
-        .catch(function(){ if(tg) tg.disabled=false; tHint.textContent='Couldn\u2019t check that word \u2014 not inserted'; });
+          if(currentWord() !== w) return;         // they typed on; this answer is stale
+          textOK = (j && j.ok) ? !j.blocked : false;
+          paintWord(); })
+        .catch(function(){ if(currentWord()===w){ textOK=false; paintWord(); } });
+    }
+    function textLive(){
+      clearTimeout(drawTimer); clearTimeout(checkTimer);
+      drawTimer=setTimeout(paintWord, 60);        // the shape: immediate, local
+      checkTimer=setTimeout(checkWord, 350);      // the verdict: one request per pause
+    }
+    function insertText(){
+      if(!tx || !tHint) return;
+      var w=currentWord();
+      if(!w){ tHint.textContent='Type a word first'; return; }
+      if(textOK === false){ tHint.textContent='That word isn\u2019t allowed on a map'; return; }
+      if(textOK !== true){                        // not answered yet: ask, then place
+        tHint.textContent='Checking\u2026';
+        textAsked='';
+        checkWord();
+        setTimeout(function(){ if(textOK === true && currentWord()===w) insertText(); }, 400);
+        return; }
+      var askH=parseInt((th||{}).value,10)||12;
+      var cells=textCells(w, askH, brush());
+      if(!cells.length){
+        tHint.textContent='\u201C'+w+'\u201D will not fit on a '+mapGrid.length
+          +'\u00d7'+mapGrid.length+' map, even at the smallest size';
+        return; }
+      setGhost(null);                             // the preview becomes the real thing
+      insertPatch(cells, true);                   // a word you inserted stays one object
+      tx.value=''; textOK=null; textAsked='';
+      tHint.textContent=cells.length+' asteroids \u2014 drag it where you want';
     }
     if(tg) tg.onclick=insertText;
-    if(tx) tx.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); insertText(); } });
+    if(tx){
+      tx.addEventListener('input', textLive);
+      tx.addEventListener('keydown', function(e){
+        if(e.key==='Enter'){ e.preventDefault(); insertText(); }
+        else if(e.key==='Escape'){ tx.value=''; textOK=null; textAsked=''; setGhost(null);
+          if(tHint) tHint.textContent=''; } });
+    }
+    if(th) th.addEventListener('input', function(){ if(currentWord()) paintWord(); });
+    var bsz=$('mapbrush'); if(bsz) bsz.addEventListener('input', function(){ if(currentWord()) paintWord(); });
     var sg=$('mapseedgo'), sr=$('mapseedrand'), si=$('mapseed'), sh=$('mapseedhint');
     function runSeed(){
       if(!window.SBMapGen){ if(sh) sh.textContent='Generator unavailable'; return; }
