@@ -626,8 +626,13 @@ function buildReplay(ST, RD){
         B.forEach(function(e){ mapB[sKey(e)] = e; });
         A.forEach(function(e){
           var k = sKey(e), b = mapB[k], id = has4(e) ? e[1] : null;
-          if(b && has4(e)){ pts.push([e[0], wWrap(sX(e) + wDelta(sX(e), sX(b)) * a),
-                                            wWrap(sY(e) + wDelta(sY(e), sY(b)) * a), id]); delete mapB[k]; }
+          if(b && has4(e)){
+            var ddx = wDelta(sX(e), sX(b)), ddy = wDelta(sY(e), sY(b));
+            // Frames are ~3.5s apart and a ship covers < 40 units in that; a bigger
+            // jump is an id reused by a new pilot or a glitch, not flight. Cut to it.
+            if(Math.hypot(ddx, ddy) > 55) pts.push(a < 0.5 ? [e[0], sX(e), sY(e), id] : [e[0], sX(b), sY(b), id]);
+            else pts.push([e[0], wWrap(sX(e) + ddx * a), wWrap(sY(e) + ddy * a), id]);
+            delete mapB[k]; }
           else pts.push([e[0], sX(e), sY(e), id]);
         });
         Object.keys(mapB).forEach(function(kk){ var b = mapB[kk]; pts.push([b[0], sX(b), sY(b), has4(b) ? b[1] : null]); });
@@ -637,6 +642,16 @@ function buildReplay(ST, RD){
           + astLayer
           + baseIcons(lerp(frames[i][0], frames[j][0], a), i);
         var NM = res.nm || {};
+        var cross = function(x, y, r){ return '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/>'
+          + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/>'; };
+        // The map wraps (period 256, the view is +-132): a ship near an edge is also
+        // drawn one period over, so crossing the edge slides it off one side and onto
+        // the other instead of popping. Only copies that land in view are emitted.
+        var ghosts = function(x, y, r){ var out = '';
+          [[-WRAP,0],[WRAP,0],[0,-WRAP],[0,WRAP],[-WRAP,-WRAP],[WRAP,-WRAP],[-WRAP,WRAP],[WRAP,WRAP]].forEach(function(o){
+            var gx = x + o[0], gy = y + o[1];
+            if(Math.abs(gx) <= RMX + r && Math.abs(gy) <= RMX + r) out += cross(gx, gy, r); });
+          return out; };
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
           var nm = (p[3] != null) ? NM[p[3]] : null;
           // data-key = team|name matches the roster row's data-key, so a hover on
@@ -647,7 +662,7 @@ function buildReplay(ST, RD){
           g += '<g class="rship'+(hl ? ' hl' : '')+'"'+(dk ? ' data-key="'+dk+'"' : '')+' stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
             + (hl ? '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+(r*2.6).toFixed(1)+'" fill="'+c+'" opacity="0.30" stroke="none"/>' : '')
             + (nm ? '<title>'+esc(nm)+'</title>' : '')
-            + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/><line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/>'
+            + cross(x, y, r) + ghosts(x, y, r)
             + (nm ? '<text x="'+x.toFixed(1)+'" y="'+(y - r*1.9).toFixed(1)+'" fill="'+c+'" font-size="'+(RMX/24).toFixed(1)+'" text-anchor="middle" opacity="0.9" stroke="rgba(3,8,16,.85)" stroke-width="'+(RMX/150).toFixed(2)+'" style="paint-order:stroke">'+esc(nm.length > 9 ? nm.slice(0,8)+'…' : nm)+'</text>' : '')
             + '</g>';
         });

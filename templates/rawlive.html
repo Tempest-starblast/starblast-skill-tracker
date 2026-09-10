@@ -235,6 +235,18 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
   // Stations, where the game puts them right now: theta = match_seconds/3600 % 1 * 2pi,
   // (R cos(theta+phase_i), R sin(theta+phase_i)) in world coords, y negated for the
   // screen. match_seconds = the feed's exact clock at its read + the time since.
+  // A ship's cross (same size as the replay's), drawn at the ship and at every
+  // one-map-period offset, so the torus edge is seamless: the copies sit off-view
+  // until the ship nears an edge, then the far copy is already coming in.
+  var WRAP=256, SHIP_R=MAPE/38;
+  function shipMark(col){
+    var r=SHIP_R, out='';
+    [[0,0],[-WRAP,0],[WRAP,0],[0,-WRAP],[0,WRAP],[-WRAP,-WRAP],[WRAP,-WRAP],[-WRAP,WRAP],[WRAP,WRAP]].forEach(function(o){
+      var x=o[0], y=o[1];
+      out+='<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'" stroke="'+col+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round"/>'
+         +'<line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'" stroke="'+col+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round"/>'; });
+    return out;
+  }
   function drawStations(c, m){
     var g=c.rst; if(!g) return;
     var ph=m.phases;
@@ -367,9 +379,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
       if(!sh){
         var g=document.createElementNS('http://www.w3.org/2000/svg','g');
         g.setAttribute('class','ship');
-        g.innerHTML='<line x1="-3.6" y1="-3.6" x2="3.6" y2="3.6" stroke="'+(COL[ti]||'#888')
-          +'" stroke-width="2" stroke-linecap="round"/><line x1="-3.6" y1="3.6" x2="3.6" y2="-3.6" stroke="'
-          +(COL[ti]||'#888')+'" stroke-width="2" stroke-linecap="round"/>'
+        g.innerHTML=shipMark(COL[ti]||'#888')
           +(nm?'<text class="rl-shipnm" x="0" y="-6" fill="'+(COL[ti]||'#888')+'">'+esc(nm)+'</text>':'');
         g.style.transitionDuration='0ms';
         g.style.transform='translate('+x+'px,'+y+'px)';
@@ -389,17 +399,33 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
           tx.textContent=nm; }
         else if(tx){ tx.remove(); }
       }
-      if(sh.x!==x||sh.y!==y){
-        // The map wraps (a torus): crossing an edge flips a coordinate from
-        // +127 to -127. That is not a move across the map - SNAP it to the
-        // other side instead of gliding the long way through the middle.
-        var wrap=Math.abs(x-sh.x)>128||Math.abs(y-sh.y)>128;
-        // Otherwise 1.25x the elapsed gap so the dot is still moving when
-        // the next update lands - continuous motion, not arrive-and-wait.
-        var dt=wrap?0:Math.min(9000,Math.max(1200,(now-sh.last)*1.25));
+      // sh.x/sh.y may sit one period outside the map mid-crossing; compare folded.
+      var fx0=sh.x, fy0=sh.y;
+      if(fx0>128) fx0-=WRAP; else if(fx0<-128) fx0+=WRAP;
+      if(fy0>128) fy0-=WRAP; else if(fy0<-128) fy0+=WRAP;
+      if(fx0!==x||fy0!==y){
+        // The map wraps (a torus). Take the SHORT way through the edge: glide to the
+        // new position's equivalent one period over, where the ghost copy already is.
+        var ux=x, uy=y;
+        if(ux-sh.x>128) ux-=WRAP; else if(ux-sh.x<-128) ux+=WRAP;
+        if(uy-sh.y>128) uy-=WRAP; else if(uy-sh.y<-128) uy+=WRAP;
+        // A jump no ship can make in one update is an id reused by a new pilot or a
+        // glitch, not flight - snap. Otherwise 1.25x the elapsed gap so the dot is
+        // still moving when the next update lands.
+        var jump=Math.hypot(ux-sh.x,uy-sh.y)>55;
+        var dt=jump?0:Math.min(9000,Math.max(1200,(now-sh.last)*1.25));
         sh.el.style.transitionDuration=dt+'ms';
-        sh.el.style.transform='translate('+x+'px,'+y+'px)';
-        sh.x=x; sh.y=y; sh.last=now;
+        sh.el.style.transform='translate('+ux+'px,'+uy+'px)';
+        sh.x=ux; sh.y=uy; sh.last=now;
+        // Once the glide is done, fold back into the map instantly - invisible,
+        // because the ghost copy is drawn at exactly that spot.
+        clearTimeout(sh.fold);
+        if(Math.abs(ux)>128||Math.abs(uy)>128){ sh.fold=setTimeout(function(){
+          var fx=sh.x, fy=sh.y;
+          if(fx>128) fx-=WRAP; else if(fx<-128) fx+=WRAP;
+          if(fy>128) fy-=WRAP; else if(fy<-128) fy+=WRAP;
+          if(fx!==sh.x||fy!==sh.y){ sh.el.style.transitionDuration='0ms'; sh.el.style.transform='translate('+fx+'px,'+fy+'px)'; sh.x=fx; sh.y=fy; }
+        }, dt+40); }
       }
     });
     for(var id in c.ships){ if(!seen[id]){ c.ships[id].el.remove(); delete c.ships[id]; } }

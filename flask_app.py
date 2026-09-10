@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.4"
+APP_VERSION = "9.13.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4516,6 +4516,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.5", "at": "2026-09-10T07:20:00Z", "changes": [
+        "Replays and the live view now draw the map the same way, and ships stop “flying”: the map wraps at its edges (fly off one side, arrive on the other), and with the corrected frame those edges are now where ships actually mine. A ship crossing an edge is now drawn on both sides as it goes, so it slides off one edge and onto the other instead of popping across the screen. A jump no ship could make in one step (a ship id handed to a new pilot) is cut to instead of glided across the map.",
+        "Every replay gets its asteroid field, including old ones: a lobby’s map is generated from its system id, so the field can always be rebuilt.",
+        "The live radar uses the same ship mark as the replay."
+    ]},
     {"version": "9.13.4", "at": "2026-09-10T06:35:00Z", "changes": [
         "Server: the recorder now notes the exact moment each lobby’s clock was read, so the station ring on the live view and in new replays is placed from the game’s own time rather than estimated from the first snapshot (which ran about 20 seconds behind, and occasionally much more). Live stations are exact from now on; lobbies already running when this went in catch up as they end."
     ]},
@@ -7330,7 +7335,15 @@ def trueskill_replay_read():
         phases = best_phases if isinstance(best_phases, list) else None
         conn.close()
         mt0 = best_mt0 if isinstance(best_mt0, (int, float)) else None
+        # A lobby's map seed IS its system id (the game generates the field from
+        # it), so every replay can draw its asteroid field, not just ones recorded
+        # after the seed started being stored.
         seed = best_seed if isinstance(best_seed, int) else None
+        if seed is None:
+            try:
+                seed = int(sys_id)
+            except (TypeError, ValueError):
+                seed = None
         return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
                         "st": st, "bs": bs, "nm": nm, "hues": hues,
                         "gt0": gt0, "phases": phases, "mt0": mt0, "seed": seed}), 200
