@@ -68,6 +68,7 @@
 .mmmenu-list button:hover,.mmmenu-list label.cgchk:hover{background:rgba(102,230,184,.12)}
 .mmmenu-list kbd{font:11px ui-monospace,Menlo,monospace;color:var(--muted);margin-left:auto}
 .mmmenu-list .mmmenu-sep{height:1px;background:var(--line);margin:4px 2px}
+.mmmenu-list .mmmenu-note{padding:4px 10px 2px;font-size:11px;line-height:1.45;color:var(--muted)}
 .mmmenu-list .cgmapxy{margin:2px 0 0;padding:6px 10px;gap:6px}
 /* The map settings live in the Edit menu: one per row, full width, and wide
    enough that the slider is worth dragging. */
@@ -205,7 +206,10 @@
 .mmlist li{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13px;flex-wrap:wrap}
 .mmlist li:first-child{border-top:0}
 .mmlist .nm{flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.mmlist .meta{color:var(--muted);font-size:11.5px;white-space:nowrap}
+/* The date used to run under the list's scrollbar because it refused to wrap. */
+.mmlist .meta{color:var(--muted);font-size:11.5px;white-space:normal;overflow-wrap:anywhere;
+  flex:1 1 100%;min-width:0}
+.mmlistwrap{padding-right:4px}
 .mmlist .mmbtn{padding:5px 9px;font-size:11.5px}
 .mmempty{color:var(--muted);font-size:13px}
 {% endblock %}
@@ -462,18 +466,29 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     mv('mapimgfile', ins);
     var ap=mv('mapimport',ins); if(ap) ap.textContent='Apply pasted text';
     var textRow=$('maptext') && $('maptext').closest('.cgmapxy'); if(textRow){ var sep0=document.createElement('div'); sep0.className='mmmenu-sep'; ins.appendChild(sep0); mv(textRow, ins); }
-    var seedRow=$('mapseed') && $('mapseed').closest('.cgmapxy'); if(seedRow){ var sep=document.createElement('div'); sep.className='mmmenu-sep'; ins.appendChild(sep); mv(seedRow, ins); }
+    var seedRow=$('mapseed') && $('mapseed').closest('.cgmapxy');
+    if(seedRow){ var sep=document.createElement('div'); sep.className='mmmenu-sep'; ins.appendChild(sep);
+      var sl=document.createElement('div'); sl.className='mmmenu-note';
+      sl.textContent='From a seed — builds a whole random field from a number, the way the game does. It replaces the map.';
+      ins.appendChild(sl); mv(seedRow, ins); }
     // View
     var vw=$('mmView'); var ob=mv('maporbit',vw); var ms=mv('mapselect',vw); if(ms) ms.title='Drag the stations around their ring yourself';
     var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp){ mv(cp, ed); cp.title='Keep the ring the stations orbit free of asteroids (nothing is deleted - turn it off and they come back)'; }   // Edit: it changes the map
     var adv=mv('mapadv',vw);
+    // The advanced controls live in the side panel; turning them on with the
+    // panel folded looked like nothing happening at all.
+    if(adv) adv.addEventListener('click', function(){
+      setTimeout(function(){
+        if(MapEd.isAdvanced && MapEd.isAdvanced() && ideEl && ideEl.classList.contains('nopanel')) setPanel(false);
+      }, 0); });
     var fsi=document.createElement('button'); fsi.type='button'; fsi.textContent='Fullscreen editor'; fsi.onclick=function(){ var b=$('mmfs'); if(b) b.click(); }; vw.insertBefore(fsi, vw.firstChild);
     // Fold the side panel away. Drawing does not need it, and in fullscreen it is
     // 400px of window spent on controls you are not touching. The choice is kept,
     // because someone who works with it shut would otherwise shut it every visit.
     var pnl=$('mmgrip'), ideEl=document.querySelector('.mmide');
-    var pvi=document.createElement('button'); pvi.type='button';
-    pvi.onclick=function(){ if(pnl) pnl.click(); }; vw.insertBefore(pvi, vw.firstChild);
+    // (No View entry for the panel: the grip on the panel's own edge does it,
+    // and a menu item for it was just a second door to the same room.)
+    var pvi={};
     function setPanel(hidden){
       if(!ideEl) return;
       ideEl.classList.toggle('nopanel', !!hidden);
@@ -484,7 +499,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         pnl.setAttribute('aria-label', hidden ? 'Show the side panel' : 'Hide the side panel');
         pnl.setAttribute('aria-expanded', hidden ? 'false' : 'true');
       }
-      pvi.textContent = hidden ? 'Show side panel' : 'Hide side panel';
+      pvi.textContent = hidden ? 'Show side panel' : 'Hide side panel';   // (not shown)
       try{ localStorage.setItem('mm_panel_hidden', hidden ? '1' : '0'); }catch(e){}
       // The map is sized from what is left of the row, so it has to be remeasured.
       setTimeout(function(){ if(typeof fitCanvas==='function') fitCanvas(); }, 30);
@@ -521,9 +536,23 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   var fitPx = 600, zoomF = 1;
   function fitCanvas(){ var cv=$('mapcanvas'), st=$('mmstage'); if(!cv||!st) return;
     var box=st.getBoundingClientRect();
-    var avail=Math.floor(innerHeight-box.top-34);
-    fitPx = Math.max(300, Math.min(avail, Math.floor(box.width)));
-    st.style.maxHeight = Math.max(300, avail)+'px';
+    // The size must not depend on where the page happens to be scrolled to. It
+    // used to be measured as "everything below the stage's current top", and the
+    // stage rises as you scroll - so the map grew the further down you went,
+    // until it hit the width and stopped. The stage is sticky, so measure from
+    // where it comes to REST instead: its sticky offset plus the fixed distance
+    // from there down to the canvas. Both are scroll-independent.
+    var wrap=st.closest('.mmstage') || st;
+    var stickyTop=parseFloat(getComputedStyle(wrap).top);
+    if(!isFinite(stickyTop)) stickyTop=10;
+    var inside=box.top - wrap.getBoundingClientRect().top;
+    var avail=Math.floor(Math.max(240, innerHeight - stickyTop - inside - 34));
+    var px = Math.max(300, Math.min(avail, Math.floor(box.width)));
+    var mh = Math.max(300, avail);
+    // A resize that changes nothing is dropped: resizing the canvas moves the
+    // things being watched for changes, which called this again.
+    if(px===fitPx && st.style.maxHeight===mh+'px') return;
+    fitPx = px; st.style.maxHeight = mh+'px';
     applyZoom(); }
   function applyZoom(){ var cv=$('mapcanvas'); if(!cv) return;
     var px = Math.round(fitPx * zoomF);
@@ -583,7 +612,12 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   new MutationObserver(function(){ fitCanvas(); }).observe($('mmstageTop'), {childList:true, subtree:true, attributes:true});
 
   var cur = {id:null, name:''}, dirty = false;
-  function status(msg, cls){ var s=$('mmstatus'); s.textContent=msg||''; s.className='mmstatus'+(cls?' '+cls:''); }
+  // Transient on purpose: it used to sit beside the permanent "which map,
+  // saved or not" line, so the corner said 'new map' twice.
+  var statusTimer=null;
+  function status(msg, cls){ var s=$('mmstatus'); s.textContent=msg||''; s.className='mmstatus'+(cls?' '+cls:'');
+    if(statusTimer) clearTimeout(statusTimer);
+    if(msg) statusTimer=setTimeout(function(){ s.textContent=''; s.className='mmstatus'; }, 4000); }
   function setDirty(d){ dirty=d; var b=$('mmsave'); if(b) b.textContent = d ? 'Save •' : 'Save'; showCur(); }
   // Always visible, in words: which saved map Save will write to, and whether
   // what is on screen has reached it. A bullet on a button said neither.
@@ -601,6 +635,16 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     e.title = dirty ? 'Save writes these changes to “'+cur.name+'”'
                     : 'Everything here is in “'+cur.name+'”'; }
   MapEd.onChange = function(){ setDirty(true); };
+  // When Apply pasted has nothing to work with, take the person to the box it
+  // wants: panel open, advanced on, cursor in it. It used to just fail quietly.
+  MapEd.onNeedRawText = function(msg){
+    if(MapEd.setAdvanced) MapEd.setAdvanced(true);
+    var ide=document.querySelector('.mmide');
+    if(ide && ide.classList.contains('nopanel')){ var g=$('mmgrip'); if(g) g.click(); }
+    var t=$('o_custom_map');
+    if(t){ var card=t.closest('.mmcard'); if(card) card.scrollIntoView({block:'nearest'}); t.focus(); }
+    status(msg || 'Paste the map text in here', 'err');
+  };
   window.addEventListener('beforeunload', function(e){ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 
   function esc(s){ var d=document.createElement('span'); d.textContent=(s==null?'':s); return d.innerHTML; }
@@ -632,7 +676,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         var li=document.createElement('li');
         li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+(m.prev_at?' · ↩ restorable':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
           +'<button class="mmbtn" data-act="load" type="button">Load</button>'
-          +'<button class="mmbtn" data-act="copy" type="button">Copy</button>'
+          +'<button class="mmbtn" data-act="copy" type="button" title="Copy this map as text, to paste into a lobby\u2019s custom map box">Copy text</button>'
           +'<button class="mmbtn" data-act="dl" type="button">Download</button>'
           // A guest pass lends the workshop, not the power to empty it. The
           // server refuses either way; hiding it keeps the offer honest.
@@ -865,7 +909,9 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   $('mmname').addEventListener('input', showCur);
   showCur(); showRestore();
   $('mmnew').onclick=function(){
-    fileHandle=null; showFileAt();       // a new map is not the old map's file if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+    // A new map is not the old map's file.
+    if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+    fileHandle=null; showFileAt();
     MapEd.resetAll(); if(MapEd.setImage) MapEd.setImage(null); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };   // the full reset: asteroids, shapes, image, options
   // ---- files on your computer ---------------------------------------------
   // The picker exists on Chrome and Edge for the desktop, which is where the

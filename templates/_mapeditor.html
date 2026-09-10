@@ -134,10 +134,17 @@ window.MapEd = (function(){
     if(mapLayer.width!==cv.width || mapLayer.height!==cv.height){ mapLayer.width=cv.width; mapLayer.height=cv.height; }
     var ctx=mapLayer.getContext('2d');
     ctx.clearRect(0,0,mapLayer.width,mapLayer.height);
-    // the full grid: every cell (when cells are big enough to show it), every tenth line stronger
+    // The grid thins out instead of vanishing. Every cell while a cell is wide
+    // enough to see between the lines; every fifth line when it is not; nothing
+    // only when even that would be a grey wash. (It used to be all or nothing at
+    // 5 pixels a cell, so a map of 161 lost its grid entirely - and 800/160 is
+    // exactly 5, which is why the cliff was there.) Zoom widens the cells, so
+    // zooming in on a big map brings the fine grid back.
     ctx.save(); ctx.lineWidth=1;
-    if(cs>=5){ ctx.strokeStyle='rgba(153,221,255,.045)'; ctx.beginPath();
-      for(var gc=1; gc<n; gc++){ if(gc%10===0) continue; var gx=Math.round(gc*cs)+0.5; ctx.moveTo(gx,0); ctx.lineTo(gx,cv.height); ctx.moveTo(0,gx); ctx.lineTo(cv.width,gx); }
+    var gstep = (cs>=5) ? 1 : (cs>=1.6) ? 5 : 0;
+    if(gstep){ ctx.strokeStyle = gstep===1 ? 'rgba(153,221,255,.045)' : 'rgba(153,221,255,.06)';
+      ctx.beginPath();
+      for(var gc=gstep; gc<n; gc+=gstep){ if(gc%10===0) continue; var gx=Math.round(gc*cs)+0.5; ctx.moveTo(gx,0); ctx.lineTo(gx,cv.height); ctx.moveTo(0,gx); ctx.lineTo(cv.width,gx); }
       ctx.stroke(); }
     ctx.strokeStyle='rgba(153,221,255,.11)'; ctx.beginPath();
     for(var gi=10; gi<n; gi+=10){ var gy=Math.round(gi*cs)+0.5; ctx.moveTo(gy,0); ctx.lineTo(gy,cv.height); ctx.moveTo(0,gy); ctx.lineTo(cv.width,gy); }
@@ -261,7 +268,10 @@ window.MapEd = (function(){
   function bakePatch(s){ shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]]=cellValue(s,rc); });
     shapes=shapes.filter(function(x){ return x!==s; }); }
   function bakeUnselectedPatches(ids){
-    var live=shapes.filter(function(x){ return x.type==='cells' && ids.indexOf(x.id)<0; });
+    // `keep` marks cells that were never paint to begin with - an inserted word
+    // is a thing you made, so letting go of it must not dissolve it into the
+    // layer underneath the way putting down a lifted asteroid does.
+    var live=shapes.filter(function(x){ return x.type==='cells' && !x.keep && ids.indexOf(x.id)<0; });
     live.forEach(bakePatch); return live.length>0; }
   // The painted cells inside a box that no shape already covers.
   function paintedInBox(a,b){
@@ -282,67 +292,133 @@ window.MapEd = (function(){
     return out; }
   // Add cells as a draggable patch WITHOUT taking them from the brush layer
   // (text is new content, so unlike a lift this is a real edit and takes an undo step).
-  function insertPatch(cells){
+  function insertPatch(cells, keep){
     if(!cells.length) return null;
     pushUndo();
-    var p={type:'cells', cells:cells, dr:0, dc:0, v:null, t:1, p0:{x:0.5,y:0.5}, p1:{x:0.5,y:0.5}};
+    var p={type:'cells', cells:cells, dr:0, dc:0, v:null, t:1, keep:!!keep, p0:{x:0.5,y:0.5}, p1:{x:0.5,y:0.5}};
     var made=addShape(p); setShape('select'); drawMap(); syncMapText(); updateSelBar(); return made;
   }
   // A word as asteroids. Drawn at SUPERSAMPLE x the wanted height and reduced by
   // COVERAGE (a cell lights up when the glyph covers enough of it), so thin strokes -
   // M's middle vertex, W, X, K, Y - survive instead of falling under an alpha cutoff.
   // Letters are placed one at a time with a real gap so they never run together.
-  var TEXT_SS = 6, TEXT_COVER = 0.30, TEXT_GAP = 1;
+  // Supersample: each cell is decided from an SxS block of the rendered glyph.
+  // Higher S averages out the font rasteriser's own left/right unevenness at thin
+  // points like the apex of an A, which is what was left of the asymmetry.
+  var TEXT_SS = 12, TEXT_COVER = 0.30, TEXT_GAP = 1;
   function textCells(word, heightCells, value){
-    word = String(word == null ? '' : word).toUpperCase();
-    var n = mapGrid.length, H = Math.max(5, Math.min(n, heightCells | 0));
+    word = String(word == null ? '' : word);
+    var n = mapGrid.length;
+    var want = Math.max(5, Math.min(n, heightCells | 0));
+    // Too wide for the map is not a reason to draw part of a word. Try the
+    // height asked for, then shrink towards the smallest legible one.
+    for(var H = want; H >= 5; H--){
+      var got = textCellsAt(word, H, value, n);
+      if(got.fits) return got.cells;
+      if(H === 5) return [];                 // it will not fit at any height
+      // Jump most of the way there instead of one pixel at a time.
+      var next = Math.max(5, Math.min(H - 1, Math.floor(H * n / Math.max(1, got.wide))));
+      H = next + 1;                          // (the loop decrements)
+    }
+    return [];
+  }
+  // One height. Returns the cells and whether the word fitted the map.
+  function textCellsAt(word, H, value, n){
     var chars = word.split('').filter(function(ch){ return ch !== '\n' && ch !== '\r'; });
-    if(!chars.length) return [];
+    if(!chars.length) return {cells: [], fits: true, wide: 0};
     var S = TEXT_SS, fs = H * S;
-    // a bold, open face: heavy enough to read as asteroids, not so heavy that
-    // counters (the holes in B D O R) fill in at small sizes
-    // NORMAL weight, not bold: at nine or ten cells tall a bold face's strokes are
-    // two cells wide, and M's two diagonals merge into a solid block instead of
-    // meeting in a vertex. Verdana's open letterforms survive the reduction best.
+    // NORMAL weight, not bold: at nine or ten cells tall a bold face's strokes
+    // are two cells wide and M's diagonals merge into a block. Verdana's open
+    // letterforms survive the reduction best.
     var font = 'normal ' + fs + 'px Verdana, "DejaVu Sans", Tahoma, system-ui, sans-serif';
     var meas = document.createElement('canvas').getContext('2d');
     meas.font = font;
-    var advances = chars.map(function(ch){ return ch === ' ' ? Math.round(fs * 0.42) : Math.ceil(meas.measureText(ch).width); });
+    // Each letter gets a box that is a whole number of CELLS, and its ink is
+    // centred in that box. The reduction grid is then symmetric about the
+    // letter, so a symmetric letter reduces to a symmetric block of asteroids -
+    // which is what went wrong before: the grid was fixed to the whole word, so
+    // where a letter happened to land decided how it broke up.
+    var plan = chars.map(function(ch){
+      if(ch === ' ') return {ch: ch, boxPx: Math.max(S, Math.round(fs * 0.42 / S) * S), drawX: 0};
+      var m = meas.measureText(ch);
+      var left = (m.actualBoundingBoxLeft != null) ? m.actualBoundingBoxLeft : 0;
+      var right = (m.actualBoundingBoxRight != null) ? m.actualBoundingBoxRight : m.width;
+      var inkW = Math.max(1, left + right);
+      var boxPx = Math.max(S, Math.ceil(inkW / S) * S);
+      // ink spans [x-left, x+right]; put its middle at the middle of the box
+      return {ch: ch, boxPx: boxPx, drawX: boxPx / 2 - (right - left) / 2};
+    });
     var gapPx = TEXT_GAP * S;
-    var totalPx = advances.reduce(function(a, b){ return a + b; }, 0) + gapPx * (chars.length - 1);
-    var padPx = S * 2;
+    var totalPx = plan.reduce(function(a, p){ return a + p.boxPx; }, 0) + gapPx * (plan.length - 1);
+    var padPx = S * 2;                        // a whole number of cells, so the grid stays aligned
     var big = document.createElement('canvas');
-    big.width = Math.max(1, totalPx + padPx * 2); big.height = fs + padPx * 2;
+    big.width = Math.max(1, totalPx + padPx * 2);
+    big.height = fs * 2 + padPx * 2;          // room for ascenders AND descenders
     var ctx = big.getContext('2d');
     ctx.font = font; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = '#fff';
-    var baseline = padPx + fs * 0.80, x = padPx;
-    chars.forEach(function(ch, i){ if(ch !== ' ') ctx.fillText(ch, x, baseline); x += advances[i] + gapPx; });
+    var baseline = padPx + Math.round(fs * 1.0 / S) * S;   // cell-aligned, so every letter samples alike
+    var x = padPx;
+    plan.forEach(function(p, i){
+      if(p.ch !== ' ') ctx.fillText(p.ch, x + p.drawX, baseline);
+      x += p.boxPx + gapPx;
+    });
     var img = ctx.getImageData(0, 0, big.width, big.height).data;
-    // reduce SxS blocks to cells by coverage
     var outW = Math.ceil(big.width / S), outH = Math.ceil(big.height / S), on = [];
     var minC = 1e9, maxC = -1e9, minR = 1e9, maxR = -1e9;
-    for(var cy = 0; cy < outH; cy++) for(var cx = 0; cx < outW; cx++){
-      var sum = 0, cnt = 0;
-      for(var dy = 0; dy < S; dy++) for(var dx = 0; dx < S; dx++){
-        var px = cx * S + dx, py = cy * S + dy;
-        if(px >= big.width || py >= big.height) continue;
-        sum += img[(py * big.width + px) * 4 + 3]; cnt++;
+    // How much of each cell the glyph covers, 0..1, before anything is decided.
+    var cov = [];
+    for(var cy = 0; cy < outH; cy++){
+      var row = new Array(outW);
+      for(var cx = 0; cx < outW; cx++){
+        var sum = 0, cnt = 0;
+        for(var dy = 0; dy < S; dy++) for(var dx = 0; dx < S; dx++){
+          var px = cx * S + dx, py = cy * S + dy;
+          if(px >= big.width || py >= big.height) continue;
+          sum += img[(py * big.width + px) * 4 + 3]; cnt++;
+        }
+        row[cx] = cnt ? (sum / (cnt * 255)) : 0;
       }
-      if(cnt && (sum / (cnt * 255)) >= TEXT_COVER){
-        on.push([cy, cx]);
-        if(cx < minC) minC = cx; if(cx > maxC) maxC = cx;
-        if(cy < minR) minR = cy; if(cy > maxR) maxR = cy;
+      cov.push(row);
+    }
+    // Per letter: if its coverage is within noise of its own mirror image, it is
+    // a symmetric letterform that the rasteriser drew slightly unevenly. Average
+    // the two halves so the threshold cannot round one arm up and the other
+    // down. A letter that really is one-sided is far outside this tolerance.
+    var SYM_TOL = 0.05;
+    var cellX = padPx / S;
+    plan.forEach(function(p){
+      var wCells = p.boxPx / S, c0 = cellX;
+      cellX += wCells + gapPx / S;
+      if(p.ch === ' ' || wCells < 2) return;
+      var diff = 0, cells = 0;
+      for(var r = 0; r < outH; r++) for(var k = 0; k < wCells; k++){
+        var a = cov[r][c0 + k] || 0, b = cov[r][c0 + wCells - 1 - k] || 0;
+        diff += Math.abs(a - b); cells++;
+      }
+      if(!cells || diff / cells > SYM_TOL) return;          // genuinely not symmetric
+      for(var r2 = 0; r2 < outH; r2++) for(var k2 = 0; k2 < wCells; k2++){
+        var i1 = c0 + k2, i2 = c0 + wCells - 1 - k2;
+        if(i1 >= i2) continue;
+        var m = ((cov[r2][i1] || 0) + (cov[r2][i2] || 0)) / 2;
+        cov[r2][i1] = m; cov[r2][i2] = m;
+      }
+    });
+    for(var ry = 0; ry < outH; ry++) for(var rx = 0; rx < outW; rx++){
+      if(cov[ry][rx] >= TEXT_COVER){
+        on.push([ry, rx]);
+        if(rx < minC) minC = rx; if(rx > maxC) maxC = rx;
+        if(ry < minR) minR = ry; if(ry > maxR) maxR = ry;
       }
     }
-    if(!on.length) return [];
-    // centre the drawn word on the map, trimming the blank margin
+    if(!on.length) return {cells: [], fits: true, wide: 0};
     var w = maxC - minC + 1, h = maxR - minR + 1;
+    if(w > n || h > n) return {cells: [], fits: false, wide: Math.max(w, h)};
     var r0 = Math.floor((n - h) / 2), c0 = Math.floor((n - w) / 2), cells = [];
     on.forEach(function(rc){
       var r = r0 + (rc[0] - minR), c = c0 + (rc[1] - minC);
       if(r >= 0 && c >= 0 && r < n && c < n) cells.push([r, c, value]);
     });
-    return cells;
+    return {cells: cells, fits: true, wide: w};
   }
   function addShape(s){ s.id=nextShapeId++; normRect(s); touch(s); shapes.push(s); setSel([s.id]); return s; }
   function deleteSel(){ var l=getSels(); if(!l.length) return; pushUndo(); shapes=shapes.filter(function(x){ return !isSel(x.id); }); setSel([]); drawMap(); syncMapText(); updateSelBar(); }
@@ -353,7 +429,7 @@ window.MapEd = (function(){
   function flattenSel(){ var l=getSels(); if(!l.length) return; pushUndo();
     l.forEach(function(s){ shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]]=cellValue(s,rc); }); });
     shapes=shapes.filter(function(x){ return !isSel(x.id); }); setSel([]); drawMap(); syncMapText(); updateSelBar();
-    var i=$('mapselinfo'); if(i) i.textContent='Baked into the map as plain asteroids — Undo (Ctrl+Z) turns them back into shapes'; }
+    var i=$('mapselinfo'); if(i) i.textContent='Flattened into ordinary asteroids — Undo (Ctrl+Z) turns them back into shapes'; }
   function nudgeSel(dx,dy){ var l=getSels(); if(!l.length) return; pushUndo(); l.forEach(function(s){ moveShape(s,dx,dy); }); drawMap(); syncMapText(); }
   // marquee: every shape whose cells touch the box
   function selectInBox(a, b){ var r0=Math.floor(Math.min(a.y,b.y)), r1=Math.floor(Math.max(a.y,b.y)), c0=Math.floor(Math.min(a.x,b.x)), c1=Math.floor(Math.max(a.x,b.x));
@@ -368,6 +444,13 @@ window.MapEd = (function(){
     setSel(ids); setShape('select'); drawMap(); syncMapText(); updateSelBar(); return true; }
   var SHAPE_NAMES={rect:'Rectangle',frame:'Frame',disc:'Disc',ring:'Ring',bar:'Bar',corner:'Corner',cells:'Asteroids'};
   function updateSelBar(){ var bar=$('mapselbar'); if(!bar) return; var l=getSels(), s=getSel();
+    // While something is selected, THAT is what the size control on the bar
+    // changes - so the one on the toolbar (which sets the size of new
+    // asteroids) is dimmed rather than left looking broken.
+    var tbv=$('mapbrush'), tbl=$('mapbrush_v');
+    if(tbv){ tbv.style.opacity = l.length ? .4 : ''; tbv.title = l.length
+      ? 'This sets the size of NEW asteroids. To change what is selected, use the control on the selection bar.' : ''; }
+    if(tbl) tbl.style.opacity = l.length ? .4 : '';
     var ctl=$('mapselctl'), info=$('mapselinfo'), sv=$('mapselv'), st=$('mapselt'), tw=$('mapseltw');
     bar.classList.toggle('has', l.length>0); if(ctl) ctl.style.display = l.length ? 'contents' : 'none';
     if(l.length>1){ if(info) info.textContent=l.length+' shapes selected · drag any of them to move all · Shift+click adds or removes one';
@@ -440,40 +523,97 @@ window.MapEd = (function(){
       ctx.arc(rc[1]*cs+cs/2, rc[0]*cs+cs/2, Math.max(0.8,(cs/2)*(mapErase?0.5:(0.4+0.065*v))), 0, 6.2832); ctx.fill(); });
     ctx.restore();
   }
+  // Flatten one shape into the painted layer and drop it. Used when something
+  // has to CUT a shape: a shape cannot hold a hole, so it stops being a shape.
+  function bakeShape(s){
+    shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]] = cellValue(s, rc); });
+    shapes = shapes.filter(function(x){ return x !== s; });
+  }
+  // Erase a set of cells for real: flatten anything covering them first, then
+  // clear. Nothing is left behind - the old behaviour made an invisible shape
+  // whose whole job was holding those cells at zero, and it stayed for good.
+  function eraseCells(cells){
+    if(!cells.length) return 0;
+    var mark={}, n=mapGrid.length, hitShapes=[];
+    cells.forEach(function(rc){ mark[rc[0]*n+rc[1]]=1; });
+    shapes.forEach(function(sh){
+      if(sh.type==='cells') return;                 // a lifted patch is cut below
+      var touched = shapeCellsOf(sh).some(function(rc){ return mark[rc[0]*n+rc[1]]; });
+      if(touched) hitShapes.push(sh);
+    });
+    hitShapes.forEach(bakeShape);
+    // A lifted patch is cells already: drop the erased ones out of it.
+    shapes.forEach(function(sh){
+      if(sh.type!=='cells') return;
+      sh.cells = sh.cells.filter(function(cl){
+        return !mark[(cl[0]+(sh.dr||0))*n + (cl[1]+(sh.dc||0))]; });
+      touch(sh);
+    });
+    shapes = shapes.filter(function(sh){ return sh.type!=='cells' || sh.cells.length; });
+    cells.forEach(function(rc){ if(mapGrid[rc[0]]) mapGrid[rc[0]][rc[1]]=0; });
+    return hitShapes.length;
+  }
   function commitShape(d){
     if(Math.hypot(d.p1.x-d.p0.x, d.p1.y-d.p0.y) < 0.5){                              // a click, not a drag:
       var hit=shapeAt(d.p0);                                                        // pick the shape under it
       if(hit){ setSel([hit.id]); setShape('select'); updateSelBar(); }
       paintCanvas(); return; }
-    var s={type:shapeTool, p0:{x:snapC(d.p0.x),y:snapC(d.p0.y)}, p1:{x:snapC(d.p1.x),y:snapC(d.p1.y)}, t:shapeThick(), v:mapErase?0:brush()};
-    if(!shapeCells(s.type, s.p0, s.p1, s.t, mapGrid.length).length) return;
-    pushUndo(); addShape(s); setShape('select'); drawMap(); syncMapText(); updateSelBar();
+    var p0={x:snapC(d.p0.x),y:snapC(d.p0.y)}, p1={x:snapC(d.p1.x),y:snapC(d.p1.y)};
+    var cells=shapeCells(shapeTool, p0, p1, shapeThick(), mapGrid.length);
+    if(!cells.length) return;
+    if(mapErase){                                   // a shaped eraser, not a shape
+      pushUndo();
+      var flattened=eraseCells(cells);
+      setSel([]); drawMap(); syncMapText(); updateSelBar();
+      var i0=$('mapselinfo');
+      if(i0 && flattened) i0.textContent = flattened+' shape'+(flattened>1?'s were':' was')
+        +' turned into plain asteroids so the eraser could cut it \u2014 Undo puts it back';
+      return; }
+    var s={type:shapeTool, p0:p0, p1:p1, t:shapeThick(), v:brush()};
+    // Staying on the tool you chose: it used to jump to Select after every
+    // shape, so drawing three rectangles meant re-picking Rect three times.
+    pushUndo(); addShape(s); drawMap(); syncMapText(); updateSelBar();
   }
   // Only the outline shapes have a wall to widen. Rect, Disc and the brush fill
   // what you drag, so the control is dimmed rather than silently ignored.
   var THICK_TOOLS = {frame:1, ring:1, bar:1, corner:1};
   function syncThick(){
     var on = !!THICK_TOOLS[shapeTool];
-    var i = $('mapthick'); if(i) i.disabled = !on;
+    // Hidden, not dimmed: a control that cannot do anything for the tool you
+    // picked is better absent than present-and-grey.
+    var i = $('mapthick'); if(i){ i.disabled = !on; i.style.display = on ? '' : 'none'; }
+    var v = $('mapthick_v'); if(v) v.style.display = on ? '' : 'none';
     // A page that rebuilds the toolbar (My Maps) groups the control under
     // #mapthickgrp; the editor's own layout has just the loose label.
     var g = $('mapthickgrp') || document.querySelector('.mapthicklbl');
-    if(g){ g.classList.toggle('off', !on);
-      g.title = on ? 'How many cells wide the wall of this shape is. Not asteroid size.'
-                   : 'Only Frame, Ring, Bar and Corner have a wall to widen.'; }
-    var v = $('mapthick_v'); if(v) v.classList.toggle('off', !on);
+    if(g){ g.style.display = on ? '' : 'none';
+      g.title = 'How many cells wide the wall of this shape is. Not asteroid size.'; }
   }
+  // Line is the brush with its direction locked, so it belongs in the row with
+  // the others rather than being a checkbox that silently moved the selection to
+  // Brush. `activeTool` is what is lit; `shapeTool` is what draws.
+  var activeTool = 'brush';
   function setShape(t){
-    shapeTool = t || 'brush';
-    document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-shape')===shapeTool); });
+    activeTool = t || 'brush';
+    lineMode = (activeTool === 'line');
+    shapeTool = (activeTool === 'line') ? 'brush' : activeTool;
+    document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-shape')===activeTool); });
     syncThick();
     if(mapMode==='move') setMode('draw');
   }
+  // A red ring, so erasing never looks like painting. Drawn as a data URI so it
+  // needs no file and cannot 404.
+  var ERASE_CUR = "url('data:image/svg+xml;utf8," +
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22">' +
+      '<circle cx="11" cy="11" r="8" fill="rgba(255,90,90,.18)" stroke="%23ff5a5a" stroke-width="2"/>' +
+      '<line x1="5" y1="17" x2="17" y2="5" stroke="%23ff5a5a" stroke-width="2"/></svg>') +
+    "') 11 11, crosshair";
+  function drawCursor(){ return mapErase ? ERASE_CUR : 'crosshair'; }
   function setMode(m){
     mapMode = (m === 'move') ? 'move' : 'draw';
-    var cv=$('mapcanvas'); if(cv) cv.style.cursor = (mapMode==='move') ? 'grab' : 'crosshair';
+    var cv=$('mapcanvas'); if(cv) cv.style.cursor = (mapMode==='move') ? 'grab' : drawCursor();
     var b=$('mapselect');
-    if(b){ b.textContent = (mapMode==='move') ? '✋ Moving' : '✋ Move'; b.classList.toggle('mapadvbtn', mapMode==='move'); }
+    if(b){ b.textContent = (mapMode==='move') ? '✋ Moving stations' : '✋ Move stations'; b.classList.toggle('mapadvbtn', mapMode==='move'); }
   }
   // A station, the way the live view and the replays draw one (see _stationglyph.html):
   // a glow, a ring of modules, a hex hub with a dark core - in the team's colour.
@@ -606,36 +746,37 @@ window.MapEd = (function(){
       + '<button type="button" id="mapredo" title="Redo what you just undid (Ctrl+Y)">↷ Redo</button>'
       + '<button type="button" id="mapclear" title="Clear the asteroids (keeps the loaded image and the options)">Clear</button>'
       + '<label class="cgchk" title="Keep the ring the stations orbit free of asteroids. Nothing is lost - turn it off and they come back."><input type="checkbox" id="mapclearpath">Clear station path</label>'
-      + '<button type="button" id="mapselect" title="Grab the stations and drag them around their ring yourself, instead of painting">✋ Move</button>'
+      + '<button type="button" id="mapselect" title="Drag the STATIONS around their orbit ring by hand, to see what a map looks like at any point in the sweep. It does not move asteroids.">✋ Move stations</button>'
       + '<button type="button" id="maporbit" title="Spin the stations around their ring, the way they orbit in game">⟳ Orbit</button>'
-      + '<button type="button" id="mapadv" class="mapadvbtn" data-advtoggle data-on="More tools ▾" data-off="Fewer tools ▴">More tools ▾</button>'
+      + '<button type="button" id="mapadv" class="mapadvbtn" data-advtoggle data-on="Advanced controls ▾" data-off="Advanced controls ▴" title="Extra controls for the map: the team and station previews, placing by exact coordinates, and the raw map text. They live in the side panel.">Advanced controls ▾</button>'
       + '<span class="adv cgmapmore">'
         + '<button type="button" id="mapreset" title="Start over: clear the asteroids, forget the loaded image and put every option back to default">Reset all</button>'
-        + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button>'
+        + '<button type="button" id="mapimport" title="Load the pasted text into the grid" title="Load a map from your clipboard. If there is nothing to paste it opens the Raw map text box instead.">Apply pasted map</button>'
         + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button></span>'
       + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
       + '<div class="cgmaptools" id="mapshapes"><span>Draw</span>'
         + '<button type="button" class="mapshape" data-shape="select" title="Select shapes: click one, drag to move it, pull its handles to resize">↖ Select</button>'
         + '<button type="button" class="mapshape" data-shape="one" title="Grab ONE asteroid and drag it. Its size is on the selection bar, the arrow keys nudge it, Delete removes it - good for close-up work.">✥ Single</button>'
         + '<button type="button" class="mapshape on" data-shape="brush" title="Paint cells (also grabs a shape you press on). Shift+drag paints an exact straight line.">✏ Brush</button>'
-        + '<button type="button" id="mapline" title="Line mode: a brush stroke locks to horizontal, vertical or diagonal from its first movement and only re-locks if you pull well off the line - straight rows and patterns without a shaky hand">─ Line</button>'
+        + '<button type="button" class="mapshape" data-shape="line" id="mapline" title="The brush, locked to one direction: a stroke commits to across, down or a 45-degree diagonal as soon as you have moved two cells, and only re-locks if you pull well off that line. The hint above the map says which way it has locked.">─ Line</button>'
         + '<button type="button" class="mapshape" data-shape="rect" title="Drag a filled rectangle">▰ Rect</button>'
         + '<button type="button" class="mapshape" data-shape="frame" title="Drag a hollow rectangle - Line width sets how thick its wall is">▢ Frame</button>'
         + '<button type="button" class="mapshape" data-shape="disc" title="Drag from the centre outwards: a filled circle">● Disc</button>'
         + '<button type="button" class="mapshape" data-shape="ring" title="Drag from the centre outwards: a ring - Line width sets how thick it is">◯ Ring</button>'
         + '<button type="button" class="mapshape" data-shape="bar" title="Drag a straight bar at any angle - Line width sets how thick it is">▬ Bar</button>'
-        + '<button type="button" class="mapshape" data-shape="corner" title="Drag an L: two bars meeting at the corner you start from">◟ Corner</button>'
+        + '<button type="button" class="mapshape" data-shape="corner" title="Drag an L: two bars meeting at the corner you start from">\u221F Corner</button>'
         + '<span class="cgsep"></span><span class="mapthicklbl" title="How many cells wide the wall of an outline shape is - Frame, Ring, Bar and Corner. Not asteroid size.">Line width</span>'
         + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span>'
         + '<span id="maphover" class="cgxyhint" style="margin-left:auto"></span></div>'
       + '<div class="cgmaptools mapselbar" id="mapselbar"><span class="cgxyhint" id="mapselinfo"></span><span id="mapselctl" style="display:contents">'
-        + '<span class="cgsep"></span><span>Size</span><input type="range" id="mapselv" min="0" max="9" step="1" value="9"><span class="cgval" id="mapselv_v">9</span>'
+        + '<span class="cgsep"></span><span title="The size of the asteroids in what you have selected. The Asteroid size control above sets the size for NEW ones.">Asteroid size (selected)</span><input type="range" id="mapselv" min="0" max="9" step="1" value="9"><span class="cgval" id="mapselv_v">9</span>'
         + '<span id="mapseltw"><span>Line width</span> <input type="range" id="mapselt" min="1" max="12" step="1" value="3"><span class="cgval" id="mapselt_v">3</span></span>'
-        + '<button type="button" id="mapselcopy" title="Copy this shape to paste later (Ctrl+C · Ctrl+V pastes, Ctrl+X cuts)">Copy</button>'
+        + '<button type="button" id="mapselcopy" title="Copy this shape to paste later (Ctrl+C)">Copy</button>'
+        + '<button type="button" id="mapselpaste" title="Paste the last thing you copied (Ctrl+V)">Paste</button>'
         + '<button type="button" id="mapseldup" title="Duplicate this shape right here (Ctrl+D)">Duplicate</button>'
-        + '<button type="button" id="mapselflat" title="Turn the shape into plain asteroids in the map. It stops being a shape you can select or move (Undo brings it back).">Bake into map</button>'
+        + '<button type="button" id="mapselflat" title="Turn this shape into ordinary asteroids drawn on the map. It stops being a shape you can select, move or resize (Undo brings it back).">Flatten to asteroids</button>'
         + '<button type="button" id="mapseldel" title="Remove this shape (Delete)">Delete</button>'
-        + '<button type="button" id="mapseldone" title="Deselect (Esc)">Done</button></span></div>'
+        + '<button type="button" id="mapseldone" title="Let go of the selection (Esc)">Deselect</button></span></div>'
       + '<canvas id="mapcanvas" width="800" height="800"></canvas>'
       + '<div class="cgimgopts adv"><span class="cgimglbl">Image → asteroids</span>'
         + '<label class="cgchk"><input type="checkbox" id="mapinvert">Invert (dark = asteroids)</label>'
@@ -664,9 +805,30 @@ window.MapEd = (function(){
     if(readOnly) cv.classList.add('ro');
     setOrbit(false); setMode('draw');      // a fresh mount never inherits a running animation
     updateSelBar();
-    mapGrid=newGrid(mapSize()); mapUndo=[]; mapRedo=[]; syncHistory(); drawMap(); xyBounds();
+    mapGrid=newGrid(mapSize()); mapUndo=[]; mapRedo=[]; syncHistory();
+    orbitAng=0; setOrbit(false);                 // a new map starts with the stations where they start
+    drawMap(); xyBounds();
     // load-ish bindings (both modes)
-    var im=$('mapimport'); if(im) im.onclick=function(){ var t=$('o_custom_map'); loadMapString(t?t.value:''); };
+    // Apply pasted text: take it off the clipboard, because the box it used to
+    // read is in the side panel behind the advanced toggle - so unless you had
+    // already found that box, this button did nothing at all, every time.
+    var im=$('mapimport'); if(im) im.onclick=function(){
+      var t=$('o_custom_map');
+      var typed=(t && t.value || '').trim();
+      if(typed){ loadMapString(t.value); return; }
+      var give=function(txt){
+        if(txt && /[1-9]/.test(txt)){ if(t) t.value=txt; loadMapString(txt); return true; }
+        return false; };
+      var openBox=function(msg){
+        if(typeof api.onNeedRawText === 'function') api.onNeedRawText(msg);
+        else if(t){ t.focus(); }
+      };
+      if(navigator.clipboard && navigator.clipboard.readText){
+        navigator.clipboard.readText()
+          .then(function(txt){ if(!give(txt)) openBox('Nothing map-shaped on the clipboard — paste it in here.'); })
+          .catch(function(){ openBox('Paste the map text in here, then press Apply pasted.'); });
+      } else openBox('Paste the map text in here, then press Apply pasted.');
+    };
     var ms=$('o_map_size'); if(ms) ms.addEventListener('change', function(){ var s=mapSize(); pushUndo(); mapGrid=strToGrid(gridToStr(mapGrid), s); drawMap(); syncMapText(); xyBounds(); });
     ['o_root_mode','o_friendly_colors','o_station_size'].forEach(function(id){ var e=$(id); if(!e) return;   // base overlay follows the game settings
       var upd=function(){ drawMap(); if(clearPath) syncMapText(); };   // a wider station clears a wider lane
@@ -676,7 +838,11 @@ window.MapEd = (function(){
     var painting=false;
     function paintCell(r,c,n){ if(r<0||c<0||r>=n||c>=n) return;
       if(clearPath && !mapErase && inPath(r,c,n,pathBand(n))) return;          // the stations need this lane
-      mapGrid[r][c]=mapErase?0:brush(); }
+      // Erasing over a shape has to cut the shape, or the eraser looks broken:
+      // shapes are drawn on top of the painted layer, so clearing the layer
+      // underneath changed nothing anybody could see.
+      if(mapErase){ eraseCells([[r,c]]); return; }
+      mapGrid[r][c]=brush(); }
     function lineCells(r0,c0,r1,c1){ var out=[], dr=Math.abs(r1-r0), dc=Math.abs(c1-c0), sr=r0<r1?1:-1, sc=c0<c1?1:-1, err=dc-dr, r=r0, c=c0;
       for(;;){ out.push([r,c]); if(r===r1&&c===c1) break; var e2=2*err; if(e2>-dr){ err-=dr; c+=sc; } if(e2<dc){ err+=dc; r+=sr; } }
       return out; }
@@ -722,7 +888,7 @@ window.MapEd = (function(){
     function swing(p){ if(!drag) return;
       orbitAng = (drag.o + (pointerAngle(p) - drag.a)) % 6.2832; paintCanvas(); }
     function release(){ if(!drag) return; drag=null;
-      var c=$('mapcanvas'); if(c) c.style.cursor = (mapMode==='move') ? 'grab' : 'crosshair'; }
+      var c=$('mapcanvas'); if(c) c.style.cursor = (mapMode==='move') ? 'grab' : drawCursor(); }
 
     // shapes: press to anchor, drag to size (live preview), release to stamp
     function shapeStart(p){ var q=mapPoint(cv,p); shapeDrag={p0:q, p1:q}; drawPreview(shapeCells(shapeTool, q, q, shapeThick(), q.n)); }
@@ -730,16 +896,19 @@ window.MapEd = (function(){
       drawPreview(shapeCells(shapeTool, shapeDrag.p0, shapeDrag.p1, shapeThick(), shapeDrag.p0.n)); }
     function shapeEnd(){ if(!shapeDrag) return; var d=shapeDrag; shapeDrag=null; commitShape(d); }
     function hover(p){ var h=$('maphover'); if(!h||!mapGrid) return; var c=mapCell(cv,p);
-      if(c.r<0||c.c<0||c.r>=c.n||c.c>=c.n){ h.textContent=''; cv.style.cursor=(mapMode==='move')?'grab':'crosshair'; return; }
+      if(c.r<0||c.c<0||c.r>=c.n||c.c>=c.n){ h.textContent=''; cv.style.cursor=(mapMode==='move')?'grab':drawCursor(); return; }
       var g=outGrid(), q=mapPoint(cv,p), cs=cv.width/c.n, s=getSel();
-      h.textContent='x '+c.c+', y '+c.r+(g[c.r][c.c]?(' · size '+g[c.r][c.c]):' · empty');
+      var lock = (lineMode && stroke && stroke.axis)
+        ? (' \u00b7 locked ' + ({h:'across', v:'down', d1:'diagonal \u2198', d2:'diagonal \u2197'}[stroke.axis] || stroke.axis))
+        : (lineMode ? ' \u00b7 line mode: it locks once you have moved two cells' : '');
+      h.textContent='x '+c.c+', y '+c.r+(g[c.r][c.c]?(' · size '+g[c.r][c.c]):' · empty')+lock;
       if(mapMode==='move'||act||shapeDrag||painting) return;
       // With Single, the cursor says whether there is a rock here to grab.
       var onRock = shapeTool==='one' && mapGrid[c.r] && mapGrid[c.r][c.c];
       cv.style.cursor = (s && hitHandle(s,q,cs)) ? 'nwse-resize'
         : (shapeTool==='one') ? ((onRock || shapeAt(q)) ? 'move' : 'default')
         : ((shapeTool==='select'||shapeTool==='brush') && shapeAt(q)) ? 'move'
-        : shapeTool==='select' ? 'default' : 'crosshair'; }
+        : shapeTool==='select' ? 'default' : drawCursor(); }
     // press on a shape: select it and drag it; on a handle of the selected shape: resize;
     // on empty space: deselect, then whatever the tool does (paint, or drag out a new shape)
     var act=null;
@@ -833,6 +1002,7 @@ window.MapEd = (function(){
     var bd=$('mapseldup'); if(bd) bd.onclick=duplicateSel;
     var bc=$('mapselcopy'); if(bc) bc.onclick=function(){ copySel(); var i=$('mapselinfo'); if(i) i.textContent+=' · copied (Ctrl+V pastes)'; };
     var bf=$('mapselflat'); if(bf) bf.onclick=flattenSel;
+    var bp=$('mapselpaste'); if(bp) bp.onclick=function(){ pasteClip(); };
     var bx=$('mapseldel'); if(bx) bx.onclick=deleteSel;
     var bo=$('mapseldone'); if(bo) bo.onclick=function(){ setSel([]); updateSelBar(); paintCanvas(); };
     document.addEventListener('keydown', function(e){
@@ -917,12 +1087,14 @@ window.MapEd = (function(){
     window.addEventListener('resize', closeCtx);
 
     document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.addEventListener('click', function(){ setShape(b.getAttribute('data-shape')); }); });
-    var lm=$('mapline'); if(lm) lm.onclick=function(){ lineMode=!lineMode; lm.classList.toggle('on', lineMode); lm.textContent = lineMode ? '─ Line ✓' : '─ Line'; if(lineMode) setShape('brush'); };
+    // (Line is an ordinary tool button now - the generic handler above owns it.)
     var tk=$('mapthick'); if(tk){ tk.addEventListener('input', function(){ $('mapthick_v').textContent=this.value; }); wheelStep(tk); }
     var bv=$('mapbrush'); if(bv){ bv.addEventListener('input', function(){
       $('mapbrush_v').textContent=this.value; mapErase=false; var er=$('maperase'); if(er) er.textContent='Erase'; });
       wheelStep(bv); }
-    var er=$('maperase'); if(er) er.onclick=function(){ mapErase=!mapErase; er.textContent=mapErase?'Erasing ✓':'Erase'; };
+    var er=$('maperase'); if(er) er.onclick=function(){ mapErase=!mapErase;
+      er.textContent=mapErase?'Erasing ✓':'Erase'; er.classList.toggle('on', mapErase);
+      cv.style.cursor = drawCursor(); };
     // image import: button -> file picker, plus drag-drop onto the canvas and Ctrl-V paste
     var fi=$('mapimgfile'), ib=$('mapimg'); if(ib&&fi) ib.onclick=function(){ fi.click(); };
     if(fi) fi.onchange=function(){ if(this.files&&this.files[0]) handleImageFile(this.files[0]); this.value=''; };
@@ -953,9 +1125,13 @@ window.MapEd = (function(){
           if(tg) tg.disabled=false;
           if(!j || !j.ok){ tHint.textContent='Couldn\u2019t check that word \u2014 not inserted'; return; }
           if(j.blocked){ tHint.textContent='That word isn\u2019t allowed on a map'; return; }
-          var cells=textCells(w, parseInt((th||{}).value,10)||12, brush());
-          if(!cells.length){ tHint.textContent='Nothing to draw'; return; }
-          insertPatch(cells);
+          var askH=parseInt((th||{}).value,10)||12;
+          var cells=textCells(w, askH, brush());
+          if(!cells.length){
+            tHint.textContent='\u201C'+w+'\u201D will not fit on a '+mapGrid.length
+              +'\u00d7'+mapGrid.length+' map, even at the smallest size';
+            return; }
+          insertPatch(cells, true);   // a word you inserted stays one object
           tHint.textContent=cells.length+' asteroids \u2014 drag it where you want'; })
         .catch(function(){ if(tg) tg.disabled=false; tHint.textContent='Couldn\u2019t check that word \u2014 not inserted'; });
     }
@@ -979,7 +1155,12 @@ window.MapEd = (function(){
       e.addEventListener('input', function(){ var b=$(id+'_v'); if(b) b.textContent=this.value+(id==='imgcut'?'%':''); });
       e.addEventListener('change', applyLastImage); wheelStep(e); });
     var sm=$('imgsizemode'); if(sm) sm.onchange=applyLastImage;
-    var cl=$('mapclear'); if(cl) cl.onclick=function(){ pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; setSel([]); updateSelBar(); drawMap(); syncMapText(); };   // shapes too
+    var cl=$('mapclear'); if(cl) cl.onclick=function(){
+      // It takes every asteroid AND every shape off the map. Undo covers it,
+      // but a question costs less than finding out.
+      var n=countCells(outGrid());
+      if(n && !confirm('Clear all '+n+' asteroids from this map?')) return;
+      pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; setSel([]); updateSelBar(); drawMap(); syncMapText(); };
     var rs=$('mapreset'); if(rs) rs.onclick=resetAll;
     var ub=$('mapundo'); if(ub) ub.onclick=doUndo;
     var rb=$('mapredo'); if(rb) rb.onclick=doRedo;
@@ -1073,7 +1254,7 @@ window.MapEd = (function(){
   api.selected = function(){ return getSel(); };
   api.select = function(id){ setSel(id==null?[]:[id]); updateSelBar(); paintCanvas(); };
   api.selectedIds = function(){ return selIds.slice(); };
-  api.lineMode = function(on){ if(on!==undefined){ lineMode=!!on; var b=$('mapline'); if(b){ b.classList.toggle('on', lineMode); b.textContent=lineMode?'─ Line ✓':'─ Line'; } } return lineMode; };
+  api.lineMode = function(on){ if(on!==undefined) setShape(on ? 'line' : 'brush'); return lineMode; };
   api.textCells = textCells;
   api.insertPatch = insertPatch;
   // Everything: the shapes AND the asteroids painted straight onto the map. It
