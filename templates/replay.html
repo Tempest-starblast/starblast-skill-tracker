@@ -5,6 +5,8 @@
 .rphead{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;margin:0}
 .rphead h2{margin:0;font-size:16px}
 .rphead .sub{color:var(--muted,#8aa0b0);font-size:12px}
+.rpflood{flex-basis:100%;margin-top:6px;font-size:12px;line-height:1.5;border-radius:8px;padding:6px 10px;color:#9ddcff;background:rgba(153,221,255,.06);border:1px solid rgba(153,221,255,.25)}
+.rpflood.hi{color:#ff9a9a;background:rgba(255,120,120,.08);border-color:rgba(255,140,140,.4)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 6px;font-size:12px}
 .legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .rnote{color:var(--muted,#8aa0b0);font-size:12px;margin-top:6px}
@@ -997,6 +999,17 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
         : (dur+' tracked'));
   head.innerHTML='<h2 style="margin:0">'+esc(d.name||('#'+d.sys_id))+'</h2>'
     +'<span class="sub">'+esc(d.region)+(d.played_at?' &middot; '+esc(d.played_at):'')
+  // Flood evidence: ships sharing one name at once. Swarm accounts almost never
+  // spawn a ship, so they are not on the radar or in the rosters - say so, or a
+  // flagged match looks like a false alarm.
+  if(d.flood && (d.flood_max||0) >= 2){
+    var fparts=[]; Object.keys(d.flood).forEach(function(t){ var names=d.flood[t]||{};
+      var tl = /^\d+$/.test(t) ? 'Team '+(parseInt(t,10)+1) : String(t).replace(/^team_/i,'Team ');
+      Object.keys(names).forEach(function(n){ fparts.push('“'+esc(n)+'” ×'+names[n]+' ('+esc(tl)+')'); }); });
+    head.insertAdjacentHTML('beforeend','<div class="rpflood'+(d.flood_significant?' hi':'')+'">'
+      +(d.flood_significant?'&#9888; Flood flagged: ':'Duplicate ships: ')+fparts.join(', ')
+      +' — that many ships under one name at once. Swarm accounts almost never spawn a ship, so they are not on the radar or in the rosters; they fill the lobby instead.</div>');
+  }
     +(durLbl?' &middot; '+durLbl:'')+'</span>';
   const tops=[1,2,3].map(i=>(d.top||{})['team_'+i]||'');
   // Win probability is drawn by initLbReplay from the raw tracker's full-match

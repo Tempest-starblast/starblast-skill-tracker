@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.9"
+APP_VERSION = "9.13.10"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2932,12 +2932,20 @@ def replay_data(mid):
     # the score-over-time charts are unavailable. The match, its rated players
     # and the radar must still open.
     c.execute("SELECT lobby_name, region, played_at, sys_id, "
-              "COALESCE(tracked_reads, 0) FROM matches WHERE id = ?", (mid,))
+              "COALESCE(tracked_reads, 0), flood, COALESCE(flood_max, 0) FROM matches WHERE id = ?", (mid,))
     meta = c.fetchone()
     if not meta:
         conn.close()
         return jsonify({"error": "No such match."}), 404
-    m_name, m_region, m_played, m_sys, m_treads = meta
+    m_name, m_region, m_played, m_sys, m_treads, m_flood, m_fmax = meta
+    # Flood evidence (several ships under one name at once), so the replay can say
+    # why a flagged match shows no swarm on the radar: those accounts rarely spawn.
+    try:
+        _flood = json.loads(m_flood) if m_flood else None
+    except (TypeError, ValueError):
+        _flood = None
+    _flood_keys = {"flood": _flood, "flood_max": int(m_fmax or 0),
+                   "flood_significant": int(m_fmax or 0) >= FLOOD_SIGNIFICANT}
     _pat = m_played or ''
     try:
         c.execute("SELECT data FROM match_replays WHERE match_row = ?", (mid,))
@@ -2964,14 +2972,14 @@ def replay_data(mid):
         # No frozen score trajectory - serve the match, its rated players and
         # the meta so the page still renders the header, the result and (from
         # trueskill_replay) the radar replay. Just no score-over-time points.
-        return jsonify({
+        return jsonify(dict(_flood_keys, **{
             "name": m_name or ("#%s" % m_sys), "region": m_region or "",
             "played_at": str(m_played or ""), "sys_id": m_sys,
             "top": {}, "skill": {}, "tracked_seconds": int(m_treads or 0) * 10,
             "gaps": [], "stlay": None, "welcome": None,
             "prob_enabled": WIN_PROB_ENABLED,
             "players": players, "points": [], "no_score_chart": True,
-        }), 200
+        })), 200
     try:
         p = json.loads(zlib.decompress(_blob[0]).decode('utf-8'))
     except Exception:
@@ -3082,7 +3090,7 @@ def replay_data(mid):
             _gaps[-1][1] = max(_gaps[-1][1], _e)
         else:
             _gaps.append([_s, _e])
-    return jsonify({
+    return jsonify(dict(_flood_keys, **{
         "name": p.get("name") or m_name or "", "region": m_region or "",
         "played_at": str(m_played or ""), "sys_id": m_sys,
         "top": p.get("top") or {}, "skill": pskill,
@@ -3094,7 +3102,7 @@ def replay_data(mid):
         "welcome": p.get("welcome") or None,
         "prob_enabled": WIN_PROB_ENABLED,
         "players": players, "points": points,
-    }), 200
+    })), 200
 
 
 @app.route('/replay/<int:mid>')
@@ -4516,6 +4524,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.10", "at": "2026-09-10T10:20:00Z", "changes": [
+        "Replays now show a match’s flood evidence under the header — which name had how many ships at once, on which team — and explain why a flagged match can look clean on the radar: swarm accounts almost never spawn a ship, so they are not on the radar or in the rosters; they fill the lobby instead. (Prompted by Celaefar 2: “SLEEP TIME” had 63 ships in the lobby at once and not one of them ever flew.)"
+    ]},
     {"version": "9.13.9", "at": "2026-09-10T09:45:00Z", "changes": [
         "Map editor: shapes are now <b>objects</b>. Draw one and it stays live: click it to select, drag it anywhere, pull its corner handles to resize, change its asteroid size or thickness in the bar above the map, duplicate it, delete it, or flatten it into plain asteroids. Arrow keys nudge, Delete removes, Ctrl+D duplicates, Esc deselects. Undo takes back any of it.",
         "Map editor: a <b>Select</b> tool for moving things (the Brush also grabs a shape you press on); the shape tools always draw, even over other shapes — which is how you cut a hole: turn on Erase and draw a disc inside a rectangle, then move the hole around. After drawing a shape the editor switches to Select so you can adjust it straight away.",
