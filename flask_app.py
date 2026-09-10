@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.6"
+APP_VERSION = "9.13.7"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4516,6 +4516,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.7", "at": "2026-09-10T08:20:00Z", "changes": [
+        "Replay: <b>drag a station round its ring to scrub</b>. The ring turns exactly once an hour, so the angle you move a station by is match time — a quarter turn is fifteen minutes — and the ships, scores and win chances follow as you drag. Counter-clockwise is forward, the way the ring really turns.",
+        "Replay: the speed control is a slider now. The bottom is real time, the top is 128× (a two-hour match in under a minute), with the current speed shown beside it."
+    ]},
     {"version": "9.13.6", "at": "2026-09-10T07:50:00Z", "changes": [
         "Replay: one obvious <b>Fullscreen</b> button in the top-right corner of the replay box, which fullscreens the whole replay (teams, radar and controls). The little radar-only fullscreen glyph is gone.",
         "Replay: playback speeds are now multiples of real time — <b>1× real time</b> plays the match at the speed it was played, up to 32×. (Before, “1×” stepped one snapshot every 0.64 s, about five times faster than the match and unevenly.) The default is 8×, close to the old feel.",

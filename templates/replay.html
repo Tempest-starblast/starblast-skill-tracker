@@ -114,6 +114,11 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 .ctransport .ctrack{flex:1;margin:0}
 .ctransport .ctime{font-size:13px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;white-space:nowrap}
 .ctransport .cspd{font-size:12px;color:var(--muted,#8aa0b0);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.ctransport .cspd input[type=range]{width:130px;margin:0;padding:0;border:0;background:none;accent-color:var(--blue,#66E6B8)}
+.ctransport .cspd b{min-width:38px;color:var(--text);font-variant-numeric:tabular-nums}
+/* Drag a station round its ring to scrub the replay (see the ring-drag handler). */
+#radarMap g.station{cursor:grab;touch-action:none}
+#radarMap.scrubbing g.station{cursor:grabbing}
 .cwp .dim{color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0}
 .cwp .wpnow{float:right;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
 
@@ -159,12 +164,9 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
     <button id="lbPlay" class="primary" style="padding:7px 18px">&#9654; Play</button>
     <input type="range" id="lbSeek" min="0" max="0" value="0" class="ctrack">
     <span id="lbTime" class="ctime"></span>
-    <label class="cspd">Speed
-      <select id="lbSpeed" style="padding:4px 6px" title="1&times; plays the match at the speed it was played">
-        <option value="1">1&times; real time</option><option value="2">2&times;</option>
-        <option value="4">4&times;</option><option value="8" selected>8&times;</option>
-        <option value="16">16&times;</option><option value="32">32&times;</option>
-      </select></label>
+    <label class="cspd" title="Playback speed: the bottom is real time, the top is 128&times;">Speed
+      <input type="range" id="lbSpeed" min="0" max="7" step="0.05" value="3">
+      <b id="lbSpeedV">8&times;</b></label>
   </div>
 </div>
 
@@ -355,6 +357,12 @@ function jnorm(s){
 // match) is the clock; a single play button advances the leaderboard, moves a
 // playhead along the win-probability, AND drives the battlefield (radar +
 // stations), which is end-aligned onto match time since both feeds end together.
+// Playback speed from the slider: 2^value, so the bottom of the slider is real
+// time (1x) and the top 128x. The label follows it.
+function speedOf(){ var e = document.getElementById('lbSpeed'); return Math.pow(2, +(e && e.value) || 0); }
+(function(){ var e = document.getElementById('lbSpeed'), v = document.getElementById('lbSpeedV'); if(!e || !v) return;
+  var show = function(){ var x = speedOf(); v.innerHTML = (x < 10 ? x.toFixed(1).replace(/\.0$/, '') : Math.round(x)) + '&times;'; };
+  e.addEventListener('input', show); show(); })();
 function buildReplay(ST, RD){
   var arenaEl = document.getElementById('arena');
   // Fullscreen the radar when the caption's expand button is pressed. Delegated
@@ -881,7 +889,7 @@ function buildReplay(ST, RD){
     function stop(){ if(timer){ clearInterval(timer); timer = null; btn.innerHTML = '&#9654; Play'; } }
     function tick(){
       var now = performance.now(), dt = Math.min(250, now - lastT); lastT = now;
-      tcur += dt / 1000 * (+spd.value || 1);
+      tcur += dt / 1000 * speedOf();
       if(tcur >= T1){ tcur = T1; renderAt(frames.length - 1); stop(); return; }
       renderAt(posAt(tcur));
     }
@@ -894,6 +902,31 @@ function buildReplay(ST, RD){
     btn.onclick = function(){ if(timer) stop(); else run(); };
     seek.oninput = function(){ stop(); var p = +seek.value; fi = Math.max(0, Math.min(frames.length - 2, Math.floor(p)));
       tcur = frames[Math.round(p)][0]; renderAt(p); };
+    // Drag a station round its ring to scrub. The ring turns exactly once an hour,
+    // so the angle you move a station by IS match time: a full turn = 60 minutes,
+    // a quarter turn = 15. Ships and scores follow. Counter-clockwise on screen is
+    // forward - that is the way the ring actually turns.
+    (function(){
+      var map = document.getElementById('radarMap'); if(!map || !clockPh) return;
+      var drag = null;
+      var angAt = function(ev){ var pt = map.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+        var p = pt.matrixTransform(map.getScreenCTM().inverse()); return Math.atan2(p.y, p.x); };
+      map.addEventListener('pointerdown', function(ev){
+        if(!(ev.target.closest && ev.target.closest('g.station'))) return;
+        stop(); drag = {a: angAt(ev)}; map.classList.add('scrubbing');
+        try{ map.setPointerCapture(ev.pointerId); }catch(e){}
+        ev.preventDefault(); });
+      map.addEventListener('pointermove', function(ev){
+        if(!drag) return;
+        var a = angAt(ev), d = a - drag.a;
+        while(d > Math.PI) d -= 2 * Math.PI; while(d < -Math.PI) d += 2 * Math.PI;
+        drag.a = a;
+        // the screen angle of a station is -(theta + phase): it FALLS as time goes on
+        tcur = Math.max(T0, Math.min(T1, tcur - d / (2 * Math.PI) * 3600));
+        renderAt(posAt(tcur)); });
+      var end = function(){ if(drag){ drag = null; map.classList.remove('scrubbing'); } };
+      map.addEventListener('pointerup', end); map.addEventListener('pointercancel', end);
+    })();
     renderAt(frames.length - 1);
   }).catch(function(e){ console.error('replay failed:', e); arenaMsg('Could not load this replay.'); });
 
@@ -922,7 +955,7 @@ function buildReplay(ST, RD){
       tEl.textContent = fmtT(t); seek.value = i;
     }
     var timer = null;
-    function ms(){ return Math.max(60, Math.round(650/(+spd.value||1))); }
+    function ms(){ return Math.max(60, Math.round(650/speedOf())); }
     function stop(){ if(timer){ clearInterval(timer); timer=null; btn.innerHTML='&#9654; Play'; } }
     function run(){
       if(pts.length < 2) return;
