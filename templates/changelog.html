@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Changelog - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+.ownonly{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  padding:1px 6px;border-radius:20px;margin-right:6px;vertical-align:1px;
+  color:var(--amber,#f0c04a);background:rgba(240,192,74,.12);border:1px solid rgba(240,192,74,.4)}
 .rel{margin-bottom:16px}
 .rel h2{font-size:15px;color:var(--green);margin:0 0 10px;
   display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -23,7 +26,7 @@
 <div class="card rel" data-v="{{ r.version }}">
   <h2>{{ r.version }}{% if r.at %}<span class="when"><time class="et"
       datetime="{{ r.at }}">{{ r.at[:16]|replace('T', ' ') }} UTC</time></span>{% endif %}</h2>
-  <ul>{% for c in r.changes %}<li>{{ c }}</li>{% endfor %}</ul>
+  <ul>{% for c in r.changes %}<li>{{ c|safe }}</li>{% endfor %}</ul>
 </div>
 {% endfor %}
 {% else %}
