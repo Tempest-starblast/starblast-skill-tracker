@@ -259,23 +259,60 @@ window.MapEd = (function(){
     var p={type:'cells', cells:cells, dr:0, dc:0, v:null, t:1, p0:{x:0.5,y:0.5}, p1:{x:0.5,y:0.5}};
     var made=addShape(p); setShape('select'); drawMap(); syncMapText(); updateSelBar(); return made;
   }
-  // A word as asteroids: drawn at ONE PIXEL PER CELL, so the letters come out as
-  // pixel art rather than a blurry shrink. Centred on the map; the caller drags it.
+  // A word as asteroids. Drawn at SUPERSAMPLE x the wanted height and reduced by
+  // COVERAGE (a cell lights up when the glyph covers enough of it), so thin strokes -
+  // M's middle vertex, W, X, K, Y - survive instead of falling under an alpha cutoff.
+  // Letters are placed one at a time with a real gap so they never run together.
+  var TEXT_SS = 6, TEXT_COVER = 0.30, TEXT_GAP = 1;
   function textCells(word, heightCells, value){
-    var n=mapGrid.length, H=Math.max(5, Math.min(n, heightCells|0));
-    var c=document.createElement('canvas'), ctx=c.getContext('2d');
-    var font='bold '+H+'px "Arial Black", Impact, system-ui, sans-serif';
-    ctx.font=font; var W=Math.ceil(ctx.measureText(word).width)+2;
-    if(W<1) return [];
-    c.width=Math.min(W, n); c.height=H+4; ctx=c.getContext('2d');
-    ctx.font=font; ctx.textBaseline='middle'; ctx.fillStyle='#fff';
-    ctx.fillText(word, 1, (H+4)/2);
-    var img=ctx.getImageData(0,0,c.width,c.height).data, cells=[];
-    var r0=Math.floor((n-c.height)/2), c0=Math.floor((n-c.width)/2);
-    for(var y=0;y<c.height;y++) for(var x=0;x<c.width;x++){
-      if(img[(y*c.width+x)*4+3] < 128) continue;
-      var rr=r0+y, cc=c0+x; if(rr<0||cc<0||rr>=n||cc>=n) continue;
-      cells.push([rr,cc,value]); }
+    word = String(word == null ? '' : word).toUpperCase();
+    var n = mapGrid.length, H = Math.max(5, Math.min(n, heightCells | 0));
+    var chars = word.split('').filter(function(ch){ return ch !== '\n' && ch !== '\r'; });
+    if(!chars.length) return [];
+    var S = TEXT_SS, fs = H * S;
+    // a bold, open face: heavy enough to read as asteroids, not so heavy that
+    // counters (the holes in B D O R) fill in at small sizes
+    // NORMAL weight, not bold: at nine or ten cells tall a bold face's strokes are
+    // two cells wide, and M's two diagonals merge into a solid block instead of
+    // meeting in a vertex. Verdana's open letterforms survive the reduction best.
+    var font = 'normal ' + fs + 'px Verdana, "DejaVu Sans", Tahoma, system-ui, sans-serif';
+    var meas = document.createElement('canvas').getContext('2d');
+    meas.font = font;
+    var advances = chars.map(function(ch){ return ch === ' ' ? Math.round(fs * 0.42) : Math.ceil(meas.measureText(ch).width); });
+    var gapPx = TEXT_GAP * S;
+    var totalPx = advances.reduce(function(a, b){ return a + b; }, 0) + gapPx * (chars.length - 1);
+    var padPx = S * 2;
+    var big = document.createElement('canvas');
+    big.width = Math.max(1, totalPx + padPx * 2); big.height = fs + padPx * 2;
+    var ctx = big.getContext('2d');
+    ctx.font = font; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = '#fff';
+    var baseline = padPx + fs * 0.80, x = padPx;
+    chars.forEach(function(ch, i){ if(ch !== ' ') ctx.fillText(ch, x, baseline); x += advances[i] + gapPx; });
+    var img = ctx.getImageData(0, 0, big.width, big.height).data;
+    // reduce SxS blocks to cells by coverage
+    var outW = Math.ceil(big.width / S), outH = Math.ceil(big.height / S), on = [];
+    var minC = 1e9, maxC = -1e9, minR = 1e9, maxR = -1e9;
+    for(var cy = 0; cy < outH; cy++) for(var cx = 0; cx < outW; cx++){
+      var sum = 0, cnt = 0;
+      for(var dy = 0; dy < S; dy++) for(var dx = 0; dx < S; dx++){
+        var px = cx * S + dx, py = cy * S + dy;
+        if(px >= big.width || py >= big.height) continue;
+        sum += img[(py * big.width + px) * 4 + 3]; cnt++;
+      }
+      if(cnt && (sum / (cnt * 255)) >= TEXT_COVER){
+        on.push([cy, cx]);
+        if(cx < minC) minC = cx; if(cx > maxC) maxC = cx;
+        if(cy < minR) minR = cy; if(cy > maxR) maxR = cy;
+      }
+    }
+    if(!on.length) return [];
+    // centre the drawn word on the map, trimming the blank margin
+    var w = maxC - minC + 1, h = maxR - minR + 1;
+    var r0 = Math.floor((n - h) / 2), c0 = Math.floor((n - w) / 2), cells = [];
+    on.forEach(function(rc){
+      var r = r0 + (rc[0] - minR), c = c0 + (rc[1] - minC);
+      if(r >= 0 && c >= 0 && r < n && c < n) cells.push([r, c, value]);
+    });
     return cells;
   }
   function addShape(s){ s.id=nextShapeId++; normRect(s); touch(s); shapes.push(s); setSel([s.id]); return s; }

@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.15"
+APP_VERSION = "9.13.16"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4528,6 +4528,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.16", "at": "2026-09-10T14:10:00Z", "changes": [
+        "Inserted text now comes out cleanly at every letter. M in particular was a mess: the word was drawn at one asteroid per pixel in a heavy font, so thin diagonals either vanished or merged into a solid block. It is now drawn six times larger and reduced by how much of each cell the letter actually covers, in a lighter face — checked letter by letter: every A–Z and 0–9 comes out as one clean, unbroken shape at every size, and letters never run into each other."
+    ]},
     {"version": "9.13.15", "at": "2026-09-10T13:30:00Z", "changes": [
         "Map editor: <b>painted asteroids are selectable too</b>, not just shapes. With the Select tool, click an asteroid to grab the whole clump it belongs to, or drag a box round any mix of asteroids and shapes — then move, copy, delete or resize them together. Let go of the selection and the asteroids settle back into the map exactly where you left them.",
         "Map editor: <b>type a word and insert it</b> as asteroids (Insert › Text). It lands selected so you can drag it into place, with a height slider for how big the letters are. Words are checked against the site’s blocked-word list first, and a blocked word is refused."
