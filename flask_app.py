@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.19"
+APP_VERSION = "9.13.20"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4535,6 +4535,10 @@ def game_end():
 OWNER_TAG = "@owner "
 
 CHANGELOG = [
+    {"version": "9.13.20", "at": "2026-09-10T17:00:00Z", "changes": [
+        "Server: when a lobby refuses to hold the watcher\u2019s connection, it now waits longer between attempts (2 seconds, then 4, 8 and so on up to a minute) instead of retrying every two seconds forever, and goes straight back to normal as soon as a connection lasts. Less wasted bandwidth, and the log stays readable.",
+        "@owner The menu entries only you can use \u2014 Odyssey lobby, My Maps, Flood review, Merge requests \u2014 are no longer written into everybody\u2019s page and hidden with styling. The server sends them to accounts that may use them, so a visitor\u2019s page never mentions them at all, not even in the script."
+    ]},
     {"version": "9.13.19", "at": "2026-09-10T16:00:00Z", "changes": [
         "Fixed the release notes printing formatting marks as visible text instead of emphasising the words.",
         "@owner Release notes for your own tools \u2014 My Maps, the map editor and the lobby builder \u2014 are now shown only to you, marked with an <span>owner</span> chip. Everyone else sees the public releases only, so the notes stop advertising doors they cannot open."
@@ -9734,7 +9738,25 @@ def me():
                    "total": _inv + _upd + _res}
     except sqlite3.Error:
         pass
+    # The menu entries this account may use. Sent from here rather than written
+    # into every page: a link hidden with CSS is still a link in view-source, and
+    # so is its label sitting in an inline script.
+    _owner_now = is_site_owner()
+    _custom_now = _user_meets_custom_gate(sub_id)
+    _nav = []
+    if _custom_now or _owner_now:
+        _nav.append({"t": "a", "href": "/customgame", "id": "customTab",
+                     "label": "Odyssey lobby", "badge": "NEW", "colour": "#ff7b53"})
+    if _owner_now:
+        _nav.append({"t": "a", "href": "/mymaps", "id": "mapsTab",
+                     "label": "My Maps", "badge": "NEW", "colour": "#ff7b53"})
+        _nav.append({"t": "s", "id": "ownerSec", "label": "Owner"})
+        _nav.append({"t": "a", "href": "/flood", "id": "floodTab", "label": "Flood review"})
+        _nav.append({"t": "a", "href": "/dev/merges", "id": "mergesTab", "label": "Merge requests"})
+    # The flood toast links to the review page; only the owner is told it exists.
+    _flood_link = {"href": "/flood", "label": "Flood review"} if _owner_now else None
     return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats, "admin_of": admin_of, "notices": notices,
+                    "nav": _nav, "flood_link": _flood_link,
                     # Reveals the owner-only live win-probability tab in the menu.
                     "is_owner": is_site_owner(),
                     # Reveals the "Odyssey lobby" tab: any established Odyssey
