@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.16"
+APP_VERSION = "9.13.17"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4528,6 +4528,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.17", "at": "2026-09-10T14:40:00Z", "changes": [
+        "<b>Fixed: renaming a saved map destroyed the original.</b> Loading a map, giving it a different name and saving used to overwrite the map you loaded — the old name and its asteroids were gone. A rename now always saves as a <b>new</b> map and tells you the original is untouched. Editing a map and saving under the same name still updates it in place, as before.",
+        "My Maps: the header always says what Save will do — “editing ‘X’”, “renamed → saves as a copy”, or “new map” — and File has an explicit <b>Save as a copy</b>."
+    ]},
     {"version": "9.13.16", "at": "2026-09-10T14:10:00Z", "changes": [
         "Inserted text now comes out cleanly at every letter. M in particular was a mess: the word was drawn at one asteroid per pixel in a heavy font, so thin diagonals either vanished or merged into a solid block. It is now drawn six times larger and reduced by how much of each cell the letter actually covers, in a lighter face — checked letter by letter: every A–Z and 0–9 comes out as one clean, unbroken shape at every size, and letters never run into each other."
     ]},

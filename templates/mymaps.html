@@ -37,6 +37,7 @@
 .mmmenu-list .cgmapxy{margin:2px 0 0;padding:6px 10px;gap:6px}
 .mmmenu-list .mapadvbtn{background:none!important;border:0!important;color:var(--text)!important}
 .mmmenu-spacer{flex:1}
+.mmcur{font-size:11.5px;color:var(--muted);white-space:nowrap;max-width:34ch;overflow:hidden;text-overflow:ellipsis}
 .mmfs{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit;
   font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
@@ -116,6 +117,7 @@
       <details class="mmmenu"><summary>File</summary><div class="mmmenu-list">
         <button type="button" id="mmnew">New map</button>
         <button type="button" onclick="document.getElementById('mmsave').click()">Save <kbd>Ctrl+S</kbd></button>
+        <button type="button" id="mmsavecopy">Save as a copy</button>
         <button type="button" id="mmopen" title="Load a map file from your device">Import map file&hellip;</button>
         <input type="file" id="mmfile" accept=".txt,.map,text/plain" style="display:none">
         <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
@@ -129,6 +131,7 @@
       <input type="text" id="mmname" maxlength="40" placeholder="Map name">
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
       <span class="mmstatus" id="mmstatus"></span>
+      <span class="mmcur" id="mmcur"></span>
       <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
     </div>
     <div class="mmtoolbar" id="mmtoolbar"></div>
@@ -231,7 +234,13 @@
 
   var cur = {id:null, name:''}, dirty = false;
   function status(msg, cls){ var s=$('mmstatus'); s.textContent=msg||''; s.className='mmstatus'+(cls?' '+cls:''); }
-  function setDirty(d){ dirty=d; var b=$('mmsave'); if(b) b.textContent = d ? 'Save •' : 'Save'; }
+  function setDirty(d){ dirty=d; var b=$('mmsave'); if(b) b.textContent = d ? 'Save •' : 'Save'; showCur(); }
+  // Always visible: which saved map Save will write to, or that this is a new one.
+  function showCur(){ var e=$('mmcur'); if(!e) return;
+    var name=($('mmname').value||'').trim();
+    if(!cur.id){ e.textContent='new map'; e.title='Save will create a new map'; return; }
+    if((cur.name||'')!==name){ e.textContent='renamed → saves as a copy'; e.title='“'+cur.name+'” stays as it is'; return; }
+    e.textContent='editing “'+cur.name+'”'; e.title='Save overwrites this map'; }
   MapEd.onChange = function(){ setDirty(true); };
   window.addEventListener('beforeunload', function(e){ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 
@@ -285,14 +294,19 @@
       } else { MapEd.setImage && MapEd.setImage(null); status('Loaded “'+d.name+'”','ok'); }
     });
   }
-  function save(){
+  function save(asCopy){
     var map=MapEd.str();
     if(!map){ status('Place some asteroids first','err'); return; }
     var name=($('mmname').value||'').trim()||'Untitled map';
+    // Save updates the map you loaded - but only while it is still THAT map. Rename it
+    // (or ask for a copy) and it forks to a new one, so the original is never lost.
+    var renamed = !!cur.id && (cur.name||'') !== name;
+    var forking = asCopy===true || renamed;
+    var fromName = cur.name;
     var b=$('mmsave'); b.disabled=true; status('Saving…');
     // A map traced from a picture keeps the picture and the trace settings, so it
     // can be re-tuned after loading instead of starting from the image again.
-    var payload={id:cur.id,name:name,map:map,size:MapEd.size()};
+    var payload={id: forking ? null : cur.id, name:name, map:map, size:MapEd.size()};
     if(MapEd.hasImage && MapEd.hasImage()){ payload.image=MapEd.imageSrc(); payload.img_opts=MapEd.imageOpts(); }
     // shapes stay editable objects: save the brush layer and the shape list alongside the flat map
     if(MapEd.shapeCount && MapEd.shapeCount()){ payload.shapes=MapEd.shapesJSON(); payload.base=MapEd.baseStr(); }
@@ -300,7 +314,10 @@
                        body:JSON.stringify(payload)})
       .then(function(r){return r.json();}).then(function(j){ b.disabled=false;
         if(!j.ok){ status(j.message||'Save failed','err'); return; }
-        cur={id:j.id,name:j.name}; $('mmname').value=j.name; setDirty(false); status('Saved','ok'); listMaps(); })
+        cur={id:j.id,name:j.name}; $('mmname').value=j.name; setDirty(false); showCur();
+        status(forking && fromName ? 'Saved as a new map — “'+fromName+'” is untouched'
+                                   : (forking ? 'Saved as a new map' : 'Saved'), 'ok');
+        listMaps(); })
       .catch(function(){ b.disabled=false; status('Save failed — network','err'); });
   }
   // Save a map to the user's device. The file is the raw Starblast map text, so it
@@ -345,7 +362,10 @@
       var ok=document.execCommand('copy'); t.value=old; ok?done():fail(); }catch(e){ fail(); } }
     if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done, fallback); } else fallback();
   }
-  $('mmsave').onclick=save;
+  $('mmsave').onclick=function(){ save(false); };
+  var sc=$('mmsavecopy'); if(sc) sc.onclick=function(){ save(true); };
+  $('mmname').addEventListener('input', showCur);
+  showCur();
   $('mmnew').onclick=function(){ if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
     MapEd.resetAll(); if(MapEd.setImage) MapEd.setImage(null); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };   // the full reset: asteroids, shapes, image, options
   $('mmcopy').onclick=function(){ copyText(MapEd.str(), 'Copied — paste it into the lobby’s map box.'); };
