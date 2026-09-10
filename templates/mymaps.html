@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}My Maps - Starblast Skill Leaderboard{% endblock %}
 {% block meta_description %}Build, save and share custom asteroid maps for the Odyssey custom lobby.{% endblock %}
+{% block head %}
+<link rel="manifest" href="/mapapp.webmanifest">
+<meta name="theme-color" content="#0b0e13">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/mapapp-192.png">
+{% endblock %}
 {% block css %}
 .mmwrap{max-width:1560px}
 /* IDE layout: a sticky side panel with every control, the map large in the middle.
@@ -83,6 +89,18 @@
 .mmsectitle{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;flex:1}
 .mmcount{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
 .mmnote2{margin:6px 0 8px;font-size:12px;line-height:1.55;color:var(--muted,#8aa0b0)}
+.mminstall{display:none;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;
+  font-family:inherit;font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;
+  color:var(--green,#66e6b8);background:rgba(102,230,184,.12);border:1px solid rgba(102,230,184,.4)}
+.mminstall:hover{background:rgba(102,230,184,.22);color:#fff}
+.mminstall.on{display:inline-flex}
+/* Installed: the app window opened straight onto the workshop, so the site's
+   own title bar and tab strip above it are just chrome in the way. */
+@media all and (display-mode: standalone), all and (display-mode: window-controls-overlay){
+  body.mapapp .topbar, body.mapapp nav.tabs{display:none!important}
+  body.mapapp .page{padding-top:10px}
+  body.mapapp .mminstall{display:none!important}
+}
 /* The pin is meant to be read aloud and pasted, so it is big, spaced and mono. */
 .mmpin{font:700 19px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.22em;color:var(--green,#66e6b8)}
 .mmpinin{width:100%;box-sizing:border-box;padding:11px 13px;border-radius:9px;border:1px solid var(--line);
@@ -259,6 +277,7 @@
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
       <span class="mmstatus" id="mmstatus"></span>
       <span class="mmcur" id="mmcur"></span>
+      <button type="button" class="mminstall" id="mminstall" title="Put the workshop on your desktop as its own app, in its own window">Install app</button>
       <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
     </div>
     <div class="mmtoolbar" id="mmtoolbar"></div>
@@ -277,6 +296,45 @@
 </div>
 {% if allowed %}
 <script>
+// ---- the workshop as an installed app --------------------------------------
+// A service worker confined to /mymaps (it is allowed the whole site and takes
+// a fifth of it), plus the browser's own install offer surfaced as a button
+// rather than left hiding in a menu.
+(function(){
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/mapapp-sw.js', {scope: '/mymaps'})
+        .catch(function(e){ console.log('workshop offline shell unavailable:', e); });
+    });
+  }
+  var offer = null;
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault(); offer = e;
+    var b = document.getElementById('mminstall');
+    if(b){ b.classList.add('on'); b.onclick = function(){
+      b.classList.remove('on');
+      offer.prompt();
+      offer.userChoice.then(function(r){
+        // Declining is not final - the browser offers again later, and so do we.
+        if(r && r.outcome !== 'accepted') b.classList.add('on');
+      });
+      offer = null;
+    }; }
+  });
+  window.addEventListener('appinstalled', function(){
+    var b = document.getElementById('mminstall'); if(b) b.classList.remove('on');
+  });
+  // Standing in an app window: drop the site chrome (the CSS does the work).
+  function markMode(){
+    var app = window.matchMedia('(display-mode: standalone)').matches
+           || window.matchMedia('(display-mode: window-controls-overlay)').matches
+           || window.navigator.standalone === true;
+    document.body.classList.toggle('mapapp', !!app);
+  }
+  if(document.body) markMode(); else document.addEventListener('DOMContentLoaded', markMode);
+  try{ window.matchMedia('(display-mode: standalone)').addEventListener('change', markMode); }catch(e){}
+})();
+
 var IS_GUEST = {{ 'true' if guest else 'false' }};
 var PIN_EXPIRES = {{ pin_expires|tojson }};
 (function(){
@@ -456,6 +514,12 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         ul.appendChild(li);
       });
   }
+  // The app's "New map" shortcut (right-click its taskbar icon) lands here.
+  if(/[?&]new=1(&|$)/.test(location.search)){
+    setTimeout(function(){ var n=$('mmnew'); if(n) n.click();
+      history.replaceState(null, '', '/mymaps'); }, 0);
+  }
+
   // ---- guest passes -------------------------------------------------------
   // A pin is a day pass to this workshop. The owner makes one, reads it out or
   // pastes it over, and can take it back at any point.

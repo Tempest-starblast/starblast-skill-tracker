@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.31"
+APP_VERSION = "9.13.32"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -15054,6 +15054,130 @@ def favicon_png():
 @app.route('/apple-touch-icon.png')
 def apple_touch_icon():
     return _serve_icon('apple-touch-icon.png', 'image/png')
+
+
+@app.route('/mapapp-192.png')
+def mapapp_icon_192():
+    return _serve_icon('mapapp-192.png', 'image/png')
+
+
+@app.route('/mapapp-512.png')
+def mapapp_icon_512():
+    return _serve_icon('mapapp-512.png', 'image/png')
+
+
+@app.route('/mapapp-512-maskable.png')
+def mapapp_icon_maskable():
+    return _serve_icon('mapapp-512-maskable.png', 'image/png')
+
+
+@app.route('/mapapp.webmanifest')
+def mapapp_manifest():
+    """What the map workshop is when it is installed.
+
+    Served from the site root rather than a static folder so its scope can be
+    the whole site: signing in leaves for Google and returns to the home page,
+    and a narrower scope would spit the user out into a browser mid-sign-in."""
+    return app.response_class(json.dumps({
+        "id": "/mymaps",
+        "name": "Starblast Map Workshop",
+        "short_name": "Map Workshop",
+        "description": "Draw, trace and save custom asteroid maps for a "
+                       "Starblast lobby.",
+        "start_url": "/mymaps",
+        "scope": "/",
+        "display": "standalone",
+        "display_override": ["window-controls-overlay", "standalone"],
+        "background_color": "#0b0e13",
+        "theme_color": "#0b0e13",
+        "orientation": "any",
+        "categories": ["utilities", "games"],
+        "icons": [
+            {"src": "/mapapp-192.png", "sizes": "192x192", "type": "image/png",
+             "purpose": "any"},
+            {"src": "/mapapp-512.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "any"},
+            {"src": "/mapapp-512-maskable.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
+        ],
+        "shortcuts": [
+            {"name": "New map", "url": "/mymaps?new=1"},
+        ],
+    }), mimetype='application/manifest+json',
+        headers={'Cache-Control': 'public, max-age=3600'})
+
+
+# Bump this when the worker itself changes: it is the cache's name, so a new
+# value retires every entry the old one wrote.
+MAPAPP_SW_CACHE = 'mapshop-v1'
+
+MAPAPP_SW = """
+// The map workshop's offline shell. Confined to /mymaps on purpose - nothing
+// else on the site is ever served from a cache.
+const CACHE = '%(cache)s';
+const SHELL = ['/mymaps', '/mapapp-192.png', '/mapapp-512.png'];
+
+self.addEventListener('install', e => {
+  // The shell is fetched fresh so an install never bakes in a stale page.
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(SHELL.map(u => new Request(u, {cache: 'reload'}))))
+    .then(() => self.skipWaiting())
+    .catch(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys()
+    .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  // Never cache the API. A saved map, a map list, a guest pin - all of it is
+  // live state, and a cached answer here would be a lie about what is saved.
+  if (url.pathname.startsWith('/api/')) return;
+
+  // The page itself: network first, so the workshop you open is the current
+  // one and the sign-in state is real. The cache is the fallback, not the plan.
+  if (req.mode === 'navigate' || url.pathname === '/mymaps') {
+    e.respondWith(fetch(req)
+      .then(r => {
+        if (r && r.ok && url.pathname === '/mymaps') {
+          const copy = r.clone();
+          caches.open(CACHE).then(c => c.put('/mymaps', copy));
+        }
+        return r;
+      })
+      .catch(() => caches.match('/mymaps').then(hit => hit || Response.error())));
+    return;
+  }
+
+  // Icons and the like: from the cache when we have them, and refreshed behind
+  // the scenes so a change lands on the next open.
+  e.respondWith(caches.match(req).then(hit => {
+    const net = fetch(req).then(r => {
+      if (r && r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+      return r;
+    }).catch(() => hit || Response.error());
+    return hit || net;
+  }));
+});
+"""
+
+
+@app.route('/mapapp-sw.js')
+def mapapp_sw():
+    """The worker, from the site root so it MAY take a scope outside /static.
+    It registers with an explicit /mymaps scope, so it takes far less than it
+    is allowed to."""
+    return app.response_class(
+        MAPAPP_SW % {'cache': MAPAPP_SW_CACHE},
+        mimetype='application/javascript',
+        headers={'Cache-Control': 'no-cache',
+                 'Service-Worker-Allowed': '/'})
 
 
 @app.route('/robots.txt')
