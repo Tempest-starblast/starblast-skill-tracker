@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.30"
+APP_VERSION = "9.13.31"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1563,6 +1563,19 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_survpl_norm "
               "ON survival_round_players(norm_name, ended_at)")
 
+    # Day passes for the map workshop. One row per pin; `holder` is the token of
+    # the browser that claimed it, so a pin handed on does not open a second door.
+    c.execute('''CREATE TABLE IF NOT EXISTS map_pins (
+                    pin TEXT PRIMARY KEY,
+                    owner_sub TEXT NOT NULL,
+                    created_at TEXT,
+                    expires_at TEXT,
+                    holder TEXT,
+                    first_used_at TEXT,
+                    last_used_at TEXT,
+                    revoked INTEGER DEFAULT 0,
+                    note TEXT
+                )''')
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     player TEXT NOT NULL,
@@ -12761,6 +12774,175 @@ def _can_use_maps(sub_id):
     return bool(sub_id) and _can_host_custom(sub_id)
 
 
+MAP_PIN_HOURS = 24          # a pin is a DAY pass, counted from when it was made
+
+
+def _new_map_pin():
+    """Eight digits, uniformly random, leading zeros allowed - it is a string,
+    never a number. secrets, not random: this is a credential."""
+    return "%08d" % secrets.randbelow(100000000)
+
+
+def _map_pin_row(pin):
+    """The pin's row if it is real, live and unexpired; otherwise (None, why)."""
+    if not pin:
+        return None, "no pin"
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT pin, owner_sub, expires_at, holder, revoked "
+                    "FROM map_pins WHERE pin = ?", (str(pin),)).fetchone()
+    conn.close()
+    if not row:
+        return None, "That pin is not one of ours."
+    if row[4]:
+        return None, "That pin has been turned off."
+    if (row[2] or "") <= time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()):
+        return None, "That pin has expired - ask for a new one."
+    return row, None
+
+
+def maps_actor():
+    """Whose map store this request is working in, and whether it is a guest.
+
+    A pin holder works in the OWNER's store: it is the owner's workshop they were
+    lent, so they see and build on the same maps. Returns (owner_sub, is_guest);
+    (None, False) means no access at all."""
+    sub_id = current_user()
+    if sub_id and _can_use_maps(sub_id):
+        return sub_id, False
+    pin = session.get('map_pin')
+    if not pin:
+        return None, False
+    row, _why = _map_pin_row(pin)
+    if not row:
+        session.pop('map_pin', None)
+        session.pop('map_pin_holder', None)
+        return None, False
+    if row[3] and row[3] != session.get('map_pin_holder'):
+        return None, False          # claimed by a different browser
+    return row[1], True
+
+
+@app.route('/api/maps/pins', methods=['GET', 'POST'])
+def api_map_pins():
+    """The owner's guest pins. GET lists the live ones; POST makes a new one.
+
+    A pin is shown in full for its whole life on purpose: it is a day pass the
+    owner is meant to be able to re-read and re-send, not a secret the site
+    keeps from the person who made it."""
+    sub_id = current_user()
+    if not sub_id or not _can_use_maps(sub_id):
+        return jsonify({"ok": False, "message": "Not allowed."}), 403
+    now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    conn = db()
+    c = conn.cursor()
+    if request.method == 'POST':
+        # Old pins are cleared out here rather than on a schedule: the table is
+        # tiny and this is the only place that ever adds to it.
+        c.execute("DELETE FROM map_pins WHERE expires_at < datetime(?, '-7 days')", (now,))
+        pin = None
+        for _ in range(12):
+            cand = _new_map_pin()
+            if not c.execute("SELECT 1 FROM map_pins WHERE pin = ?", (cand,)).fetchone():
+                pin = cand
+                break
+        if pin is None:
+            conn.close()
+            return jsonify({"ok": False, "message": "Could not make a pin - try again."}), 500
+        # silent: making a pin needs no body at all, and a bodyless POST must
+        # not fail on content type.
+        note = str((request.get_json(silent=True) or {}).get('note') or '')[:40]
+        c.execute("INSERT INTO map_pins (pin, owner_sub, created_at, expires_at, note) "
+                  "VALUES (?,?,?, datetime(?, ?), ?)",
+                  (pin, sub_id, now, now, '+%d hours' % MAP_PIN_HOURS, note))
+        conn.commit()
+    rows = c.execute(
+        "SELECT pin, created_at, expires_at, holder, first_used_at, last_used_at, "
+        "COALESCE(revoked,0), COALESCE(note,'') FROM map_pins "
+        "WHERE owner_sub = ? AND expires_at > ? AND COALESCE(revoked,0) = 0 "
+        "ORDER BY created_at DESC", (sub_id, now)).fetchall()
+    conn.close()
+    return jsonify({"ok": True, "now": now, "pins": [
+        {"pin": r[0], "created_at": r[1], "expires_at": r[2],
+         "claimed": bool(r[3]), "first_used_at": r[4], "last_used_at": r[5],
+         "note": r[7]} for r in rows]}), 200
+
+
+@app.route('/api/maps/pins/<pin>', methods=['DELETE', 'PATCH'])
+def api_map_pin_edit(pin):
+    """DELETE turns a pin off for good. PATCH releases its claim, so the same
+    person can pick it up again on another device without a new pin."""
+    sub_id = current_user()
+    if not sub_id or not _can_use_maps(sub_id):
+        return jsonify({"ok": False, "message": "Not allowed."}), 403
+    conn = db()
+    c = conn.cursor()
+    if request.method == 'DELETE':
+        n = c.execute("UPDATE map_pins SET revoked = 1 WHERE pin = ? AND owner_sub = ?",
+                      (str(pin), sub_id)).rowcount
+    else:
+        n = c.execute("UPDATE map_pins SET holder = NULL WHERE pin = ? AND owner_sub = ?",
+                      (str(pin), sub_id)).rowcount
+    conn.commit()
+    conn.close()
+    if not n:
+        return jsonify({"ok": False, "message": "No such pin."}), 404
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/api/maps/pin', methods=['POST'])
+def api_map_pin_redeem():
+    """Spend a pin: this browser becomes its holder for the rest of the day.
+
+    The first browser to redeem claims it. A second one is refused rather than
+    quietly sharing the workshop - the owner meant to lend it to one person, and
+    can release the claim if that person moves to another device."""
+    raw = str((request.get_json(silent=True) or {}).get('pin') or '')
+    pin = re.sub(r'[^0-9]', '', raw)          # paste it with spaces or dashes, we don't mind
+    if len(pin) != 8:
+        return jsonify({"ok": False, "message": "A pin is eight digits."}), 400
+    row, why = _map_pin_row(pin)
+    if not row:
+        return jsonify({"ok": False, "message": why}), 403
+    holder = session.get('map_pin_holder')
+    if row[3]:
+        if row[3] != holder:
+            return jsonify({"ok": False, "message": "That pin is already in use on "
+                                                    "another device."}), 403
+    else:
+        holder = holder or secrets.token_urlsafe(18)
+        conn = db()
+        c = conn.cursor()
+        # Claim it only if it is still unclaimed, so two people redeeming at the
+        # same moment cannot both win.
+        n = c.execute("UPDATE map_pins SET holder = ?, first_used_at = ? "
+                      "WHERE pin = ? AND holder IS NULL",
+                      (holder, time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()), pin)).rowcount
+        conn.commit()
+        conn.close()
+        if not n:
+            return jsonify({"ok": False, "message": "That pin was just claimed by "
+                                                    "someone else."}), 403
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE map_pins SET last_used_at = ? WHERE pin = ?",
+              (time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()), pin))
+    conn.commit()
+    conn.close()
+    session.permanent = True
+    session['map_pin'] = pin
+    session['map_pin_holder'] = holder
+    return jsonify({"ok": True, "expires_at": row[2]}), 200
+
+
+@app.route('/api/maps/pin', methods=['DELETE'])
+def api_map_pin_drop():
+    """Hand the pass back (the guest's own sign-out)."""
+    session.pop('map_pin', None)
+    session.pop('map_pin_holder', None)
+    return jsonify({"ok": True}), 200
+
+
 @app.route('/api/wordcheck')
 def api_wordcheck():
     """Is this word allowed to be drawn onto a map?
@@ -12770,8 +12952,8 @@ def api_wordcheck():
     Gated to the accounts that can use the editor at all, so the lists cannot
     be enumerated from outside. Each whitespace-separated word is screened
     separately, exactly as a bio is."""
-    sub_id = current_user()
-    if not sub_id or not _can_use_maps(sub_id):
+    sub_id, _guest = maps_actor()
+    if not sub_id:
         return jsonify({"ok": False, "message": "Not allowed."}), 403
     q = (request.args.get('q') or '')[:64]
     words = [w for w in re.split(r'[^0-9A-Za-z]+', q) if w]
@@ -12783,11 +12965,9 @@ def api_wordcheck():
 def api_maps():
     """GET: the signed-in account's saved maps (no map text). POST: save one -
     {id?, name, map}; an id updates that map (yours only), no id creates one."""
-    sub_id = current_user()
+    sub_id, guest = maps_actor()
     if not sub_id:
-        return jsonify({"ok": False, "message": "Sign in first."}), 401
-    if not _can_use_maps(sub_id):
-        return jsonify({"ok": False, "message": "My Maps is for Odyssey players and the host."}), 403
+        return jsonify({"ok": False, "message": "My Maps needs the host's account or a guest pin."}), 403
     conn = db()
     c = conn.cursor()
     if request.method == 'GET':
@@ -12882,10 +13062,8 @@ def api_map_restore(mid):
 
     The two versions are SWAPPED rather than one being thrown away, so pressing
     restore again returns to what you had - a mis-click costs nothing."""
-    sub_id = current_user()
+    sub_id, guest = maps_actor()
     if not sub_id:
-        return jsonify({"ok": False, "message": "Sign in first."}), 401
-    if not _can_use_maps(sub_id):
         return jsonify({"ok": False, "message": "Not allowed."}), 403
     conn = db()
     c = conn.cursor()
@@ -12916,11 +13094,9 @@ def api_map_restore(mid):
 def api_map_one(mid):
     """One of your maps: GET returns it with the map text (for loading / copying);
     DELETE removes it."""
-    sub_id = current_user()
+    sub_id, guest = maps_actor()
     if not sub_id:
-        return jsonify({"ok": False, "message": "Sign in first."}), 401
-    if not _can_use_maps(sub_id):
-        return jsonify({"ok": False, "message": "My Maps is for Odyssey players and the host."}), 403
+        return jsonify({"ok": False, "message": "My Maps needs the host's account or a guest pin."}), 403
     conn = db()
     c = conn.cursor()
     row = c.execute("SELECT id, owner_sub, name, size, map, cells, image, img_opts, shapes, base, "
@@ -12930,6 +13106,10 @@ def api_map_one(mid):
         conn.close()
         return jsonify({"ok": False, "message": "No such map."}), 404
     if request.method == 'DELETE':
+        if guest:
+            conn.close()
+            return jsonify({"ok": False, "message": "A guest pin can build and save, "
+                                                    "but not delete saved maps."}), 403
         c.execute("DELETE FROM custom_maps WHERE id = ?", (mid,))
         conn.commit()
         conn.close()
@@ -13108,8 +13288,17 @@ def customgames_page():
 def mymaps_page():
     """The map workshop: build, save and copy custom asteroid maps for the lobby."""
     sub_id = current_user()
+    owner_sub, guest = maps_actor()
+    # A guest is shown how long the pass has left, so nobody is surprised by a
+    # workshop that stops working mid-draw.
+    pin_expires = ""
+    if guest:
+        _row, _why = _map_pin_row(session.get('map_pin'))
+        pin_expires = (_row[2] if _row else "") or ""
     return render_template('mymaps.html', page='mymaps', version=APP_VERSION,
-                           signed_in=bool(sub_id), allowed=_can_use_maps(sub_id))
+                           signed_in=bool(sub_id), allowed=bool(owner_sub),
+                           guest=guest, host=bool(owner_sub) and not guest,
+                           pin_expires=pin_expires)
 
 
 @app.route('/customgame')

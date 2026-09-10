@@ -82,6 +82,28 @@
 .mmsechead[aria-expanded="true"] .mmsecarrow{transform:rotate(90deg)}
 .mmsectitle{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;flex:1}
 .mmcount{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.mmnote2{margin:6px 0 8px;font-size:12px;line-height:1.55;color:var(--muted,#8aa0b0)}
+/* The pin is meant to be read aloud and pasted, so it is big, spaced and mono. */
+.mmpin{font:700 19px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.22em;color:var(--green,#66e6b8)}
+.mmpinin{width:100%;box-sizing:border-box;padding:11px 13px;border-radius:9px;border:1px solid var(--line);
+  background:rgba(0,0,0,.28);color:var(--text);font:700 21px ui-monospace,Menlo,Consolas,monospace;
+  letter-spacing:.22em;text-align:center}
+.mmpinin:focus{outline:none;border-color:var(--green,#66e6b8)}
+.mmpinrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.mmpinrow .mmpinin{flex:1;min-width:190px}
+.mmpinmsg{margin:9px 0 0;font-size:12.5px;min-height:17px}
+.mmpinmsg.err{color:#ff9a9a}
+.mmpinmsg.ok{color:var(--green,#66e6b8)}
+.mmglist li{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.mmglist li:first-child{border-top:0}
+.mmglist .gmeta{flex:1;min-width:130px;font-size:11.5px;color:var(--muted,#8aa0b0)}
+/* A borrowed workshop says so, all the time, at the top. */
+.mmguest{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:9px 13px;
+  border:1px solid rgba(102,230,184,.35);background:rgba(102,230,184,.08);border-radius:9px;font-size:12.5px}
+.mmguest b{font-variant-numeric:tabular-nums}
+.mmguest button{margin-left:auto;background:none;border:0;color:var(--muted,#8aa0b0);
+  text-decoration:underline;cursor:pointer;font:inherit;font-size:12px;padding:0}
+.mmguest button:hover{color:#ff9a9a}
 .mmsearch{width:100%;box-sizing:border-box;margin:8px 0 2px;padding:7px 9px;font:inherit;font-size:12.5px;
   color:var(--text);background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:7px}
 .mmsearch:focus{outline:none;border-color:var(--green,#66e6b8)}
@@ -133,13 +155,55 @@
 <div class="mmwrap">
 <h1 class="ptitle">My Maps</h1>
 <p class="mmnote">Build custom asteroid maps for the <a href="/customgame" style="color:var(--green,#66e6b8)">Odyssey lobby</a>. Draw on the grid, trace an image, or paste a map; <b>save</b> it here, then load it into a lobby from the map picker &mdash; or <b>Copy map</b> and paste it in. The sun, the station orbit and the team bases are drawn so you can build around them.</p>
-{% if not signed_in %}
-<div class="mmcard"><h2>Sign in</h2><p style="margin:0;font-size:14px">Sign in at the top of the page to build and save maps.</p></div>
-{% elif not allowed %}
-<div class="mmcard"><h2>Host only</h2><p style="margin:0;font-size:14px;color:var(--muted)">My Maps is the lobby host&rsquo;s workshop.</p></div>
+{% if not allowed %}
+<div class="mmcard" style="max-width:540px">
+  <h2>Guest pin</h2>
+  <p class="mmnote2">My Maps is the lobby host&rsquo;s workshop. If they gave you an eight-digit pin, put it in below &mdash; it opens the workshop for a day.</p>
+  <div class="mmpinrow">
+    <input id="mmpinin" class="mmpinin" inputmode="numeric" autocomplete="one-time-code"
+           maxlength="12" placeholder="00000000" spellcheck="false" aria-label="Eight-digit guest pin">
+    <button type="button" class="mmbtn primary" id="mmpingo">Open the workshop</button>
+  </div>
+  <p class="mmpinmsg" id="mmpinmsg" role="status"></p>
+  {% if not signed_in %}<p class="mmnote2">Hosting the lobby yourself? Sign in at the top of the page instead.</p>{% endif %}
+</div>
+<script>
+(function(){
+  var box=document.getElementById('mmpinin'), go=document.getElementById('mmpingo'),
+      msg=document.getElementById('mmpinmsg');
+  if(!box||!go) return;
+  function say(t, cls){ msg.textContent=t||''; msg.className='mmpinmsg'+(cls?' '+cls:''); }
+  // Paste it however it was sent - with spaces, dashes, a stray full stop.
+  box.addEventListener('input', function(){
+    var d=box.value.replace(/[^0-9]/g,'').slice(0,8);
+    if(box.value!==d) box.value=d;
+    if(d.length===8) go.focus();
+  });
+  box.addEventListener('keydown', function(e){ if(e.key==='Enter') go.click(); });
+  go.onclick=function(){
+    var pin=box.value.replace(/[^0-9]/g,'');
+    if(pin.length!==8){ say('A pin is eight digits.','err'); return; }
+    go.disabled=true; say('Checking\u2026');
+    fetch('/api/maps/pin',{method:'POST',headers:{'Content-Type':'application/json'},
+                           body:JSON.stringify({pin:pin})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d&&d.ok){ say('That worked \u2014 opening the workshop.','ok'); location.reload(); }
+        else { go.disabled=false; say((d&&d.message)||'That pin did not work.','err'); }
+      })
+      .catch(function(){ go.disabled=false; say('Could not reach the site.','err'); });
+  };
+  box.focus();
+})();
+</script>
 {% else %}
 {% include "_mapgen.html" %}
 {% include "_mapeditor.html" %}
+{% if guest %}
+<div class="mmguest">Guest pass &middot; <b id="mmgleft">&nbsp;</b> left
+  <span class="mmnote2" style="margin:0">You can build and save. Deleting the host&rsquo;s maps is not part of the pass.</span>
+  <button type="button" id="mmgout">hand it back</button></div>
+{% endif %}
 <div class="mmide">
 <button type="button" class="mmgrip" id="mmgrip" title="Fold the side panel away"
         aria-label="Hide the side panel" aria-expanded="true">&#9664;</button>
@@ -149,6 +213,19 @@
   <div class="mmcard adv"><h2>Raw map text</h2>
     <textarea id="o_custom_map" class="mmraw" spellcheck="false"></textarea>
     <p class="mmempty" style="margin:6px 0 0;font-size:11px">This is what the game gets. Paste a map here and use Insert &rsaquo; Apply pasted text.</p></div>
+  {% if host %}
+  <div class="mmcard">
+    <button type="button" class="mmsechead" id="mmgtog" aria-expanded="false" aria-controls="mmgbody">
+      <span class="mmsecarrow">&#9656;</span><span class="mmsectitle">Guest access</span>
+      <span class="mmcount" id="mmgcount"></span>
+    </button>
+    <div id="mmgbody" hidden>
+      <p class="mmnote2">A pin lets one person use this workshop for a day. They can draw, load and save; they cannot delete your saved maps.</p>
+      <button type="button" class="mmbtn" id="mmgnew">Create a day pin</button>
+      <ul class="mmlist mmglist" id="mmglist"></ul>
+    </div>
+  </div>
+  {% endif %}
   <div class="mmcard">
     <button type="button" class="mmsechead" id="mmsavedtog" aria-expanded="false" aria-controls="mmsavedbody">
       <span class="mmsecarrow">&#9656;</span><span class="mmsectitle">Saved maps</span>
@@ -200,6 +277,8 @@
 </div>
 {% if allowed %}
 <script>
+var IS_GUEST = {{ 'true' if guest else 'false' }};
+var PIN_EXPIRES = {{ pin_expires|tojson }};
 (function(){
   function $(id){ return document.getElementById(id); }
   function sl(id,label,min,max,step,val){        // drag OR type - the range and the number box stay in sync
@@ -361,11 +440,13 @@
           +'<button class="mmbtn" data-act="load" type="button">Load</button>'
           +'<button class="mmbtn" data-act="copy" type="button">Copy</button>'
           +'<button class="mmbtn" data-act="dl" type="button">Download</button>'
-          +'<button class="mmbtn" data-act="del" type="button">Delete</button>';
+          // A guest pass lends the workshop, not the power to empty it. The
+          // server refuses either way; hiding it keeps the offer honest.
+          +(IS_GUEST ? '' : '<button class="mmbtn" data-act="del" type="button">Delete</button>');
         li.querySelector('[data-act=load]').onclick=function(){ loadMap(m.id); };
         li.querySelector('[data-act=copy]').onclick=function(){ fetchMap(m.id, function(d){ copyText(d.map, 'Copied “'+m.name+'” — paste it into the lobby’s map box.'); }); };
         li.querySelector('[data-act=dl]').onclick=function(){ fetchMap(m.id, function(d){ downloadMap(d.map, d.name); }); };
-        li.querySelector('[data-act=del]').onclick=function(){
+        if(!IS_GUEST) li.querySelector('[data-act=del]').onclick=function(){
           if(!confirm('Delete “'+m.name+'”?')) return;
           fetch('/api/maps/'+m.id,{method:'DELETE'}).then(function(r){return r.json();}).then(function(){
             if(cur.id===m.id){ cur={id:null,name:''}; $('mmname').value=''; }
@@ -375,6 +456,82 @@
         ul.appendChild(li);
       });
   }
+  // ---- guest passes -------------------------------------------------------
+  // A pin is a day pass to this workshop. The owner makes one, reads it out or
+  // pastes it over, and can take it back at any point.
+  function leftFrom(iso){
+    if(!iso) return '';
+    var t = Date.parse(String(iso).replace(' ', 'T') + 'Z');
+    if(isNaN(t)) return '';
+    var mins = Math.round((t - Date.now()) / 60000);
+    if(mins <= 0) return 'expired';
+    if(mins < 60) return mins + ' min';
+    var h = Math.floor(mins / 60), m = mins % 60;
+    return m ? (h + 'h ' + m + 'm') : (h + 'h');
+  }
+  (function(){                                   // the guest's own banner
+    var left=$('mmgleft'), out=$('mmgout');
+    if(left){
+      var tick=function(){ left.textContent = leftFrom(PIN_EXPIRES) || '\u2014'; };
+      tick(); setInterval(tick, 30000);
+    }
+    if(out) out.onclick=function(){
+      fetch('/api/maps/pin',{method:'DELETE'}).then(function(){ location.href='/'; })
+        .catch(function(){ location.href='/'; });
+    };
+  })();
+  (function(){                                   // the owner's drawer
+    var tog=$('mmgtog'), body=$('mmgbody'), mk=$('mmgnew'), ul=$('mmglist'), cnt=$('mmgcount');
+    if(!tog || !body) return;
+    function draw(pins){
+      ul.innerHTML='';
+      if(cnt) cnt.textContent = pins.length ? String(pins.length) : '';
+      if(!pins.length){ ul.innerHTML='<li class="mmempty">No pin out at the moment.</li>'; return; }
+      pins.forEach(function(p){
+        var li=document.createElement('li');
+        li.innerHTML='<span class="mmpin">'+esc(p.pin)+'</span>'
+          +'<span class="gmeta">'+(p.claimed ? 'in use' : 'not used yet')
+          +' \u00b7 '+esc(leftFrom(p.expires_at))+' left</span>'
+          +'<button class="mmbtn" data-a="copy" type="button">Copy</button>'
+          +(p.claimed ? '<button class="mmbtn" data-a="rel" type="button" title="Let the same person pick it up on another device">Release</button>' : '')
+          +'<button class="mmbtn" data-a="off" type="button">Turn off</button>';
+        li.querySelector('[data-a=copy]').onclick=function(){
+          copyText(p.pin, 'Pin copied \u2014 it works for one person, for a day.'); };
+        var rel=li.querySelector('[data-a=rel]');
+        if(rel) rel.onclick=function(){
+          fetch('/api/maps/pins/'+p.pin,{method:'PATCH'}).then(load); };
+        li.querySelector('[data-a=off]').onclick=function(){
+          if(!confirm('Turn off pin '+p.pin+'? Whoever has it loses the workshop straight away.')) return;
+          fetch('/api/maps/pins/'+p.pin,{method:'DELETE'}).then(load); };
+        ul.appendChild(li);
+      });
+    }
+    function load(){
+      fetch('/api/maps/pins',{cache:'no-store'}).then(function(r){return r.json();})
+        .then(function(d){ draw((d&&d.pins)||[]); })
+        .catch(function(){ ul.innerHTML='<li class="mmempty">Couldn\u2019t load your pins.</li>'; });
+    }
+    function setOpen(open){
+      body.hidden=!open; tog.setAttribute('aria-expanded', open?'true':'false');
+      try{ localStorage.setItem('mm_guest_open', open?'1':'0'); }catch(e){}
+      if(open) load();
+    }
+    tog.addEventListener('click', function(){ setOpen(body.hidden); });
+    if(mk) mk.onclick=function(){
+      mk.disabled=true;
+      fetch('/api/maps/pins',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+        .then(function(r){return r.json();})
+        .then(function(d){ mk.disabled=false; draw((d&&d.pins)||[]);
+          if(d&&d.pins&&d.pins.length) copyText(d.pins[0].pin,
+            'Pin '+d.pins[0].pin+' copied \u2014 it works for one person, for a day.'); })
+        .catch(function(){ mk.disabled=false; status('Could not make a pin','err'); });
+    };
+    var open=false;
+    try{ open = localStorage.getItem('mm_guest_open')==='1'; }catch(e){}
+    setOpen(open);
+    load();                                      // the count is worth having shut
+  })();
+
   // Open-and-shut, remembered: closed, the panel is short enough to read without
   // scrolling it, which is the whole point of putting the list behind a header.
   (function(){
