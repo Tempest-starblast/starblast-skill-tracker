@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.12"
+APP_VERSION = "9.13.13"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4528,6 +4528,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.13", "at": "2026-09-10T12:00:00Z", "changes": [
+        "My Maps: “Clear station path” lives under Edit now (it changes the map), not View."
+    ]},
     {"version": "9.13.12", "at": "2026-09-10T11:50:00Z", "changes": [
         "My Maps: a <b>Fullscreen</b> button (top-right, and under View) puts the whole editor — side panel and map — on the full screen; the map grows to fit."
     ]},

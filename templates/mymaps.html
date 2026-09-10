@@ -197,7 +197,7 @@
     var seedRow=$('mapseed') && $('mapseed').closest('.cgmapxy'); if(seedRow){ var sep=document.createElement('div'); sep.className='mmmenu-sep'; ins.appendChild(sep); mv(seedRow, ins); }
     // View
     var vw=$('mmView'); var ob=mv('maporbit',vw); var ms=mv('mapselect',vw); if(ms) ms.title='Drag the stations around their ring yourself';
-    var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp) mv(cp, vw);
+    var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp){ mv(cp, ed); cp.title='Keep the ring the stations orbit free of asteroids (nothing is deleted - turn it off and they come back)'; }   // Edit: it changes the map
     var adv=mv('mapadv',vw);
     var fsi=document.createElement('button'); fsi.type='button'; fsi.textContent='Fullscreen editor'; fsi.onclick=function(){ var b=$('mmfs'); if(b) b.click(); }; vw.insertBefore(fsi, vw.firstChild);
     // fullscreen the editor: the whole .mmide block, so the panel and the map both scale
