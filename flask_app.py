@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.7"
+APP_VERSION = "9.13.8"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4516,6 +4516,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.8", "at": "2026-09-10T09:00:00Z", "changes": [
+        "Map editor: <b>shape tools</b>. Besides the brush you can now drag out a filled rectangle, a hollow frame, a disc, a ring, a straight bar at any angle, or an L-shaped corner — with a thickness slider for the hollow ones. You see the shape as you drag and it lands when you let go; the asteroid size applies to the whole shape, Erase works with shapes too, and undo takes a whole shape back.",
+        "Map editor: the canvas is more than twice the size (and sharper), with a faint grid every ten cells and a readout of the cell under the cursor. The My Maps page is wider to fit it."
+    ]},
     {"version": "9.13.7", "at": "2026-09-10T08:20:00Z", "changes": [
         "Replay: <b>drag a station round its ring to scrub</b>. The ring turns exactly once an hour, so the angle you move a station by is match time — a quarter turn is fifteen minutes — and the ships, scores and win chances follow as you drag. Counter-clockwise is forward, the way the ring really turns.",
         "Replay: the speed control is a slider now. The bottom is real time, the top is 128× (a two-hour match in under a minute), with the current speed shown beside it."

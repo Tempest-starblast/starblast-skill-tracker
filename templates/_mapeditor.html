@@ -33,9 +33,11 @@
 html:not(.mapadv) .adv{display:none!important}
 .cgmaptools .cgmapmore{display:inline-flex;gap:8px;align-items:center}
 .mapadvbtn,.cgadvbtn{background:rgba(102,230,184,.10)!important;border:1px solid rgba(102,230,184,.35)!important;color:var(--green,#66e6b8)!important}
-#mapcanvas{width:100%;max-width:320px;border:1px solid var(--line);border-radius:8px;
+#mapcanvas{width:100%;max-width:760px;border:1px solid var(--line);border-radius:8px;
   background:rgba(127,127,127,.06);cursor:crosshair;display:block;touch-action:none;image-rendering:pixelated}
-#mapcanvas.ro{cursor:default;max-width:240px}
+#mapcanvas.ro{cursor:default;max-width:320px}
+.cgmaptools .mapshape.on{background:rgba(102,230,184,.16);border-color:var(--green,#66e6b8);color:var(--green,#66e6b8)}
+.cgmaptools .cgsep{width:1px;height:18px;background:var(--line);margin:0 2px}
 </style>
 <script>
 window.MapEd = (function(){
@@ -88,6 +90,11 @@ window.MapEd = (function(){
     if(mapLayer.width!==cv.width || mapLayer.height!==cv.height){ mapLayer.width=cv.width; mapLayer.height=cv.height; }
     var ctx=mapLayer.getContext('2d');
     ctx.clearRect(0,0,mapLayer.width,mapLayer.height);
+    // a faint grid every 10 cells, so coordinates are readable at a glance
+    ctx.save(); ctx.strokeStyle='rgba(153,221,255,.07)'; ctx.lineWidth=1;
+    for(var gi=10; gi<n; gi+=10){ ctx.beginPath(); ctx.moveTo(gi*cs,0); ctx.lineTo(gi*cs,cv.height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,gi*cs); ctx.lineTo(cv.width,gi*cs); ctx.stroke(); }
+    ctx.restore();
     if(clearPath){                                  // show the corridor being kept clear
       var band=pathBand(n);
       ctx.save(); ctx.beginPath();
@@ -137,6 +144,54 @@ window.MapEd = (function(){
   // Draw = paint asteroids. Move = grab the stations and swing them round the ring
   // yourself (the auto-orbit is just this, driven by a clock).
   var mapMode = 'draw';
+  // ---- shapes: rasterised straight onto the grid, so undo / clear-path / save /
+  //      export all work unchanged. p0/p1 are continuous cell coordinates. ----
+  var shapeTool = 'brush', shapeDrag = null;
+  function shapeThick(){ return Math.max(1, parseInt(($('mapthick')||{}).value||'3',10)); }
+  function shapeCells(tool, p0, p1, t, n){
+    var cells=[], seen={};
+    function add(r,c){ if(r<0||c<0||r>=n||c>=n) return; var k=r*n+c; if(seen[k]) return; seen[k]=1; cells.push([r,c]); }
+    function bar(a, b){                                   // cells within t/2 of the segment a->b
+      var dx=b.x-a.x, dy=b.y-a.y, L2=dx*dx+dy*dy, h=t/2;
+      var r0=Math.floor(Math.min(a.y,b.y)-h-1), r1=Math.ceil(Math.max(a.y,b.y)+h+1);
+      var c0=Math.floor(Math.min(a.x,b.x)-h-1), c1=Math.ceil(Math.max(a.x,b.x)+h+1);
+      for(var r=r0;r<=r1;r++) for(var c=c0;c<=c1;c++){
+        var px=c+0.5, py=r+0.5, u = L2>0 ? Math.max(0, Math.min(1, ((px-a.x)*dx+(py-a.y)*dy)/L2)) : 0;
+        if(Math.hypot(px-(a.x+u*dx), py-(a.y+u*dy)) <= h) add(r,c); } }
+    var R0=Math.floor(Math.min(p0.y,p1.y)), R1=Math.floor(Math.max(p0.y,p1.y));
+    var C0=Math.floor(Math.min(p0.x,p1.x)), C1=Math.floor(Math.max(p0.x,p1.x));
+    if(tool==='rect'){ for(var r=R0;r<=R1;r++) for(var c=C0;c<=C1;c++) add(r,c); }
+    else if(tool==='frame'){ for(var r2=R0;r2<=R1;r2++) for(var c2=C0;c2<=C1;c2++) if(r2<R0+t||r2>R1-t||c2<C0+t||c2>C1-t) add(r2,c2); }
+    else if(tool==='disc'||tool==='ring'){
+      var cx=p0.x, cy=p0.y, rad=Math.max(0.5, Math.hypot(p1.x-p0.x, p1.y-p0.y)), inner=(tool==='ring')?Math.max(0,rad-t):-1;
+      for(var r3=Math.floor(cy-rad-1);r3<=Math.ceil(cy+rad+1);r3++) for(var c3=Math.floor(cx-rad-1);c3<=Math.ceil(cx+rad+1);c3++){
+        var d=Math.hypot(c3+0.5-cx, r3+0.5-cy); if(d<=rad && d>inner) add(r3,c3); } }
+    else if(tool==='bar'){ bar(p0,p1); }
+    else if(tool==='corner'){ bar(p0,{x:p1.x,y:p0.y}); bar(p0,{x:p0.x,y:p1.y}); }
+    return cells;
+  }
+  function drawPreview(cells){
+    var cv=$('mapcanvas'); if(!cv||!mapGrid) return;
+    paintCanvas();
+    var n=mapGrid.length, ctx=cv.getContext('2d'), cs=cv.width/n, v=mapErase?0:brush();
+    ctx.save(); ctx.fillStyle = mapErase ? 'rgba(255,110,110,.55)' : 'rgba(255,255,255,.55)';
+    cells.forEach(function(rc){ ctx.beginPath();
+      ctx.arc(rc[1]*cs+cs/2, rc[0]*cs+cs/2, Math.max(0.8,(cs/2)*(mapErase?0.5:(0.4+0.065*v))), 0, 6.2832); ctx.fill(); });
+    ctx.restore();
+  }
+  function commitShape(cells){
+    if(!cells.length) return;
+    pushUndo(); var n=mapGrid.length, band=pathBand(n), v=mapErase?0:brush();
+    cells.forEach(function(rc){ var r=rc[0], c=rc[1];
+      if(clearPath && !mapErase && inPath(r,c,n,band)) return;          // the stations need this lane
+      mapGrid[r][c]=v; });
+    drawMap(); syncMapText();
+  }
+  function setShape(t){
+    shapeTool = t || 'brush';
+    document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-shape')===shapeTool); });
+    if(mapMode==='move') setMode('draw');
+  }
   function setMode(m){
     mapMode = (m === 'move') ? 'move' : 'draw';
     var cv=$('mapcanvas'); if(cv) cv.style.cursor = (mapMode==='move') ? 'grab' : 'crosshair';
@@ -162,6 +217,9 @@ window.MapEd = (function(){
       ctx.fillStyle='#000'; ctx.font='bold '+Math.max(8,Math.min(12,sr))+'px system-ui';
       ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(i+1), x, y); }
     ctx.restore(); }
+  function mapPoint(cv,ev){ var n=mapGrid.length, rect=cv.getBoundingClientRect(), cs=cv.width/n;
+    var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
+    return {x:x/cs, y:y/cs, n:n}; }
   function mapCell(cv,ev){ var n=mapGrid.length, rect=cv.getBoundingClientRect(), cs=cv.width/n;
     var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
     return {r:Math.floor(y/cs), c:Math.floor(x/cs), n:n}; }
@@ -267,7 +325,18 @@ window.MapEd = (function(){
         + '<button type="button" id="mapimport" title="Load the pasted text into the grid">Apply pasted ↓</button>'
         + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button></span>'
       + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
-      + '<canvas id="mapcanvas" width="320" height="320"></canvas>'
+      + '<div class="cgmaptools" id="mapshapes"><span>Draw</span>'
+        + '<button type="button" class="mapshape on" data-shape="brush" title="Paint single cells">✏ Brush</button>'
+        + '<button type="button" class="mapshape" data-shape="rect" title="Drag a filled rectangle">▰ Rect</button>'
+        + '<button type="button" class="mapshape" data-shape="frame" title="Drag a hollow rectangle (thickness below)">▢ Frame</button>'
+        + '<button type="button" class="mapshape" data-shape="disc" title="Drag from the centre outwards: a filled circle">● Disc</button>'
+        + '<button type="button" class="mapshape" data-shape="ring" title="Drag from the centre outwards: a ring (thickness below)">◯ Ring</button>'
+        + '<button type="button" class="mapshape" data-shape="bar" title="Drag a straight bar at any angle (thickness below)">▬ Bar</button>'
+        + '<button type="button" class="mapshape" data-shape="corner" title="Drag an L: two bars meeting at the corner you start from">◟ Corner</button>'
+        + '<span class="cgsep"></span><span>Thickness</span>'
+        + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span>'
+        + '<span id="maphover" class="cgxyhint" style="margin-left:auto"></span></div>'
+      + '<canvas id="mapcanvas" width="800" height="800"></canvas>'
       + '<div class="cgimgopts adv"><span class="cgimglbl">Image → asteroids</span>'
         + '<label class="cgchk"><input type="checkbox" id="mapinvert">Invert (dark = asteroids)</label>'
         + '<span>Cutoff <input type="range" id="imgcut" min="0" max="100" step="1" value="11"><b class="cgval" id="imgcut_v">11%</b></span>'
@@ -317,18 +386,33 @@ window.MapEd = (function(){
     function release(){ if(!drag) return; drag=null;
       var c=$('mapcanvas'); if(c) c.style.cursor = (mapMode==='move') ? 'grab' : 'crosshair'; }
 
+    // shapes: press to anchor, drag to size (live preview), release to stamp
+    function shapeStart(p){ var q=mapPoint(cv,p); shapeDrag={p0:q, p1:q}; drawPreview(shapeCells(shapeTool, q, q, shapeThick(), q.n)); }
+    function shapeMove(p){ if(!shapeDrag) return; shapeDrag.p1=mapPoint(cv,p);
+      drawPreview(shapeCells(shapeTool, shapeDrag.p0, shapeDrag.p1, shapeThick(), shapeDrag.p0.n)); }
+    function shapeEnd(){ if(!shapeDrag) return; var d=shapeDrag; shapeDrag=null;
+      commitShape(shapeCells(shapeTool, d.p0, d.p1, shapeThick(), d.p0.n)); }
+    function hover(p){ var h=$('maphover'); if(!h||!mapGrid) return; var c=mapCell(cv,p);
+      if(c.r<0||c.c<0||c.r>=c.n||c.c>=c.n){ h.textContent=''; return; }
+      h.textContent='x '+c.c+', y '+c.r+(mapGrid[c.r][c.c]?(' · size '+mapGrid[c.r][c.c]):' · empty'); }
     cv.addEventListener('mousedown', function(e){
       if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
+      if(shapeTool!=='brush'){ shapeStart(pt(e)); e.preventDefault(); return; }
       pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
-    cv.addEventListener('mousemove', function(e){ if(drag){ swing(pt(e)); return; } if(painting) apply(pt(e)); });
-    window.addEventListener('mouseup', function(){ painting=false; release(); });
+    cv.addEventListener('mousemove', function(e){ hover(pt(e)); if(drag){ swing(pt(e)); return; } if(shapeDrag){ shapeMove(pt(e)); return; } if(painting) apply(pt(e)); });
+    cv.addEventListener('mouseleave', function(){ var h=$('maphover'); if(h) h.textContent=''; });
+    window.addEventListener('mouseup', function(){ painting=false; release(); shapeEnd(); });
     cv.addEventListener('touchstart', function(e){
       if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
+      if(shapeTool!=='brush'){ shapeStart(pt(e)); e.preventDefault(); return; }
       pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
     cv.addEventListener('touchmove', function(e){
       if(drag){ swing(pt(e)); e.preventDefault(); return; }
+      if(shapeDrag){ shapeMove(pt(e)); e.preventDefault(); return; }
       if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
-    window.addEventListener('touchend', function(){ painting=false; release(); });
+    window.addEventListener('touchend', function(){ painting=false; release(); shapeEnd(); });
+    document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.addEventListener('click', function(){ setShape(b.getAttribute('data-shape')); }); });
+    var tk=$('mapthick'); if(tk){ tk.addEventListener('input', function(){ $('mapthick_v').textContent=this.value; }); wheelStep(tk); }
     var bv=$('mapbrush'); if(bv){ bv.addEventListener('input', function(){
       $('mapbrush_v').textContent=this.value; mapErase=false; var er=$('maperase'); if(er) er.textContent='Erase'; });
       wheelStep(bv); }
@@ -362,7 +446,7 @@ window.MapEd = (function(){
     if(sr) sr.onclick=function(){ if(si){ si.value=Math.floor(Math.random()*10000); runSeed(); } };
     if(si) si.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); runSeed(); } });
     var ob=$('maporbit'); if(ob) ob.onclick=function(){ setOrbit(!orbitTimer); };
-    var sb=$('mapselect'); if(sb) sb.onclick=function(){ setMode(mapMode==='move'?'draw':'move'); };
+    var sb=$('mapselect'); if(sb) sb.onclick=function(){ setMode(mapMode==='move'?'draw':'move'); if(mapMode==='move'){ shapeTool='brush'; document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-shape')==='brush'); }); } };
     ['imgcut','imgsize','imgspace'].forEach(function(id){ var e=$(id); if(!e) return;   // image options
       e.addEventListener('input', function(){ var b=$(id+'_v'); if(b) b.textContent=this.value+(id==='imgcut'?'%':''); });
       e.addEventListener('change', applyLastImage); wheelStep(e); });
@@ -416,6 +500,8 @@ window.MapEd = (function(){
     return countCells(mapGrid);
   };
   api.resetAll = resetAll;
+  api.setShape = setShape;
+  api.shapeCells = shapeCells;          // (tool, p0, p1, thickness, n) -> [[r,c],...]
   // ---- the source image + trace settings travel with a saved map ----
   api.imageSrc = function(){ return mapLastImgSrc; };
   api.hasImage = function(){ return !!mapLastImg; };
