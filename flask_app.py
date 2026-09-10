@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.3"
+APP_VERSION = "9.13.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4516,6 +4516,9 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.4", "at": "2026-09-10T06:35:00Z", "changes": [
+        "Server: the recorder now notes the exact moment each lobby’s clock was read, so the station ring on the live view and in new replays is placed from the game’s own time rather than estimated from the first snapshot (which ran about 20 seconds behind, and occasionally much more). Live stations are exact from now on; lobbies already running when this went in catch up as they end."
+    ]},
     {"version": "9.13.3", "at": "2026-09-10T05:00:00Z", "changes": [
         "Replay and live radar: ships are now drawn where they really are. The recorder had been storing each map position as an unsigned byte minus 128, but the game’s byte is signed — so every ship was shown half a map away with wrap-around. Relative shapes survived, which is why it never looked obviously broken, but the sun was in the corner and the station ring never matched the ships. Every replay, old or new, is corrected on display.",
         "Station colours and player colours line up. They were mapped correctly all along; the positions were what was off. Checked on the recorded data: in the corrected frame, the ships attacking a station cluster on that station’s computed position for all three teams.",
