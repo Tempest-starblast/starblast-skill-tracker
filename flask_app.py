@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.17"
+APP_VERSION = "9.13.18"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2046,7 +2046,9 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_custom_maps_owner ON custom_maps(owner_sub)")
     # A map traced from a picture keeps that picture (downscaled) and the trace
     # settings, so loading it back can still re-tune the trace.
-    for _col in ("image TEXT", "img_opts TEXT", "shapes TEXT", "base TEXT"):
+    for _col in ("image TEXT", "img_opts TEXT", "shapes TEXT", "base TEXT",
+                 "prev_map TEXT", "prev_base TEXT", "prev_shapes TEXT",
+                 "prev_size INTEGER", "prev_name TEXT", "prev_at TEXT"):
         try:
             c.execute("ALTER TABLE custom_maps ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -4528,6 +4530,10 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.18", "at": "2026-09-10T15:10:00Z", "changes": [
+        "Saved maps keep the version before their last save, so saving over a good map is no longer final: <b>File › Restore previous version</b> puts it back, and the list marks which maps have a version to go back to. Restoring swaps the two versions rather than throwing one away — press it again and you are back where you started, so a mis-click costs nothing.",
+        "(The traced source image isn’t duplicated into the history — it stays attached to the map either way.)"
+    ]},
     {"version": "9.13.17", "at": "2026-09-10T14:40:00Z", "changes": [
         "<b>Fixed: renaming a saved map destroyed the original.</b> Loading a map, giving it a different name and saving used to overwrite the map you loaded — the old name and its asteroids were gone. A rename now always saves as a <b>new</b> map and tells you the original is untouched. Editing a map and saving under the same name still updates it in place, as before.",
         "My Maps: the header always says what Save will do — “editing ‘X’”, “renamed → saves as a copy”, or “new map” — and File has an explicit <b>Save as a copy</b>."
@@ -12647,13 +12653,15 @@ def api_maps():
     c = conn.cursor()
     if request.method == 'GET':
         rows = c.execute("SELECT id, name, size, cells, updated_at, "
-                         "CASE WHEN COALESCE(image,'') = '' THEN 0 ELSE 1 END "
+                         "CASE WHEN COALESCE(image,'') = '' THEN 0 ELSE 1 END, "
+                         "COALESCE(prev_at,'') "
                          "FROM custom_maps WHERE owner_sub = ? "
                          "ORDER BY updated_at DESC, id DESC", (sub_id,)).fetchall()
         conn.close()
         return jsonify({"ok": True, "maps": [{"id": r[0], "name": r[1], "size": r[2],
                                               "cells": r[3] or 0, "updated_at": r[4] or '',
-                                              "has_image": bool(r[5])}
+                                              "has_image": bool(r[5]),
+                                              "prev_at": r[6] or None}
                                              for r in rows]}), 200
     body = request.json or {}
     name = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get("name") or "")).strip()[:MAP_NAME_MAX] or "Untitled map"
@@ -12703,9 +12711,17 @@ def api_maps():
         if not own or own[0] != sub_id:
             conn.close()
             return jsonify({"ok": False, "message": "That map isn't yours."}), 403
+        # Keep the version this save replaces, so it can be restored.
+        was = c.execute("SELECT name, size, map, base, shapes, updated_at "
+                        "FROM custom_maps WHERE id = ?", (mid,)).fetchone()
         c.execute("UPDATE custom_maps SET name=?, size=?, map=?, cells=?, updated_at=?, "
-                  "image=?, img_opts=?, shapes=?, base=? WHERE id = ?",
-                  (name, size, cmap, cells, now, image, img_opts, shapes, base, mid))
+                  "image=?, img_opts=?, shapes=?, base=?, "
+                  "prev_name=?, prev_size=?, prev_map=?, prev_base=?, prev_shapes=?, prev_at=? "
+                  "WHERE id = ?",
+                  (name, size, cmap, cells, now, image, img_opts, shapes, base,
+                   (was[0] if was else None), (was[1] if was else None),
+                   (was[2] if was else None), (was[3] if was else None),
+                   (was[4] if was else None), (was[5] if was else None), mid))
     else:
         n = c.execute("SELECT COUNT(*) FROM custom_maps WHERE owner_sub = ?", (sub_id,)).fetchone()[0]
         if n >= MAPS_PER_USER:
@@ -12721,6 +12737,42 @@ def api_maps():
     return jsonify({"ok": True, "id": mid, "name": name, "size": size, "cells": cells}), 200
 
 
+@app.route('/api/maps/<int:mid>/restore', methods=['POST'])
+def api_map_restore(mid):
+    """Put a map back to the version before its last save.
+
+    The two versions are SWAPPED rather than one being thrown away, so pressing
+    restore again returns to what you had - a mis-click costs nothing."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    if not _can_use_maps(sub_id):
+        return jsonify({"ok": False, "message": "Not allowed."}), 403
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT owner_sub, name, size, map, base, shapes, updated_at, "
+                    "prev_name, prev_size, prev_map, prev_base, prev_shapes, prev_at "
+                    "FROM custom_maps WHERE id = ?", (mid,)).fetchone()
+    if not row or row[0] != sub_id:
+        conn.close()
+        return jsonify({"ok": False, "message": "No such map."}), 404
+    if not row[9]:
+        conn.close()
+        return jsonify({"ok": False, "message": "This map has no earlier version."}), 400
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    p_name, p_size, p_map, p_base, p_shapes = row[7], row[8], row[9], row[10], row[11]
+    cells = sum(1 for ch in (p_map or '') if ch in '123456789')
+    c.execute("UPDATE custom_maps SET name=?, size=?, map=?, base=?, shapes=?, cells=?, updated_at=?, "
+              "prev_name=?, prev_size=?, prev_map=?, prev_base=?, prev_shapes=?, prev_at=? "
+              "WHERE id = ?",
+              (p_name or 'Restored map', p_size or 80, p_map, p_base, p_shapes, cells, now,
+               row[1], row[2], row[3], row[4], row[5], row[6], mid))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "id": mid, "name": p_name or 'Restored map',
+                    "restored_from": row[12] or ""}), 200
+
+
 @app.route('/api/maps/<int:mid>', methods=['GET', 'DELETE'])
 def api_map_one(mid):
     """One of your maps: GET returns it with the map text (for loading / copying);
@@ -12732,7 +12784,8 @@ def api_map_one(mid):
         return jsonify({"ok": False, "message": "My Maps is for Odyssey players and the host."}), 403
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT id, owner_sub, name, size, map, cells, image, img_opts, shapes, base "
+    row = c.execute("SELECT id, owner_sub, name, size, map, cells, image, img_opts, shapes, base, "
+                    "prev_name, prev_at, prev_map "
                     "FROM custom_maps WHERE id = ?", (mid,)).fetchone()
     if not row or row[1] != sub_id:
         conn.close()
@@ -12751,9 +12804,13 @@ def api_map_one(mid):
         _shapes = json.loads(row[8]) if row[8] else None
     except (TypeError, ValueError):
         _shapes = None
+    _prev = None
+    if row[12]:
+        _prev = {"name": row[10] or "", "at": row[11] or "",
+                 "cells": sum(1 for ch in (row[12] or '') if ch in '123456789')}
     return jsonify({"ok": True, "id": row[0], "name": row[2], "size": row[3], "map": row[4],
                     "cells": row[5] or 0, "image": row[6] or None, "img_opts": _iopts,
-                    "shapes": _shapes, "base": row[9] or ""}), 200
+                    "shapes": _shapes, "base": row[9] or "", "prev": _prev}), 200
 
 
 CUSTOM_MODE_LABEL = {"team": "Team mode", "invasion": "Invasion", "deathmatch": "Deathmatch"}

@@ -118,6 +118,7 @@
         <button type="button" id="mmnew">New map</button>
         <button type="button" onclick="document.getElementById('mmsave').click()">Save <kbd>Ctrl+S</kbd></button>
         <button type="button" id="mmsavecopy">Save as a copy</button>
+        <button type="button" id="mmrestore" title="Put this map back to the version before its last save">Restore previous version</button>
         <button type="button" id="mmopen" title="Load a map file from your device">Import map file&hellip;</button>
         <input type="file" id="mmfile" accept=".txt,.map,text/plain" style="display:none">
         <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
@@ -258,7 +259,7 @@
       if(!maps.length){ ul.innerHTML='<li class="mmempty">No saved maps yet — draw one above and hit Save.</li>'; return; }
       maps.forEach(function(m){
         var li=document.createElement('li');
-        li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
+        li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+(m.prev_at?' · ↩ restorable':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
           +'<button class="mmbtn" data-act="load" type="button">Load</button>'
           +'<button class="mmbtn" data-act="copy" type="button">Copy</button>'
           +'<button class="mmbtn" data-act="dl" type="button">Download</button>'
@@ -277,12 +278,12 @@
       });
     }).catch(function(){ $('mmlist').innerHTML='<li class="mmempty">Couldn’t load your maps — try again.</li>'; });
   }
-  function loadMap(id){
-    if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
+  function loadMap(id, force, after){
+    if(!force && dirty && !confirm('Discard unsaved changes to the current map?')) return;
     fetchMap(id, function(d){
       MapEd.load(d.map); MapEd.resetUndo();
       if(Array.isArray(d.shapes) && d.shapes.length && MapEd.setObjects) MapEd.setObjects(d.base||'', d.shapes);   // objects come back editable
-      cur={id:d.id,name:d.name}; $('mmname').value=d.name; setDirty(false);
+      cur={id:d.id,name:d.name}; curPrev=d.prev||null; $('mmname').value=d.name; setDirty(false); showRestore();
       window.scrollTo({top:0,behavior:'smooth'});
       if(d.image && MapEd.setImage){
         // Put the picture back WITHOUT re-tracing - the saved map is what you saved.
@@ -292,6 +293,7 @@
           setDirty(false);
         });
       } else { MapEd.setImage && MapEd.setImage(null); status('Loaded “'+d.name+'”','ok'); }
+      if(typeof after==='function') after(d);
     });
   }
   function save(asCopy){
@@ -315,6 +317,9 @@
       .then(function(r){return r.json();}).then(function(j){ b.disabled=false;
         if(!j.ok){ status(j.message||'Save failed','err'); return; }
         cur={id:j.id,name:j.name}; $('mmname').value=j.name; setDirty(false); showCur();
+        if(!forking) curPrev={at:'', name:fromName||j.name};   // the server's timestamp appears when it is next loaded
+        else curPrev=null;
+        showRestore();
         status(forking && fromName ? 'Saved as a new map — “'+fromName+'” is untouched'
                                    : (forking ? 'Saved as a new map' : 'Saved'), 'ok');
         listMaps(); })
@@ -364,8 +369,25 @@
   }
   $('mmsave').onclick=function(){ save(false); };
   var sc=$('mmsavecopy'); if(sc) sc.onclick=function(){ save(true); };
+  // One step back: the map as it was before its last save. The server SWAPS the two
+  // versions, so pressing it again returns to what you had.
+  var curPrev=null;
+  function showRestore(){ var b=$('mmrestore'); if(!b) return;
+    b.disabled = !(cur.id && curPrev);
+    b.textContent = (curPrev && curPrev.at) ? ('Restore version from '+curPrev.at.slice(0,16)) : 'Restore previous version';
+    b.style.opacity = b.disabled ? '0.5' : ''; }
+  $('mmrestore').onclick=function(){
+    if(!cur.id || !curPrev) return;
+    if(dirty && !confirm('Discard unsaved changes and go back to the previous saved version?')) return;
+    var b=$('mmrestore'); b.disabled=true; status('Restoring…');
+    fetch('/api/maps/'+cur.id+'/restore',{method:'POST'}).then(function(r){return r.json();})
+      .then(function(j){ if(!j || !j.ok){ status((j&&j.message)||'Restore failed','err'); showRestore(); return; }
+        loadMap(cur.id, true, function(){ status('Restored — press Restore again to go back','ok'); });
+        listMaps(); })
+      .catch(function(){ status('Restore failed — network','err'); showRestore(); });
+  };
   $('mmname').addEventListener('input', showCur);
-  showCur();
+  showCur(); showRestore();
   $('mmnew').onclick=function(){ if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
     MapEd.resetAll(); if(MapEd.setImage) MapEd.setImage(null); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };   // the full reset: asteroids, shapes, image, options
   $('mmcopy').onclick=function(){ copyText(MapEd.str(), 'Copied — paste it into the lobby’s map box.'); };
