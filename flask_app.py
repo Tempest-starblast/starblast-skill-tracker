@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.20"
+APP_VERSION = "9.13.21"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4535,6 +4535,9 @@ def game_end():
 OWNER_TAG = "@owner "
 
 CHANGELOG = [
+    {"version": "9.13.21", "at": "2026-09-10T17:40:00Z", "changes": [
+        "The leaderboard now says how much it is built on: the total number of team matches and survival rounds the watcher has recorded, under the player count."
+    ]},
     {"version": "9.13.20", "at": "2026-09-10T17:00:00Z", "changes": [
         "Server: when a lobby refuses to hold the watcher\u2019s connection, it now waits longer between attempts (2 seconds, then 4, 8 and so on up to a minute) instead of retrying every two seconds forever, and goes straight back to normal as soon as a connection lasts. Less wasted bandwidth, and the log stays readable.",
         "@owner The menu entries only you can use \u2014 Odyssey lobby, My Maps, Flood review, Merge requests \u2014 are no longer written into everybody\u2019s page and hidden with styling. The server sends them to accounts that may use them, so a visitor\u2019s page never mentions them at all, not even in the script."
@@ -14801,6 +14804,37 @@ def elo_page():
     return redirect('/info', code=301)
 
 
+# How many matches the watcher has behind it, team and survival. Whole-table
+# counts on the busiest page, so they are cached: a few minutes stale is fine
+# for a number that only ever goes up.
+_WATCHED_CACHE = {"at": 0.0, "team": 0, "survival": 0}
+_WATCHED_TTL = 300.0
+
+
+def watched_totals():
+    """(team matches, survival rounds) recorded so far."""
+    now = time.time()
+    if now - _WATCHED_CACHE["at"] < _WATCHED_TTL:
+        return _WATCHED_CACHE["team"], _WATCHED_CACHE["survival"]
+    team = surv = 0
+    try:
+        conn = db()
+        c = conn.cursor()
+        try:
+            team = c.execute("SELECT COUNT(*) FROM matches").fetchone()[0] or 0
+        except sqlite3.Error:
+            team = 0
+        try:
+            surv = c.execute("SELECT COUNT(*) FROM survival_results").fetchone()[0] or 0
+        except sqlite3.Error:
+            surv = 0
+        conn.close()
+    except sqlite3.Error:
+        return _WATCHED_CACHE["team"], _WATCHED_CACHE["survival"]
+    _WATCHED_CACHE.update({"at": now, "team": team, "survival": surv})
+    return team, surv
+
+
 @app.route('/')
 def leaderboard():
     period = request.args.get('period', 'all')
@@ -15007,6 +15041,7 @@ def leaderboard():
         _shownset = {normalize_name(_p['name']) for _p in leaderboard_data}
         me_rows = [_p for _p in me_rows
                    if normalize_name(_p['name']) not in _shownset]
+    _wt, _ws = watched_totals()
     return render_template('index.html', leaderboard=leaderboard_data,
                            periods=PERIODS, regions=REGION_CHOICES,
                            period=period, region=region, gain=gain,
@@ -15015,7 +15050,8 @@ def leaderboard():
                            version=APP_VERSION, page='leaderboard',
                            pnum=pnum, pages=pages, q=q, found=found,
                            me_rows=me_rows, per_page=PER_PAGE,
-                           total=total_ranked, mode=mode)
+                           total=total_ranked, mode=mode,
+                           watched_team=_wt, watched_survival=_ws)
 
 
 init_db()  # runs on import too, since WSGI hosts never execute __main__

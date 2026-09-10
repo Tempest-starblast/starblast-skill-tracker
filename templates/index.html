@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Leaderboard - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+.psub.watched{margin-top:-4px;opacity:.85}
 .filters{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px;
   justify-content:space-between;align-items:center}
 .fgroup{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
@@ -154,6 +155,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
      class="{% if mode == 'survival' %}on{% endif %}">Survival <span class="betatag">beta</span></a>
 </div>
 <p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.{% if pages > 1 %} {{ t('Page') }} {{ pnum }} / {{ pages }}.{% endif %}</p>
+<p class="psub watched">Built from <b>{{ "{:,}".format(watched_team) }}</b> team match{{ '' if watched_team == 1 else 'es' }} and <b>{{ "{:,}".format(watched_survival) }}</b> survival round{{ '' if watched_survival == 1 else 's' }} watched so far.</p>
 {% if mode == 'survival' %}
 <p class="svbeta">A placement rating for last-ship-standing <b>survival</b>, from finish order only &mdash; no scores exist to a passive watcher. Winning a big lobby pays most, and outlasting strong players pays more than weak ones. Fields of 4+ count; the ~30-minute build phase is ignored. Experimental, and separate from the team-mode board.</p>
 {% endif %}
