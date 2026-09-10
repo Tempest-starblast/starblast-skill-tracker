@@ -1003,12 +1003,16 @@ fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
   // spawn a ship, so they are not on the radar or in the rosters - say so, or a
   // flagged match looks like a false alarm.
   if(d.flood && (d.flood_max||0) >= 2){
-    var fparts=[]; Object.keys(d.flood).forEach(function(t){ var names=d.flood[t]||{};
+    var fparts=[], lobby=[]; Object.keys(d.flood).forEach(function(t){ var names=d.flood[t]||{};
+      if(t==='lobby'){ Object.keys(names).forEach(function(n){ lobby.push(names[n]+' '+esc(n)); }); return; }
       var tl = /^\d+$/.test(t) ? 'Team '+(parseInt(t,10)+1) : String(t).replace(/^team_/i,'Team ');
       Object.keys(names).forEach(function(n){ fparts.push('“'+esc(n)+'” ×'+names[n]+' ('+esc(tl)+')'); }); });
+    if(lobby.length) fparts.push(lobby.join(', ')+' in the lobby');
     head.insertAdjacentHTML('beforeend','<div class="rpflood'+(d.flood_significant?' hi':'')+'">'
       +(d.flood_significant?'&#9888; Flood flagged: ':'Duplicate ships: ')+fparts.join(', ')
-      +' — that many ships under one name at once. Swarm accounts almost never spawn a ship, so they are not on the radar or in the rosters; they fill the lobby instead.</div>');
+      +' — that many ships under one name at once.'
+      +(d.radar_flies_missing ? ' This match was recorded before 10 Sep 2026, when the recorder left tier-1 Flies off the radar (a bug, fixed since) — swarms fly Flies, so they do not appear on the radar here even though they were in the game.' : ' They appear on the radar like any other ship.')
+      +'</div>');
   }
     +(durLbl?' &middot; '+durLbl:'')+'</span>';
   const tops=[1,2,3].map(i=>(d.top||{})['team_'+i]||'');

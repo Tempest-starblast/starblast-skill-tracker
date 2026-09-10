@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.10"
+APP_VERSION = "9.13.11"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2945,7 +2945,11 @@ def replay_data(mid):
     except (TypeError, ValueError):
         _flood = None
     _flood_keys = {"flood": _flood, "flood_max": int(m_fmax or 0),
-                   "flood_significant": int(m_fmax or 0) >= FLOOD_SIGNIFICANT}
+                   "flood_significant": int(m_fmax or 0) >= FLOOD_SIGNIFICANT,
+                   # Until 10 Sep 2026 ~10:40 UTC the recorder dropped tier-1 Flies
+                   # from the radar (model byte 0 read as 'no ship'), so a swarm of
+                   # Flies is invisible in replays recorded before then.
+                   "radar_flies_missing": str(m_played or "") < "2026-09-10 10:40"}
     _pat = m_played or ''
     try:
         c.execute("SELECT data FROM match_replays WHERE match_row = ?", (mid,))
@@ -4524,6 +4528,12 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.11", "at": "2026-09-10T11:30:00Z", "changes": [
+        "My Maps is laid out like an editor now: the map large in the middle with a menu bar above it (File, Edit, Insert, View) and one toolbar for the drawing tools, and a side panel that keeps the map settings and your saved maps in view without scrolling. The scattered buttons are consolidated into those menus; New map is the one reset.",
+        "Map editor: select several shapes at once — drag a box around them with the Select tool, or Shift-click to add — then move, delete, duplicate, copy/paste (Ctrl+C, Ctrl+X, Ctrl+V) or retune them together. Ctrl+A selects every shape. A click on a shape selects it with any tool.",
+        "Map editor fixes: Clear now clears shapes as well as painted asteroids; Flatten is now “Bake into map” and says what it does (it turns a shape into plain asteroids, so it stops being a shape — Undo brings it back).",
+        "Replays: the flood notice now tells the truth. Swarm ships are usually tier-1 Flies, and until today the recorder left every Fly off the radar (it read the Fly’s ship byte as “no ship”) — so a swarm that was very much in the game did not show. Matches recorded before today say so in the notice; from the recorder’s next restart, Flies appear on the radar like any other ship."
+    ]},
     {"version": "9.13.10", "at": "2026-09-10T10:20:00Z", "changes": [
         "Replays now show a match’s flood evidence under the header — which name had how many ships at once, on which team — and explain why a flagged match can look clean on the radar: swarm accounts almost never spawn a ship, so they are not on the radar or in the rosters; they fill the lobby instead. (Prompted by Celaefar 2: “SLEEP TIME” had 63 ships in the lobby at once and not one of them ever flew.)"
     ]},

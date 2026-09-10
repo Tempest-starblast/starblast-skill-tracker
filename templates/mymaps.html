@@ -2,11 +2,51 @@
 {% block title %}My Maps - Starblast Skill Leaderboard{% endblock %}
 {% block meta_description %}Build, save and share custom asteroid maps for the Odyssey custom lobby.{% endblock %}
 {% block css %}
-.mmwrap{max-width:1120px}
+.mmwrap{max-width:1560px}
+/* IDE layout: a sticky side panel with every control, the map large in the middle.
+   The shared editor emits the canvas inside its tools; the page moves it (and the
+   selection bar + hover readout) into the stage by id, so nothing scrolls away. */
+.mmide{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
+.mmside{position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto;padding-right:4px;scrollbar-width:thin}
+.mmside .mmcard{margin-bottom:12px}
+.mmstage{position:sticky;top:10px}
+.mmstage .mmcard{padding:12px 14px}
+.mmstage #mapcanvas{max-width:min(100%, calc(100vh - 260px));margin:0 auto}
+.mmstage .mapselbar{margin-bottom:10px}
+.mmstage .mmhover{min-height:18px;margin-top:8px;font-size:11.5px;color:var(--muted);text-align:center}
+.mmside .cgmaptools{gap:6px}
+.mmside .cgmaptools input[type=range]{width:80px}
+@media (max-width:980px){.mmide{grid-template-columns:1fr}.mmside,.mmstage{position:static;max-height:none;overflow:visible}}
 .mmnote{color:var(--muted);font-size:13.5px;line-height:1.65;margin:-4px 0 18px}
 .mmcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;backdrop-filter:var(--blur);margin-bottom:14px}
 .mmcard h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
 .mmbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+/* Docs-style menubar + toolbar above the map */
+.mmmenubar{display:flex;align-items:center;gap:2px;flex-wrap:wrap;padding:2px 2px 8px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.mmmenu{position:relative}
+.mmmenu>summary{list-style:none;cursor:pointer;padding:6px 11px;border-radius:6px;font-size:13px;color:var(--text);user-select:none}
+.mmmenu>summary::-webkit-details-marker{display:none}
+.mmmenu>summary:hover,.mmmenu[open]>summary{background:rgba(127,127,127,.18)}
+.mmmenu-list{position:absolute;top:100%;left:0;z-index:30;min-width:250px;background:#141920;border:1px solid var(--line);border-radius:9px;padding:6px;
+  box-shadow:0 12px 34px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:1px}
+.mmmenu-list button,.mmmenu-list label.cgchk{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;box-sizing:border-box;text-align:left;
+  background:none;border:0;border-radius:6px;padding:7px 10px;color:var(--text);font:13px/1.25 inherit;cursor:pointer;white-space:nowrap}
+.mmmenu-list button:hover,.mmmenu-list label.cgchk:hover{background:rgba(102,230,184,.12)}
+.mmmenu-list kbd{font:11px ui-monospace,Menlo,monospace;color:var(--muted);margin-left:auto}
+.mmmenu-list .mmmenu-sep{height:1px;background:var(--line);margin:4px 2px}
+.mmmenu-list .cgmapxy{margin:2px 0 0;padding:6px 10px;gap:6px}
+.mmmenu-list .mapadvbtn{background:none!important;border:0!important;color:var(--text)!important}
+.mmmenu-spacer{flex:1}
+.mmmenubar #mmname{flex:0 1 260px;min-width:120px;background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:6px 10px;color:var(--text);font-size:13px;font-family:inherit}
+.mmtoolbar{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:2px 0 10px;font-size:11.5px;color:var(--muted)}
+.mmtoolbar .mmtoolrow2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mmtoolbar .cgmaptools{margin:0}
+.mmtoolbar .cgsep{width:1px;height:18px;background:var(--line)}
+.mmtoolbar input[type=range]{width:72px;accent-color:var(--green,#66e6b8);padding:0;border:0;background:none}
+.mmtoolbar .cgmaptools{gap:5px}
+.mmtoolbar .cgmaptools > span:first-child:not(.cgsep){display:none}   /* the 'Draw' label */
+.mmtoolbar button{padding:4px 8px;font-size:11.5px}
+.mmside .mmform{grid-template-columns:1fr;gap:8px}
 .mmbar input[type=text]{flex:1;min-width:160px;background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit}
 .mmbtn{background:rgba(127,127,127,.14);border:1px solid var(--line);border-radius:7px;padding:7px 12px;color:var(--text);font-size:12.5px;cursor:pointer;font-family:inherit}
 .mmbtn:hover{border-color:var(--green,#66e6b8)}
@@ -45,28 +85,50 @@
 {% else %}
 {% include "_mapgen.html" %}
 {% include "_mapeditor.html" %}
-<div class="mmcard">
-  <h2>Editor</h2>
-  <div class="mmbar">
-    <input type="text" id="mmname" maxlength="40" placeholder="Map name">
-    <button class="mmbtn primary" id="mmsave" type="button">Save</button>
-    <button class="mmbtn" id="mmnew" type="button">New</button>
-    <button class="mmbtn" id="mmcopy" type="button" title="Copy the map text to your clipboard">Copy map</button>
-    <button class="mmbtn" id="mmdownload" type="button" title="Save this map to your device as a .txt file">Download</button>
-    <button class="mmbtn" id="mmopen" type="button" title="Load a map file from your device">Import map</button>
-    <input type="file" id="mmfile" accept=".txt,.map,text/plain" style="display:none">
-    <span class="mmstatus" id="mmstatus"></span>
+<div class="mmide">
+<aside class="mmside">
+  <div class="mmcard">
+    <h2>Map</h2>
+    <div class="mmform" id="mmform"></div>
+    <input type="hidden" id="o_root_mode" value="team">
   </div>
-  <div class="mmform" id="mmform"></div>
-  <input type="hidden" id="o_root_mode" value="team">
-  <div class="cgmap" id="mmtools"></div>
-  <label class="adv" style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Raw map text &mdash; this is what gets copied. Paste a map here and hit &ldquo;Apply pasted&rdquo; to load it.
-    <textarea id="o_custom_map" class="mmraw" spellcheck="false"></textarea></label>
-  <p class="mmempty adv-hint" style="margin:8px 0 0;font-size:11.5px">Draw on the grid, then <b>Save</b>. <b>More tools</b> adds tracing an image, exact X/Y placement, the raw map text and reset.</p>
-</div>
-<div class="mmcard">
-  <h2>Saved maps</h2>
-  <ul class="mmlist" id="mmlist"><li class="mmempty">Loading&hellip;</li></ul>
+  <div class="mmcard" id="mmimgcard" style="display:none"><h2>Image trace</h2><div id="mmimgopts"></div></div>
+  <div class="mmcard adv"><h2>By point</h2><div id="mmpoint"></div></div>
+  <div class="mmcard adv"><h2>Raw map text</h2>
+    <textarea id="o_custom_map" class="mmraw" spellcheck="false"></textarea>
+    <p class="mmempty" style="margin:6px 0 0;font-size:11px">This is what the game gets. Paste a map here and use Insert &rsaquo; Apply pasted text.</p></div>
+  <div class="mmcard">
+    <h2>Saved maps</h2>
+    <ul class="mmlist" id="mmlist"><li class="mmempty">Loading&hellip;</li></ul>
+  </div>
+</aside>
+<main class="mmstage">
+  <div class="mmcard">
+    <div class="mmmenubar">
+      <details class="mmmenu"><summary>File</summary><div class="mmmenu-list">
+        <button type="button" id="mmnew">New map</button>
+        <button type="button" onclick="document.getElementById('mmsave').click()">Save <kbd>Ctrl+S</kbd></button>
+        <button type="button" id="mmopen" title="Load a map file from your device">Import map file&hellip;</button>
+        <input type="file" id="mmfile" accept=".txt,.map,text/plain" style="display:none">
+        <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
+        <button type="button" id="mmcopy" title="Copy the map text to your clipboard">Copy map text</button>
+
+      </div></details>
+      <details class="mmmenu"><summary>Edit</summary><div class="mmmenu-list" id="mmEdit"></div></details>
+      <details class="mmmenu"><summary>Insert</summary><div class="mmmenu-list" id="mmInsert"></div></details>
+      <details class="mmmenu"><summary>View</summary><div class="mmmenu-list" id="mmView"></div></details>
+      <span class="mmmenu-spacer"></span>
+      <input type="text" id="mmname" maxlength="40" placeholder="Map name">
+      <button class="mmbtn primary" id="mmsave" type="button">Save</button>
+      <span class="mmstatus" id="mmstatus"></span>
+    </div>
+    <div class="mmtoolbar" id="mmtoolbar"></div>
+    <div id="mmstageTop"></div>
+    <div id="mmstage"></div>
+    <div class="mmhover" id="mmstageHover"></div>
+  </div>
+</main>
+<div id="mmtools" style="display:none"></div>
 </div>
 {% endif %}
 </div>
@@ -90,7 +152,63 @@
     + '<p class="hint">Map size is part of the map. Teams and station size only move the base markers here so you can build around them — the real ones are set when the lobby is opened.</p>'
     + '</span>';
   $('mmtools').innerHTML = MapEd.toolsHtml();
+  // The shared editor emits one tools block. This page consolidates it, Docs-style:
+  // the map and its selection bar centre-stage, the drawing tools on a toolbar,
+  // everything else under File / Edit / Insert / View. The editor binds by id, so
+  // every control keeps working wherever it lives.
+  (function(){
+    var mv=function(id, dest, before){ var el=(typeof id==='string')?$(id):id; var d=(typeof dest==='string')?$(dest):dest;
+      if(el&&d){ if(before) d.insertBefore(el, before); else d.appendChild(el); } return el; };
+    var kbd=function(el, k){ if(el){ var s=document.createElement('kbd'); s.textContent=k; el.appendChild(s); } };
+    mv('mapcanvas','mmstage'); mv('mapselbar','mmstageTop');
+    var ho=mv('maphover','mmstageHover'); if(ho) ho.style.marginLeft='0';
+    // toolbar: the shape tools row, then size / erase / thickness
+    var tb=$('mmtoolbar'), shapes=$('mapshapes');
+    if(shapes){ var tk=$('mapthick'), tkv=$('mapthick_v'); var thickLbl=null;
+      // pull the thickness bits out of the shapes row so the toolbar can order them
+      [].slice.call(shapes.childNodes).forEach(function(n){ if(n.nodeType===1 && /^SPAN$/.test(n.tagName) && /Thickness/.test(n.textContent) && !n.id) thickLbl=n; });
+      mv(shapes, tb);
+      // second row, on purpose: the numbers that go with the tool
+      var row2=document.createElement('div'); row2.className='mmtoolrow2'; tb.appendChild(row2);
+      var sizeWrap=document.createElement('span'); sizeWrap.className='cgmaptools'; sizeWrap.innerHTML='<span>Asteroid size</span>';
+      row2.appendChild(sizeWrap); mv('mapbrush', sizeWrap); mv('mapbrush_v', sizeWrap); mv('maperase', sizeWrap);
+      var thickWrap=document.createElement('span'); thickWrap.className='cgmaptools'; thickWrap.innerHTML='<span class="cgsep"></span><span>Thickness</span>';
+      row2.appendChild(thickWrap); mv(tk, thickWrap); mv(tkv, thickWrap); if(thickLbl) thickLbl.remove(); }
+    // File: reset all
+    var rs=$('mapreset'); if(rs) rs.style.display='none';          // New map does the full reset
+    // Edit
+    var ed=$('mmEdit'); var un=mv('mapundo',ed); if(un){ un.textContent='Undo'; kbd(un,'Ctrl+Z'); }
+    var cl=mv('mapclear',ed); if(cl) cl.textContent='Clear map';
+    var sa=document.createElement('button'); sa.type='button'; sa.textContent='Select all shapes'; kbd(sa,'Ctrl+A');
+    sa.onclick=function(){ if(MapEd.selectAll) MapEd.selectAll(); }; ed.insertBefore(sa, cl);
+    // Insert
+    var ins=$('mmInsert'); var im=mv('mapimg',ins); if(im) im.textContent='From image\u2026';
+    mv('mapimgfile', ins);
+    var ap=mv('mapimport',ins); if(ap) ap.textContent='Apply pasted text';
+    var seedRow=$('mapseed') && $('mapseed').closest('.cgmapxy'); if(seedRow){ var sep=document.createElement('div'); sep.className='mmmenu-sep'; ins.appendChild(sep); mv(seedRow, ins); }
+    // View
+    var vw=$('mmView'); var ob=mv('maporbit',vw); var ms=mv('mapselect',vw); if(ms) ms.title='Drag the stations around their ring yourself';
+    var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp) mv(cp, vw);
+    var adv=mv('mapadv',vw);
+    // side panel: image trace options (shown once an image is in), by-point row
+    var io=document.querySelector('#mmtools .cgimgopts'); if(io) mv(io,'mmimgopts');
+    var ptRow=$('mapx') && $('mapx').closest('.cgmapxy'); if(ptRow) mv(ptRow,'mmpoint');
+    // menus close when an item is clicked or you click elsewhere
+    document.querySelectorAll('.mmmenu').forEach(function(m){ m.addEventListener('click', function(e){ var t=e.target;
+      if(t.closest && t.closest('.mmmenu-list') && (t.tagName==='BUTTON'||t.closest('button'))) setTimeout(function(){ m.removeAttribute('open'); }, 0); }); });
+    document.addEventListener('click', function(e){ document.querySelectorAll('.mmmenu[open]').forEach(function(m){ if(!m.contains(e.target)) m.removeAttribute('open'); }); });
+    // the image-trace card shows itself once a picture is loaded
+    var imgcard=$('mmimgcard'); if(imgcard){ setInterval(function(){ imgcard.style.display=(MapEd.hasImage&&MapEd.hasImage())?'':'none'; }, 800); }
+  })();
   MapEd.init({readOnly:false});
+  // The map fills what is left of the viewport below the menubar, toolbar and
+  // selection bar (the stage is sticky, so the canvas top is a viewport position).
+  function fitCanvas(){ var cv=$('mapcanvas'), st=$('mmstage'); if(!cv||!st) return;
+    var top=cv.getBoundingClientRect().top, avail=Math.floor(innerHeight-top-34);
+    var wide=st.getBoundingClientRect().width;
+    cv.style.maxWidth=Math.max(300, Math.min(avail, wide))+'px'; }
+  fitCanvas(); window.addEventListener('resize', fitCanvas); setTimeout(fitCanvas, 300);
+  new MutationObserver(function(){ fitCanvas(); }).observe($('mmstageTop'), {childList:true, subtree:true, attributes:true});
 
   var cur = {id:null, name:''}, dirty = false;
   function status(msg, cls){ var s=$('mmstatus'); s.textContent=msg||''; s.className='mmstatus'+(cls?' '+cls:''); }
@@ -210,7 +328,7 @@
   }
   $('mmsave').onclick=save;
   $('mmnew').onclick=function(){ if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
-    MapEd.clear(); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };
+    MapEd.resetAll(); if(MapEd.setImage) MapEd.setImage(null); MapEd.resetUndo(); cur={id:null,name:''}; $('mmname').value=''; setDirty(false); status('New map'); };   // the full reset: asteroids, shapes, image, options
   $('mmcopy').onclick=function(){ copyText(MapEd.str(), 'Copied — paste it into the lobby’s map box.'); };
   $('mmdownload').onclick=function(){ downloadMap(MapEd.str(), ($('mmname').value||'').trim() || cur.name); };
   $('mmopen').onclick=function(){ $('mmfile').click(); };

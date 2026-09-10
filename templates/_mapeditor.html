@@ -81,7 +81,7 @@ window.MapEd = (function(){
   function snapshot(){ return {g: mapGrid.map(function(row){ return row.slice(); }), s: cloneShapes(shapes)}; }
   function pushUndo(){ if(!mapGrid) return; mapUndo.push(snapshot()); if(mapUndo.length>60) mapUndo.shift(); }
   function doUndo(){ if(mapUndo.length){ var u=mapUndo.pop(); mapGrid=u.g; shapes=u.s;
-    if(!shapes.some(function(x){ return x.id===selId; })) selId=null;
+    selIds=selIds.filter(function(id){ return shapes.some(function(x){ return x.id===id; }); });
     drawMap(); syncMapText(); updateSelBar(); } }
   // Mouse-wheel on a small slider = exactly ONE step (browsers otherwise skip).
   function wheelStep(el){ if(!el) return; el.addEventListener('wheel', function(e){ e.preventDefault();
@@ -163,13 +163,16 @@ window.MapEd = (function(){
   // ---- shapes: rasterised straight onto the grid, so undo / clear-path / save /
   //      export all work unchanged. p0/p1 are continuous cell coordinates. ----
   var shapeTool = 'brush', shapeDrag = null;
-  var shapes = [], selId = null, nextShapeId = 1;    // the object layer + the selection
+  var shapes = [], selIds = [], nextShapeId = 1;    // the object layer + the selection (ids)
+  function isSel(id){ return selIds.indexOf(id) >= 0; }
+  function getSels(){ return shapes.filter(function(x){ return isSel(x.id); }); }
+  function setSel(ids){ selIds = ids.slice(); }
   function cloneShapes(list){ return list.map(function(s){ return {id:s.id, type:s.type, p0:{x:s.p0.x,y:s.p0.y}, p1:{x:s.p1.x,y:s.p1.y}, t:s.t, v:s.v}; }); }
   function shapeCellsOf(s){ var n=mapGrid?mapGrid.length:0;
     if(!s._cells || s._n!==n){ s._cells=shapeCells(s.type, s.p0, s.p1, s.t, n); s._n=n; }
     return s._cells; }
   function touch(s){ s._cells=null; }
-  function getSel(){ for(var i=0;i<shapes.length;i++) if(shapes[i].id===selId) return shapes[i]; return null; }
+  function getSel(){ var l=getSels(); return l.length===1 ? l[0] : null; }   // the single selection (handles, type UI)
   function snapC(v){ return Math.floor(v)+0.5; }        // cell centre
   function normRect(s){ if(s.type!=='rect'&&s.type!=='frame') return;
     var x0=Math.min(s.p0.x,s.p1.x), x1=Math.max(s.p0.x,s.p1.x), y0=Math.min(s.p0.y,s.p1.y), y1=Math.max(s.p0.y,s.p1.y);
@@ -195,28 +198,52 @@ window.MapEd = (function(){
   function shapeBBox(s){ var cells=shapeCellsOf(s); if(!cells.length) return null;
     var r0=1e9,r1=-1e9,c0=1e9,c1=-1e9; cells.forEach(function(rc){ if(rc[0]<r0)r0=rc[0]; if(rc[0]>r1)r1=rc[0]; if(rc[1]<c0)c0=rc[1]; if(rc[1]>c1)c1=rc[1]; });
     return {r0:r0,r1:r1,c0:c0,c1:c1}; }
-  function addShape(s){ s.id=nextShapeId++; normRect(s); touch(s); shapes.push(s); selId=s.id; return s; }
-  function deleteSel(){ var s=getSel(); if(!s) return; pushUndo(); shapes=shapes.filter(function(x){ return x!==s; }); selId=null; drawMap(); syncMapText(); updateSelBar(); }
-  function duplicateSel(){ var s=getSel(); if(!s) return; pushUndo(); var d=cloneShapes([s])[0]; moveShape(d,2,2); addShape(d); drawMap(); syncMapText(); updateSelBar(); }
-  function flattenSel(){ var s=getSel(); if(!s) return; pushUndo();
-    shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]]=s.v; });
-    shapes=shapes.filter(function(x){ return x!==s; }); selId=null; drawMap(); syncMapText(); updateSelBar(); }
-  function nudgeSel(dx,dy){ var s=getSel(); if(!s) return; pushUndo(); moveShape(s,dx,dy); drawMap(); syncMapText(); }
+  function addShape(s){ s.id=nextShapeId++; normRect(s); touch(s); shapes.push(s); setSel([s.id]); return s; }
+  function deleteSel(){ var l=getSels(); if(!l.length) return; pushUndo(); shapes=shapes.filter(function(x){ return !isSel(x.id); }); setSel([]); drawMap(); syncMapText(); updateSelBar(); }
+  function duplicateSel(){ var l=getSels(); if(!l.length) return; pushUndo(); var ids=[];
+    cloneShapes(l).forEach(function(d){ moveShape(d,2,2); addShape(d); ids.push(d.id); }); setSel(ids); drawMap(); syncMapText(); updateSelBar(); }
+  // Bake: the shapes become plain asteroids in the brush layer (so they are no longer
+  // objects to select - Undo brings them back as shapes).
+  function flattenSel(){ var l=getSels(); if(!l.length) return; pushUndo();
+    l.forEach(function(s){ shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]]=s.v; }); });
+    shapes=shapes.filter(function(x){ return !isSel(x.id); }); setSel([]); drawMap(); syncMapText(); updateSelBar();
+    var i=$('mapselinfo'); if(i) i.textContent='Baked into the map as plain asteroids — Undo (Ctrl+Z) turns them back into shapes'; }
+  function nudgeSel(dx,dy){ var l=getSels(); if(!l.length) return; pushUndo(); l.forEach(function(s){ moveShape(s,dx,dy); }); drawMap(); syncMapText(); }
+  // marquee: every shape whose cells touch the box
+  function selectInBox(a, b){ var r0=Math.floor(Math.min(a.y,b.y)), r1=Math.floor(Math.max(a.y,b.y)), c0=Math.floor(Math.min(a.x,b.x)), c1=Math.floor(Math.max(a.x,b.x));
+    var ids=[]; shapes.forEach(function(s){ var cells=shapeCellsOf(s);
+      for(var k=0;k<cells.length;k++){ var rc=cells[k]; if(rc[0]>=r0&&rc[0]<=r1&&rc[1]>=c0&&rc[1]<=c1){ ids.push(s.id); break; } } });
+    return ids; }
+  var shapeClip=null, pasteN=0;
+  function copySel(){ var l=getSels(); if(!l.length) return false; shapeClip=cloneShapes(l); shapeClip.forEach(function(d){ delete d.id; }); pasteN=0; return true; }
+  function cutSel(){ if(copySel()) deleteSel(); }
+  function pasteClip(){ if(!shapeClip||!shapeClip.length) return false; pushUndo(); pasteN++; var ids=[];
+    cloneShapes(shapeClip).forEach(function(d){ moveShape(d, 2*pasteN, 2*pasteN); addShape(d); ids.push(d.id); });
+    setSel(ids); setShape('select'); drawMap(); syncMapText(); updateSelBar(); return true; }
   var SHAPE_NAMES={rect:'Rectangle',frame:'Frame',disc:'Disc',ring:'Ring',bar:'Bar',corner:'Corner'};
-  function updateSelBar(){ var bar=$('mapselbar'); if(!bar) return; var s=getSel();
+  function updateSelBar(){ var bar=$('mapselbar'); if(!bar) return; var l=getSels(), s=getSel();
     var ctl=$('mapselctl'), info=$('mapselinfo'), sv=$('mapselv'), st=$('mapselt'), tw=$('mapseltw');
-    bar.classList.toggle('has', !!s); if(ctl) ctl.style.display = s ? 'contents' : 'none';
+    bar.classList.toggle('has', l.length>0); if(ctl) ctl.style.display = l.length ? 'contents' : 'none';
+    if(l.length>1){ if(info) info.textContent=l.length+' shapes selected · drag any of them to move all · Shift+click adds or removes one';
+      if(sv){ sv.value=l[0].v; $('mapselv_v').textContent = l[0].v ? l[0].v : 'hole'; }
+      if(st){ st.value=l[0].t; $('mapselt_v').textContent=l[0].t; } if(tw) tw.style.display=''; return; }
     if(!s){ if(info) info.textContent = shapes.length
-      ? 'Click a shape to select it · drag to move · corner handles resize · Delete removes'
+      ? 'Click a shape to select it · drag a box to select several · Shift+click adds · drag to move · handles resize · Ctrl+C / Ctrl+V · Delete'
       : 'Pick a shape above and drag it out on the map · it stays movable afterwards'; return; }
     var bb=shapeBBox(s); info.textContent=(SHAPE_NAMES[s.type]||s.type)+(bb?(' · '+(bb.c1-bb.c0+1)+'×'+(bb.r1-bb.r0+1)+' at ('+bb.c0+', '+bb.r0+')'):'');
     if(sv){ sv.value=s.v; $('mapselv_v').textContent = s.v ? s.v : 'hole'; }
     if(st){ st.value=s.t; $('mapselt_v').textContent=s.t; }
     if(tw) tw.style.display = (s.type==='rect'||s.type==='disc') ? 'none' : ''; }
-  function drawSelection(ctx, cs){ var s=getSel(); if(!s) return; var bb=shapeBBox(s);
+  var marquee=null;                                   // {a:{x,y}, b:{x,y}} while box-selecting
+  function drawSelection(ctx, cs){ var l=getSels();
     ctx.save();
-    if(bb){ ctx.strokeStyle='rgba(102,230,184,.9)'; ctx.lineWidth=Math.max(1,cs*0.12); ctx.setLineDash([cs*0.6, cs*0.4]);
-      ctx.strokeRect(bb.c0*cs-cs*0.25, bb.r0*cs-cs*0.25, (bb.c1-bb.c0+1)*cs+cs*0.5, (bb.r1-bb.r0+1)*cs+cs*0.5); }
+    if(marquee){ ctx.strokeStyle='rgba(153,221,255,.9)'; ctx.fillStyle='rgba(153,221,255,.08)'; ctx.lineWidth=Math.max(1,cs*0.1); ctx.setLineDash([cs*0.5, cs*0.35]);
+      var x0=Math.min(marquee.a.x,marquee.b.x)*cs, y0=Math.min(marquee.a.y,marquee.b.y)*cs, w=Math.abs(marquee.b.x-marquee.a.x)*cs, h=Math.abs(marquee.b.y-marquee.a.y)*cs;
+      ctx.fillRect(x0,y0,w,h); ctx.strokeRect(x0,y0,w,h); ctx.setLineDash([]); }
+    l.forEach(function(s){ var bb=shapeBBox(s); if(!bb) return;
+      ctx.strokeStyle='rgba(102,230,184,.9)'; ctx.lineWidth=Math.max(1,cs*0.12); ctx.setLineDash([cs*0.6, cs*0.4]);
+      ctx.strokeRect(bb.c0*cs-cs*0.25, bb.r0*cs-cs*0.25, (bb.c1-bb.c0+1)*cs+cs*0.5, (bb.r1-bb.r0+1)*cs+cs*0.5); });
+    var s=getSel(); if(!s){ ctx.restore(); return; }
     ctx.setLineDash([]); var hs=handlesOf(s), hw=Math.max(5, cs*0.9);
     hs.forEach(function(h){ ctx.fillStyle='#0b0e13'; ctx.fillRect(h.x*cs-hw/2, h.y*cs-hw/2, hw, hw);
       ctx.strokeStyle='rgba(102,230,184,1)'; ctx.lineWidth=Math.max(1,cs*0.15); ctx.strokeRect(h.x*cs-hw/2, h.y*cs-hw/2, hw, hw); });
@@ -254,7 +281,10 @@ window.MapEd = (function(){
     ctx.restore();
   }
   function commitShape(d){
-    if(Math.hypot(d.p1.x-d.p0.x, d.p1.y-d.p0.y) < 0.5){ paintCanvas(); return; }     // a click, not a drag
+    if(Math.hypot(d.p1.x-d.p0.x, d.p1.y-d.p0.y) < 0.5){                              // a click, not a drag:
+      var hit=shapeAt(d.p0);                                                        // pick the shape under it
+      if(hit){ setSel([hit.id]); setShape('select'); updateSelBar(); }
+      paintCanvas(); return; }
     var s={type:shapeTool, p0:{x:snapC(d.p0.x),y:snapC(d.p0.y)}, p1:{x:snapC(d.p1.x),y:snapC(d.p1.y)}, t:shapeThick(), v:mapErase?0:brush()};
     if(!shapeCells(s.type, s.p0, s.p1, s.t, mapGrid.length).length) return;
     pushUndo(); addShape(s); setShape('select'); drawMap(); syncMapText(); updateSelBar();
@@ -307,7 +337,7 @@ window.MapEd = (function(){
     var size=Math.max(20, Math.min(200, Math.max(lines.length, cols)));
     if(!raw.trim()) size=mapSize();
     setSizeControl(size); fallbackSize=size;
-    pushUndo(); mapGrid=strToGrid(raw, mapSize()); shapes=[]; selId=null; updateSelBar(); drawMap(); syncMapText(); xyBounds(); }
+    pushUndo(); mapGrid=strToGrid(raw, mapSize()); shapes=[]; setSel([]); updateSelBar(); drawMap(); syncMapText(); xyBounds(); }
   // ---- image -> asteroids: sample the picture onto the grid. By default bright = a
   // bigger asteroid, black = empty (a light design on a black background). "Invert"
   // flips it (dark = asteroids) for a dark design on a light background. ----
@@ -352,7 +382,7 @@ window.MapEd = (function(){
   function applyLastImage(){ if(!mapLastImg) return; var g=imageToGrid(mapLastImg); if(g){ pushUndo(); mapGrid=g; drawMap(); syncMapText(); } }
   // Start over: empty grid, no remembered image, every tool/option back to default (undoable).
   function resetAll(){
-    pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; selId=null; updateSelBar(); mapLastImg=null; mapLastImgSrc=null; mapErase=false;
+    pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; setSel([]); updateSelBar(); mapLastImg=null; mapLastImgSrc=null; mapErase=false;
     var set=function(id,v){ var e=$(id); if(e){ e.value=v; var b=$(id+'_v'); if(b) b.textContent=v+(id==='imgcut'?'%':''); } };
     set('mapbrush',9); set('imgcut',11); set('imgsize',9); set('imgspace',1);
     var sm=$('imgsizemode'); if(sm) sm.value='bright'; var inv=$('mapinvert'); if(inv) inv.checked=false;
@@ -412,8 +442,9 @@ window.MapEd = (function(){
       + '<div class="cgmaptools mapselbar" id="mapselbar"><span class="cgxyhint" id="mapselinfo"></span><span id="mapselctl" style="display:contents">'
         + '<span class="cgsep"></span><span>Size</span><input type="range" id="mapselv" min="0" max="9" step="1" value="9"><span class="cgval" id="mapselv_v">9</span>'
         + '<span id="mapseltw"><span>Thickness</span> <input type="range" id="mapselt" min="1" max="12" step="1" value="3"><span class="cgval" id="mapselt_v">3</span></span>'
-        + '<button type="button" id="mapseldup" title="Copy this shape (Ctrl+D)">Duplicate</button>'
-        + '<button type="button" id="mapselflat" title="Bake this shape into the map so it becomes plain asteroids">Flatten</button>'
+        + '<button type="button" id="mapselcopy" title="Copy this shape to paste later (Ctrl+C · Ctrl+V pastes, Ctrl+X cuts)">Copy</button>'
+        + '<button type="button" id="mapseldup" title="Duplicate this shape right here (Ctrl+D)">Duplicate</button>'
+        + '<button type="button" id="mapselflat" title="Turn the shape into plain asteroids in the map. It stops being a shape you can select or move (Undo brings it back).">Bake into map</button>'
         + '<button type="button" id="mapseldel" title="Remove this shape (Delete)">Delete</button>'
         + '<button type="button" id="mapseldone" title="Deselect (Esc)">Done</button></span></div>'
       + '<canvas id="mapcanvas" width="800" height="800"></canvas>'
@@ -453,7 +484,7 @@ window.MapEd = (function(){
     function apply(pt){ var p=mapCell(cv,pt); if(p.r<0||p.c<0||p.r>=p.n||p.c>=p.n) return;
       if(clearPath && !mapErase && inPath(p.r,p.c,p.n,pathBand(p.n))) return;   // the stations need this lane
       mapGrid[p.r][p.c]=mapErase?0:brush(); drawMap(); syncMapText(); showXY(p.r,p.c); }
-    function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY}; }
+    function pt(e){ var t=(e.touches&&e.touches[0])||e; return {clientX:t.clientX, clientY:t.clientY, shiftKey:!!e.shiftKey}; }
     // Angle of the pointer about the map centre, in the same frame drawBases uses.
     function pointerAngle(p){ var rect=cv.getBoundingClientRect();
       var x=(p.clientX-rect.left)/rect.width*cv.width - cv.width/2;
@@ -487,21 +518,29 @@ window.MapEd = (function(){
       if(s){ var hd=hitHandle(s,q,cs); if(hd){ act={kind:'resize', s:s, h:hd.k, pushed:false}; return true; } }
       if(shapeTool==='select' || shapeTool==='brush'){
         var hit=shapeAt(q);
-        if(hit){ if(selId!==hit.id){ selId=hit.id; updateSelBar(); paintCanvas(); }
-          act={kind:'move', s:hit, last:q, acc:{x:0,y:0}, pushed:false}; return true; }
-        if(selId){ selId=null; updateSelBar(); paintCanvas(); }
-        return shapeTool==='select';                 // Select on empty space: just deselect
+        if(hit){
+          if(p.shiftKey){ if(isSel(hit.id)) setSel(selIds.filter(function(i){ return i!==hit.id; })); else setSel(selIds.concat([hit.id])); updateSelBar(); paintCanvas(); return true; }
+          if(!isSel(hit.id)){ setSel([hit.id]); updateSelBar(); paintCanvas(); }
+          act={kind:'move', list:getSels(), last:q, acc:{x:0,y:0}, pushed:false}; return true; }
+        if(shapeTool==='select'){                    // Select on empty space: drag a box
+          if(!p.shiftKey && selIds.length){ setSel([]); updateSelBar(); }
+          act={kind:'marquee', a:q, b:q, add:!!p.shiftKey, base:selIds.slice()}; marquee={a:q,b:q}; paintCanvas(); return true; }
+        if(selIds.length){ setSel([]); updateSelBar(); paintCanvas(); }
+        return false;
       }
       // a shape tool: it always draws, even over other shapes (that is how you cut a hole)
-      if(selId){ selId=null; updateSelBar(); paintCanvas(); }
+      if(selIds.length){ setSel([]); updateSelBar(); paintCanvas(); }
       return false; }
     function objMove(p){ if(!act) return; var q=mapPoint(cv,p);
+      if(act.kind==='marquee'){ act.b=q; marquee={a:act.a,b:q}; setSel(act.add ? act.base.concat(selectInBox(act.a,q).filter(function(i){ return act.base.indexOf(i)<0; })) : selectInBox(act.a,q)); updateSelBar(); paintCanvas(); return; }
       if(!act.pushed){ pushUndo(); act.pushed=true; }
       if(act.kind==='move'){ act.acc.x+=q.x-act.last.x; act.acc.y+=q.y-act.last.y; act.last=q;
         var sx=Math.round(act.acc.x), sy=Math.round(act.acc.y);
-        if(sx||sy){ moveShape(act.s,sx,sy); act.acc.x-=sx; act.acc.y-=sy; drawMap(); syncMapText(); updateSelBar(); } }
+        if(sx||sy){ act.list.forEach(function(s){ moveShape(s,sx,sy); }); act.acc.x-=sx; act.acc.y-=sy; drawMap(); syncMapText(); updateSelBar(); } }
       else { setHandle(act.s, act.h, q); drawMap(); syncMapText(); updateSelBar(); } }
-    function objUp(){ if(!act) return; var s=act.s; act=null; normRect(s); touch(s); drawMap(); syncMapText(); updateSelBar(); }
+    function objUp(){ if(!act) return; var a=act; act=null; marquee=null;
+      if(a.kind==='marquee'){ paintCanvas(); return; }
+      (a.list||[a.s]).forEach(function(s){ normRect(s); touch(s); }); drawMap(); syncMapText(); updateSelBar(); }
     cv.addEventListener('mousedown', function(e){
       if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
       if(objDown(pt(e))){ e.preventDefault(); return; }
@@ -525,21 +564,27 @@ window.MapEd = (function(){
     var selSnap=null;
     function bindSel(id, fn){ var el=$(id); if(!el) return;
       el.addEventListener('pointerdown', function(){ selSnap=snapshot(); });
-      el.addEventListener('input', function(){ var s=getSel(); if(!s) return; fn(s, this.value); touch(s); drawMap(); syncMapText(); updateSelBar(); });
+      el.addEventListener('input', function(){ var l=getSels(); if(!l.length) return; var v=this.value; l.forEach(function(s){ fn(s, v); touch(s); }); drawMap(); syncMapText(); updateSelBar(); });
       el.addEventListener('change', function(){ if(selSnap){ mapUndo.push(selSnap); if(mapUndo.length>60) mapUndo.shift(); selSnap=null; } });
       wheelStep(el); }
     bindSel('mapselv', function(s,v){ s.v=parseInt(v,10)||0; });
     bindSel('mapselt', function(s,v){ s.t=Math.max(1,parseInt(v,10)||1); });
     var bd=$('mapseldup'); if(bd) bd.onclick=duplicateSel;
+    var bc=$('mapselcopy'); if(bc) bc.onclick=function(){ copySel(); var i=$('mapselinfo'); if(i) i.textContent+=' · copied (Ctrl+V pastes)'; };
     var bf=$('mapselflat'); if(bf) bf.onclick=flattenSel;
     var bx=$('mapseldel'); if(bx) bx.onclick=deleteSel;
-    var bo=$('mapseldone'); if(bo) bo.onclick=function(){ selId=null; updateSelBar(); paintCanvas(); };
+    var bo=$('mapseldone'); if(bo) bo.onclick=function(){ setSel([]); updateSelBar(); paintCanvas(); };
     document.addEventListener('keydown', function(e){
-      if(!getSel() || !$('mapcanvas')) return;
+      if(!$('mapcanvas')) return;
       var tag=(e.target&&e.target.tagName||'').toLowerCase(); if(tag==='input'||tag==='textarea'||tag==='select') return;
+      if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){ if(shapeClip){ e.preventDefault(); pasteClip(); } return; }   // else the image paste handles it
+      if((e.ctrlKey||e.metaKey)&&(e.key==='a'||e.key==='A')&&shapes.length){ e.preventDefault(); api.selectAll(); return; }
+      if(!getSels().length) return;
       if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
-      else if(e.key==='Escape'){ selId=null; updateSelBar(); paintCanvas(); }
+      else if(e.key==='Escape'){ setSel([]); updateSelBar(); paintCanvas(); }
       else if((e.ctrlKey||e.metaKey)&&(e.key==='d'||e.key==='D')){ e.preventDefault(); duplicateSel(); }
+      else if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')){ if(copySel()) e.preventDefault(); }
+      else if((e.ctrlKey||e.metaKey)&&(e.key==='x'||e.key==='X')){ e.preventDefault(); cutSel(); }
       else if(e.key.indexOf('Arrow')===0){ e.preventDefault(); var k=e.shiftKey?5:1;
         nudgeSel(e.key==='ArrowLeft'?-k:e.key==='ArrowRight'?k:0, e.key==='ArrowUp'?-k:e.key==='ArrowDown'?k:0); } });
     document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.addEventListener('click', function(){ setShape(b.getAttribute('data-shape')); }); });
@@ -582,7 +627,7 @@ window.MapEd = (function(){
       e.addEventListener('input', function(){ var b=$(id+'_v'); if(b) b.textContent=this.value+(id==='imgcut'?'%':''); });
       e.addEventListener('change', applyLastImage); wheelStep(e); });
     var sm=$('imgsizemode'); if(sm) sm.onchange=applyLastImage;
-    var cl=$('mapclear'); if(cl) cl.onclick=function(){ pushUndo(); mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
+    var cl=$('mapclear'); if(cl) cl.onclick=function(){ pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; setSel([]); updateSelBar(); drawMap(); syncMapText(); };   // shapes too
     var rs=$('mapreset'); if(rs) rs.onclick=resetAll;
     var ub=$('mapundo'); if(ub) ub.onclick=doUndo;
     if(!window.__cgUndoBound){ window.__cgUndoBound=true;
@@ -617,7 +662,7 @@ window.MapEd = (function(){
   api.str = function(){ var g=outGrid(); return (g && countCells(g)) ? gridToStr(g) : ''; };
   api.count = function(){ return countCells(outGrid()); };
   api.size = function(){ return mapGrid ? mapGrid.length : mapSize(); };
-  api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; selId=null; updateSelBar(); drawMap(); syncMapText(); };
+  api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; setSel([]); updateSelBar(); drawMap(); syncMapText(); };
   api.draw = drawMap;
   api.resetUndo = function(){ mapUndo=[]; };
   // Build the field a given seed produces in game, straight into the editor.
@@ -636,13 +681,15 @@ window.MapEd = (function(){
   api.shapesJSON = function(){ return cloneShapes(shapes).map(function(s){ delete s.id; return s; }); };
   api.baseStr = function(){ return (mapGrid && countCells(mapGrid)) ? gridToStr(mapGrid) : ''; };
   api.setObjects = function(base, list){
-    if(!mapGrid) return; mapGrid=strToGrid(base||'', mapGrid.length); shapes=[]; selId=null;
+    if(!mapGrid) return; mapGrid=strToGrid(base||'', mapGrid.length); shapes=[]; setSel([]);
     (list||[]).forEach(function(s){ if(!s||!SHAPE_NAMES[s.type]||!s.p0||!s.p1) return;
       addShape({type:s.type, p0:{x:+s.p0.x||0,y:+s.p0.y||0}, p1:{x:+s.p1.x||0,y:+s.p1.y||0}, t:Math.max(1,parseInt(s.t,10)||1), v:Math.max(0,Math.min(9,parseInt(s.v,10)||0))}); });
-    selId=null; mapUndo=[]; drawMap(); syncMapText(); updateSelBar(); };
+    setSel([]); mapUndo=[]; drawMap(); syncMapText(); updateSelBar(); };
   api.shapeCount = function(){ return shapes.length; };
   api.selected = function(){ return getSel(); };
-  api.select = function(id){ selId=id; updateSelBar(); paintCanvas(); };
+  api.select = function(id){ setSel(id==null?[]:[id]); updateSelBar(); paintCanvas(); };
+  api.selectedIds = function(){ return selIds.slice(); };
+  api.selectAll = function(){ setSel(shapes.map(function(x){ return x.id; })); setShape('select'); updateSelBar(); paintCanvas(); };
   api.shapeCells = shapeCells;          // (tool, p0, p1, thickness, n) -> [[r,c],...]
   // ---- the source image + trace settings travel with a saved map ----
   api.imageSrc = function(){ return mapLastImgSrc; };
