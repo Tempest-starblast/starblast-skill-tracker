@@ -135,6 +135,7 @@
     if(dirty && !confirm('Discard unsaved changes to the current map?')) return;
     fetchMap(id, function(d){
       MapEd.load(d.map); MapEd.resetUndo();
+      if(Array.isArray(d.shapes) && d.shapes.length && MapEd.setObjects) MapEd.setObjects(d.base||'', d.shapes);   // objects come back editable
       cur={id:d.id,name:d.name}; $('mmname').value=d.name; setDirty(false);
       window.scrollTo({top:0,behavior:'smooth'});
       if(d.image && MapEd.setImage){
@@ -156,6 +157,8 @@
     // can be re-tuned after loading instead of starting from the image again.
     var payload={id:cur.id,name:name,map:map,size:MapEd.size()};
     if(MapEd.hasImage && MapEd.hasImage()){ payload.image=MapEd.imageSrc(); payload.img_opts=MapEd.imageOpts(); }
+    // shapes stay editable objects: save the brush layer and the shape list alongside the flat map
+    if(MapEd.shapeCount && MapEd.shapeCount()){ payload.shapes=MapEd.shapesJSON(); payload.base=MapEd.baseStr(); }
     fetch('/api/maps',{method:'POST',headers:{'Content-Type':'application/json'},
                        body:JSON.stringify(payload)})
       .then(function(r){return r.json();}).then(function(j){ b.disabled=false;

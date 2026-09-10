@@ -38,6 +38,8 @@ html:not(.mapadv) .adv{display:none!important}
 #mapcanvas.ro{cursor:default;max-width:320px}
 .cgmaptools .mapshape.on{background:rgba(102,230,184,.16);border-color:var(--green,#66e6b8);color:var(--green,#66e6b8)}
 .cgmaptools .cgsep{width:1px;height:18px;background:var(--line);margin:0 2px}
+.cgmaptools.mapselbar{border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-height:42px;box-sizing:border-box}
+.cgmaptools.mapselbar.has{border-color:rgba(102,230,184,.45);background:rgba(102,230,184,.06)}
 </style>
 <script>
 window.MapEd = (function(){
@@ -58,16 +60,29 @@ window.MapEd = (function(){
     return Math.abs(Math.sqrt(dx*dx+dy*dy)-band.r) <= band.half;
   }
   // The grid as it leaves the editor: the drawing, minus the station path when on.
+  // Shapes are OBJECTS, not stamps: the map you see (and save, export, send to the
+  // game) is the brush layer with every shape rasterised on top, in order. A shape
+  // with v = 0 is a hole. So a shape can be moved, resized, retuned or deleted at any
+  // time, and the brush layer underneath is untouched.
+  function composeGrid(){
+    if(!mapGrid || !shapes.length) return mapGrid;
+    var g=mapGrid.map(function(row){ return row.slice(); });
+    shapes.forEach(function(s){ shapeCellsOf(s).forEach(function(rc){ g[rc[0]][rc[1]]=s.v; }); });
+    return g;
+  }
   function outGrid(){
-    if(!clearPath || !mapGrid) return mapGrid;
-    var n=mapGrid.length, band=pathBand(n);
-    return mapGrid.map(function(row,r){ return row.map(function(v,c){ return inPath(r,c,n,band)?0:v; }); });
+    var g=composeGrid();
+    if(!clearPath || !g) return g;
+    var n=g.length, band=pathBand(n);
+    return g.map(function(row,r){ return row.map(function(v,c){ return inPath(r,c,n,band)?0:v; }); });
   }
   var api = { onChange: null };
   function $(id){ return document.getElementById(id); }
-  function pushUndo(){ if(!mapGrid) return; mapUndo.push(mapGrid.map(function(row){ return row.slice(); }));
-    if(mapUndo.length>60) mapUndo.shift(); }
-  function doUndo(){ if(mapUndo.length){ mapGrid=mapUndo.pop(); drawMap(); syncMapText(); } }
+  function snapshot(){ return {g: mapGrid.map(function(row){ return row.slice(); }), s: cloneShapes(shapes)}; }
+  function pushUndo(){ if(!mapGrid) return; mapUndo.push(snapshot()); if(mapUndo.length>60) mapUndo.shift(); }
+  function doUndo(){ if(mapUndo.length){ var u=mapUndo.pop(); mapGrid=u.g; shapes=u.s;
+    if(!shapes.some(function(x){ return x.id===selId; })) selId=null;
+    drawMap(); syncMapText(); updateSelBar(); } }
   // Mouse-wheel on a small slider = exactly ONE step (browsers otherwise skip).
   function wheelStep(el){ if(!el) return; el.addEventListener('wheel', function(e){ e.preventDefault();
     var st=parseFloat(el.step)||1, mn=parseFloat(el.min), mx=parseFloat(el.max);
@@ -108,7 +123,8 @@ window.MapEd = (function(){
     var n=mapGrid.length, ctx=cv.getContext('2d'), cs=cv.width/n;
     ctx.clearRect(0,0,cv.width,cv.height);
     if(mapLayer) ctx.drawImage(mapLayer,0,0);
-    drawBases(ctx,n,cs,cv); }
+    drawBases(ctx,n,cs,cv);
+    if(!readOnly) drawSelection(ctx, cs); }
   function drawMap(){ renderLayer(); paintCanvas(); }
   // Team-mode bases, from the game's own formula (starblast-modding Station.js: the
   // ring radius is map_size*5*sqrt(2)/2 in world units, the world spanning +-map_size*5,
@@ -147,6 +163,64 @@ window.MapEd = (function(){
   // ---- shapes: rasterised straight onto the grid, so undo / clear-path / save /
   //      export all work unchanged. p0/p1 are continuous cell coordinates. ----
   var shapeTool = 'brush', shapeDrag = null;
+  var shapes = [], selId = null, nextShapeId = 1;    // the object layer + the selection
+  function cloneShapes(list){ return list.map(function(s){ return {id:s.id, type:s.type, p0:{x:s.p0.x,y:s.p0.y}, p1:{x:s.p1.x,y:s.p1.y}, t:s.t, v:s.v}; }); }
+  function shapeCellsOf(s){ var n=mapGrid?mapGrid.length:0;
+    if(!s._cells || s._n!==n){ s._cells=shapeCells(s.type, s.p0, s.p1, s.t, n); s._n=n; }
+    return s._cells; }
+  function touch(s){ s._cells=null; }
+  function getSel(){ for(var i=0;i<shapes.length;i++) if(shapes[i].id===selId) return shapes[i]; return null; }
+  function snapC(v){ return Math.floor(v)+0.5; }        // cell centre
+  function normRect(s){ if(s.type!=='rect'&&s.type!=='frame') return;
+    var x0=Math.min(s.p0.x,s.p1.x), x1=Math.max(s.p0.x,s.p1.x), y0=Math.min(s.p0.y,s.p1.y), y1=Math.max(s.p0.y,s.p1.y);
+    s.p0={x:x0,y:y0}; s.p1={x:x1,y:y1}; }
+  function shapeAt(q){                                   // topmost shape whose cells contain q
+    if(!mapGrid) return null; var r=Math.floor(q.y), c=Math.floor(q.x);
+    for(var i=shapes.length-1;i>=0;i--){ var cells=shapeCellsOf(shapes[i]);
+      for(var k=0;k<cells.length;k++) if(cells[k][0]===r&&cells[k][1]===c) return shapes[i]; }
+    return null; }
+  function handlesOf(s){
+    if(s.type==='disc'||s.type==='ring') return [{x:s.p1.x,y:s.p1.y,k:'p1'}];
+    if(s.type==='bar'||s.type==='corner') return [{x:s.p0.x,y:s.p0.y,k:'p0'},{x:s.p1.x,y:s.p1.y,k:'p1'}];
+    return [{x:s.p0.x,y:s.p0.y,k:'tl'},{x:s.p1.x,y:s.p0.y,k:'tr'},{x:s.p0.x,y:s.p1.y,k:'bl'},{x:s.p1.x,y:s.p1.y,k:'br'}];
+  }
+  function hitHandle(s,q,cs){ var hr=Math.max(1.0, 9/cs), hs=handlesOf(s);
+    for(var i=0;i<hs.length;i++) if(Math.hypot(hs[i].x-q.x, hs[i].y-q.y)<=hr) return hs[i]; return null; }
+  function setHandle(s,k,q){ q={x:snapC(q.x), y:snapC(q.y)};
+    if(k==='p0') s.p0=q; else if(k==='p1') s.p1=q;
+    else if(k==='tl'){ s.p0={x:q.x,y:q.y}; } else if(k==='tr'){ s.p1.x=q.x; s.p0.y=q.y; }
+    else if(k==='bl'){ s.p0.x=q.x; s.p1.y=q.y; } else if(k==='br'){ s.p1={x:q.x,y:q.y}; }
+    touch(s); }
+  function moveShape(s,dx,dy){ s.p0.x+=dx; s.p0.y+=dy; s.p1.x+=dx; s.p1.y+=dy; touch(s); }
+  function shapeBBox(s){ var cells=shapeCellsOf(s); if(!cells.length) return null;
+    var r0=1e9,r1=-1e9,c0=1e9,c1=-1e9; cells.forEach(function(rc){ if(rc[0]<r0)r0=rc[0]; if(rc[0]>r1)r1=rc[0]; if(rc[1]<c0)c0=rc[1]; if(rc[1]>c1)c1=rc[1]; });
+    return {r0:r0,r1:r1,c0:c0,c1:c1}; }
+  function addShape(s){ s.id=nextShapeId++; normRect(s); touch(s); shapes.push(s); selId=s.id; return s; }
+  function deleteSel(){ var s=getSel(); if(!s) return; pushUndo(); shapes=shapes.filter(function(x){ return x!==s; }); selId=null; drawMap(); syncMapText(); updateSelBar(); }
+  function duplicateSel(){ var s=getSel(); if(!s) return; pushUndo(); var d=cloneShapes([s])[0]; moveShape(d,2,2); addShape(d); drawMap(); syncMapText(); updateSelBar(); }
+  function flattenSel(){ var s=getSel(); if(!s) return; pushUndo();
+    shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]]=s.v; });
+    shapes=shapes.filter(function(x){ return x!==s; }); selId=null; drawMap(); syncMapText(); updateSelBar(); }
+  function nudgeSel(dx,dy){ var s=getSel(); if(!s) return; pushUndo(); moveShape(s,dx,dy); drawMap(); syncMapText(); }
+  var SHAPE_NAMES={rect:'Rectangle',frame:'Frame',disc:'Disc',ring:'Ring',bar:'Bar',corner:'Corner'};
+  function updateSelBar(){ var bar=$('mapselbar'); if(!bar) return; var s=getSel();
+    var ctl=$('mapselctl'), info=$('mapselinfo'), sv=$('mapselv'), st=$('mapselt'), tw=$('mapseltw');
+    bar.classList.toggle('has', !!s); if(ctl) ctl.style.display = s ? 'contents' : 'none';
+    if(!s){ if(info) info.textContent = shapes.length
+      ? 'Click a shape to select it · drag to move · corner handles resize · Delete removes'
+      : 'Pick a shape above and drag it out on the map · it stays movable afterwards'; return; }
+    var bb=shapeBBox(s); info.textContent=(SHAPE_NAMES[s.type]||s.type)+(bb?(' · '+(bb.c1-bb.c0+1)+'×'+(bb.r1-bb.r0+1)+' at ('+bb.c0+', '+bb.r0+')'):'');
+    if(sv){ sv.value=s.v; $('mapselv_v').textContent = s.v ? s.v : 'hole'; }
+    if(st){ st.value=s.t; $('mapselt_v').textContent=s.t; }
+    if(tw) tw.style.display = (s.type==='rect'||s.type==='disc') ? 'none' : ''; }
+  function drawSelection(ctx, cs){ var s=getSel(); if(!s) return; var bb=shapeBBox(s);
+    ctx.save();
+    if(bb){ ctx.strokeStyle='rgba(102,230,184,.9)'; ctx.lineWidth=Math.max(1,cs*0.12); ctx.setLineDash([cs*0.6, cs*0.4]);
+      ctx.strokeRect(bb.c0*cs-cs*0.25, bb.r0*cs-cs*0.25, (bb.c1-bb.c0+1)*cs+cs*0.5, (bb.r1-bb.r0+1)*cs+cs*0.5); }
+    ctx.setLineDash([]); var hs=handlesOf(s), hw=Math.max(5, cs*0.9);
+    hs.forEach(function(h){ ctx.fillStyle='#0b0e13'; ctx.fillRect(h.x*cs-hw/2, h.y*cs-hw/2, hw, hw);
+      ctx.strokeStyle='rgba(102,230,184,1)'; ctx.lineWidth=Math.max(1,cs*0.15); ctx.strokeRect(h.x*cs-hw/2, h.y*cs-hw/2, hw, hw); });
+    ctx.restore(); }
   function shapeThick(){ return Math.max(1, parseInt(($('mapthick')||{}).value||'3',10)); }
   function shapeCells(tool, p0, p1, t, n){
     var cells=[], seen={};
@@ -179,13 +253,11 @@ window.MapEd = (function(){
       ctx.arc(rc[1]*cs+cs/2, rc[0]*cs+cs/2, Math.max(0.8,(cs/2)*(mapErase?0.5:(0.4+0.065*v))), 0, 6.2832); ctx.fill(); });
     ctx.restore();
   }
-  function commitShape(cells){
-    if(!cells.length) return;
-    pushUndo(); var n=mapGrid.length, band=pathBand(n), v=mapErase?0:brush();
-    cells.forEach(function(rc){ var r=rc[0], c=rc[1];
-      if(clearPath && !mapErase && inPath(r,c,n,band)) return;          // the stations need this lane
-      mapGrid[r][c]=v; });
-    drawMap(); syncMapText();
+  function commitShape(d){
+    if(Math.hypot(d.p1.x-d.p0.x, d.p1.y-d.p0.y) < 0.5){ paintCanvas(); return; }     // a click, not a drag
+    var s={type:shapeTool, p0:{x:snapC(d.p0.x),y:snapC(d.p0.y)}, p1:{x:snapC(d.p1.x),y:snapC(d.p1.y)}, t:shapeThick(), v:mapErase?0:brush()};
+    if(!shapeCells(s.type, s.p0, s.p1, s.t, mapGrid.length).length) return;
+    pushUndo(); addShape(s); setShape('select'); drawMap(); syncMapText(); updateSelBar();
   }
   function setShape(t){
     shapeTool = t || 'brush';
@@ -235,7 +307,7 @@ window.MapEd = (function(){
     var size=Math.max(20, Math.min(200, Math.max(lines.length, cols)));
     if(!raw.trim()) size=mapSize();
     setSizeControl(size); fallbackSize=size;
-    pushUndo(); mapGrid=strToGrid(raw, mapSize()); drawMap(); syncMapText(); xyBounds(); }
+    pushUndo(); mapGrid=strToGrid(raw, mapSize()); shapes=[]; selId=null; updateSelBar(); drawMap(); syncMapText(); xyBounds(); }
   // ---- image -> asteroids: sample the picture onto the grid. By default bright = a
   // bigger asteroid, black = empty (a light design on a black background). "Invert"
   // flips it (dark = asteroids) for a dark design on a light background. ----
@@ -280,7 +352,7 @@ window.MapEd = (function(){
   function applyLastImage(){ if(!mapLastImg) return; var g=imageToGrid(mapLastImg); if(g){ pushUndo(); mapGrid=g; drawMap(); syncMapText(); } }
   // Start over: empty grid, no remembered image, every tool/option back to default (undoable).
   function resetAll(){
-    pushUndo(); mapGrid=newGrid(mapSize()); mapLastImg=null; mapLastImgSrc=null; mapErase=false;
+    pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; selId=null; updateSelBar(); mapLastImg=null; mapLastImgSrc=null; mapErase=false;
     var set=function(id,v){ var e=$(id); if(e){ e.value=v; var b=$(id+'_v'); if(b) b.textContent=v+(id==='imgcut'?'%':''); } };
     set('mapbrush',9); set('imgcut',11); set('imgsize',9); set('imgspace',1);
     var sm=$('imgsizemode'); if(sm) sm.value='bright'; var inv=$('mapinvert'); if(inv) inv.checked=false;
@@ -326,7 +398,8 @@ window.MapEd = (function(){
         + '<button type="button" id="mapimg" title="Turn an image into asteroids — brightness becomes size, black stays empty">From image ⬈</button></span>'
       + '<input type="file" id="mapimgfile" accept="image/*" style="display:none"></div>'
       + '<div class="cgmaptools" id="mapshapes"><span>Draw</span>'
-        + '<button type="button" class="mapshape on" data-shape="brush" title="Paint single cells">✏ Brush</button>'
+        + '<button type="button" class="mapshape" data-shape="select" title="Select shapes: click one, drag to move it, pull its handles to resize">↖ Select</button>'
+        + '<button type="button" class="mapshape on" data-shape="brush" title="Paint single cells (also grabs a shape you press on)">✏ Brush</button>'
         + '<button type="button" class="mapshape" data-shape="rect" title="Drag a filled rectangle">▰ Rect</button>'
         + '<button type="button" class="mapshape" data-shape="frame" title="Drag a hollow rectangle (thickness below)">▢ Frame</button>'
         + '<button type="button" class="mapshape" data-shape="disc" title="Drag from the centre outwards: a filled circle">● Disc</button>'
@@ -336,6 +409,13 @@ window.MapEd = (function(){
         + '<span class="cgsep"></span><span>Thickness</span>'
         + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span>'
         + '<span id="maphover" class="cgxyhint" style="margin-left:auto"></span></div>'
+      + '<div class="cgmaptools mapselbar" id="mapselbar"><span class="cgxyhint" id="mapselinfo"></span><span id="mapselctl" style="display:contents">'
+        + '<span class="cgsep"></span><span>Size</span><input type="range" id="mapselv" min="0" max="9" step="1" value="9"><span class="cgval" id="mapselv_v">9</span>'
+        + '<span id="mapseltw"><span>Thickness</span> <input type="range" id="mapselt" min="1" max="12" step="1" value="3"><span class="cgval" id="mapselt_v">3</span></span>'
+        + '<button type="button" id="mapseldup" title="Copy this shape (Ctrl+D)">Duplicate</button>'
+        + '<button type="button" id="mapselflat" title="Bake this shape into the map so it becomes plain asteroids">Flatten</button>'
+        + '<button type="button" id="mapseldel" title="Remove this shape (Delete)">Delete</button>'
+        + '<button type="button" id="mapseldone" title="Deselect (Esc)">Done</button></span></div>'
       + '<canvas id="mapcanvas" width="800" height="800"></canvas>'
       + '<div class="cgimgopts adv"><span class="cgimglbl">Image → asteroids</span>'
         + '<label class="cgchk"><input type="checkbox" id="mapinvert">Invert (dark = asteroids)</label>'
@@ -359,6 +439,7 @@ window.MapEd = (function(){
     var cv=$('mapcanvas'); if(!cv) return;
     if(readOnly) cv.classList.add('ro');
     setOrbit(false); setMode('draw');      // a fresh mount never inherits a running animation
+    updateSelBar();
     mapGrid=newGrid(mapSize()); mapUndo=[]; drawMap(); xyBounds();
     // load-ish bindings (both modes)
     var im=$('mapimport'); if(im) im.onclick=function(){ var t=$('o_custom_map'); loadMapString(t?t.value:''); };
@@ -390,27 +471,77 @@ window.MapEd = (function(){
     function shapeStart(p){ var q=mapPoint(cv,p); shapeDrag={p0:q, p1:q}; drawPreview(shapeCells(shapeTool, q, q, shapeThick(), q.n)); }
     function shapeMove(p){ if(!shapeDrag) return; shapeDrag.p1=mapPoint(cv,p);
       drawPreview(shapeCells(shapeTool, shapeDrag.p0, shapeDrag.p1, shapeThick(), shapeDrag.p0.n)); }
-    function shapeEnd(){ if(!shapeDrag) return; var d=shapeDrag; shapeDrag=null;
-      commitShape(shapeCells(shapeTool, d.p0, d.p1, shapeThick(), d.p0.n)); }
+    function shapeEnd(){ if(!shapeDrag) return; var d=shapeDrag; shapeDrag=null; commitShape(d); }
     function hover(p){ var h=$('maphover'); if(!h||!mapGrid) return; var c=mapCell(cv,p);
-      if(c.r<0||c.c<0||c.r>=c.n||c.c>=c.n){ h.textContent=''; return; }
-      h.textContent='x '+c.c+', y '+c.r+(mapGrid[c.r][c.c]?(' · size '+mapGrid[c.r][c.c]):' · empty'); }
+      if(c.r<0||c.c<0||c.r>=c.n||c.c>=c.n){ h.textContent=''; cv.style.cursor=(mapMode==='move')?'grab':'crosshair'; return; }
+      var g=outGrid(), q=mapPoint(cv,p), cs=cv.width/c.n, s=getSel();
+      h.textContent='x '+c.c+', y '+c.r+(g[c.r][c.c]?(' · size '+g[c.r][c.c]):' · empty');
+      if(mapMode==='move'||act||shapeDrag||painting) return;
+      cv.style.cursor = (s && hitHandle(s,q,cs)) ? 'nwse-resize'
+        : ((shapeTool==='select'||shapeTool==='brush') && shapeAt(q)) ? 'move'
+        : shapeTool==='select' ? 'default' : 'crosshair'; }
+    // press on a shape: select it and drag it; on a handle of the selected shape: resize;
+    // on empty space: deselect, then whatever the tool does (paint, or drag out a new shape)
+    var act=null;
+    function objDown(p){ var q=mapPoint(cv,p), cs=cv.width/q.n, s=getSel();
+      if(s){ var hd=hitHandle(s,q,cs); if(hd){ act={kind:'resize', s:s, h:hd.k, pushed:false}; return true; } }
+      if(shapeTool==='select' || shapeTool==='brush'){
+        var hit=shapeAt(q);
+        if(hit){ if(selId!==hit.id){ selId=hit.id; updateSelBar(); paintCanvas(); }
+          act={kind:'move', s:hit, last:q, acc:{x:0,y:0}, pushed:false}; return true; }
+        if(selId){ selId=null; updateSelBar(); paintCanvas(); }
+        return shapeTool==='select';                 // Select on empty space: just deselect
+      }
+      // a shape tool: it always draws, even over other shapes (that is how you cut a hole)
+      if(selId){ selId=null; updateSelBar(); paintCanvas(); }
+      return false; }
+    function objMove(p){ if(!act) return; var q=mapPoint(cv,p);
+      if(!act.pushed){ pushUndo(); act.pushed=true; }
+      if(act.kind==='move'){ act.acc.x+=q.x-act.last.x; act.acc.y+=q.y-act.last.y; act.last=q;
+        var sx=Math.round(act.acc.x), sy=Math.round(act.acc.y);
+        if(sx||sy){ moveShape(act.s,sx,sy); act.acc.x-=sx; act.acc.y-=sy; drawMap(); syncMapText(); updateSelBar(); } }
+      else { setHandle(act.s, act.h, q); drawMap(); syncMapText(); updateSelBar(); } }
+    function objUp(){ if(!act) return; var s=act.s; act=null; normRect(s); touch(s); drawMap(); syncMapText(); updateSelBar(); }
     cv.addEventListener('mousedown', function(e){
       if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
+      if(objDown(pt(e))){ e.preventDefault(); return; }
       if(shapeTool!=='brush'){ shapeStart(pt(e)); e.preventDefault(); return; }
       pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); });
-    cv.addEventListener('mousemove', function(e){ hover(pt(e)); if(drag){ swing(pt(e)); return; } if(shapeDrag){ shapeMove(pt(e)); return; } if(painting) apply(pt(e)); });
+    cv.addEventListener('mousemove', function(e){ hover(pt(e)); if(drag){ swing(pt(e)); return; } if(act){ objMove(pt(e)); return; } if(shapeDrag){ shapeMove(pt(e)); return; } if(painting) apply(pt(e)); });
     cv.addEventListener('mouseleave', function(){ var h=$('maphover'); if(h) h.textContent=''; });
-    window.addEventListener('mouseup', function(){ painting=false; release(); shapeEnd(); });
+    window.addEventListener('mouseup', function(){ painting=false; release(); objUp(); shapeEnd(); });
     cv.addEventListener('touchstart', function(e){
       if(mapMode==='move'){ grab(pt(e)); e.preventDefault(); return; }
+      if(objDown(pt(e))){ e.preventDefault(); return; }
       if(shapeTool!=='brush'){ shapeStart(pt(e)); e.preventDefault(); return; }
       pushUndo(); painting=true; apply(pt(e)); e.preventDefault(); }, {passive:false});
     cv.addEventListener('touchmove', function(e){
       if(drag){ swing(pt(e)); e.preventDefault(); return; }
+      if(act){ objMove(pt(e)); e.preventDefault(); return; }
       if(shapeDrag){ shapeMove(pt(e)); e.preventDefault(); return; }
       if(painting){ apply(pt(e)); e.preventDefault(); } }, {passive:false});
-    window.addEventListener('touchend', function(){ painting=false; release(); shapeEnd(); });
+    window.addEventListener('touchend', function(){ painting=false; release(); objUp(); shapeEnd(); });
+    // the selection bar: retune the selected shape live; keyboard for the rest
+    var selSnap=null;
+    function bindSel(id, fn){ var el=$(id); if(!el) return;
+      el.addEventListener('pointerdown', function(){ selSnap=snapshot(); });
+      el.addEventListener('input', function(){ var s=getSel(); if(!s) return; fn(s, this.value); touch(s); drawMap(); syncMapText(); updateSelBar(); });
+      el.addEventListener('change', function(){ if(selSnap){ mapUndo.push(selSnap); if(mapUndo.length>60) mapUndo.shift(); selSnap=null; } });
+      wheelStep(el); }
+    bindSel('mapselv', function(s,v){ s.v=parseInt(v,10)||0; });
+    bindSel('mapselt', function(s,v){ s.t=Math.max(1,parseInt(v,10)||1); });
+    var bd=$('mapseldup'); if(bd) bd.onclick=duplicateSel;
+    var bf=$('mapselflat'); if(bf) bf.onclick=flattenSel;
+    var bx=$('mapseldel'); if(bx) bx.onclick=deleteSel;
+    var bo=$('mapseldone'); if(bo) bo.onclick=function(){ selId=null; updateSelBar(); paintCanvas(); };
+    document.addEventListener('keydown', function(e){
+      if(!getSel() || !$('mapcanvas')) return;
+      var tag=(e.target&&e.target.tagName||'').toLowerCase(); if(tag==='input'||tag==='textarea'||tag==='select') return;
+      if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
+      else if(e.key==='Escape'){ selId=null; updateSelBar(); paintCanvas(); }
+      else if((e.ctrlKey||e.metaKey)&&(e.key==='d'||e.key==='D')){ e.preventDefault(); duplicateSel(); }
+      else if(e.key.indexOf('Arrow')===0){ e.preventDefault(); var k=e.shiftKey?5:1;
+        nudgeSel(e.key==='ArrowLeft'?-k:e.key==='ArrowRight'?k:0, e.key==='ArrowUp'?-k:e.key==='ArrowDown'?k:0); } });
     document.querySelectorAll('#mapshapes .mapshape').forEach(function(b){ b.addEventListener('click', function(){ setShape(b.getAttribute('data-shape')); }); });
     var tk=$('mapthick'); if(tk){ tk.addEventListener('input', function(){ $('mapthick_v').textContent=this.value; }); wheelStep(tk); }
     var bv=$('mapbrush'); if(bv){ bv.addEventListener('input', function(){
@@ -486,7 +617,7 @@ window.MapEd = (function(){
   api.str = function(){ var g=outGrid(); return (g && countCells(g)) ? gridToStr(g) : ''; };
   api.count = function(){ return countCells(outGrid()); };
   api.size = function(){ return mapGrid ? mapGrid.length : mapSize(); };
-  api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); drawMap(); syncMapText(); };
+  api.clear = function(){ pushUndo(); mapGrid=newGrid(mapSize()); shapes=[]; selId=null; updateSelBar(); drawMap(); syncMapText(); };
   api.draw = drawMap;
   api.resetUndo = function(){ mapUndo=[]; };
   // Build the field a given seed produces in game, straight into the editor.
@@ -501,6 +632,17 @@ window.MapEd = (function(){
   };
   api.resetAll = resetAll;
   api.setShape = setShape;
+  // The object layer, for saving with a map: the brush layer as text + the shapes.
+  api.shapesJSON = function(){ return cloneShapes(shapes).map(function(s){ delete s.id; return s; }); };
+  api.baseStr = function(){ return (mapGrid && countCells(mapGrid)) ? gridToStr(mapGrid) : ''; };
+  api.setObjects = function(base, list){
+    if(!mapGrid) return; mapGrid=strToGrid(base||'', mapGrid.length); shapes=[]; selId=null;
+    (list||[]).forEach(function(s){ if(!s||!SHAPE_NAMES[s.type]||!s.p0||!s.p1) return;
+      addShape({type:s.type, p0:{x:+s.p0.x||0,y:+s.p0.y||0}, p1:{x:+s.p1.x||0,y:+s.p1.y||0}, t:Math.max(1,parseInt(s.t,10)||1), v:Math.max(0,Math.min(9,parseInt(s.v,10)||0))}); });
+    selId=null; mapUndo=[]; drawMap(); syncMapText(); updateSelBar(); };
+  api.shapeCount = function(){ return shapes.length; };
+  api.selected = function(){ return getSel(); };
+  api.select = function(id){ selId=id; updateSelBar(); paintCanvas(); };
   api.shapeCells = shapeCells;          // (tool, p0, p1, thickness, n) -> [[r,c],...]
   // ---- the source image + trace settings travel with a saved map ----
   api.imageSrc = function(){ return mapLastImgSrc; };

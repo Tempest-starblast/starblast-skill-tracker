@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.8"
+APP_VERSION = "9.13.9"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2046,7 +2046,7 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_custom_maps_owner ON custom_maps(owner_sub)")
     # A map traced from a picture keeps that picture (downscaled) and the trace
     # settings, so loading it back can still re-tune the trace.
-    for _col in ("image TEXT", "img_opts TEXT"):
+    for _col in ("image TEXT", "img_opts TEXT", "shapes TEXT", "base TEXT"):
         try:
             c.execute("ALTER TABLE custom_maps ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -4516,6 +4516,11 @@ def game_end():
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
 CHANGELOG = [
+    {"version": "9.13.9", "at": "2026-09-10T09:45:00Z", "changes": [
+        "Map editor: shapes are now <b>objects</b>. Draw one and it stays live: click it to select, drag it anywhere, pull its corner handles to resize, change its asteroid size or thickness in the bar above the map, duplicate it, delete it, or flatten it into plain asteroids. Arrow keys nudge, Delete removes, Ctrl+D duplicates, Esc deselects. Undo takes back any of it.",
+        "Map editor: a <b>Select</b> tool for moving things (the Brush also grabs a shape you press on); the shape tools always draw, even over other shapes — which is how you cut a hole: turn on Erase and draw a disc inside a rectangle, then move the hole around. After drawing a shape the editor switches to Select so you can adjust it straight away.",
+        "My Maps saves shapes as shapes: load a map back later and its objects are still movable. The map the game receives is always the flat result."
+    ]},
     {"version": "9.13.8", "at": "2026-09-10T09:00:00Z", "changes": [
         "Map editor: <b>shape tools</b>. Besides the brush you can now drag out a filled rectangle, a hollow frame, a disc, a ring, a straight bar at any angle, or an L-shaped corner — with a thickness slider for the hollow ones. You see the shape as you drag and it lands when you let go; the asteroid size applies to the whole shape, Erase works with shapes too, and undo takes a whole shape back.",
         "Map editor: the canvas is more than twice the size (and sharper), with a faint grid every ten cells and a readout of the cell under the cursor. The My Maps page is wider to fit it."
@@ -12607,6 +12612,26 @@ def api_maps():
         img_opts = json.dumps(body.get("img_opts"))[:400] if body.get("img_opts") else ""
     except (TypeError, ValueError):
         img_opts = ""
+    # Shape objects (editable after reload) + the brush layer they sit on. The flat
+    # `map` above is what the game gets; these only make the editor's objects come back.
+    shapes = ""
+    base = ""
+    _sh = body.get("shapes")
+    if isinstance(_sh, list) and _sh:
+        _clean = []
+        for s in _sh[:300]:
+            try:
+                if not isinstance(s, dict) or s.get("type") not in ("rect", "frame", "disc", "ring", "bar", "corner"):
+                    continue
+                _clean.append({"type": s["type"],
+                               "p0": {"x": float(s["p0"]["x"]), "y": float(s["p0"]["y"])},
+                               "p1": {"x": float(s["p1"]["x"]), "y": float(s["p1"]["y"])},
+                               "t": max(1, min(50, int(s.get("t", 1)))),
+                               "v": max(0, min(9, int(s.get("v", 9))))})
+            except (TypeError, ValueError, KeyError):
+                continue
+        shapes = json.dumps(_clean) if _clean else ""
+        base = normalize_custom_map(body.get("base"))
     mid = body.get("id")
     try:
         mid = int(mid) if mid not in (None, '') else None
@@ -12618,8 +12643,8 @@ def api_maps():
             conn.close()
             return jsonify({"ok": False, "message": "That map isn't yours."}), 403
         c.execute("UPDATE custom_maps SET name=?, size=?, map=?, cells=?, updated_at=?, "
-                  "image=?, img_opts=? WHERE id = ?",
-                  (name, size, cmap, cells, now, image, img_opts, mid))
+                  "image=?, img_opts=?, shapes=?, base=? WHERE id = ?",
+                  (name, size, cmap, cells, now, image, img_opts, shapes, base, mid))
     else:
         n = c.execute("SELECT COUNT(*) FROM custom_maps WHERE owner_sub = ?", (sub_id,)).fetchone()[0]
         if n >= MAPS_PER_USER:
@@ -12627,8 +12652,8 @@ def api_maps():
             return jsonify({"ok": False, "message": "You have %d maps saved - delete one to make room."
                             % MAPS_PER_USER}), 400
         c.execute("INSERT INTO custom_maps (owner_sub, name, size, map, cells, created_at, updated_at, "
-                  "image, img_opts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                  (sub_id, name, size, cmap, cells, now, now, image, img_opts))
+                  "image, img_opts, shapes, base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  (sub_id, name, size, cmap, cells, now, now, image, img_opts, shapes, base))
         mid = c.lastrowid
     conn.commit()
     conn.close()
@@ -12646,7 +12671,7 @@ def api_map_one(mid):
         return jsonify({"ok": False, "message": "My Maps is for Odyssey players and the host."}), 403
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT id, owner_sub, name, size, map, cells, image, img_opts "
+    row = c.execute("SELECT id, owner_sub, name, size, map, cells, image, img_opts, shapes, base "
                     "FROM custom_maps WHERE id = ?", (mid,)).fetchone()
     if not row or row[1] != sub_id:
         conn.close()
@@ -12661,8 +12686,13 @@ def api_map_one(mid):
         _iopts = json.loads(row[7]) if row[7] else None
     except (TypeError, ValueError):
         _iopts = None
+    try:
+        _shapes = json.loads(row[8]) if row[8] else None
+    except (TypeError, ValueError):
+        _shapes = None
     return jsonify({"ok": True, "id": row[0], "name": row[2], "size": row[3], "map": row[4],
-                    "cells": row[5] or 0, "image": row[6] or None, "img_opts": _iopts}), 200
+                    "cells": row[5] or 0, "image": row[6] or None, "img_opts": _iopts,
+                    "shapes": _shapes, "base": row[9] or ""}), 200
 
 
 CUSTOM_MODE_LABEL = {"team": "Team mode", "invasion": "Invasion", "deathmatch": "Deathmatch"}
