@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.23"
+APP_VERSION = "9.13.24"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1601,6 +1601,13 @@ def init_db():
         # and that is the difference between a game that will be scored and
         # one that will not.
         c.execute("ALTER TABLE live_lobbies ADD COLUMN watching INTEGER DEFAULT 0")
+    # Team and survival are watched by different services and published
+    # separately, so each replaces only its own rows.
+    try:
+        c.execute("ALTER TABLE live_lobbies ADD COLUMN mode TEXT DEFAULT 'team'")
+        c.execute("UPDATE live_lobbies SET mode = 'team' WHERE mode IS NULL")
+    except sqlite3.OperationalError:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS claim_requests (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -4535,6 +4542,10 @@ def game_end():
 OWNER_TAG = "@owner "
 
 CHANGELOG = [
+    {"version": "9.13.24", "at": "2026-09-10T19:30:00Z", "changes": [
+        "<b>You can check into survival lobbies now.</b> They appear on Play alongside team matches, marked <i>survival</i>, and checking in works the same way — which is what makes protection usable there: a name in strict mode is rated for the rounds it checked into, and a copycat cannot check in.",
+        "<b>A check-in can be taken back.</b> Until a watcher is actually on the lobby a check-in is only a promise, so there is now a “cancel check-in” link for exactly that window — handy if you checked into the wrong lobby. Once the watcher is there it is the evidence that ties the result to you, and it stays."
+    ]},
     {"version": "9.13.23", "at": "2026-09-10T18:45:00Z", "changes": [
         "<b>Fixed: a survival round could be credited to someone who never played it.</b> When two ships flew the same name, the finish order collapsed them into one entry at the better of the two placements — so a player copying your name handed you their round, win or loss. Survival now follows the team board’s rule: a name flown by two ships is rated for neither, and a name in strict mode is rated only if that account checked into the lobby, which a copycat cannot do. Nobody is removed from the field — they still finished where they finished, and everyone else is still measured against them — they simply get no rating from it. The board has been rebuilt, so records that were never earned are gone.",
         "Survival check-ins do not use the team board’s timing rule: you can be in a survival lobby long before the watcher arrives, so a check-in for that lobby counts as long as it was made before the round ended."
@@ -7687,6 +7698,38 @@ def survival_board():
                     "min_field": SURV_MIN_FIELD}), 200
 
 
+@app.route('/api/survival/lobbies', methods=['POST'])
+def survival_lobbies_push():
+    """The survival watcher's live lobbies, so they can be checked into.
+
+    Protection is only usable if the owner can point at the lobby they are in,
+    and survival lobbies were never listed - the picker is fed by the team
+    tracker. Replaces the survival rows only; the team push owns its own."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    rows = (request.json or {}).get('lobbies') or []
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM live_lobbies WHERE mode = 'survival'")
+        for l in rows[:40]:
+            if not isinstance(l, dict) or l.get('id') is None:
+                continue
+            c.execute("INSERT OR REPLACE INTO live_lobbies "
+                      "(sys_id, name, players, age, updated_at, watching, region, mode) "
+                      "VALUES (?,?,?,?,?,?,?, 'survival')",
+                      (int(l['id']), str(l.get('name') or ('Lobby %s' % l['id']))[:64],
+                       int(l.get('players') or 0), int(l.get('age') or 0), now,
+                       1 if l.get('watching') else 0, str(l.get('region') or 'america')[:16]))
+        conn.commit()
+    except (sqlite3.Error, TypeError, ValueError) as e:
+        conn.close()
+        return jsonify({"error": str(e)[:120]}), 500
+    conn.close()
+    return jsonify({"ok": True, "count": len(rows[:40])}), 200
+
+
 @app.route('/api/survival/push', methods=['POST'])
 def survival_push():
     """The droplet survival observer posts finished rounds here (last-player-
@@ -8241,15 +8284,16 @@ def push_lobbies():
     # result lands or it times out); any that reappear are cleared (a transient
     # push gap, not a real end). game_end also clears them when the result posts.
     prev_watch = c.execute(
-        "SELECT sys_id, name, players, region FROM live_lobbies WHERE watching = 1"
+        "SELECT sys_id, name, players, region FROM live_lobbies "
+        "WHERE watching = 1 AND COALESCE(mode, 'team') = 'team'"
     ).fetchall()
     new_ids = {lobby.get('id') for lobby in lobbies[:40] if lobby.get('id') is not None}
 
-    c.execute("DELETE FROM live_lobbies")
+    c.execute("DELETE FROM live_lobbies WHERE COALESCE(mode, 'team') = 'team'")
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     for lobby in lobbies[:40]:
-        c.execute("INSERT OR REPLACE INTO live_lobbies (sys_id, name, players, age, updated_at, watching, region) "
-                  "VALUES (?,?,?,?,?,?,?)",
+        c.execute("INSERT OR REPLACE INTO live_lobbies (sys_id, name, players, age, updated_at, watching, region, mode) "
+                  "VALUES (?,?,?,?,?,?,?, 'team')",
                   (lobby.get('id'), lobby.get('name'), lobby.get('players'), lobby.get('time'),
                    now, 1 if lobby.get('watching') else 0,
                    lobby.get('region') or 'america'))
@@ -8303,8 +8347,17 @@ def live_lobbies():
     c.execute("SELECT sys_id, name, players, age, COALESCE(watching, 0), "
               "COALESCE(region, 'america') "
               "FROM live_lobbies WHERE updated_at > datetime('now', '-5 minutes') "
+              "AND COALESCE(mode, 'team') = 'team' "
               "ORDER BY watching DESC, age DESC")
     rows = c.fetchall()
+    # Survival lobbies are listed on their own terms: the team board's age and
+    # capacity rules describe a team match and say nothing useful about a
+    # survival round, which spends its first half filling up.
+    surv_rows = c.execute(
+        "SELECT sys_id, name, players, age, COALESCE(watching, 0), "
+        "COALESCE(region, 'america') FROM live_lobbies "
+        "WHERE updated_at > datetime('now', '-5 minutes') AND mode = 'survival' "
+        "ORDER BY watching DESC, players DESC").fetchall()
     scoring_rows = c.execute(
         "SELECT sys_id, name, region, players FROM scoring_lobbies "
         "WHERE since > datetime('now', '-100 seconds') ORDER BY since DESC").fetchall()
@@ -8319,7 +8372,22 @@ def live_lobbies():
         # watched at once.
         lobby["region"] = raw[5]
         lobby["region_label"] = REGION_LABELS.get(raw[5], raw[5])
-    live_ids = {r[0] for r in rows}
+    for lobby in described:
+        lobby["mode"] = "team"
+    for sid, sname, splayers, sage, swatch, sregion in surv_rows:
+        described.append({
+            "id": sid, "region": sregion,
+            "region_label": REGION_LABELS.get(sregion, sregion),
+            "name": sname or ("Lobby %d" % sid), "players": splayers or 0,
+            "age": sage or 0, "mins": int((sage or 0) // 60),
+            "watching": bool(swatch), "mode": "survival",
+            "status": ("Being watched" if swatch else "Not watched yet"),
+            "tone": ("watching" if swatch else "waiting"),
+            # A survival check-in stays open until the watcher is on the lobby,
+            # exactly like a team one - that is the moment it stops being a
+            # promise and starts being evidence.
+            "can_checkin": not swatch, "scoring": False})
+    live_ids = {r[0] for r in rows} | {r[0] for r in surv_rows}
     for sid, sname, sregion, splayers in scoring_rows:
         if sid in live_ids:
             continue
@@ -8331,6 +8399,37 @@ def live_lobbies():
     return jsonify({"lobbies": described, "minutes_to_check_in": min_age // 60,
                     "capacity": capacity, "watching": watched_now,
                     "regions": [{"key": k, "label": l} for k, l in REGIONS]}), 200
+
+
+@app.route('/checkin/cancel', methods=['POST'])
+def check_in_cancel():
+    """Take back a check-in for a lobby the watcher has not reached yet.
+
+    A check-in is only a promise until a watcher is on the lobby; after that it
+    is the evidence that ties a result to you, so it stays. Cancelling before
+    then costs nothing and lets someone who joined the wrong lobby correct it."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    try:
+        sys_id = int((request.json or {}).get('sys_id'))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Which lobby?"}), 400
+    conn = db()
+    c = conn.cursor()
+    watching = c.execute(
+        "SELECT COALESCE(watching, 0) FROM live_lobbies WHERE sys_id = ?",
+        (sys_id,)).fetchone()
+    if watching and watching[0]:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": "That lobby is being watched now - a check-in "
+                                   "made before then is part of the record."}), 400
+    n = c.execute("DELETE FROM checkins WHERE sub = ? AND sys_id = ?",
+                  (sub_id, sys_id)).rowcount
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "removed": n}), 200
 
 
 @app.route('/protection', methods=['GET', 'POST'])
@@ -14555,8 +14654,17 @@ def play_page():
     capacity, min_age, max_age, min_players = tracker_limits(c)
     c.execute("SELECT sys_id, name, players, age, COALESCE(watching, 0), "
               "COALESCE(region, 'america') FROM live_lobbies "
-              "WHERE updated_at > datetime('now', '-5 minutes') ORDER BY watching DESC, age DESC")
+              "WHERE updated_at > datetime('now', '-5 minutes') "
+              "AND COALESCE(mode, 'team') = 'team' ORDER BY watching DESC, age DESC")
     raw = c.fetchall()
+    # Survival is described on its own terms: the team rules are about a match
+    # that starts full and ends, and a survival round spends its first half
+    # filling up, so "20 minutes in" means something completely different.
+    surv_raw = c.execute(
+        "SELECT sys_id, name, players, age, COALESCE(watching, 0), "
+        "COALESCE(region, 'america') FROM live_lobbies "
+        "WHERE updated_at > datetime('now', '-5 minutes') AND mode = 'survival' "
+        "ORDER BY watching DESC, players DESC").fetchall()
     # Matches that just ended and are being scored - their lobby has dropped out
     # of the live push, so keep them visible as "Scoring" until the result lands
     # (game_end clears them) instead of vanishing into a blank gap.
@@ -14571,7 +14679,19 @@ def play_page():
     for lobby, row in zip(lobbies, raw):
         lobby["id"] = row[0]
         lobby["region"] = row[5]
-    live_ids = {r[0] for r in raw}
+        lobby["mode"] = "team"
+    for sid, sname, splayers, sage, swatch, sregion in surv_raw:
+        lobbies.append({
+            "id": sid, "region": sregion, "name": sname or ("Lobby %d" % sid),
+            "players": splayers or 0, "mins": int((sage or 0) // 60),
+            "watching": bool(swatch), "mode": "survival", "scoring": False,
+            "status": ("Being watched" if swatch
+                       else "Check in now - the watcher joins these in turn"),
+            "tone": ("watching" if swatch else "waiting"),
+            # Same rule as team: a check-in is worth making until a watcher is
+            # on the lobby, which is the moment it becomes evidence.
+            "can_checkin": not swatch})
+    live_ids = {r[0] for r in raw} | {r[0] for r in surv_raw}
     for sid, sname, sregion, splayers, since_s in scoring_rows:
         if sid in live_ids:
             continue

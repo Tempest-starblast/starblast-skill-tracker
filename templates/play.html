@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Play - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+.modetag{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:20px;
+  color:var(--green,#66e6b8);background:rgba(102,230,184,.12);border:1px solid rgba(102,230,184,.35);vertical-align:1px}
+.ckcancel{background:none;border:0;color:var(--muted,#8aa0b0);text-decoration:underline;cursor:pointer;
+  font:inherit;font-size:12px;padding:0;margin-left:8px}
+.ckcancel:hover{color:#ff9a9a}
 .fullnote{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;
   font-size:10.5px;font-weight:700;letter-spacing:.3px;background:#1e3320;
   border:1px solid #2f6b3a;color:#7fd694;cursor:default;vertical-align:1px}
@@ -84,7 +89,7 @@
       {% for l in g.lobbies %}
       <div class="mrow{% if l.scoring %} scoring{% endif %}">
         <div>
-          <div class="mname"><span class="dot {{ l.tone }}"></span>{{ l.name }}</div>
+          <div class="mname"><span class="dot {{ l.tone }}"></span>{{ l.name }}{% if l.mode == 'survival' %} <span class="modetag">survival</span>{% endif %}</div>
           {% if l.scoring %}
           <div class="msub">Match ended &middot; <b>scoring&hellip;</b> counting the result</div>
           <div class="scorebar" title="This match has ended and is being scored - the result will appear shortly."><i></i></div>
@@ -163,6 +168,17 @@ async function saveGameName(){
 
 // Show the match you are already checked into. Checking into another one
 // cancels this, so the state has to be visible before you click again.
+async function cancelCheckIn(sysId, el){
+  el.disabled = true; el.textContent = 'cancelling…';
+  try{
+    const r = await fetch('/checkin/cancel', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({sys_id: sysId})});
+    const d = await r.json();
+    if(d && d.ok){ markCheckedIn(null); }
+    else { el.disabled = false; el.textContent = 'cancel check-in';
+           alert((d && d.message) || 'Could not cancel that check-in.'); }
+  }catch(e){ el.disabled = false; el.textContent = 'cancel check-in'; }
+}
 function markCheckedIn(ck){
   document.querySelectorAll('button[data-lobby]').forEach(function(b){
     if(b.dataset.wasChecked){
@@ -184,6 +200,16 @@ function markCheckedIn(ck){
     btn.dataset.wasChecked='1';
     line.innerHTML='&#10003; You are checked into '+where+' &mdash; play there and it counts. '
       +'Checking into a different lobby cancels this one.';
+    // Until a watcher is on the lobby a check-in is only a promise, so it can be
+    // taken back - useful when you checked into the wrong one. Once it is being
+    // watched the check-in is what ties the result to you, and it stays.
+    if(!btn.closest('.mrow').querySelector('.dot.watching')){
+      var x=document.createElement('button');
+      x.className='ckcancel'; x.textContent='cancel check-in';
+      x.title='Take this check-in back. Only possible until a watcher is on the lobby.';
+      x.onclick=function(){ cancelCheckIn(ck.sys_id, x); };
+      line.appendChild(x);
+    }
   } else {
     line.innerHTML='&#10003; You are checked into '+where+', which is no longer in the list '
       +'below &mdash; that is fine, it still counts when the match ends.';
