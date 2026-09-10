@@ -6,10 +6,24 @@
 /* IDE layout: a sticky side panel with every control, the map large in the middle.
    The shared editor emits the canvas inside its tools; the page moves it (and the
    selection bar + hover readout) into the stage by id, so nothing scrolls away. */
-.mmide{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
-/* Panel folded away: the map takes the whole width. */
-.mmide.nopanel{grid-template-columns:minmax(0,1fr)}
+.mmide{position:relative;display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
+/* Each child is pinned to its column. Hiding the panel takes it out of the grid,
+   and without this the map would auto-place itself into the panel's slot. */
+.mmide > .mmside{grid-column:1}
+.mmide > .mmstage{grid-column:2}
+/* Folded: a narrow gutter, just wide enough for the grip to sit in without
+   covering the map, and everything else goes to the map. */
+.mmide.nopanel{grid-template-columns:20px minmax(0,1fr);gap:8px}
 .mmide.nopanel > .mmside{display:none}
+/* The grip rides the panel's own edge, in the gap between the two columns, and
+   its arrow points the way the panel will go. */
+.mmgrip{position:absolute;top:14px;left:400px;z-index:4;width:15px;height:52px;padding:0;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;font-size:11px;
+  color:var(--muted,#8aa0b0);background:rgba(255,255,255,.06);border:1px solid var(--line);
+  border-radius:0 7px 7px 0;transition:left .16s ease, background .16s ease, color .16s ease}
+.mmide.nopanel .mmgrip{left:2px}
+.mmgrip:hover{background:rgba(102,230,184,.18);color:var(--green,#66e6b8)}
+.mmgrip:focus-visible{outline:2px solid var(--green,#66e6b8);outline-offset:2px}
 .mmside{position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto;padding-right:4px;scrollbar-width:thin}
 .mmside .mmcard{margin-bottom:12px}
 .mmstage{position:sticky;top:10px}
@@ -19,7 +33,11 @@
 .mmstage .mmhover{min-height:18px;margin-top:8px;font-size:11.5px;color:var(--muted);text-align:center}
 .mmside .cgmaptools{gap:6px}
 .mmside .cgmaptools input[type=range]{width:80px}
-@media (max-width:980px){.mmide{grid-template-columns:1fr}.mmside,.mmstage{position:static;max-height:none;overflow:visible}}
+@media (max-width:980px){.mmide,.mmide.nopanel{grid-template-columns:1fr;gap:16px}
+  .mmide > .mmside,.mmide > .mmstage{grid-column:auto}
+  .mmide.nopanel > .mmside{display:block}
+  .mmgrip{display:none}
+  .mmside,.mmstage{position:static;max-height:none;overflow:visible}}
 .mmnote{color:var(--muted);font-size:13.5px;line-height:1.65;margin:-4px 0 18px}
 .mmcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;backdrop-filter:var(--blur);margin-bottom:14px}
 .mmcard h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
@@ -46,15 +64,25 @@
   color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
 .mmfs:hover{background:rgba(102,230,184,.2);color:#fff}
 /* Same shape as the fullscreen button, quieter - it is a layout choice, not an action. */
-.mmpanel{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:8px;cursor:pointer;
-  font-family:inherit;font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;
-  color:var(--muted,#8aa0b0);background:rgba(255,255,255,.05);border:1px solid var(--line)}
-.mmpanel:hover{background:rgba(255,255,255,.1);color:var(--text)}
-.mmpanel .mmpanelic{font-size:13px;line-height:1}
+/* A panel section that opens: header is the control, body is what it holds. */
+.mmsechead{display:flex;align-items:center;gap:8px;width:100%;padding:0;margin:0 0 2px;
+  background:none;border:0;cursor:pointer;font-family:inherit;text-align:left;color:var(--text)}
+.mmsechead:hover .mmsectitle{color:var(--green,#66e6b8)}
+.mmsechead .mmsecarrow{font-size:10px;color:var(--muted,#8aa0b0);width:10px;flex:none;
+  transition:transform .14s ease}
+.mmsechead[aria-expanded="true"] .mmsecarrow{transform:rotate(90deg)}
+.mmsectitle{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;flex:1}
+.mmcount{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.mmsearch{width:100%;box-sizing:border-box;margin:8px 0 2px;padding:7px 9px;font:inherit;font-size:12.5px;
+  color:var(--text);background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:7px}
+.mmsearch:focus{outline:none;border-color:var(--green,#66e6b8)}
+/* Bounded, and scrolls inside itself - the panel must not grow with the list. */
+.mmlistwrap{max-height:44vh;overflow:auto;scrollbar-width:thin;margin-top:2px}
 .mmfs .mmfsic{font-size:15px;line-height:1}
 /* fullscreen: the whole editor (side panel + stage) on a dark ground */
 .mmide:fullscreen{background:#0b0e13;padding:12px;box-sizing:border-box;overflow:auto;width:100vw;height:100vh}
 .mmide:fullscreen .mmside{max-height:calc(100vh - 24px)}
+.mmide:fullscreen .mmlistwrap{max-height:38vh}
 .mmmenubar #mmname{flex:0 1 260px;min-width:120px;background:rgba(127,127,127,.1);border:1px solid var(--line);border-radius:7px;padding:6px 10px;color:var(--text);font-size:13px;font-family:inherit}
 .mmtoolbar{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:2px 0 10px;font-size:11.5px;color:var(--muted)}
 .mmtoolbar .mmtoolrow2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -104,6 +132,8 @@
 {% include "_mapgen.html" %}
 {% include "_mapeditor.html" %}
 <div class="mmide">
+<button type="button" class="mmgrip" id="mmgrip" title="Fold the side panel away"
+        aria-label="Hide the side panel" aria-expanded="true">&#9664;</button>
 <aside class="mmside">
   <div class="mmcard">
     <h2>Map</h2>
@@ -116,8 +146,14 @@
     <textarea id="o_custom_map" class="mmraw" spellcheck="false"></textarea>
     <p class="mmempty" style="margin:6px 0 0;font-size:11px">This is what the game gets. Paste a map here and use Insert &rsaquo; Apply pasted text.</p></div>
   <div class="mmcard">
-    <h2>Saved maps</h2>
-    <ul class="mmlist" id="mmlist"><li class="mmempty">Loading&hellip;</li></ul>
+    <button type="button" class="mmsechead" id="mmsavedtog" aria-expanded="false" aria-controls="mmsavedbody">
+      <span class="mmsecarrow">&#9656;</span><span class="mmsectitle">Saved maps</span>
+      <span class="mmcount" id="mmcount"></span>
+    </button>
+    <div id="mmsavedbody" hidden>
+      <input type="search" id="mmsearch" class="mmsearch" placeholder="Search your maps" autocomplete="off" spellcheck="false">
+      <div class="mmlistwrap"><ul class="mmlist" id="mmlist"><li class="mmempty">Loading&hellip;</li></ul></div>
+    </div>
   </div>
 </aside>
 <main class="mmstage">
@@ -142,7 +178,6 @@
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
       <span class="mmstatus" id="mmstatus"></span>
       <span class="mmcur" id="mmcur"></span>
-      <button type="button" class="mmpanel" id="mmpanel" title="Fold the side panel away and give the map the room"><span class="mmpanelic">&#9666;</span><span class="mmpaneltx">Hide panel</span></button>
       <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
     </div>
     <div class="mmtoolbar" id="mmtoolbar"></div>
@@ -218,18 +253,18 @@
     // Fold the side panel away. Drawing does not need it, and in fullscreen it is
     // 400px of window spent on controls you are not touching. The choice is kept,
     // because someone who works with it shut would otherwise shut it every visit.
-    var pnl=$('mmpanel'), ideEl=document.querySelector('.mmide');
+    var pnl=$('mmgrip'), ideEl=document.querySelector('.mmide');
     var pvi=document.createElement('button'); pvi.type='button';
     pvi.onclick=function(){ if(pnl) pnl.click(); }; vw.insertBefore(pvi, vw.firstChild);
     function setPanel(hidden){
       if(!ideEl) return;
       ideEl.classList.toggle('nopanel', !!hidden);
       if(pnl){
-        var t=pnl.querySelector('.mmpaneltx'), ic=pnl.querySelector('.mmpanelic');
-        if(t) t.textContent = hidden ? 'Show panel' : 'Hide panel';
-        if(ic) ic.innerHTML = hidden ? '&#9656;' : '&#9666;';
-        pnl.title = hidden ? 'Bring the side panel back'
-                           : 'Fold the side panel away and give the map the room';
+        // The arrow points where the panel is going, not where it is.
+        pnl.innerHTML = hidden ? '&#9654;' : '&#9664;';
+        pnl.title = hidden ? 'Bring the side panel back' : 'Fold the side panel away';
+        pnl.setAttribute('aria-label', hidden ? 'Show the side panel' : 'Hide the side panel');
+        pnl.setAttribute('aria-expanded', hidden ? 'false' : 'true');
       }
       pvi.textContent = hidden ? 'Show side panel' : 'Hide side panel';
       try{ localStorage.setItem('mm_panel_hidden', hidden ? '1' : '0'); }catch(e){}
@@ -288,11 +323,24 @@
       .then(function(d){ if(d&&d.map) cb(d); else status('Couldn’t open that map','err'); })
       .catch(function(){ status('Couldn’t open that map','err'); });
   }
+  // What the last fetch returned. Drawing reads from here, so searching filters
+  // without asking the server again and the count survives the section closing.
+  var savedMaps = [];
   function listMaps(){
     fetch('/api/maps',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
-      var ul=$('mmlist'); ul.innerHTML='';
-      var maps=j.maps||[];
-      if(!maps.length){ ul.innerHTML='<li class="mmempty">No saved maps yet — draw one above and hit Save.</li>'; return; }
+      savedMaps = j.maps || [];
+      drawMaps();
+    }).catch(function(){ $('mmlist').innerHTML='<li class="mmempty">Couldn’t load your maps — try again.</li>'; });
+  }
+  function drawMaps(){
+      var ul=$('mmlist'); if(!ul) return; ul.innerHTML='';
+      var box=$('mmsearch'), q=((box && box.value) || '').trim().toLowerCase();
+      var cnt=$('mmcount');
+      if(cnt) cnt.textContent = savedMaps.length ? String(savedMaps.length) : '';
+      if(!savedMaps.length){ ul.innerHTML='<li class="mmempty">No saved maps yet — draw one above and hit Save.</li>'; return; }
+      var maps = q ? savedMaps.filter(function(m){
+            return String(m.name || '').toLowerCase().indexOf(q) >= 0; }) : savedMaps;
+      if(!maps.length){ ul.innerHTML='<li class="mmempty">Nothing here called “'+esc(q)+'”.</li>'; return; }
       maps.forEach(function(m){
         var li=document.createElement('li');
         li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+(m.prev_at?' · ↩ restorable':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
@@ -312,8 +360,29 @@
         };
         ul.appendChild(li);
       });
-    }).catch(function(){ $('mmlist').innerHTML='<li class="mmempty">Couldn’t load your maps — try again.</li>'; });
   }
+  // Open-and-shut, remembered: closed, the panel is short enough to read without
+  // scrolling it, which is the whole point of putting the list behind a header.
+  (function(){
+    var tog=$('mmsavedtog'), body=$('mmsavedbody'), box=$('mmsearch');
+    if(!tog || !body) return;
+    function setOpen(open){
+      body.hidden = !open;
+      tog.setAttribute('aria-expanded', open ? 'true' : 'false');
+      try{ localStorage.setItem('mm_saved_open', open ? '1' : '0'); }catch(e){}
+      if(open && box) setTimeout(function(){ box.focus(); }, 0);
+    }
+    tog.addEventListener('click', function(){ setOpen(body.hidden); });
+    var open=false;
+    try{ open = localStorage.getItem('mm_saved_open') === '1'; }catch(e){}
+    setOpen(open);
+    if(box){
+      box.addEventListener('input', drawMaps);
+      // Escape clears the search rather than closing the section under you.
+      box.addEventListener('keydown', function(e){
+        if(e.key === 'Escape' && box.value){ e.stopPropagation(); box.value=''; drawMaps(); } });
+    }
+  })();
   function loadMap(id, force, after){
     if(!force && dirty && !confirm('Discard unsaved changes to the current map?')) return;
     fetchMap(id, function(d){

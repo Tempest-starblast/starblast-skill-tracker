@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.28"
+APP_VERSION = "9.13.29"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4537,14 +4537,18 @@ def game_end():
 
 
 # Newest first. Add a new dict here whenever APP_VERSION is bumped.
-# A change line beginning with OWNER_TAG is about a surface only the owner can
-# reach (My Maps, the map editor, the lobby builder). The changelog hides those
-# from everyone else rather than advertising doors they cannot open.
-#
-# AND: an entry says what a visitor can SEE change. Not how it is built - no
+# The changelog says what a visitor can SEE change. Not how it is built - no
 # retry timings, memory figures, storage layout or background jobs. When
-# something broke, say so plainly and say what it looked like from outside;
-# when there is no visible part at all, the line belongs behind OWNER_TAG.
+# something broke, say so plainly and say what it looked like from outside.
+#
+# Work on a surface only the owner can reach (My Maps, the map editor, the
+# lobby builder) gets NO entry at all. It used to get a tagged line that the
+# page hid; that was removed on the owner's instruction, 10 Sep 2026, because
+# a hidden line is still a line that leaves by every other door. The private
+# repository's history is where a record of that work lives.
+#
+# OWNER_TAG and the filters below stay as a backstop: if a tagged line is ever
+# written again, nothing published can carry it.
 OWNER_TAG = "@owner "
 
 
@@ -4575,15 +4579,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
-    {"version": "9.13.28", "at": "2026-09-10T16:45:00Z", "changes": [
-        "@owner The nightly backup snapshot had been failing to push for weeks. Releases go straight into the same repository the snapshot writes to, so its own copy was always behind and every push was rejected \u2014 the backup was live only because each release pushes it. The snapshot now catches up before it copies, and its one stranded commit is kept on a branch rather than thrown away."
-    ]},
-    {"version": "9.13.27", "at": "2026-09-10T16:35:00Z", "changes": [
-        "@owner The map editor\u2019s side panel folds away. Fullscreen was giving the map the whole window and then spending 400 pixels of it on controls you are not touching while you draw \u2014 there is a Hide panel button beside Fullscreen, a matching View entry, and the choice is remembered between visits."
+    {"version": "9.13.29", "at": "2026-09-10T17:20:00Z", "changes": [
+        "The changelog now only covers the site you can actually use. Entries about the host\u2019s own tools \u2014 the lobby builder and the map workshop \u2014 have been removed rather than left in and hidden, so a few version numbers are simply missing from the list. Nothing that ever affected the leaderboard, ratings, replays or your account has been touched."
     ]},
     {"version": "9.13.26", "at": "2026-09-10T16:10:00Z", "changes": [
         "Site updates posted to Discord read as sentences again. The changelog is written for a web page, and its emphasis was arriving in the channel as raw tags; it is converted properly now.",
-        "@owner Owner-only changelog lines were only ever filtered by the changelog PAGE. Both bot routes \u2014 the /changelog command and the #site-updates feed \u2014 were handing them out verbatim, so past owner-only releases were posted to Discord in full. The filter now runs at the source: those lines never leave the site, and a release that is nothing but owner work is not announced at all."
     ]},
     {"version": "9.13.25", "at": "2026-09-10T21:00:00Z", "changes": [
         "<b>Replays now show where nothing was recorded.</b> When a watcher drops or is restarted the recording simply stops for a while, and the replay used to glide every ship smoothly across the hole \u2014 so a blackout looked like flying that never happened. The seek bar is now laid out by match time, holes are drawn on it as grey bands you can hover to read, and playing through one freezes the ships on the last real reading, says how much is missing, and cuts to the far side after a moment instead of playing out empty minutes. The clock and the stations keep turning through it, because those come from the time, not the recording.",
@@ -4600,57 +4600,14 @@ CHANGELOG = [
     {"version": "9.13.22", "at": "2026-09-10T18:00:00Z", "changes": [
         "The leaderboard says how much it is built on: the number of matches the watcher has recorded, under the player count — team matches on the team board, survival rounds on the survival board."
     ]},
-    {"version": "9.13.20", "at": "2026-09-10T17:00:00Z", "changes": [
-        "@owner Server: when a lobby refuses to hold the watcher’s connection, the watcher now waits longer between attempts (2 seconds, then 4, 8 and so on up to a minute) instead of retrying every two seconds forever, and goes straight back to normal as soon as a connection lasts.",
-        "@owner The menu entries only you can use \u2014 Odyssey lobby, My Maps, Flood review, Merge requests \u2014 are no longer written into everybody\u2019s page and hidden with styling. The server sends them to accounts that may use them, so a visitor\u2019s page never mentions them at all, not even in the script."
-    ]},
     {"version": "9.13.19", "at": "2026-09-10T16:00:00Z", "changes": [
         "Fixed the release notes printing formatting marks as visible text instead of emphasising the words.",
-        "@owner Release notes for your own tools \u2014 My Maps, the map editor and the lobby builder \u2014 are now shown only to you, marked with an <span>owner</span> chip. Everyone else sees the public releases only, so the notes stop advertising doors they cannot open."
-    ]},
-    {"version": "9.13.18", "at": "2026-09-10T15:10:00Z", "changes": [
-        "@owner Saved maps keep the version before their last save, so saving over a good map is no longer final: <b>File › Restore previous version</b> puts it back, and the list marks which maps have a version to go back to. Restoring swaps the two versions rather than throwing one away — press it again and you are back where you started, so a mis-click costs nothing.",
-        "@owner (The traced source image isn’t duplicated into the history — it stays attached to the map either way.)"
-    ]},
-    {"version": "9.13.17", "at": "2026-09-10T14:40:00Z", "changes": [
-        "@owner <b>Fixed: renaming a saved map destroyed the original.</b> Loading a map, giving it a different name and saving used to overwrite the map you loaded — the old name and its asteroids were gone. A rename now always saves as a <b>new</b> map and tells you the original is untouched. Editing a map and saving under the same name still updates it in place, as before.",
-        "@owner My Maps: the header always says what Save will do — “editing ‘X’”, “renamed → saves as a copy”, or “new map” — and File has an explicit <b>Save as a copy</b>."
-    ]},
-    {"version": "9.13.16", "at": "2026-09-10T14:10:00Z", "changes": [
-        "@owner Inserted text now comes out cleanly at every letter. M in particular was a mess: the word was drawn at one asteroid per pixel in a heavy font, so thin diagonals either vanished or merged into a solid block. It is now drawn six times larger and reduced by how much of each cell the letter actually covers, in a lighter face — checked letter by letter: every A–Z and 0–9 comes out as one clean, unbroken shape at every size, and letters never run into each other."
-    ]},
-    {"version": "9.13.15", "at": "2026-09-10T13:30:00Z", "changes": [
-        "@owner Map editor: <b>painted asteroids are selectable too</b>, not just shapes. With the Select tool, click an asteroid to grab the whole clump it belongs to, or drag a box round any mix of asteroids and shapes — then move, copy, delete or resize them together. Let go of the selection and the asteroids settle back into the map exactly where you left them.",
-        "@owner Map editor: <b>type a word and insert it</b> as asteroids (Insert › Text). It lands selected so you can drag it into place, with a height slider for how big the letters are. Words are checked against the site’s blocked-word list first, and a blocked word is refused."
-    ]},
-    {"version": "9.13.14", "at": "2026-09-10T12:40:00Z", "changes": [
-        "@owner Map editor: the full grid is drawn (every cell, every tenth line stronger), and brush strokes are continuous — a fast mouse no longer skips cells.",
-        "@owner Map editor: <b>Line mode</b> for the brush. A stroke locks to horizontal, vertical or a 45° diagonal from its first movement and only re-locks if you pull well off the line, so rows, columns and patterns come out straight. Shift+drag paints an exact straight line with a preview.",
-        "@owner Map editor: the stations on the map are drawn the way the live view and replays draw them — a ring of modules round a hex hub in the team’s colour — instead of numbered squares."
-    ]},
-    {"version": "9.13.13", "at": "2026-09-10T12:00:00Z", "changes": [
-        "@owner My Maps: “Clear station path” lives under Edit now (it changes the map), not View."
-    ]},
-    {"version": "9.13.12", "at": "2026-09-10T11:50:00Z", "changes": [
-        "@owner My Maps: a <b>Fullscreen</b> button (top-right, and under View) puts the whole editor — side panel and map — on the full screen; the map grows to fit."
     ]},
     {"version": "9.13.11", "at": "2026-09-10T11:30:00Z", "changes": [
-        "@owner My Maps is laid out like an editor now: the map large in the middle with a menu bar above it (File, Edit, Insert, View) and one toolbar for the drawing tools, and a side panel that keeps the map settings and your saved maps in view without scrolling. The scattered buttons are consolidated into those menus; New map is the one reset.",
-        "@owner Map editor: select several shapes at once — drag a box around them with the Select tool, or Shift-click to add — then move, delete, duplicate, copy/paste (Ctrl+C, Ctrl+X, Ctrl+V) or retune them together. Ctrl+A selects every shape. A click on a shape selects it with any tool.",
-        "@owner Map editor fixes: Clear now clears shapes as well as painted asteroids; Flatten is now “Bake into map” and says what it does (it turns a shape into plain asteroids, so it stops being a shape — Undo brings it back).",
         "Replays: the flood notice now tells the truth. Swarm ships are usually tier-1 Flies, and until today the recorder left every Fly off the radar (it read the Fly’s ship byte as “no ship”) — so a swarm that was very much in the game did not show. Matches recorded before today say so in the notice; from the recorder’s next restart, Flies appear on the radar like any other ship."
     ]},
     {"version": "9.13.10", "at": "2026-09-10T10:20:00Z", "changes": [
         "Replays now show a match’s flood evidence under the header — which name had how many ships at once, on which team — and explain why a flagged match can look clean on the radar: swarm accounts almost never spawn a ship, so they are not on the radar or in the rosters; they fill the lobby instead. (Prompted by Celaefar 2: “SLEEP TIME” had 63 ships in the lobby at once and not one of them ever flew.)"
-    ]},
-    {"version": "9.13.9", "at": "2026-09-10T09:45:00Z", "changes": [
-        "@owner Map editor: shapes are now <b>objects</b>. Draw one and it stays live: click it to select, drag it anywhere, pull its corner handles to resize, change its asteroid size or thickness in the bar above the map, duplicate it, delete it, or flatten it into plain asteroids. Arrow keys nudge, Delete removes, Ctrl+D duplicates, Esc deselects. Undo takes back any of it.",
-        "@owner Map editor: a <b>Select</b> tool for moving things (the Brush also grabs a shape you press on); the shape tools always draw, even over other shapes — which is how you cut a hole: turn on Erase and draw a disc inside a rectangle, then move the hole around. After drawing a shape the editor switches to Select so you can adjust it straight away.",
-        "@owner My Maps saves shapes as shapes: load a map back later and its objects are still movable. The map the game receives is always the flat result."
-    ]},
-    {"version": "9.13.8", "at": "2026-09-10T09:00:00Z", "changes": [
-        "@owner Map editor: <b>shape tools</b>. Besides the brush you can now drag out a filled rectangle, a hollow frame, a disc, a ring, a straight bar at any angle, or an L-shaped corner — with a thickness slider for the hollow ones. You see the shape as you drag and it lands when you let go; the asteroid size applies to the whole shape, Erase works with shapes too, and undo takes a whole shape back.",
-        "@owner Map editor: the canvas is more than twice the size (and sharper), with a faint grid every ten cells and a readout of the cell under the cursor. The My Maps page is wider to fit it."
     ]},
     {"version": "9.13.7", "at": "2026-09-10T08:20:00Z", "changes": [
         "Replay: <b>drag a station round its ring to scrub</b>. The ring turns exactly once an hour, so the angle you move a station by is match time — a quarter turn is fifteen minutes — and the ships, scores and win chances follow as you drag. Counter-clockwise is forward, the way the ring really turns.",
@@ -4675,31 +4632,6 @@ CHANGELOG = [
         "Stations are drawn as stations: each team’s real module layout in its colour, modules going amber when damaged and dark when destroyed, sitting on the ring they orbit — placed by the game’s own clock. The live view now moves them too, instead of parking them at fixed angles.",
         "The asteroid field is drawn behind the replay and the live radar — the real field for that lobby, from its seed, using the game’s own generator. It shows the field as the match started; rocks that get mined away stay drawn."
     ]},
-    {"version": "9.13.2", "at": "2026-09-10T00:00:00Z", "changes": [
-        "@owner The lobby now reads a mod’s map the way mods actually write it. Paste or load a mod and its custom_map shows up in the map preview straight away — whether it’s a literal string, a variable holding the map, rows joined with .join(), or pieces added together. Before, only a literal string was understood, so most mods’ maps were silently ignored.",
-        "@owner And it goes both ways: change the map — draw one in, pick from My Maps, generate from a seed, import a file — and the mod’s code is updated in the place the map already lives (a variable stays a variable, an array stays an array). Clearing the map removes it from the mod so the game builds its own field. If a mod builds its map with code that can’t be rewritten safely, the lobby says so instead of guessing.",
-        "@owner Pasting or loading a whole mod reads its settings automatically — no need to press “Read settings from mod” first."
-    ]},
-    {"version": "9.13.1", "at": "2026-09-09T23:00:00Z", "changes": [
-        "@owner The seed-to-map generator has been rewritten as plain, readable code. 9.13.0 shipped the game’s own generator as-is, which is deliberately scrambled and impossible to check or maintain; the new version is ordinary code with real names and comments, and it reproduces the game’s fields exactly — checked cell for cell against the original across thousands of seeds, every map size and both team settings. Nothing changes for players: the same seed still gives the same map."
-    ]},
-    {"version": "9.13.0", "at": "2026-09-09T22:00:00Z", "changes": [
-        "@owner Build a map from a seed. Type a seed (or hit the dice) in My Maps or in the lobby and it builds the exact asteroid field that seed produces in game — then you can edit it like any other map. It is the game’s own map generator, so what you see is what would be flown.",
-        "@owner A map traced from a picture now keeps the picture. Save it, load it back later, and the image is still attached along with the trace settings — so you can nudge the cutoff or the asteroid size and re-trace, instead of hunting for the original file. Saved maps that carry one are marked in the list.",
-        "@owner The lobby can send a map back the other way: <b>Save to My Maps</b> takes whatever map the lobby is set up with — pasted, imported or seed-generated — and files it in My Maps so you can edit it there."
-    ]},
-    {"version": "9.12.9", "at": "2026-09-09T21:00:00Z", "changes": [
-        "@owner You can now save a map to your device: <b>Download</b> in My Maps writes it out as a plain .txt file, named after the map. Handy as a backup, or for sending a map to someone.",
-        "@owner And load one back: <b>Import map</b> in My Maps opens a map file from your device into the editor (it comes in as a new map, so it never overwrites one you already saved). The lobby has the same button, so the host can drop a map file straight into a game without going through My Maps first."
-    ]},
-    {"version": "9.12.8", "at": "2026-09-09T20:00:00Z", "changes": [
-        "@owner The map editor’s orbit is much smoother — it now moves by real elapsed time at around 60 frames a second, so it glides instead of stepping, and runs at the same speed on any machine.",
-        "@owner New “Move” mode in the map editor: switch to it and you can grab the stations and swing them around their ring yourself, to line the map up exactly how you want. Painting is paused while you’re moving them, and taking hold of a station stops the automatic orbit so the two never fight each other."
-    ]},
-    {"version": "9.12.7", "at": "2026-09-09T19:00:00Z", "changes": [
-        "@owner Map editor: a “Clear station path” switch. The stations circle the map once an hour, so anything sitting on that ring is in their way — turn it on and the ring is cleared and blocked off, so you can’t drop asteroids there by accident. Nothing is thrown away: turn it off and everything comes straight back, which matters most after tracing an image over the whole map.",
-        "@owner Map editor: an “Orbit” button that spins the stations around their ring the way they travel in game, so you can see the whole path they sweep instead of a single frozen moment, and build around it."
-    ]},
     {"version": "9.12.6", "at": "2026-09-09T18:00:00Z", "changes": [
         "Replay radar: each team's base is now placed by the game's own geometry — the station ring turns once an hour and every team sits at its own fixed offset on it — instead of being worked out from where the ships happened to be. That guesswork could put a team's base on top of its enemy's; the positions are now computed, not inferred. Matches recorded from now on use it, older ones keep the old estimate. (Thanks to ServerList+ by @dankdmitron, whose spectator showed how it's done.)"
     ]},
@@ -4716,55 +4648,10 @@ CHANGELOG = [
     {"version": "9.12.2", "at": "2026-09-09T11:00:00Z", "changes": [
         "Replays now use each lobby's real team colours — the same hues the players saw in-game — for the ship dots, the station blueprints, the base markers and the legend, instead of a fixed blue/green/gold palette. (Ships and stations were already coloured by the same team; they just weren't the game's colours.)",
         "The whole replay box can go fullscreen now (the ⛶ button top-right), not only the radar.",
-        "@owner The map editor's team colours follow the game's order too (a 3-team game is green, purple, orange for teams 1, 2, 3)."
-    ]},
-    {"version": "9.12.1", "at": "2026-09-09T10:30:00Z", "changes": [
-        "@owner Fixed the dropdown lists on the custom-lobby and My Maps pages (saved maps, starting ship, soundtrack and the rest) showing light text on a light popup — the options are dark now and readable."
-    ]},
-    {"version": "9.12.0", "at": "2026-09-09T10:00:00Z", "changes": [
-        "@owner The custom-lobby builder is beginner-friendly now: a short Basics panel (teams, map size, players, crystal value, lives, starting ship, map name) and one “Show advanced settings” switch that reveals everything else, grouped. Pasting a map and importing a mod fold away until you want them, and the survival triggers and mode picker are gone — the lobby is team mode, full stop. A mod you import is made team-mode automatically.",
-        "@owner Up to 5 teams (the game's limit) — the map editor's base markers and orbit follow the team count, with a distinct colour per team.",
-        "@owner My Maps has the same idea: brush, erase, undo and clear up front, and a “More tools” switch for image tracing, exact-point placement, raw map text and reset."
-    ]},
-    {"version": "9.11.2", "at": "2026-09-09T09:00:00Z", "changes": [
-        "@owner Fixed: when the host's open was rejected (say, a mod that isn't team mode), the page kept snapping back to an error screen and the form came back empty, so you couldn't fix the mod. The message now shows above the settings with everything you'd entered still there — settings, mod and map — so you can correct it and open again."
-    ]},
-    {"version": "9.11.1", "at": "2026-09-09T08:30:00Z", "changes": [
-        "@owner The custom-lobby defaults were checked against what the game server actually applies to a plain team game (and what the public team servers run) and corrected: crystal value ×2.5, no survival time trigger, survival level “never”, lives 4, ship speed 1.2, RCS on. Asteroid density now stays on the game's automatic setting unless you change it."
-    ]},
-    {"version": "9.11.0", "at": "2026-09-09T07:30:00Z", "changes": [
-        "@owner The custom-lobby builder now has the game's full set of settings, grouped like the game's own creator: map pattern (seed) and asteroid density; the survival triggers (time and level); crystal value, gems dropped on death, weapon drops, gem release and asteroid strength; starting ship (and fully upgraded), max level, lives and lives at max level; ship speed, friction, strafe, RCS and projectile speed; shield and power regen, healing on/off and its ratio, invulnerable ships; weapons store and mine lifespan; station size, station gem capacity, repair threshold, regeneration, auto-assign teams and high-tier docking/respawn; radar zoom, auto refill and three more soundtracks.",
-        "@owner The defaults now match the game's team-mode defaults (e.g. 70 players, crystal ×2), so leaving everything as-is is still exactly the standard rated lobby — change any of them and it's an unrated custom game. Reading settings from a mod and writing them back now covers all of these, on/off switches included."
     ]},
     {"version": "9.10.0", "at": "2026-09-09T06:00:00Z", "changes": [
         "Custom games are recorded. Every unrated game from the Odyssey custom lobby (custom settings, a custom map or a mod) now saves who played, the team each was on, their score, how long they played, and which team won — the last station standing (or the top scorer in deathmatch). A lobby that closes before a station falls is kept as “no result”. None of it touches the leaderboard.",
         "New Custom games page (More → Custom games) listing them, a Custom games card on player profiles, and each result is posted to a #custom-games channel in Discord."
-    ]},
-    {"version": "9.9.1", "at": "2026-09-09T05:00:00Z", "changes": [
-        "@owner My Maps is now the host's workshop only, like the lobby builder itself (Odyssey players still see the lobby's join link as before).",
-        "@owner An imported mod can be loaded straight from a file (.js or .txt) — a button under the mod box, or drop the file onto it.",
-        "@owner The map editor's station ring now follows the game's own formula: the bases sit further out than the earlier estimate, about 71% of the way from the centre to the edge."
-    ]},
-    {"version": "9.9.0", "at": "2026-09-09T04:00:00Z", "changes": [
-        "@owner New: My Maps (More → My Maps) — a standalone map workshop for the custom lobby. Draw asteroids, trace an image, place exact points, undo — with the sun, the station orbit and the team bases drawn so you can build around them. Name and save as many maps as you like, and load, copy or delete them any time. Open to the host and established Odyssey players, so anyone at that level can build a map and pass it to the host.",
-        "@owner Opening a lobby now takes a saved map: pick one from My Maps in the lobby's Custom settings, or copy a map in My Maps and paste it in. The lobby page just previews the chosen map (with your team and station settings) instead of hosting the whole editor."
-    ]},
-    {"version": "9.8.8", "at": "2026-09-09T02:30:00Z", "changes": [
-        "@owner The map editor now shows where the team stations will be. In team mode it draws the sun at the centre, the ring the stations ride (they revolve around it once an hour, so the whole ring gets swept), and one marker per team sized to your station setting — based on the game's real base placement — so you can build the map around them instead of guessing.",
-        "@owner Image → asteroids got proper controls: an Invert option (for a dark design on a light background), a brightness cutoff, a choice of a fixed asteroid size or size-by-brightness with a cap, and a spacing setting to thin the field. Change any of them and the last image re-traces on the spot.",
-        "@owner Scrolling over the small option sliders now moves exactly one step."
-    ]},
-    {"version": "9.8.7", "at": "2026-09-09T01:15:00Z", "changes": [
-        "@owner The custom-lobby “Starting ship” setting is now a proper ship picker — choose a real ship by name, grouped by tier (Fly, Odyssey, Bastion…), instead of typing a code into a spinner that could land on a ship that doesn’t exist.",
-        "@owner Clearer wording on the custom-lobby page: it now spells out that the host chooses who can join (Odyssey-only, where non-Odyssey players are removed automatically, or anyone with the link) and that leaving the defaults gives the standard rated game."
-    ]},
-    {"version": "9.8.6", "at": "2026-09-09T00:30:00Z", "changes": [
-        "@owner The custom-lobby map editor can build a map from an image. Drop or paste a picture (or use “From image”) — a design on a black background — and it’s traced onto the grid as asteroids: brighter areas become bigger asteroids, black stays empty. Tidy the result by hand afterwards if you like.",
-        "@owner The host can now stop a running lobby on demand — there’s a Stop lobby button on the live-lobby screen, so you don’t have to wait for it to empty out and close itself.",
-        "@owner Small fix: scrolling the asteroid-size control now moves one step at a time instead of skipping."
-    ]},
-    {"version": "9.8.5", "at": "2026-09-08T22:30:00Z", "changes": [
-        "@owner The Odyssey custom-lobby builder has a drag-to-draw map editor. When you open a lobby, the Custom settings now include a grid you can paint asteroids onto — pick an asteroid size and drag to place them, erase or clear, and it fills the whole map live. Prefer to type? Paste a raw Starblast custom map into the box and hit “Apply pasted” to load it onto the grid, then tweak it by hand. A custom map makes the game unrated (it still records who played, their teams, time and score)."
     ]},
     {"version": "9.8.0", "at": "2026-09-08T20:00:00Z", "changes": [
         "Discord rank roles. Every skill division — from Fly up to Shadow X-3 — is now a coloured role in the Discord server. You get yours automatically, it updates as you climb or slip, and the member list groups everyone by rank. Reaching a new division is celebrated in a #rank-ups channel.",
@@ -4850,10 +4737,6 @@ CHANGELOG = [
     ]},
     {"version": "8.6.0", "at": "2026-09-01T08:05:00Z", "changes": [
         "The replay radar now shows each team's base where it REALLY is. Team stations sit on a ring that slowly revolves around the sun (once an hour) - the radar's base icons used to sit at fixed decorative positions, and now they ride the real ring and revolve as the match plays. Worked out from the game's own base-warp formula plus a fit over 1,100 archived matches; new matches get true bases from now on, older replays keep the old markers.",
-        "@owner Behind the scenes: the daily win-probability retrain no longer reports ‘failed’ after finishing its work."
-    ]},
-    {"version": "8.5.7", "at": "2026-09-01T07:05:00Z", "changes": [
-        "@owner Housekeeping: the live-match store now prunes lobbies that ended over a day ago and asteroid fields older than a month, instead of keeping them forever."
     ]},
     {"version": "8.5.6", "at": "2026-09-01T06:50:00Z", "changes": [
         "Fixed a long-standing account bug: changing your account name silently orphaned your match history - the record stayed but the profile's match list went empty, because the history stayed keyed to the old name. A rename now carries every match with it."
