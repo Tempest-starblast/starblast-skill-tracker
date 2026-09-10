@@ -23,7 +23,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.22"
+APP_VERSION = "9.13.23"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4535,6 +4535,10 @@ def game_end():
 OWNER_TAG = "@owner "
 
 CHANGELOG = [
+    {"version": "9.13.23", "at": "2026-09-10T18:45:00Z", "changes": [
+        "<b>Fixed: a survival round could be credited to someone who never played it.</b> When two ships flew the same name, the finish order collapsed them into one entry at the better of the two placements — so a player copying your name handed you their round, win or loss. Survival now follows the team board’s rule: a name flown by two ships is rated for neither, and a name in strict mode is rated only if that account checked into the lobby, which a copycat cannot do. Nobody is removed from the field — they still finished where they finished, and everyone else is still measured against them — they simply get no rating from it. The board has been rebuilt, so records that were never earned are gone.",
+        "Survival check-ins do not use the team board’s timing rule: you can be in a survival lobby long before the watcher arrives, so a check-in for that lobby counts as long as it was made before the round ended."
+    ]},
     {"version": "9.13.22", "at": "2026-09-10T18:00:00Z", "changes": [
         "The leaderboard says how much it is built on: the number of matches the watcher has recorded, under the player count — team matches on the team board, survival rounds on the survival board."
     ]},
@@ -7483,6 +7487,66 @@ def _survival_ranked_field(data):
     return ranked
 
 
+# How long before a round ends a check-in still counts for it. Survival rounds
+# run long and a player can be in the lobby before the watcher ever arrives, so
+# this is deliberately generous - it only stops an ancient check-in for a
+# recycled lobby id from protecting someone forever.
+SURV_CHECKIN_WINDOW_HOURS = 12
+
+
+def _survival_dupe_keys(data):
+    """Names flown by more than one ship in this round.
+
+    Two ships under one name means one of them is an impersonator and nothing in
+    the finish order says which - so neither is rated, exactly as on the team
+    board. (Without this the field collapsed them into one entry at the BEST of
+    the two placements, handing the real owner a round they never played.)"""
+    seen, dupes = set(), set()
+    for entry in (data.get('leave_order') or []):
+        nm = entry[0] if isinstance(entry, (list, tuple)) else entry
+        if not nm or is_observer_name(nm):
+            continue
+        key = normalize_name(nm)
+        if not key:
+            continue
+        if key in seen:
+            dupes.add(key)
+        seen.add(key)
+    return dupes
+
+
+def _survival_withheld(c, round_key, ended_at, data, protected=None):
+    """Names in this round that must not be rated: flown twice, or protected
+    without a check-in for this lobby."""
+    dupes = _survival_dupe_keys(data)
+    if protected is None:
+        protected = {normalize_name(r[0]) for r in
+                     c.execute("SELECT name FROM players WHERE strict_mode = 1")}
+    field = {k for k, _ in _survival_ranked_field(data)}
+    guarded = field & protected
+    checked = set()
+    if guarded:
+        sid = str(round_key).split("|")[0]
+        try:
+            sid = int(sid)
+        except (TypeError, ValueError):
+            sid = None
+        if sid is not None:
+            _end = str(ended_at or '')[:19]
+            if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', _end):
+                rows = c.execute(
+                    "SELECT player FROM checkins WHERE sys_id = ? AND created_at <= ? "
+                    "AND created_at > datetime(?, ?)",
+                    (sid, _end, _end, '-%d hours' % SURV_CHECKIN_WINDOW_HOURS)).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT player FROM checkins WHERE sys_id = ? "
+                    "AND created_at > datetime('now', ?)",
+                    (sid, '-%d hours' % SURV_CHECKIN_WINDOW_HOURS)).fetchall()
+            checked = {normalize_name(r[0]) for r in rows}
+    return (dupes & field) | (guarded - checked)
+
+
 def _survival_true_winner(data):
     """(winner, runner_up) = the first two NON-observer names in leave_order
     (which is winner-first). Salvages a round whose observed 'winner' is a
@@ -7498,7 +7562,7 @@ def _survival_true_winner(data):
     return (reals[0] if reals else "", reals[1] if len(reals) > 1 else "")
 
 
-def apply_survival_round(c, round_key, ended_at, data):
+def apply_survival_round(c, round_key, ended_at, data, protected=None):
     """Rate ONE survival round into survival_players / survival_round_players
     with the pairwise placement Elo. Returns the rated field size, or 0 if the
     field was too small or the round is already rated. Caller owns the commit.
@@ -7516,6 +7580,11 @@ def apply_survival_round(c, round_key, ended_at, data):
         return 0                       # already rated - keep it idempotent
     close_call = bool(data.get('close_call'))
     keys = [k for k, _ in ranked]
+    # Rated for nobody: a name two ships were flying, and a protected name with
+    # no check-in for this lobby. They stay in the field below - they really did
+    # finish where they finished, and everyone else was measured against them -
+    # but no rating row is written, so no phantom result lands on an account.
+    withheld = _survival_withheld(c, round_key, ended_at, data, protected)
     elos, games = {}, {}
     ph = ",".join("?" for _ in keys)
     for nn, el, rd in c.execute(
@@ -7540,6 +7609,8 @@ def apply_survival_round(c, round_key, ended_at, data):
         deltas.append(kf / (n - 1) * s)
     now = ended_at or time.strftime('%Y-%m-%d %H:%M:%S')
     for i, (k, disp) in enumerate(ranked):
+        if k in withheld:
+            continue
         place = i + 1
         new_elo = round(r[i] + deltas[i], 2)
         won = 1 if i == 0 else 0
@@ -7565,6 +7636,8 @@ def recompute_survival_elo(c):
     c.execute("DELETE FROM survival_players")
     c.execute("DELETE FROM survival_round_players")
     rated = 0
+    _protected = {normalize_name(r[0]) for r in
+                  c.execute("SELECT name FROM players WHERE strict_mode = 1").fetchall()}
     for key, ended_at, data_json in c.execute(
             "SELECT key, ended_at, data FROM survival_results "
             "ORDER BY ended_at, key").fetchall():
@@ -7572,7 +7645,7 @@ def recompute_survival_elo(c):
             data = json.loads(data_json)
         except Exception:
             continue
-        if apply_survival_round(c, key, ended_at, data):
+        if apply_survival_round(c, key, ended_at, data, _protected):
             rated += 1
     n_players = c.execute("SELECT COUNT(*) FROM survival_players").fetchone()[0]
     return rated, n_players
