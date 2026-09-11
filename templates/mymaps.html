@@ -53,7 +53,24 @@
 .mmcard h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
 .mmbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 /* Docs-style menubar + toolbar above the map */
-.mmmenubar{display:flex;align-items:center;gap:2px;flex-wrap:wrap;padding:2px 2px 8px;border-bottom:1px solid var(--line);margin-bottom:8px}
+/* The header, the way an editor lays it out: the title row is what you are
+   working on and the one thing you do with it; the menubar is menus and nothing
+   else; the toolbar sits under both. */
+.mmhead{margin:0 0 8px}
+.mmtitle{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:2px 2px 8px}
+.mmtitle-l{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 320px}
+.mmtitle #mmname{flex:0 1 340px;min-width:150px;font-size:16px;font-weight:600;padding:6px 10px;margin-left:-10px;
+  background:transparent;border:1px solid transparent;border-radius:7px;color:var(--text);font-family:inherit}
+.mmtitle #mmname:hover{border-color:var(--line)}
+.mmtitle #mmname:focus{outline:none;border-color:var(--green,#66e6b8);background:rgba(127,127,127,.08)}
+.mmstate{display:flex;align-items:center;gap:10px;min-width:0;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden}
+.mmstate > span{min-width:0;max-width:44ch;overflow:hidden;text-overflow:ellipsis}
+.mmstate > span:empty{display:none}
+.mmstate .mmstatus{min-width:0}
+.mmtag[hidden]{display:none!important}
+.mmtitle-r{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
+.mmtitle-r .mmbtn{padding:7px 14px}
+.mmmenubar{display:flex;align-items:center;gap:2px;flex-wrap:wrap;padding:0 2px 6px;border-bottom:1px solid var(--line)}
 .mmmenu{position:relative}
 .mmmenu>summary{list-style:none;cursor:pointer;padding:6px 11px;border-radius:6px;font-size:13px;color:var(--text);user-select:none}
 .mmmenu>summary::-webkit-details-marker{display:none}
@@ -78,17 +95,16 @@
 #mmEdit{min-width:300px}
 .mmmenu-list .mapadvbtn{background:none!important;border:0!important;color:var(--text)!important}
 .mmmenu-spacer{flex:1}
-/* Play: the one thing you do with a finished map, so it is a button on the screen. */
-.mmplay{background:var(--green,#66e6b8);color:#0b0e13;border:0;border-radius:8px;padding:8px 16px;font-weight:800;
-  font-size:13.5px;letter-spacing:.02em;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px;
-  box-shadow:0 0 0 0 rgba(102,230,184,.0);transition:box-shadow .15s}
-.mmplay:hover{box-shadow:0 0 0 3px rgba(102,230,184,.25)}
-.mmplay .tri{font-size:11px}
-/* Team | Survival */
-.mmseg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;margin:0 6px 0 4px}
-.mmseg button{border:0;border-radius:0;background:transparent;padding:6px 11px;font-size:12px;color:var(--text);cursor:pointer;font-family:inherit}
-.mmseg button+button{border-left:1px solid var(--line)}
-.mmseg button.on{background:rgba(102,230,184,.16);color:var(--green,#66e6b8);font-weight:700}
+/* Test: the one thing you do with a finished map - the primary action, alone on the right. */
+.mmtest{background:var(--green,#66e6b8);color:#0b0e13;border:0;border-radius:8px;padding:8px 18px;font-weight:800;
+  font-size:13.5px;letter-spacing:.02em;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;
+  transition:box-shadow .15s}
+.mmtest:hover{box-shadow:0 0 0 3px rgba(102,230,184,.25)}
+.mmtest .tri{font-size:10px}
+/* Map type, in File: the current one carries a check, like Snapping in View. */
+.mmmenu-list button .chk{margin-left:auto;color:var(--green,#66e6b8);font-weight:700}
+.mmmenu-list .mminstall{display:none}
+.mmmenu-list .mminstall.on{display:flex}
 .mmtag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;
   border-radius:4px;background:rgba(255,199,87,.14);color:var(--amber,#ffc757);margin-left:6px;vertical-align:1px}
 /* The chip top-right is the name only here: this is a workshop, not the board. */
@@ -131,9 +147,10 @@
 .mmsheet .seg button.on{background:var(--green,#66e6b8);color:#0b1117;font-weight:600}
 .mmsheet .clock{font:600 15px ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;color:var(--green,#66e6b8)}
 .mmsheet .clock.low{color:var(--amber,#ffc757)}
-.mmfs{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit;
-  font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
+/* Fullscreen: an icon in the corner, the label is its tooltip. */
+.mmfs{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border-radius:8px;cursor:pointer;font-family:inherit;
+  color:var(--muted);background:transparent;border:1px solid var(--line)}
+.mmfs .mmfstx{display:none}
 .mmfs:hover{background:rgba(102,230,184,.2);color:#fff}
 /* Same shape as the fullscreen button, quieter - it is a layout choice, not an action. */
 /* A panel section that opens: header is the control, body is what it holds. */
@@ -371,6 +388,19 @@
 </aside>
 <main class="mmstage">
   <div class="mmcard">
+    <div class="mmhead">
+    <div class="mmtitle">
+      <div class="mmtitle-l">
+        <input type="text" id="mmname" maxlength="40" placeholder="Untitled map" aria-label="Map name">
+        <span class="mmtag" id="mmmodechip" hidden title="A survival map: no stations. Change it under File &rsaquo; Map type.">Survival</span>
+        <span class="mmstate"><span class="mmcur" id="mmcur"></span><span class="mmfileat" id="mmfileat"></span><span class="mmstatus" id="mmstatus"></span></span>
+      </div>
+      <div class="mmtitle-r">
+        <button class="mmbtn" id="mmsave" type="button" title="Save to My Maps (Ctrl+S)">Save</button>
+        <button class="mmtest" id="mmplay" type="button" title="Open a private lobby running this map, so you can fly it"><span class="tri">&#9654;</span>Test</button>
+        <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen" aria-label="Fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
+      </div>
+    </div>
     <div class="mmmenubar">
       <details class="mmmenu"><summary>File</summary><div class="mmmenu-list">
         <button type="button" id="mmnew">New map</button>
@@ -385,7 +415,12 @@
         <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
         <button type="button" id="mmcopy" title="Copy the map text to your clipboard">Copy map text</button>
         <button type="button" id="mmpng" title="Save the map as a picture, for posting in Discord">Export as image</button>
-
+        <div class="mmmenu-sep"></div>
+        <div class="mmmenu-note">Map type</div>
+        <button type="button" id="mmmodeteam" title="Three stations on their ring; the guides and the balance are about the teams">Team <span class="chk">&#10003;</span></button>
+        <button type="button" id="mmmodesurv" title="No stations. The guides show the centre and the bands a locking field ends in">Survival <span class="chk" hidden>&#10003;</span></button>
+        {% if host %}<div class="mmmenu-sep"></div>
+        <button type="button" class="mminstall" id="mminstall" title="Put the workshop on your desktop as its own app, in its own window">Install app</button>{% endif %}
       </div></details>
       <details class="mmmenu"><summary>Edit</summary><div class="mmmenu-list" id="mmEdit"></div></details>
       <details class="mmmenu"><summary>Insert</summary><div class="mmmenu-list" id="mmInsert"></div></details>
@@ -393,17 +428,7 @@
       <details class="mmmenu"><summary>Help</summary><div class="mmmenu-list" id="mmHelp">
         <button type="button" id="mmkeys">Keyboard shortcuts <kbd>Ctrl+/</kbd></button>
       </div></details>
-      <span class="mmseg" id="mmmode" title="What kind of game this map is for. Survival has no stations, so the guides and the balance change with it.">
-        <button type="button" data-m="team" class="on">Team</button><button type="button" data-m="survival">Survival</button></span>
-      <span class="mmmenu-spacer"></span>
-      <input type="text" id="mmname" maxlength="40" placeholder="Map name">
-      <button class="mmbtn primary" id="mmsave" type="button">Save</button>
-      <button class="mmplay" id="mmplay" type="button" title="Open a private lobby running this map, so you can fly it"><span class="tri">&#9654;</span>Play</button>
-      <span class="mmstatus" id="mmstatus"></span>
-      <span class="mmcur" id="mmcur"></span>
-      <span class="mmfileat" id="mmfileat"></span>
-      {% if host %}<button type="button" class="mminstall" id="mminstall" title="Put the workshop on your desktop as its own app, in its own window">Install app</button>{% endif %}
-      <button type="button" class="mmfs" id="mmfs" title="Work on the map fullscreen"><span class="mmfsic">&#9974;</span><span class="mmfstx">Fullscreen</span></button>
+    </div>
     </div>
     <div class="mmtoolbar" id="mmtoolbar"></div>
     <div id="mmstageTop"></div>
@@ -548,6 +573,23 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     // View
     var vw=$('mmView'); var ob=mv('maporbit',vw); var ms=mv('mapselect',vw); if(ms) ms.title='Drag the stations around their ring yourself';
     var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp){ mv(cp, ed); cp.title='Keep the ring the stations orbit free of asteroids (nothing is deleted - turn it off and they come back)'; }   // Edit: it changes the map
+    // Randomize sizes: with the symmetry (an asteroid and its images share one
+    // size) or every asteroid on its own. A selection limits it to the selection.
+    var rsSep=document.createElement('div'); rsSep.className='mmmenu-sep'; ed.appendChild(rsSep);
+    var rsNote=document.createElement('div'); rsNote.className='mmmenu-note'; rsNote.textContent='Randomize asteroid sizes'; ed.appendChild(rsNote);
+    function rsBtn(label, title, keep){
+      var b=document.createElement('button'); b.type='button'; b.textContent=label; b.title=title;
+      b.onclick=function(){
+        if(!MapEd.count()){ status('Nothing to randomize','err'); return; }
+        var r=MapEd.randomizeSizes ? MapEd.randomizeSizes(keep) : {changed:0};
+        var msg='Randomized '+r.changed+' asteroid size'+(r.changed===1?'':'s')+(r.selection?' in the selection':'');
+        if(keep && !r.sym) msg+=' \u2014 symmetry is off, so each on its own';
+        status(msg, 'ok');
+      };
+      ed.appendChild(b); return b;
+    }
+    rsBtn('Keeping the symmetry', 'An asteroid and every one of its symmetric images get one shared random size, so a symmetric map stays symmetric. Uses the symmetry that is switched on.', true);
+    rsBtn('Every asteroid on its own', 'Every asteroid rolls its own size. Sizes come out the way a generated field looks: mostly small, a few big.', false);
     // Snapping: two magnets, on by default, and a way to switch them off.
     var snapBtn=document.createElement('button'); snapBtn.type='button';
     function snapLabel(){ snapBtn.textContent = (MapEd.snap && MapEd.snap()) ? 'Snapping on \u2713' : 'Snapping off'; }
@@ -1343,18 +1385,21 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
 
   // ---- team | survival ------------------------------------------------------
   function modeUI(m){
-    var seg=$('mmmode'); if(!seg) return;
-    seg.querySelectorAll('button').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-m')===m); });
+    var bt=$('mmmodeteam'), bs=$('mmmodesurv');
+    if(bt) bt.querySelector('.chk').hidden = (m!=='team');
+    if(bs) bs.querySelector('.chk').hidden = (m!=='survival');
+    var chip=$('mmmodechip'); if(chip) chip.hidden = (m!=='survival');
   }
   function setMode(m, silent){
     m = (m==='survival') ? 'survival' : 'team';
     if(MapEd.mode) MapEd.mode(m);
     modeUI(m);
-    if(!silent){ setDirty(true); status(m==='survival' ? 'Survival map: no stations, so the guides show the centre and the bands the fight ends in' : 'Team map: three stations on their ring', 'ok'); }
+    if(!silent){ setDirty(true); status(m==='survival' ? 'Survival map' : 'Team map', 'ok'); }
     if(typeof MapEd.onChange === 'function') MapEd.onChange();
   }
-  (function(){ var seg=$('mmmode'); if(!seg) return;
-    seg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ setMode(b.getAttribute('data-m')); }; }); })();
+  (function(){ var bt=$('mmmodeteam'), bs=$('mmmodesurv');
+    if(bt) bt.onclick=function(){ setMode('team'); };
+    if(bs) bs.onclick=function(){ setMode('survival'); }; })();
   $('mmdownload').onclick=function(){ downloadMap(MapEd.str(), ($('mmname').value||'').trim() || cur.name); };
   $('mmopen').onclick=function(){ $('mmfile').click(); };
   $('mmfile').onchange=function(){ openMapFile(this.files && this.files[0]); this.value=''; };

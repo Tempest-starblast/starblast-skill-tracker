@@ -582,6 +582,46 @@ window.MapEd = (function(){
     l.forEach(function(s){ shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]]=cellValue(s,rc); }); });
     shapes=shapes.filter(function(x){ return !isSel(x.id); }); setSel([]); drawMap(); syncMapText(); updateSelBar();
     var i=$('mapselinfo'); if(i) i.textContent='Flattened into ordinary asteroids — Undo (Ctrl+Z) turns them back into shapes'; }
+  // A size the way a generated field hands them out: mostly small, a few big.
+  function randomSize(){ return 1 + Math.floor(Math.pow(Math.random(), 1.6) * 9); }
+  // Randomize the sizes of what is on the map (or of the selection). keepSym:
+  // an asteroid and every one of its symmetric images share one size, so a
+  // symmetric map stays symmetric; otherwise every asteroid rolls its own.
+  function randomizeSizes(keepSym){
+    if(!mapGrid) return {changed:0, sym:false};
+    var n=mapGrid.length, sel=getSels(), onlySel=sel.length>0, useSym=!!keepSym && symOn();
+    pushUndo();
+    var changed=0;
+    shapes.forEach(function(sh){
+      if(onlySel && !isSel(sh.id)) return;
+      if(sh.type==='cells'){
+        var seen={};
+        sh.cells.forEach(function(cl, i){
+          if(seen[i]) return;
+          var v=randomSize(); cl[2]=v; seen[i]=1; changed++;
+          if(useSym){                                    // its images inside the patch share the size
+            var out=[]; symImages(cl[0]+(sh.dr||0), cl[1]+(sh.dc||0), n, out, {});
+            var want={}; out.forEach(function(rc){ want[(rc[0]-(sh.dr||0))*n+(rc[1]-(sh.dc||0))]=1; });
+            sh.cells.forEach(function(o, j){ if(!seen[j] && want[o[0]*n+o[1]]){ o[2]=v; seen[j]=1; changed++; } });
+          }
+        });
+        sh.v=null; touch(sh);                            // per-cell sizes show only when no override sits on top
+      } else { sh.v=randomSize(); touch(sh); changed++; }  // a shape already carries its images
+    });
+    if(!onlySel){
+      var done={};
+      for(var r=0;r<n;r++) for(var c=0;c<n;c++){
+        if(!mapGrid[r][c] || done[r*n+c]) continue;
+        var v=randomSize();
+        if(useSym){
+          var out=[]; symImages(r, c, n, out, {});
+          out.forEach(function(rc){ var k=rc[0]*n+rc[1]; if(mapGrid[rc[0]][rc[1]] && !done[k]){ mapGrid[rc[0]][rc[1]]=v; changed++; } done[k]=1; });
+        } else { mapGrid[r][c]=v; done[r*n+c]=1; changed++; }
+      }
+    }
+    drawMap(); syncMapText(); updateSelBar();
+    return {changed:changed, sym:useSym, selection:onlySel};
+  }
   // Freeze the symmetry that is live right now. Every shape carrying rotations
   // becomes plain asteroids (its arms stop being one object and can be edited
   // separately), and the setting goes off so the NEXT thing drawn is placed once
@@ -1712,6 +1752,7 @@ window.MapEd = (function(){
   api.turn = transformSel;
   api.snap = function(on){ if(on!==undefined){ snapOn=!!on; snapHit=null; drawMap(); } return snapOn; };
   api.bakeSymmetry = bakeSymmetry;
+  api.randomizeSizes = randomizeSizes;
   api.symmetry = function(order, mirror){
     if(order !== undefined){
       symN = Math.max(1, order | 0); symMirror = !!mirror;
