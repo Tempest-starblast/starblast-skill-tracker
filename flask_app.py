@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.45"
+APP_VERSION = "9.13.46"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1652,6 +1652,10 @@ def init_db():
         c.execute("ALTER TABLE map_test ADD COLUMN minutes INTEGER")
     except sqlite3.OperationalError:
         pass
+    try:                                  # team | survival
+        c.execute("ALTER TABLE map_test ADD COLUMN mode TEXT")
+    except sqlite3.OperationalError:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     player TEXT NOT NULL,
@@ -2145,7 +2149,7 @@ def init_db():
     # settings, so loading it back can still re-tune the trace.
     for _col in ("image TEXT", "img_opts TEXT", "shapes TEXT", "base TEXT",
                  "prev_map TEXT", "prev_base TEXT", "prev_shapes TEXT",
-                 "prev_size INTEGER", "prev_name TEXT", "prev_at TEXT"):
+                 "prev_size INTEGER", "prev_name TEXT", "prev_at TEXT", "mode TEXT"):
         try:
             c.execute("ALTER TABLE custom_maps ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -4668,6 +4672,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.46", "at": "2026-09-11T19:00:00Z", "changes": [
+        "<b>Live matches has a Team mode / Survival switch.</b> Team mode is the radar view it always was. Survival lists every survival lobby the watcher can see — who is in it, how long it has run, whether it is being followed, and a way to check in — refreshed every few seconds. There is no radar for survival: a survival round shares no positions with a watcher, only who is present. Your choice is remembered.",
+    ]},
     {"version": "9.13.29", "at": "2026-09-10T17:20:00Z", "changes": [
         "The changelog now only covers the site you can actually use. Entries about the host\u2019s own tools \u2014 the lobby builder and the map workshop \u2014 have been removed rather than left in and hidden, so a few version numbers are simply missing from the list. Nothing that ever affected the leaderboard, ratings, replays or your account has been touched."
     ]},
@@ -12419,9 +12426,15 @@ CUSTOM_GAME_OPTIONS = {
     "map_id":          (0, "int", 0, 9999),           # the "map pattern" seed; 0 = let the game pick
     "map_density":     (1.0, "float", 0.0, 1.0),      # server clamps at 1; 1 = its automatic density (not forwarded)
     # game
-    "root_mode":       ("team", "choice", ["team"]),  # the lobby is team mode only (owner's call)
+    # survival is here for the MAP-TEST lobby (My Maps > Play). The Odyssey lobby
+    # page hard-codes team, and a survival config is never all-defaults, so it
+    # can never be rated. Probed 11 Sep 2026: the game's survival defaults are
+    # survival_time 30 (minutes), survival_level 8, no teams, healing off.
+    "root_mode":       ("team", "choice", ["team", "survival"]),
     "friendly_colors": (3, "int", 1, 5),              # number of teams; the game allows up to 5
     "max_players":     (70, "int", 1, 240),
+    "survival_time":   (30, "int", 1, 120),           # minutes until the field locks (survival)
+    "survival_level":  (8, "int", 1, 8),              # level that also locks it (8 = never)
     # resources
     "crystal_value":   (2.5, "float", 0.0, 10.0),     # the server's team default (probed 9 Sep 2026)
     "crystal_drop":    (1.0, "float", 0.0, 1.0),      # share of gems collectible when drained
@@ -12974,6 +12987,10 @@ def api_map_pin_edit(pin):
 # everyone else pastes theirs. Nothing here touches the Odyssey custom lobby.
 MAPTEST_WINDOW_S = 90       # an open request older than this is forgotten
 MAPTEST_MINUTES = (1, 5, 10)   # how long a test lobby may stay open - these three, no others
+# What a SURVIVAL test lobby is told. Everything else is left to the game, whose
+# survival defaults (no teams, healing off, 3 lives) differ from the team-lobby
+# defaults our schema describes.
+MAPTEST_SURVIVAL_KEYS = ("root_mode", "map_size", "survival_time", "survival_level", "max_players")
 MAPTEST_DEFAULT_MIN = 5
 
 
@@ -13069,28 +13086,39 @@ def api_maptest_open():
             mid = int(mid)
         except (TypeError, ValueError):
             mid = 0
-        row = c.execute("SELECT name, size, map FROM custom_maps WHERE id = ? AND owner_sub = ?",
-                        (mid, store)).fetchone()
+        row = c.execute("SELECT name, size, map, COALESCE(mode,'team') FROM custom_maps "
+                        "WHERE id = ? AND owner_sub = ?", (mid, store)).fetchone()
         if not row:
             conn.close()
             return jsonify({"ok": False, "message": "No such map."}), 404
-        label, size, cmap = row[0], int(row[1] or 0), row[2]
+        label, size, cmap, map_mode = row[0], int(row[1] or 0), row[2], row[3]
     else:
         cmap = body.get('custom_map') or ''
         label = str(body.get('label') or 'untitled').strip()[:80] or 'untitled'
+        map_mode = 'team'
     cmap = normalize_custom_map(cmap)
     if not re.search(r'[1-9]', cmap):
         conn.close()
         return jsonify({"ok": False, "message": "Draw something first."}), 400
     if not size:
         size = len(cmap.rstrip('\n').split('\n'))
-    opts = normalize_custom_options({"root_mode": "team", "friendly_colors": 3, "map_size": size})
     try:
         minutes = int(body.get('minutes') or MAPTEST_DEFAULT_MIN)
     except (TypeError, ValueError):
         minutes = MAPTEST_DEFAULT_MIN
     if minutes not in MAPTEST_MINUTES:
         minutes = MAPTEST_DEFAULT_MIN
+    mode = body.get('mode') or map_mode
+    mode = mode if mode in ('team', 'survival') else 'team'
+    if mode == 'survival':
+        # Lock the field halfway through, so a test shows the elimination phase
+        # too; the level lock is left off. Only these keys reach the host - the
+        # rest is the game's own survival defaults (see MAPTEST_SURVIVAL_KEYS).
+        opts = normalize_custom_options({"root_mode": "survival", "map_size": size,
+                                         "survival_time": max(1, minutes // 2),
+                                         "survival_level": 8})
+    else:
+        opts = normalize_custom_options({"root_mode": "team", "friendly_colors": 3, "map_size": size})
     # ---- the key
     ecp = str(body.get('ecp') or '').strip()
     save = bool(body.get('save'))
@@ -13132,18 +13160,19 @@ def api_maptest_open():
                                     "Someone else is testing a map right now - try again in a few minutes.")}), 409
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     c.execute("INSERT INTO map_test (id, who, label, wanted_at, picked_at, options_json, custom_map, "
-              "ecp_once, use_saved, link, sid, region, last_error, stop_requested, updated_at, minutes) "
-              "VALUES (1,?,?,?,'',?,?,?,?,'',NULL,'','',0,?,?) ON CONFLICT(id) DO UPDATE SET "
+              "ecp_once, use_saved, link, sid, region, last_error, stop_requested, updated_at, minutes, mode) "
+              "VALUES (1,?,?,?,'',?,?,?,?,'',NULL,'','',0,?,?,?) ON CONFLICT(id) DO UPDATE SET "
               "who=excluded.who, label=excluded.label, wanted_at=excluded.wanted_at, picked_at='', "
               "options_json=excluded.options_json, custom_map=excluded.custom_map, "
               "ecp_once=excluded.ecp_once, use_saved=excluded.use_saved, link='', sid=NULL, "
               "region='', last_error='', stop_requested=0, updated_at=excluded.updated_at, "
-              "minutes=excluded.minutes",
-              (who, label, now, json.dumps(opts), cmap, ecp_once, use_saved, now, minutes))
+              "minutes=excluded.minutes, mode=excluded.mode",
+              (who, label, now, json.dumps(opts), cmap, ecp_once, use_saved, now, minutes, mode))
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "saved": saved, "note": note, "minutes": minutes,
-                    "message": "Opening a test lobby - this takes a few seconds."}), 200
+    return jsonify({"ok": True, "saved": saved, "note": note, "minutes": minutes, "mode": mode,
+                    "message": "Opening a %s test lobby - this takes a few seconds."
+                               % ("survival" if mode == "survival" else "team")}), 200
 
 
 @app.route('/api/maptest/pending')
@@ -13164,6 +13193,8 @@ def api_maptest_pending():
     except Exception:
         opts = {}
     opts = normalize_custom_options(opts)
+    if opts.get("root_mode") == "survival":
+        opts = {k: v for k, v in opts.items() if k in MAPTEST_SURVIVAL_KEYS}
     opts["custom_map"] = row[4] or ''
     ecp, owner = None, False
     if row[6]:                                       # the key remembered for them
@@ -13241,8 +13272,8 @@ def api_maptest_status():
     conn = db()
     c = conn.cursor()
     _maptest_prune_keys(c)
-    row = c.execute("SELECT link, region, wanted_at, picked_at, last_error, who, label, started_at, minutes "
-                    "FROM map_test WHERE id = 1").fetchone()
+    row = c.execute("SELECT link, region, wanted_at, picked_at, last_error, who, label, started_at, minutes, "
+                    "COALESCE(mode,'team') FROM map_test WHERE id = 1").fetchone()
     has_saved = bool(_maptest_saved(c, who))
     conn.commit()
     conn.close()
@@ -13260,6 +13291,7 @@ def api_maptest_status():
         "minutes": (row[8] if (row and row[8] in MAPTEST_MINUTES) else MAPTEST_DEFAULT_MIN) if (link or opening) else 0,
         "seconds_left": _maptest_left(row[7], row[8]) if link else 0,
         "choices": list(MAPTEST_MINUTES),
+        "mode": ((row[9] if row else '') or 'team') if (link or opening) else '',
         "error": ((row[4] if row else '') or '') if mine else '',
     }), 200
 
@@ -13376,7 +13408,7 @@ def api_maps():
     if request.method == 'GET':
         rows = c.execute("SELECT id, name, size, cells, updated_at, "
                          "CASE WHEN COALESCE(image,'') = '' THEN 0 ELSE 1 END, "
-                         "COALESCE(prev_at,'') "
+                         "COALESCE(prev_at,''), COALESCE(mode,'team') "
                          "FROM custom_maps WHERE owner_sub = ? "
                          "ORDER BY updated_at DESC, id DESC", (sub_id,)).fetchall()
         # An owner with more than one sign-in has more than one store; if this
@@ -13392,7 +13424,8 @@ def api_maps():
                         "maps": [{"id": r[0], "name": r[1], "size": r[2],
                                   "cells": r[3] or 0, "updated_at": r[4] or '',
                                   "has_image": bool(r[5]),
-                                  "prev_at": r[6] or None}
+                                  "prev_at": r[6] or None,
+                                  "mode": r[7] or "team"}
                                  for r in rows]}), 200
     body = request.json or {}
     name = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get("name") or "")).strip()[:MAP_NAME_MAX] or "Untitled map"
@@ -13404,6 +13437,8 @@ def api_maps():
     size = max(20, min(200, max(len(lines), max(len(l.rstrip()) for l in lines))))
     cells = sum(1 for ch in cmap if ch in '123456789')
     now = time.strftime('%Y-%m-%d %H:%M:%S')
+    mode = body.get("mode")
+    mode = mode if mode in ("team", "survival") else "team"
     # The source image (a data URL) and the trace settings, when the map came from one.
     image = str(body.get("image") or "")
     if not image.startswith("data:image/") or len(image) > MAP_IMAGE_MAX:
@@ -13423,11 +13458,19 @@ def api_maps():
             try:
                 if not isinstance(s, dict) or s.get("type") not in ("rect", "frame", "disc", "ring", "bar", "corner"):
                     continue
-                _clean.append({"type": s["type"],
-                               "p0": {"x": float(s["p0"]["x"]), "y": float(s["p0"]["y"])},
-                               "p1": {"x": float(s["p1"]["x"]), "y": float(s["p1"]["y"])},
-                               "t": max(1, min(50, int(s.get("t", 1)))),
-                               "v": max(0, min(9, int(s.get("v", 9))))})
+                d = {"type": s["type"],
+                     "p0": {"x": float(s["p0"]["x"]), "y": float(s["p0"]["y"])},
+                     "p1": {"x": float(s["p1"]["x"]), "y": float(s["p1"]["y"])},
+                     "t": max(1, min(50, int(s.get("t", 1)))),
+                     "v": max(0, min(9, int(s.get("v", 9))))}
+                # A shape's symmetry is part of the shape. Dropping it here meant a
+                # three-armed shape came back with one arm after a reload.
+                sym = int(s.get("sym") or 1)
+                if sym in (2, 3, 4, 6):
+                    d["sym"] = sym
+                if s.get("symM"):
+                    d["symM"] = True
+                _clean.append(d)
             except (TypeError, ValueError, KeyError):
                 continue
         shapes = json.dumps(_clean) if _clean else ""
@@ -13446,10 +13489,10 @@ def api_maps():
         was = c.execute("SELECT name, size, map, base, shapes, updated_at "
                         "FROM custom_maps WHERE id = ?", (mid,)).fetchone()
         c.execute("UPDATE custom_maps SET name=?, size=?, map=?, cells=?, updated_at=?, "
-                  "image=?, img_opts=?, shapes=?, base=?, "
+                  "image=?, img_opts=?, shapes=?, base=?, mode=?, "
                   "prev_name=?, prev_size=?, prev_map=?, prev_base=?, prev_shapes=?, prev_at=? "
                   "WHERE id = ?",
-                  (name, size, cmap, cells, now, image, img_opts, shapes, base,
+                  (name, size, cmap, cells, now, image, img_opts, shapes, base, mode,
                    (was[0] if was else None), (was[1] if was else None),
                    (was[2] if was else None), (was[3] if was else None),
                    (was[4] if was else None), (was[5] if was else None), mid))
@@ -13460,12 +13503,12 @@ def api_maps():
             return jsonify({"ok": False, "message": "You have %d maps saved - delete one to make room."
                             % MAPS_PER_USER}), 400
         c.execute("INSERT INTO custom_maps (owner_sub, name, size, map, cells, created_at, updated_at, "
-                  "image, img_opts, shapes, base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                  (sub_id, name, size, cmap, cells, now, now, image, img_opts, shapes, base))
+                  "image, img_opts, shapes, base, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  (sub_id, name, size, cmap, cells, now, now, image, img_opts, shapes, base, mode))
         mid = c.lastrowid
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "id": mid, "name": name, "size": size, "cells": cells}), 200
+    return jsonify({"ok": True, "id": mid, "name": name, "size": size, "cells": cells, "mode": mode}), 200
 
 
 @app.route('/api/maps/<int:mid>/restore', methods=['POST'])
@@ -13512,7 +13555,7 @@ def api_map_one(mid):
     conn = db()
     c = conn.cursor()
     row = c.execute("SELECT id, owner_sub, name, size, map, cells, image, img_opts, shapes, base, "
-                    "prev_name, prev_at, prev_map "
+                    "prev_name, prev_at, prev_map, COALESCE(mode,'team') "
                     "FROM custom_maps WHERE id = ?", (mid,)).fetchone()
     if not row or row[1] != sub_id:
         conn.close()
@@ -13541,7 +13584,8 @@ def api_map_one(mid):
                  "cells": sum(1 for ch in (row[12] or '') if ch in '123456789')}
     return jsonify({"ok": True, "id": row[0], "name": row[2], "size": row[3], "map": row[4],
                     "cells": row[5] or 0, "image": row[6] or None, "img_opts": _iopts,
-                    "shapes": _shapes, "base": row[9] or "", "prev": _prev}), 200
+                    "shapes": _shapes, "base": row[9] or "", "prev": _prev,
+                    "mode": row[13] or "team"}), 200
 
 
 CUSTOM_MODE_LABEL = {"team": "Team mode", "invasion": "Invasion", "deathmatch": "Deathmatch"}

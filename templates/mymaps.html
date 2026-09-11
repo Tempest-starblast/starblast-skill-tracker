@@ -78,6 +78,22 @@
 #mmEdit{min-width:300px}
 .mmmenu-list .mapadvbtn{background:none!important;border:0!important;color:var(--text)!important}
 .mmmenu-spacer{flex:1}
+/* Play: the one thing you do with a finished map, so it is a button on the screen. */
+.mmplay{background:var(--green,#66e6b8);color:#0b0e13;border:0;border-radius:8px;padding:8px 16px;font-weight:800;
+  font-size:13.5px;letter-spacing:.02em;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px;
+  box-shadow:0 0 0 0 rgba(102,230,184,.0);transition:box-shadow .15s}
+.mmplay:hover{box-shadow:0 0 0 3px rgba(102,230,184,.25)}
+.mmplay .tri{font-size:11px}
+/* Team | Survival */
+.mmseg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;margin:0 6px 0 4px}
+.mmseg button{border:0;border-radius:0;background:transparent;padding:6px 11px;font-size:12px;color:var(--text);cursor:pointer;font-family:inherit}
+.mmseg button+button{border-left:1px solid var(--line)}
+.mmseg button.on{background:rgba(102,230,184,.16);color:var(--green,#66e6b8);font-weight:700}
+.mmtag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;
+  border-radius:4px;background:rgba(255,199,87,.14);color:var(--amber,#ffc757);margin-left:6px;vertical-align:1px}
+/* The chip top-right is the name only here: this is a workshop, not the board. */
+.pchip .pce, .pchip .pcr, .pchip .pcn + br, .pchip .pbadge{display:none!important}
+.pchip{gap:0}
 .mmcur{font-size:11.5px;color:var(--muted);white-space:nowrap;max-width:40ch;overflow:hidden;text-overflow:ellipsis}
 .mmcur .sv{color:var(--green,#66e6b8)}
 .mmcur .un{color:var(--amber,#ffc757)}
@@ -369,8 +385,6 @@
         <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
         <button type="button" id="mmcopy" title="Copy the map text to your clipboard">Copy map text</button>
         <button type="button" id="mmpng" title="Save the map as a picture, for posting in Discord">Export as image</button>
-        <button type="button" id="mmtest" title="Open a private lobby running this map, hosted on your own ECP key, so you can fly it">Test this map&hellip;</button>
-        {% if host %}<button type="button" id="mmtry" title="Open the Odyssey lobby on this map, for everyone to play">Open the Odyssey lobby on this map</button>{% endif %}
 
       </div></details>
       <details class="mmmenu"><summary>Edit</summary><div class="mmmenu-list" id="mmEdit"></div></details>
@@ -379,9 +393,12 @@
       <details class="mmmenu"><summary>Help</summary><div class="mmmenu-list" id="mmHelp">
         <button type="button" id="mmkeys">Keyboard shortcuts <kbd>Ctrl+/</kbd></button>
       </div></details>
+      <span class="mmseg" id="mmmode" title="What kind of game this map is for. Survival has no stations, so the guides and the balance change with it.">
+        <button type="button" data-m="team" class="on">Team</button><button type="button" data-m="survival">Survival</button></span>
       <span class="mmmenu-spacer"></span>
       <input type="text" id="mmname" maxlength="40" placeholder="Map name">
       <button class="mmbtn primary" id="mmsave" type="button">Save</button>
+      <button class="mmplay" id="mmplay" type="button" title="Open a private lobby running this map, so you can fly it"><span class="tri">&#9654;</span>Play</button>
       <span class="mmstatus" id="mmstatus"></span>
       <span class="mmcur" id="mmcur"></span>
       <span class="mmfileat" id="mmfileat"></span>
@@ -683,20 +700,36 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         ['Asteroids', b.asteroids.toLocaleString(), ''],
         ['Total mass', b.mass.toLocaleString(), ''],
         ['Density', pct(b.density)+'%', ''],
-        ['Sector spread', pct(b.spread)+'%', b.spread<=0.05?'ok':(b.spread<=0.15?'':'warn')],
-        ['In the station lane', String(b.inOrbitLane), b.inOrbitLane?'warn':'ok']
+        [b.mode==='survival' ? 'Centre / middle / edge spread' : 'Sector spread', pct(b.spread)+'%', b.spread<=0.05?'ok':(b.spread<=0.15?'':'warn')]
       ];
+      if(b.mode!=='survival') rows.push(['In the station lane', String(b.inOrbitLane), b.inOrbitLane?'warn':'ok']);
       sum.innerHTML = rows.map(function(r){
         return '<dt>'+r[0]+'</dt><dd class="'+r[2]+'">'+r[1]+'</dd>'; }).join('');
       var top = Math.max(1, Math.max.apply(null, b.sectors.map(function(x){ return x.mass; })));
+      var surv = b.mode==='survival';
+      bars.title = surv ? 'Asteroid mass by distance from the centre: centre, middle, edge' : 'Asteroid mass in each team\u2019s wedge of the map';
       bars.innerHTML = b.sectors.map(function(x,i){
         var h = Math.max(2, Math.round(24 * x.mass / top));
-        return '<i style="height:'+h+'px;background:hsl('+((150+i*360/b.teams)%360)+',70%,58%)" title="Team '+(i+1)+': '+x.mass.toLocaleString()+'"></i>'; }).join('');
+        var col = surv ? 'hsl(40,'+(80-i*18)+'%,'+(62-i*8)+'%)' : 'hsl('+((150+i*360/b.teams)%360)+',70%,58%)';
+        var nm = (b.bands&&b.bands[i]) || ('Team '+(i+1));
+        return '<i style="height:'+h+'px;background:'+col+'" title="'+nm+': '+x.mass.toLocaleString()+'"></i>'; }).join('');
       note.textContent = b.asteroids === 0 ? 'Nothing on the map yet.'
+        : b.mode==='survival' ? survivalNote(b)
         : b.inOrbitLane ? (b.inOrbitLane+' asteroids sit where the stations orbit. Turn on Clear station path under Edit to lift them.')
         : b.spread > 0.15 ? spreadNote(b)
         : 'Evenly shared between the teams.';
       drawObjects();
+    }
+    // Survival: no teams to be fair between. What matters is whether the rock
+    // thins out towards the centre, because that is where a locked field ends.
+    function survivalNote(b){
+      var m = b.sectors.map(function(x){ return x.mass; }), tot = m[0]+m[1]+m[2];
+      if(!tot) return 'Nothing on the map yet.';
+      var c = m[0]/tot, e = m[2]/tot;
+      if(c < 0.12) return 'Almost nothing near the centre ('+Math.round(c*100)+'% of the rock) \u2014 the last ships standing will fight in open space. Fine if that is the idea.';
+      if(c > 0.5) return 'Most of the rock is packed at the centre ('+Math.round(c*100)+'%). The build phase will be a scramble for the middle.';
+      if(e > 0.6) return 'The rock sits at the edges ('+Math.round(e*100)+'%); the middle is thin. The field will pull people outward first.';
+      return 'Rock in every band \u2014 centre '+Math.round(c*100)+'%, edge '+Math.round(e*100)+'%.';
     }
     // Three different reasons the wedges can be uneven; say which one it is.
     function spreadNote(b){
@@ -847,7 +880,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       if(!maps.length){ ul.innerHTML='<li class="mmempty">Nothing here called “'+esc(q)+'”.</li>'; return; }
       maps.forEach(function(m){
         var li=document.createElement('li');
-        li.innerHTML='<span class="nm">'+esc(m.name)+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+(m.prev_at?' · ↩ restorable':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
+        li.innerHTML='<span class="nm">'+esc(m.name)+(m.mode==='survival'?'<span class="mmtag">Survival</span>':'')+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+(m.prev_at?' · ↩ restorable':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
           +'<button class="mmbtn" data-act="load" type="button">Load</button>'
           +'<button class="mmbtn" data-act="copy" type="button" title="Copy this map as text, to paste into a lobby\u2019s custom map box">Copy text</button>'
           +'<button class="mmbtn" data-act="dl" type="button">Download</button>'
@@ -974,6 +1007,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   function loadMap(id, force, after){
     if(!force && dirty && !confirm('Discard unsaved changes to the current map?')) return;
     fetchMap(id, function(d){
+      setMode(d.mode||'team', true);                 // before the map, so the guides are right first paint
       MapEd.load(d.map); MapEd.resetUndo();
       if(Array.isArray(d.shapes) && d.shapes.length && MapEd.setObjects) MapEd.setObjects(d.base||'', d.shapes);   // objects come back editable
       cur={id:d.id,name:d.name}; curPrev=d.prev||null; $('mmname').value=d.name; setDirty(false); showRestore();
@@ -1003,7 +1037,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     var b=$('mmsave'); b.disabled=true; status('Saving…');
     // A map traced from a picture keeps the picture and the trace settings, so it
     // can be re-tuned after loading instead of starting from the image again.
-    var payload={id: forking ? null : cur.id, name:name, map:map, size:MapEd.size()};
+    var payload={id: forking ? null : cur.id, name:name, map:map, size:MapEd.size(), mode:(MapEd.mode?MapEd.mode():'team')};
     if(MapEd.hasImage && MapEd.hasImage()){ payload.image=MapEd.imageSrc(); payload.img_opts=MapEd.imageOpts(); }
     // shapes stay editable objects: save the brush layer and the shape list alongside the flat map
     if(MapEd.shapeCount && MapEd.shapeCount()){ payload.shapes=MapEd.shapesJSON(); payload.base=MapEd.baseStr(); }
@@ -1177,14 +1211,6 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   };
   // Play it. The lobby builder already lists saved maps, so the only thing
   // missing was the trip: save if needed, then land there with this one chosen.
-  var tryBtn=$('mmtry');
-  if(tryBtn) tryBtn.onclick=function(){
-    if(!MapEd.count()){ status('Draw something first','err'); return; }
-    var go=function(id){ location.href='/customgame?map='+encodeURIComponent(id); };
-    if(cur.id && !dirty){ go(cur.id); return; }
-    if(!confirm('Save this map first, then open the Odyssey lobby on it?')) return;
-    save(false, function(id){ if(id) go(id); });
-  };
 
   // ---- test this map -------------------------------------------------------
   // A private lobby on the map as it is on screen, hosted on the tester's own
@@ -1202,7 +1228,9 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     var old=$('mmsheet'); if(old) old.remove();
     var w=document.createElement('div'); w.className='mmsheet'; w.id='mmsheet';
     w.innerHTML='<div class="card"><h2>Test this map</h2>'
-      + '<p class="sub">Opens a private team lobby running the map as it is on screen, for you and whoever you give the link to. '
+      + '<p class="sub">'+((MapEd.mode&&MapEd.mode()==='survival')
+          ? 'Opens a private <b>survival</b> lobby running the map as it is on screen. The field locks halfway through the time you pick, then it is last ship standing. '
+          : 'Opens a private <b>team</b> lobby running the map as it is on screen, for you and whoever you give the link to. ')
       + 'It closes when its time is up, or once it has been empty for about three minutes. The time left is shown in the game too.</p>'
       + '<div id="mmtform"></div><div id="mmtstate"></div>'
       + '<div class="acts"><button type="button" class="mmbtn primary" id="mmtgo">Open the test lobby</button>'
@@ -1267,7 +1295,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       var h='';
       if(st.link){
         var left=Math.max(0, st.seconds_left|0), mm=Math.floor(left/60), ss=('0'+(left%60)).slice(-2);
-        h='<div class="state ok">'+(st.mine?'Your test lobby is up':'A test lobby is up')
+        h='<div class="state ok">'+(st.mine?'Your ':'A ')+(st.mode==='survival'?'survival ':'')+'test lobby is up'
           +(st.label?' \u2014 <b>'+esc(st.label)+'</b>':'')+(st.region?' ('+esc(st.region)+')':'')
           +' \u00b7 <span class="clock'+(left<=30?' low':'')+'" title="'+st.minutes+' minute lobby">'+mm+':'+ss+' left</span>.<br>'
           +'<a href="'+esc(st.link)+'" target="_blank" rel="noopener">'+esc(st.link)+'</a><br>'
@@ -1299,6 +1327,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     if(k){ body.ecp=(k.value||'').trim(); if(!body.ecp){ status('Paste your ECP key first','err'); k.focus(); return; } }
     var sv=$('mmtsave'); if(sv && sv.checked) body.save=true;
     body.minutes=testMinutes();
+    body.mode=(MapEd.mode?MapEd.mode():'team');
     var go=$('mmtgo'); if(go) go.disabled=true;
     testApi('/api/maptest/open','POST',body).then(function(j){
       if(go) go.disabled=false;
@@ -1310,7 +1339,22 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       refreshTest(true);
     }).catch(function(){ if(go) go.disabled=false; status('Could not reach the site','err'); });
   }
-  var testBtn=$('mmtest'); if(testBtn) testBtn.onclick=showTest;
+  var playBtn=$('mmplay'); if(playBtn) playBtn.onclick=showTest;
+
+  // ---- team | survival ------------------------------------------------------
+  function modeUI(m){
+    var seg=$('mmmode'); if(!seg) return;
+    seg.querySelectorAll('button').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-m')===m); });
+  }
+  function setMode(m, silent){
+    m = (m==='survival') ? 'survival' : 'team';
+    if(MapEd.mode) MapEd.mode(m);
+    modeUI(m);
+    if(!silent){ setDirty(true); status(m==='survival' ? 'Survival map: no stations, so the guides show the centre and the bands the fight ends in' : 'Team map: three stations on their ring', 'ok'); }
+    if(typeof MapEd.onChange === 'function') MapEd.onChange();
+  }
+  (function(){ var seg=$('mmmode'); if(!seg) return;
+    seg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ setMode(b.getAttribute('data-m')); }; }); })();
   $('mmdownload').onclick=function(){ downloadMap(MapEd.str(), ($('mmname').value||'').trim() || cur.name); };
   $('mmopen').onclick=function(){ $('mmfile').click(); };
   $('mmfile').onchange=function(){ openMapFile(this.files && this.files[0]); this.value=''; };

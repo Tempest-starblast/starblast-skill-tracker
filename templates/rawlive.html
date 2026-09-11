@@ -10,6 +10,25 @@
   padding:2px 7px;margin-left:8px;vertical-align:middle}
 .rl-sub{color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5}
 .rl-status{font-size:12px;color:var(--dim,#8aa0b0);margin-top:6px}
+/* Team mode | Survival */
+.rlmode{display:inline-flex;border:1px solid rgba(153,221,255,.22);border-radius:8px;overflow:hidden;margin:10px 0 2px}
+.rlmode button{border:0;border-radius:0;background:rgba(153,221,255,.06);padding:7px 14px;font-size:12.5px;color:var(--text,#dfe7ef);
+  cursor:pointer;font-family:inherit}
+.rlmode button+button{border-left:1px solid rgba(153,221,255,.22)}
+.rlmode button.on{background:rgba(102,230,184,.16);color:var(--green,#66e6b8);font-weight:700}
+.rl-surv{max-width:820px;margin:0 auto}
+.rl-survnote{font-size:12.5px;color:var(--dim,#8aa0b0);line-height:1.55;margin:0 0 12px}
+.rl-survlist{list-style:none;margin:0;padding:0}
+.rl-survlist li{display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:center;padding:11px 12px;
+  border:1px solid rgba(153,221,255,.14);border-radius:10px;margin-bottom:8px;background:rgba(2,6,12,.35);font-size:13px}
+.rl-survlist .nm{font-weight:700}
+.rl-survlist .rg{color:var(--dim,#8aa0b0);font-size:12px}
+.rl-survlist .st{font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:999px}
+.rl-survlist .st.watching{background:rgba(102,230,184,.14);color:var(--green,#66e6b8)}
+.rl-survlist .st.waiting{background:rgba(255,199,87,.12);color:#f0c04a}
+.rl-survlist a.ci{font-size:12px;color:var(--green,#66e6b8);text-decoration:none;white-space:nowrap}
+.rl-survlist a.ci:hover{text-decoration:underline}
+@media (max-width:640px){ .rl-survlist li{grid-template-columns:1fr auto} .rl-survlist .rg{grid-column:1} }
 .rl-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#66E6B8;
   margin-right:6px;vertical-align:middle;animation:rlp 2s infinite}
 @keyframes rlp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 7px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
@@ -111,6 +130,9 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     {% if is_owner %}You're signed in: this is the <b>live, named</b> view, with each player's effect
     on the win chance.{% else %}Shown about <b>two minutes behind</b> for security, without player
     names.{% endif %}</div>
+  <div class="rlmode" id="rlMode" role="tablist" aria-label="Game mode">
+    <button type="button" data-m="team" class="on" role="tab">Team mode</button><button type="button" data-m="survival" role="tab">Survival</button>
+  </div>
   <div class="rl-status"><span class="rl-dot"></span><span id="rlStatus">Connecting&hellip;</span><span id="rlDelay" class="rl-delaychip" style="display:none"></span></div>
 </div>
 
@@ -121,6 +143,13 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
 </div>
 <div class="rl-wrap" id="rlWrap"></div>
 <div class="rl-empty" id="rlEmpty" style="display:none">No lobbies being watched right now.</div>
+<div class="rl-surv" id="rlSurv" style="display:none">
+  <p class="rl-survnote">Every survival lobby the watcher can see, all regions. Survival streams no positions to a
+    watcher, so there is no radar here &mdash; who is in it, how long it has run, and whether it is being followed.
+    A round builds up for about half an hour, then locks and plays down to the last ship.</p>
+  <ul class="rl-survlist" id="rlSurvList"></ul>
+  <div class="rl-empty" id="rlSurvEmpty" style="display:none">No survival lobbies right now.</div>
+</div>
 
 <script>
 (function(){
@@ -466,11 +495,51 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
         +('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
     }catch(e){status.textContent='Reconnecting…';}
   }
+  // ---- Team mode | Survival -------------------------------------------------
+  var rlMode='team';
+  try{ rlMode = localStorage.getItem('rl_mode')==='survival' ? 'survival' : 'team'; }catch(e){}
+  var survWrap=document.getElementById('rlSurv'), survList=document.getElementById('rlSurvList'),
+      survEmpty=document.getElementById('rlSurvEmpty'), modeEl=document.getElementById('rlMode');
+  function setMode(m){
+    rlMode = (m==='survival') ? 'survival' : 'team';
+    try{ localStorage.setItem('rl_mode', rlMode); }catch(e){}
+    if(modeEl) modeEl.querySelectorAll('button').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-m')===rlMode); });
+    var surv = rlMode==='survival';
+    wrap.style.display = surv ? 'none' : '';
+    navEl.style.display = surv ? 'none' : (order.length ? '' : 'none');
+    empty.style.display = 'none';
+    survWrap.style.display = surv ? '' : 'none';
+    var dc=document.getElementById('rlDelay'); if(surv && dc) dc.style.display='none';
+    status.textContent='Connecting\u2026';
+  }
+  if(modeEl) modeEl.querySelectorAll('button').forEach(function(b){ b.addEventListener('click', function(){ setMode(b.getAttribute('data-m')); }); });
+  async function survTick(){
+    try{
+      var r=await fetch('/api/live_lobbies',{cache:'no-store'});
+      var d=await r.json();
+      var ls=(d.lobbies||[]).filter(function(l){ return l.mode==='survival'; });
+      survList.innerHTML = ls.map(function(l){
+        return '<li><span class="nm">'+esc(l.name||('Lobby '+l.id))+'</span>'
+          +'<span class="rg">'+esc(l.region_label||l.region||'')+' \u00b7 '+(l.players|0)+' player'+((l.players|0)===1?'':'s')+' \u00b7 '+(l.mins|0)+' min</span>'
+          +'<span class="st '+(l.watching?'watching':'waiting')+'">'+(l.watching?'Being watched':'Not watched yet')+'</span>'
+          +(l.can_checkin ? '<a class="ci" href="/play">Check in \u2192</a>' : '<span></span>')
+          +'</li>'; }).join('');
+      survEmpty.style.display = ls.length ? 'none' : '';
+      var now=new Date(), w=ls.filter(function(l){ return l.watching; }).length;
+      status.innerHTML=ls.length+' survival lobb'+(ls.length===1?'y':'ies')+(ls.length?' \u00b7 '+w+' being watched':'')
+        +' \u00b7 updated '+('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+    }catch(e){ status.textContent='Reconnecting\u2026'; }
+  }
+  setMode(rlMode);
   // Self-scheduling poll: wait for each fetch to FINISH before starting the
   // next, so a slow response can never let two polls overlap and land radar
   // updates out of order (that was the stutter). Fixed gap = steady cadence,
-  // which is what the ship-glide timing depends on.
-  (function loop(){ tick().finally(function(){ setTimeout(loop, 1400); }); })();
+  // which is what the ship-glide timing depends on. The survival list changes
+  // slowly (the watcher pushes it every half minute), so it polls at 5 s.
+  (function loop(){
+    var surv = rlMode==='survival';
+    (surv ? survTick() : tick()).finally(function(){ setTimeout(loop, surv ? 5000 : 1400); });
+  })();
 })();
 </script>
 <script>

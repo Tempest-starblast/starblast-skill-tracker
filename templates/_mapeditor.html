@@ -67,11 +67,16 @@ window.MapEd = (function(){
   // asteroid, and the band is removed only on the way out (drawing, the map text,
   // saving). Turn it off and a traced image comes back untouched.
   var clearPath = false;
+  // team | survival. The page owns the hidden #o_root_mode; everything that
+  // depends on the mode asks here rather than reading the input itself.
+  function rootMode(){ var e=$('o_root_mode'); var m=(e&&e.value)||'team'; return m==='survival'?'survival':'team'; }
+  function isSurvival(){ return rootMode()==='survival'; }
   function pathBand(n){
     var ss=parseFloat(($('o_station_size')||{}).value); if(isNaN(ss)) ss=2;
     return {r:n*Math.SQRT2/4, half:Math.max(2, 1.5*ss+1)};   // ring radius + station half-width, in cells
   }
   function inPath(row,col,n,band){
+    if(isSurvival()) return false;                 // no stations, no lane
     var dx=(col+0.5)-n/2, dy=(row+0.5)-n/2;
     return Math.abs(Math.sqrt(dx*dx+dy*dy)-band.r) <= band.half;
   }
@@ -151,7 +156,7 @@ window.MapEd = (function(){
     ctx.strokeStyle='rgba(153,221,255,.11)'; ctx.beginPath();
     for(var gi=10; gi<n; gi+=10){ var gy=Math.round(gi*cs)+0.5; ctx.moveTo(gy,0); ctx.lineTo(gy,cv.height); ctx.moveTo(0,gy); ctx.lineTo(cv.width,gy); }
     ctx.stroke(); ctx.restore();
-    if(clearPath){                                  // show the corridor being kept clear
+    if(clearPath && !isSurvival()){                 // show the corridor being kept clear
       var band=pathBand(n);
       ctx.save(); ctx.beginPath();
       ctx.strokeStyle='rgba(255,120,120,.13)'; ctx.lineWidth=2*band.half*cs;
@@ -366,7 +371,7 @@ window.MapEd = (function(){
   // For a disc or ring dragged from the centre outwards: pull the radius onto the
   // station ring, so you can trace or clear the orbit lane exactly.
   function snapRadius(p0, p1, n){
-    if(!snapOn) return p1;
+    if(!snapOn || isSurvival()) return p1;         // there is no ring to pull onto
     var band = pathBand(n), want = band.r;
     var dx = p1.x - p0.x, dy = p1.y - p0.y, rad = Math.hypot(dx, dy);
     if(!rad || Math.abs(rad - want) > SNAP_CELLS) return p1;
@@ -832,7 +837,8 @@ window.MapEd = (function(){
   // generator (the same one the seed maps use) is what makes a painted patch
   // indistinguishable from field the game made.
   var scatterField = null;
-  function teamsPreview(){ var e=$('o_friendly_colors'); return Math.max(1, parseInt(e && e.value, 10) || 3); }
+  function teamsPreview(){ if(isSurvival()) return 1;
+    var e=$('o_friendly_colors'); return Math.max(1, parseInt(e && e.value, 10) || 3); }
   function scatterStart(){
     scatterField = null;
     if(!window.SBMapGen || !mapGrid) return;
@@ -904,7 +910,22 @@ window.MapEd = (function(){
     ctx.fillStyle='rgba(4,12,24,.85)'; ctx.beginPath(); ctx.arc(0,0,s*0.17,0,6.2832); ctx.fill();
     ctx.restore();
   }
+  // Survival: the centre, and the three bands the balance panel reports.
+  function drawSurvivalGuides(ctx,n,cs,cv){
+    var cx=cv.width/2, cy=cv.height/2, R=(n/2)*cs;
+    ctx.save();
+    ctx.strokeStyle='rgba(153,221,255,.16)'; ctx.setLineDash([cs*0.8,cs*0.6]); ctx.lineWidth=1;
+    [1/3, 2/3].forEach(function(f){ ctx.beginPath(); ctx.arc(cx,cy,R*f,0,6.2832); ctx.stroke(); });
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(255,209,102,.9)'; ctx.beginPath(); ctx.arc(cx,cy,Math.max(2,cs*0.35),0,6.2832); ctx.fill();
+    ctx.fillStyle='rgba(153,221,255,.45)'; ctx.font=Math.max(9,cs*0.95)+'px system-ui,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('centre', cx+cs*0.6, cy-cs*0.3);
+    ctx.fillText('middle', cx+R/3+cs*0.4, cy-cs*0.3);
+    ctx.fillText('edge', cx+2*R/3+cs*0.4, cy-cs*0.3);
+    ctx.restore();
+  }
   function drawBases(ctx,n,cs,cv){
+    if(isSurvival()){ drawSurvivalGuides(ctx,n,cs,cv); return; }
     var mode=($('o_root_mode')||{}).value||'team'; if(mode!=='team') return;
     var nt=parseInt(($('o_friendly_colors')||{}).value,10); if(!(nt>=1)) nt=3; if(nt>5) nt=5;
     var ss=parseFloat(($('o_station_size')||{}).value); if(isNaN(ss)) ss=2;
@@ -917,8 +938,13 @@ window.MapEd = (function(){
       var x=cx+R*Math.cos(ang), y=cy+R*Math.sin(ang), col=teamColor(i,nt);
       drawStationGlyph(ctx, x, y, col, glyph);
       ctx.save(); ctx.fillStyle='rgba(4,12,24,.85)'; ctx.font='bold '+Math.max(9,cs*1.05)+'px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.beginPath(); ctx.arc(x+glyph*1.35, y-glyph*1.35, Math.max(7,cs*0.85), 0, 6.2832); ctx.fill();
-      ctx.fillStyle=col; ctx.fillText(String(i+1), x+glyph*1.35, y-glyph*1.35+1); ctx.restore(); }
+      // The number sits ON the ring, just ahead of the station along its travel,
+      // so it rides the path instead of swinging out over the map.
+      var br=Math.max(7,cs*0.85), da=(glyph*1.15+br*1.1)/R;
+      var bx=cx+R*Math.cos(ang+da), by=cy+R*Math.sin(ang+da);
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, 6.2832); ctx.fill();
+      ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(bx, by, br, 0, 6.2832); ctx.stroke(); ctx.globalAlpha=1;
+      ctx.fillStyle=col; ctx.fillText(String(i+1), bx, by+1); ctx.restore(); }
   }
   function mapPoint(cv,ev){ var n=mapGrid.length, rect=cv.getBoundingClientRect(), cs=cv.width/n;
     var x=(ev.clientX-rect.left)*(cv.width/rect.width), y=(ev.clientY-rect.top)*(cv.height/rect.height);
@@ -1541,7 +1567,7 @@ window.MapEd = (function(){
       if(!window.SBMapGen){ if(sh) sh.textContent='Generator unavailable'; return; }
       var v=parseInt((si||{}).value,10);
       if(isNaN(v) || v<0){ if(sh) sh.textContent='Enter a seed first'; return; }
-      var teams=parseInt(($('o_friendly_colors')||{}).value,10) || 3;
+      var teams=teamsPreview();                       // 1 in survival: the game's own survival field
       var k=api.fromSeed(v, mapSize(), teams);
       if(sh) sh.textContent = (k==null) ? 'Generator unavailable' : ('seed '+v+' → '+k+' asteroids');
     }
@@ -1611,28 +1637,39 @@ window.MapEd = (function(){
   api.balance = function(){
     var g = outGrid();
     if(!g) return null;
-    var n = g.length, teams = teamsPreview(), half = n / 2;
+    var n = g.length, surv = isSurvival(), teams = teamsPreview(), half = n / 2;
     var band = pathBand(n);
+    // Team mode: one sector per team's wedge of angle. Survival: three bands of
+    // radius - centre, middle, edge - because that is where a locking field fights.
+    var nsect = surv ? 3 : teams, labels = surv ? ['Centre','Middle','Edge'] : [];
+    if(!surv) for(var t = 0; t < teams; t++) labels.push('Team ' + (t + 1));
     var sect = [], total = 0, count = 0, inLane = 0;
-    for(var i = 0; i < teams; i++) sect.push({mass: 0, count: 0});
+    for(var i = 0; i < nsect; i++) sect.push({mass: 0, count: 0, label: labels[i]});
     for(var r = 0; r < n; r++) for(var c = 0; c < n; c++){
       var v = g[r][c];
       if(!v) continue;
       total += v; count++;
       if(inPath(r, c, n, band)) inLane++;
-      // which team's wedge this cell falls in, measured from the map centre
-      var a = Math.atan2((r + 0.5) - half, (c + 0.5) - half);
-      var k = Math.floor(((a + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * teams) % teams;
+      var k;
+      if(surv){
+        var d = Math.hypot((c + 0.5) - half, (r + 0.5) - half) / half;   // 0 centre .. 1 edge (corners beyond)
+        k = Math.min(2, Math.floor(d * 3));
+      } else {
+        // which team's wedge this cell falls in, measured from the map centre
+        var a = Math.atan2((r + 0.5) - half, (c + 0.5) - half);
+        k = Math.floor(((a + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * teams) % teams;
+      }
       sect[k].mass += v; sect[k].count++;
     }
     var masses = sect.map(function(x){ return x.mass; });
     var lo = Math.min.apply(null, masses), hi = Math.max.apply(null, masses);
     return {
+      mode: surv ? 'survival' : 'team',
       teams: teams, asteroids: count, mass: total,
       density: count / (n * n),
-      sectors: sect,
+      sectors: sect, bands: labels,
       spread: hi > 0 ? (hi - lo) / hi : 0,      // 0 = perfectly even
-      inOrbitLane: inLane,
+      inOrbitLane: surv ? 0 : inLane,
       size: n
     };
   };
@@ -1727,7 +1764,10 @@ window.MapEd = (function(){
   api.setObjects = function(base, list){
     if(!mapGrid) return; mapGrid=strToGrid(base||'', mapGrid.length); shapes=[]; setSel([]);
     (list||[]).forEach(function(s){ if(!s||!SHAPE_NAMES[s.type]||!s.p0||!s.p1) return;
-      addShape({type:s.type, p0:{x:+s.p0.x||0,y:+s.p0.y||0}, p1:{x:+s.p1.x||0,y:+s.p1.y||0}, t:Math.max(1,parseInt(s.t,10)||1), v:Math.max(0,Math.min(9,parseInt(s.v,10)||0))}); });
+      var d={type:s.type, p0:{x:+s.p0.x||0,y:+s.p0.y||0}, p1:{x:+s.p1.x||0,y:+s.p1.y||0}, t:Math.max(1,parseInt(s.t,10)||1), v:Math.max(0,Math.min(9,parseInt(s.v,10)||0))};
+      var sy=parseInt(s.sym,10); if([2,3,4,6].indexOf(sy)>=0) d.sym=sy;   // its rotations are part of it
+      if(s.symM) d.symM=true;
+      addShape(d); });
     setSel([]); mapUndo=[]; mapRedo=[]; syncHistory(); drawMap(); syncMapText(); updateSelBar(); };
   api.shapeCount = function(){ return shapes.length; };
   api.selected = function(){ return getSel(); };
@@ -1762,6 +1802,20 @@ window.MapEd = (function(){
       var iv=$('mapinvert'); if(iv) iv.checked=!!opts.invert;
     }
     attachImage(src, cb);          // NOTE: does not re-trace - the saved grid is kept
+  };
+  // team | survival. Switching hides what has no meaning in survival (the lane,
+  // the station tools), redraws with the right guides, and re-serialises.
+  api.mode = function(m){
+    if(m !== undefined){
+      var e=$('o_root_mode'); if(e) e.value = (m==='survival') ? 'survival' : 'team';
+      var surv = isSurvival();
+      if(surv && clearPath){ clearPath=false; var cp=$('mapclearpath'); if(cp) cp.checked=false; }
+      var cpl=$('mapclearpath'); if(cpl && cpl.parentNode && cpl.parentNode.tagName==='LABEL') cpl.parentNode.style.display = surv ? 'none' : '';
+      ['mapselect','maporbit'].forEach(function(id){ var b=$(id); if(b) b.style.display = surv ? 'none' : ''; });
+      if(surv && orbitTimer) setOrbit(false);
+      if(mapGrid){ drawMap(); syncMapText(); updateSelBar(); }
+    }
+    return rootMode();
   };
   api.clearPath = function(on){ if(on===undefined) return clearPath;
     clearPath=!!on; var cp=$('mapclearpath'); if(cp) cp.checked=clearPath; drawMap(); syncMapText(); };
