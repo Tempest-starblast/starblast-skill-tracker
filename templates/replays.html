@@ -37,8 +37,9 @@
     <input type="hidden" name="mode" value="{{ mode }}">
     <input type="date" name="date" value="{{ date }}">
     <input type="number" name="sys" placeholder="{% if survival %}Lobby #{% else %}Server #{% endif %}" min="0" value="{{ sysq }}">
+    {% if not survival %}<input type="text" name="q" placeholder="Server name" maxlength="40" value="{{ q or '' }}">{% endif %}
     <button class="primary" type="submit">{{ t('Search all') }}</button>
-    {% if date or sysq %}<a href="/replays{{ '?mode=survival' if survival else '' }}" class="ghost" style="text-decoration:none;
+    {% if date or sysq or q %}<a href="/replays{{ '?mode=survival' if survival else '' }}" class="ghost" style="text-decoration:none;
        padding:8px 14px;border:1px solid var(--line);border-radius:3px">{{ t('Clear') }}</a>{% endif %}
   </form>
 </div>
@@ -59,6 +60,15 @@
         <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>
         <td class="rpgo">&#9654; replay</td>
       </tr>
+      {% elif r.kind == 'nr' %}
+      <tr class="rprow" onclick="location.href='/replay/r/{{ r.key|urlencode }}'" style="cursor:pointer">
+        <td><time class="rel" datetime="{{ r.at_utc }}">{{ r.at }}</time></td>
+        <td>{{ r.name }} <span style="color:var(--muted,#8aa0b0)">#{{ r.sys }}</span>
+          <span title="{{ r.reason }}" style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(255,199,87,.14);color:var(--amber,#ffc757);margin-left:6px;vertical-align:1px">no result</span></td>
+        <td>{{ r.region }}</td>
+        <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>
+        <td class="rpgo">&#9654; replay</td>
+      </tr>
       {% else %}
       <tr class="rprow" onclick="location.href='/replay/{{ r.id }}'" style="cursor:pointer">
         <td><time class="rel" datetime="{{ r.at_utc }}">{{ r.at }}</time></td>
@@ -74,10 +84,10 @@
   </div>
   <div class="pager">
     <a class="{% if pg <= 1 %}off{% endif %}"
-       href="/replays?page={{ pg - 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}">&larr;</a>
+       href="/replays?page={{ pg - 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">&larr;</a>
     <span>{{ t('Page') }} {{ pg }} / {{ pages }}</span>
     <a class="{% if pg >= pages %}off{% endif %}"
-       href="/replays?page={{ pg + 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}">&rarr;</a>
+       href="/replays?page={{ pg + 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">&rarr;</a>
   </div>
   {% else %}
   <p class="empty">No {% if survival %}survival rounds{% else %}replays{% endif %} match that search.</p>

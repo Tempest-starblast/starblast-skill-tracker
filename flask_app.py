@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.51"
+APP_VERSION = "9.13.52"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -413,6 +413,9 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
     return out
 
 
+_TSR_MIGRATED = False
+
+
 def replay_db():
     """Connection to the replay-trajectory database (trueskill_replay), kept
     separate from players.db so its large blob writes never lock the board."""
@@ -423,6 +426,18 @@ def replay_db():
                  "region TEXT, first_ts REAL, data BLOB)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tsreplay_sys "
                  "ON trueskill_replay(sys_id, first_ts)")
+    # A replay that was recorded but never scored carries what the listing
+    # needs to show it beside the scored ones: the lobby name, how many played,
+    # how long, and why it has no result. Migrated once per process.
+    global _TSR_MIGRATED
+    if not _TSR_MIGRATED:
+        for _col in ("name TEXT", "players INTEGER", "dur_s REAL",
+                     "no_result INTEGER DEFAULT 0", "reason TEXT"):
+            try:
+                conn.execute("ALTER TABLE trueskill_replay ADD COLUMN " + _col)
+            except sqlite3.OperationalError:
+                pass
+        _TSR_MIGRATED = True
     return conn
 
 
@@ -3215,8 +3230,60 @@ def replay_data(mid):
 @app.route('/replay/<int:mid>')
 def replay_page(mid):
     """The journal replay: how a finished match unfolded, read by read."""
-    return render_template('replay.html', mid=mid, version=APP_VERSION,
+    return render_template('replay.html', mid=mid, rkey=None, version=APP_VERSION,
                            page='replay')
+
+
+@app.route('/replay/r/<path:key>')
+def replay_page_unscored(key):
+    """A match that was recorded in full but never scored - the scorer could
+    not call a winner (no station data, say). The same player, no result."""
+    return render_template('replay.html', mid=None, rkey=key, version=APP_VERSION,
+                           page='replay')
+
+
+@app.route('/api/replay/r/<path:key>')
+def replay_data_unscored(key):
+    """Header + rosters for a no-result replay, from its own frames: every name
+    that appeared, by team, with its best score. No result, no ratings, no
+    deltas - there were none."""
+    rc = replay_db()
+    row = rc.execute("SELECT sys_id, at, region, first_ts, data, name, players, dur_s, reason "
+                     "FROM trueskill_replay WHERE match_key = ? AND no_result = 1",
+                     (key,)).fetchone()
+    rc.close()
+    if not row:
+        return jsonify({"error": "No such replay."}), 404
+    try:
+        obj = json.loads(zlib.decompress(row[4]).decode('utf-8'))
+    except Exception:
+        return jsonify({"error": "Replay data unreadable."}), 500
+    frames = obj.get("f") if isinstance(obj, dict) else obj
+    best = {}
+    for fr in (frames or []):
+        try:
+            for nm, sc, ti in fr[1]:
+                if not nm or nm == "?":
+                    continue
+                k = (str(nm), int(ti))
+                if sc is not None and (k not in best or sc > best[k]):
+                    best[k] = sc
+        except (TypeError, ValueError, IndexError):
+            continue
+    players = [{"name": nm, "team": "team_%d" % (ti + 1), "won": False,
+                "delta": None, "half": 0, "score": sc, "elo": None}
+               for (nm, ti), sc in sorted(best.items(), key=lambda kv: -(kv[1] or 0))]
+    return jsonify({
+        "name": row[5] or ("#%s" % row[0]), "region": row[2] or "",
+        "played_at": str(row[1] or ""), "sys_id": row[0],
+        "top": {}, "skill": {}, "tracked_seconds": int(row[7] or 0),
+        "gaps": [], "stlay": None, "welcome": None,
+        "prob_enabled": WIN_PROB_ENABLED,
+        "players": players, "points": [], "no_score_chart": True,
+        "no_result": True, "reason": row[8] or "",
+        "flood": None, "flood_max": 0, "flood_significant": False,
+        "radar_flies_missing": False,
+    }), 200
 
 
 _REPLAY_COUNT_CACHE = {}     # (mode, date, sysq) -> (total, ts)
@@ -3290,6 +3357,7 @@ def replays_index():
         pg = 1
     date = str(request.args.get('date') or '').strip()[:10]
     sysq = str(request.args.get('sys') or '').strip()[:12]
+    q = str(request.args.get('q') or '').strip()[:40]        # server name
     # Team mode is the archive; Survival (the same page over recorded rounds)
     # is one toggle away, mirroring the leaderboard's mode switch.
     mode = request.args.get('mode', 'team')
@@ -3312,6 +3380,19 @@ def replays_index():
         args.append(int(sysq))
     else:
         sysq = ''
+    if q:
+        where.append("m.lobby_name LIKE ?")
+        args.append('%' + q + '%')
+    # The same filters over the no-result replays, which live in the replay
+    # database with their own name/date/lobby.
+    nr_where, nr_args = ["tr.no_result = 1"], []
+    if date:
+        nr_where.append("tr.at LIKE ?"); nr_args.append(date + '%')
+    if sysq:
+        nr_where.append("tr.sys_id = ?"); nr_args.append(int(sysq))
+    if q:
+        nr_where.append("tr.name LIKE ?"); nr_args.append('%' + q + '%')
+    nr_cond = " WHERE " + " AND ".join(nr_where)
     conn = db()
     try:
         conn.execute("ATTACH DATABASE ? AS r", (REPLAY_DB_PATH,))
@@ -3330,7 +3411,7 @@ def replays_index():
     # ends, but computing it means running the replayable-EXISTS across every
     # match ever (the row fetch below is cheap - it stops at 10). So cache it
     # briefly per filter; paging and revisits then skip the full scan entirely.
-    _ckey = ('team', date, sysq)
+    _ckey = ('team', date, sysq, q)
     _now = time.time()
     _chit = _REPLAY_COUNT_CACHE.get(_ckey)
     if _chit and _now - _chit[1] < _REPLAY_COUNT_TTL:
@@ -3341,6 +3422,11 @@ def replays_index():
             total = c.fetchone()[0]
         except sqlite3.Error:
             total = 0
+        try:
+            c.execute("SELECT COUNT(*) FROM r.trueskill_replay tr" + nr_cond, nr_args)
+            total += c.fetchone()[0]
+        except sqlite3.Error:
+            pass
         if len(_REPLAY_COUNT_CACHE) > 5000:
             _REPLAY_COUNT_CACHE.clear()
         _REPLAY_COUNT_CACHE[_ckey] = (total, _now)
@@ -3348,22 +3434,39 @@ def replays_index():
     pg = min(pg, pages)
     rows = []
     if total:
-        c.execute("SELECT m.id, m.lobby_name, m.sys_id, "
-                  "COALESCE(m.region,'america'), m.played_at, "
-                  "COALESCE(m.tracked_reads, 0) FROM matches m" + full_cond +
-                  " ORDER BY m.played_at DESC, m.id DESC LIMIT 10 OFFSET ?",
-                  args + [(pg - 1) * 10])
+        # Scored matches and no-result replays in ONE list, newest first.
+        try:
+            c.execute("SELECT 'm' AS kind, m.id AS id, '' AS key, m.lobby_name AS name, "
+                      "m.sys_id AS sys, COALESCE(m.region,'america') AS region, "
+                      "m.played_at AS at, COALESCE(m.tracked_reads, 0) * 10 AS secs, "
+                      "'' AS reason FROM matches m" + full_cond +
+                      " UNION ALL "
+                      "SELECT 'nr', 0, tr.match_key, tr.name, tr.sys_id, "
+                      "COALESCE(tr.region,'america'), tr.at, COALESCE(tr.dur_s, 0), "
+                      "COALESCE(tr.reason, '') FROM r.trueskill_replay tr" + nr_cond +
+                      " ORDER BY at DESC, id DESC LIMIT 10 OFFSET ?",
+                      args + nr_args + [(pg - 1) * 10])
+            got = c.fetchall()
+        except sqlite3.Error:
+            c.execute("SELECT 'm', m.id, '', m.lobby_name, m.sys_id, "
+                      "COALESCE(m.region,'america'), m.played_at, "
+                      "COALESCE(m.tracked_reads, 0) * 10, '' FROM matches m" + full_cond +
+                      " ORDER BY m.played_at DESC, m.id DESC LIMIT 10 OFFSET ?",
+                      args + [(pg - 1) * 10])
+            got = c.fetchall()
         labels = dict(REGIONS)
-        for mid, name, sysid, region, at, treads in c.fetchall():
-            rows.append({"id": mid, "name": name or ("#%s" % sysid),
+        for kind, mid, key, name, sysid, region, at, secs, reason in got:
+            rows.append({"kind": kind, "id": mid, "key": key or '',
+                         "name": name or ("#%s" % sysid),
                          "sys": sysid, "region": labels.get(region, region),
                          "at": str(at or '')[:16],
                          "at_utc": ((at or '').replace(' ', 'T') + 'Z') if at else '',
-                         "mins": int(round(treads * 10 / 60.0))})
+                         "mins": int(round((secs or 0) / 60.0)),
+                         "reason": reason or ''})
     conn.close()
     return render_template('replays.html', version=APP_VERSION, page='replays',
                            rows=rows, total=total, pg=pg, pages=pages,
-                           date=date, sysq=sysq, mode='team')
+                           date=date, sysq=sysq, q=q, mode='team')
 
 
 @app.route('/api/live/state', methods=['POST'])
@@ -4672,6 +4775,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.52", "at": "2026-09-11T23:30:00Z", "changes": [
+        "<b>Replays now keep matches that could not be scored.</b> A match the watcher saw from start to finish but could not call — an event lobby that never sent readable station data, say — used to vanish without a trace. It now stays in Replays, marked <i>no result</i>, with its radar and rosters as they stood. Nothing in it is rated.",
+        "Replays can be searched by server name, not only by number and date.",
+    ]},
     {"version": "9.13.51", "at": "2026-09-11T22:15:00Z", "changes": [
         "<b>In a replay, players now join the board when they joined the game.</b> Each team’s roster used to show every name from the first second, so someone who arrived at minute forty sat there at 0:00 with a zero. Now a name appears the moment the replay reaches the point they came in — and scrubbing back before it, they leave again.",
     ]},
@@ -7382,11 +7489,22 @@ def trueskill_replay_push():
             blob = zlib.compress(json.dumps(payload).encode('utf-8'))
         except (TypeError, ValueError):
             continue
+        try:
+            _players = int(m.get('players') or 0)
+        except (TypeError, ValueError):
+            _players = 0
+        try:
+            _dur = float(m.get('dur_s') or 0)
+        except (TypeError, ValueError):
+            _dur = 0.0
         c.execute("INSERT OR REPLACE INTO trueskill_replay "
-                  "(match_key, sys_id, at, region, first_ts, data) "
-                  "VALUES (?,?,?,?,?,?)",
+                  "(match_key, sys_id, at, region, first_ts, data, "
+                  "name, players, dur_s, no_result, reason) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                   (mk, m.get('sys_id'), m.get('at'), m.get('region'),
-                   m.get('first_ts'), blob))
+                   m.get('first_ts'), blob,
+                   str(m.get('name') or '')[:64], _players, _dur,
+                   1 if m.get('no_result') else 0, str(m.get('reason') or '')[:120]))
         n += 1
     # Cap the replay DB the way match_replays is capped: drop trajectories
     # older than the 90-day replay window so it can't grow without bound.
@@ -7402,25 +7520,38 @@ def trueskill_replay_read():
     """Public: the per-player score trajectory for a live match's replay. The
     live match_row gives a sys_id + played_at; we return the raw-feed trajectory
     for that lobby whose end lines up with played_at."""
-    try:
-        mid = int(request.args.get('match_row') or 0)
-    except (TypeError, ValueError):
-        return jsonify({"error": "bad match_row"}), 400
+    key = str(request.args.get('key') or '').strip()
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT sys_id, played_at FROM matches WHERE id = ?", (mid,)).fetchone()
-    if not row or row[0] is None:
-        conn.close()
-        return jsonify({"frames": None}), 200
-    sys_id, played_at = row[0], row[1]
-    try:
-        pend = calendar.timegm(time.strptime(played_at, '%Y-%m-%d %H:%M:%S'))
-    except (ValueError, TypeError):
+    if key:
+        # A no-result replay is addressed by its own key: there is no scored
+        # match to line it up with, so the one row IS the answer.
+        rc = replay_db()
+        krows = rc.execute("SELECT data, first_ts, sys_id FROM trueskill_replay "
+                           "WHERE match_key = ?", (key,)).fetchall()
+        rc.close()
+        sys_id = krows[0][2] if krows else None
         pend = None
-    rc = replay_db()
-    cands = rc.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
-                       (sys_id,)).fetchall()
-    rc.close()
+        cands = [(d, f) for d, f, _s in krows]
+    else:
+        try:
+            mid = int(request.args.get('match_row') or 0)
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({"error": "bad match_row"}), 400
+        row = c.execute("SELECT sys_id, played_at FROM matches WHERE id = ?", (mid,)).fetchone()
+        if not row or row[0] is None:
+            conn.close()
+            return jsonify({"frames": None}), 200
+        sys_id, played_at = row[0], row[1]
+        try:
+            pend = calendar.timegm(time.strptime(played_at, '%Y-%m-%d %H:%M:%S'))
+        except (ValueError, TypeError):
+            pend = None
+        rc = replay_db()
+        cands = rc.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
+                           (sys_id,)).fetchall()
+        rc.close()
     best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = (None,) * 8
     best_hues = best_gt0 = best_phases = best_mt0 = best_seed = None
     for data, first_ts in cands:
