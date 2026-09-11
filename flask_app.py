@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.44"
+APP_VERSION = "9.13.45"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -13379,12 +13379,21 @@ def api_maps():
                          "COALESCE(prev_at,'') "
                          "FROM custom_maps WHERE owner_sub = ? "
                          "ORDER BY updated_at DESC, id DESC", (sub_id,)).fetchall()
+        # An owner with more than one sign-in has more than one store; if this
+        # one is empty, say how many maps sit under the others, so the empty
+        # list can explain itself instead of saying "draw one".
+        elsewhere = 0
+        if (not guest) and sub_id in OWNER_SUBS and len(OWNER_SUBS) > 1:
+            others = [x for x in OWNER_SUBS if x != sub_id]
+            elsewhere = c.execute("SELECT COUNT(*) FROM custom_maps WHERE owner_sub IN (%s)"
+                                  % ",".join("?" * len(others)), others).fetchone()[0]
         conn.close()
-        return jsonify({"ok": True, "maps": [{"id": r[0], "name": r[1], "size": r[2],
-                                              "cells": r[3] or 0, "updated_at": r[4] or '',
-                                              "has_image": bool(r[5]),
-                                              "prev_at": r[6] or None}
-                                             for r in rows]}), 200
+        return jsonify({"ok": True, "elsewhere": int(elsewhere),
+                        "maps": [{"id": r[0], "name": r[1], "size": r[2],
+                                  "cells": r[3] or 0, "updated_at": r[4] or '',
+                                  "has_image": bool(r[5]),
+                                  "prev_at": r[6] or None}
+                                 for r in rows]}), 200
     body = request.json or {}
     name = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get("name") or "")).strip()[:MAP_NAME_MAX] or "Untitled map"
     cmap = normalize_custom_map(body.get("map"))

@@ -174,7 +174,13 @@
 /* Installed: the app window opened straight onto the workshop, so the site's
    own title bar and tab strip above it are just chrome in the way. */
 @media all and (display-mode: standalone), all and (display-mode: window-controls-overlay){
-  body.mapapp .topbar, body.mapapp nav.tabs{display:none!important}
+  /* Drop the site chrome, but NOT the sign-in: the auth box is the only way to
+     see who you are signed in as, sign out, or switch - and a saved map lives
+     under the sign-in it was saved with. */
+  body.mapapp nav.tabs{display:none!important}
+  body.mapapp .topbar{padding:5px 12px}
+  body.mapapp .topbar .langpick, body.mapapp .topbar .brand{display:none!important}
+  body.mapapp .topbar .brandrow{justify-content:flex-end}
   body.mapapp .page{padding-top:10px}
   body.mapapp .mminstall{display:none!important}
 }
@@ -817,9 +823,11 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   // What the last fetch returned. Drawing reads from here, so searching filters
   // without asking the server again and the count survives the section closing.
   var savedMaps = [];
+  var savedElsewhere = 0;          // an owner's maps under another of their sign-ins
   function listMaps(){
     fetch('/api/maps',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
       savedMaps = j.maps || [];
+      savedElsewhere = j.elsewhere | 0;
       drawMaps();
     }).catch(function(){ $('mmlist').innerHTML='<li class="mmempty">Couldn’t load your maps — try again.</li>'; });
   }
@@ -828,7 +836,12 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       var box=$('mmsearch'), q=((box && box.value) || '').trim().toLowerCase();
       var cnt=$('mmcount');
       if(cnt) cnt.textContent = savedMaps.length ? String(savedMaps.length) : '';
-      if(!savedMaps.length){ ul.innerHTML='<li class="mmempty">No saved maps yet — draw one above and hit Save.</li>'; return; }
+      if(!savedMaps.length){
+        ul.innerHTML = savedElsewhere
+          ? '<li class="mmempty">No maps under this sign-in — <b>'+savedElsewhere+'</b> saved under another of yours. '
+            + 'Sign out (top right) and sign in with that one.</li>'
+          : '<li class="mmempty">No saved maps yet — draw one above and hit Save.</li>';
+        return; }
       var maps = q ? savedMaps.filter(function(m){
             return String(m.name || '').toLowerCase().indexOf(q) >= 0; }) : savedMaps;
       if(!maps.length){ ul.innerHTML='<li class="mmempty">Nothing here called “'+esc(q)+'”.</li>'; return; }
