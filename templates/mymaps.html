@@ -105,8 +105,9 @@
 .mmmenu-list button .chk{margin-left:auto;color:var(--green,#66e6b8);font-weight:700}
 .mmmenu-list .mminstall{display:none}
 .mmmenu-list .mminstall.on{display:flex}
+/* The map type, named on every map - neither kind is the special one. */
 .mmtag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;
-  border-radius:4px;background:rgba(255,199,87,.14);color:var(--amber,#ffc757);margin-left:6px;vertical-align:1px}
+  border-radius:4px;background:rgba(127,127,127,.16);color:var(--muted);margin-left:6px;vertical-align:1px}
 /* The chip top-right is the name only here: this is a workshop, not the board. */
 .pchip .pce, .pchip .pcr, .pchip .pcn + br, .pchip .pbadge{display:none!important}
 .pchip{gap:0}
@@ -392,7 +393,7 @@
     <div class="mmtitle">
       <div class="mmtitle-l">
         <input type="text" id="mmname" maxlength="40" placeholder="Untitled map" aria-label="Map name">
-        <span class="mmtag" id="mmmodechip" hidden title="A survival map: no stations. Change it under File &rsaquo; Map type.">Survival</span>
+        <span class="mmtag" id="mmmodechip" title="The map type. Change it under File &rsaquo; Map type.">Team</span>
         <span class="mmstate"><span class="mmcur" id="mmcur"></span><span class="mmfileat" id="mmfileat"></span><span class="mmstatus" id="mmstatus"></span></span>
       </div>
       <div class="mmtitle-r">
@@ -922,7 +923,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       if(!maps.length){ ul.innerHTML='<li class="mmempty">Nothing here called “'+esc(q)+'”.</li>'; return; }
       maps.forEach(function(m){
         var li=document.createElement('li');
-        li.innerHTML='<span class="nm">'+esc(m.name)+(m.mode==='survival'?'<span class="mmtag">Survival</span>':'')+'</span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+(m.prev_at?' · ↩ restorable':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
+        li.innerHTML='<span class="nm">'+esc(m.name)+'<span class="mmtag">'+(m.mode==='survival'?'Survival':'Team')+'</span></span><span class="meta">'+m.size+'×'+m.size+' · '+m.cells+' asteroids'+(m.has_image?' · 🖼 image':'')+(m.prev_at?' · ↩ restorable':'')+' · '+esc(fmtWhen(m.updated_at))+'</span>'
           +'<button class="mmbtn" data-act="load" type="button">Load</button>'
           +'<button class="mmbtn" data-act="copy" type="button" title="Copy this map as text, to paste into a lobby\u2019s custom map box">Copy text</button>'
           +'<button class="mmbtn" data-act="dl" type="button">Download</button>'
@@ -1388,7 +1389,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     var bt=$('mmmodeteam'), bs=$('mmmodesurv');
     if(bt) bt.querySelector('.chk').hidden = (m!=='team');
     if(bs) bs.querySelector('.chk').hidden = (m!=='survival');
-    var chip=$('mmmodechip'); if(chip) chip.hidden = (m!=='survival');
+    var chip=$('mmmodechip'); if(chip){ chip.hidden=false; chip.textContent = (m==='survival') ? 'Survival' : 'Team'; }
   }
   function setMode(m, silent){
     m = (m==='survival') ? 'survival' : 'team';
