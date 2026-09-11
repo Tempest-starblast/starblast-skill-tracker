@@ -789,10 +789,11 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         return 'Symmetry is on at ' + k + '-fold, and ' + k + ' does not divide ' + t
              + ' teams \u2014 a ' + k + '-fold pattern cannot split into ' + t
              + ' equal wedges however carefully it is drawn. Use ' + t + ' or ' + (t*2) + '.';
-      return 'Symmetry is at ' + k + '-fold, so anything drawn since repeats. A gap this size usually means '
-           + 'part of the map was painted before it was switched on (a brush stroke keeps the symmetry it was '
-           + 'painted with), or that the map is mostly thin lines: a line turned by a third or a sixth is drawn '
-           + 'a little heavier than the original so it stays solid on a square grid, and that weight shows up here.';
+      // With copies made by inverse mapping a turned stroke weighs what the original
+      // weighs, so the one real cause left is work that predates the setting.
+      return 'Symmetry is at ' + k + '-fold, so anything drawn since repeats exactly. A gap this size means '
+           + 'part of the map was painted before it was switched on — a brush stroke keeps the symmetry it was '
+           + 'painted with. Redraw that part with the setting on, or Bake in and start the uneven part again.';
     }
     function drawObjects(){
       var n = MapEd.shapeCount ? MapEd.shapeCount() : 0;
