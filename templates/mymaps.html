@@ -307,6 +307,16 @@
         aria-label="Hide the side panel" aria-expanded="true">&#9664;</button>
 <aside class="mmside">
   <div class="mmcard" id="mmimgcard" style="display:none"><h2>Image trace</h2><div id="mmimgopts"></div></div>
+  <div class="mmcard">
+    <button type="button" class="mmsechead" id="mmsavedtog" aria-expanded="false" aria-controls="mmsavedbody">
+      <span class="mmsecarrow">&#9656;</span><span class="mmsectitle">Saved maps</span>
+      <span class="mmcount" id="mmcount"></span>
+    </button>
+    <div id="mmsavedbody" hidden>
+      <input type="search" id="mmsearch" class="mmsearch" placeholder="Search your maps" autocomplete="off" spellcheck="false">
+      <div class="mmlistwrap"><ul class="mmlist" id="mmlist"><li class="mmempty">Loading&hellip;</li></ul></div>
+    </div>
+  </div>
   <div class="mmcard adv"><h2>By point</h2><div id="mmpoint"></div></div>
   <div class="mmcard adv"><h2>Raw map text</h2>
     <textarea id="o_custom_map" class="mmraw" spellcheck="false"></textarea>
@@ -336,16 +346,6 @@
     </div>
   </div>
   {% endif %}
-  <div class="mmcard">
-    <button type="button" class="mmsechead" id="mmsavedtog" aria-expanded="false" aria-controls="mmsavedbody">
-      <span class="mmsecarrow">&#9656;</span><span class="mmsectitle">Saved maps</span>
-      <span class="mmcount" id="mmcount"></span>
-    </button>
-    <div id="mmsavedbody" hidden>
-      <input type="search" id="mmsearch" class="mmsearch" placeholder="Search your maps" autocomplete="off" spellcheck="false">
-      <div class="mmlistwrap"><ul class="mmlist" id="mmlist"><li class="mmempty">Loading&hellip;</li></ul></div>
-    </div>
-  </div>
 </aside>
 <main class="mmstage">
   <div class="mmcard">
