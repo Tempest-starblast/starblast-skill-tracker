@@ -95,6 +95,20 @@
 .mmsheet kbd{font:11.5px ui-monospace,Menlo,Consolas,monospace;color:var(--green,#66e6b8);
   background:rgba(102,230,184,.1);border:1px solid rgba(102,230,184,.28);border-radius:5px;padding:1px 6px}
 .mmsheet .close{margin-top:18px}
+/* the test-lobby card */
+.mmsheet .row{display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap}
+.mmsheet .row label{display:flex;gap:8px;align-items:center;flex:1;min-width:220px;font-size:13px}
+.mmsheet input.key{flex:1;min-width:160px;font:13.5px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;
+  padding:7px 9px;background:#0f1319;border:1px solid var(--line);border-radius:6px;color:var(--text)}
+.mmsheet input.key:focus{outline:none;border-color:var(--green,#66e6b8)}
+.mmsheet .state{margin:12px 0 4px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.5}
+.mmsheet .state.ok{border-color:var(--green,#66e6b8)}
+.mmsheet .state.err{border-color:var(--red,#ff6b6b);color:var(--red,#ff6b6b)}
+.mmsheet .state a{color:var(--green,#66e6b8);word-break:break-all}
+.mmsheet .bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin:8px 0 2px}
+.mmsheet .bar i{display:block;height:100%;width:0;background:var(--green,#66e6b8);transition:width .4s}
+.mmsheet .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.mmsheet .fine{font-size:11.5px;color:var(--muted);margin:6px 0 0;line-height:1.5}
 .mmfs{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit;
   font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
@@ -343,7 +357,8 @@
         <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
         <button type="button" id="mmcopy" title="Copy the map text to your clipboard">Copy map text</button>
         <button type="button" id="mmpng" title="Save the map as a picture, for posting in Discord">Export as image</button>
-        <button type="button" id="mmtry" title="Open an Odyssey lobby on this map so you can play it">Open a lobby on this map</button>
+        <button type="button" id="mmtest" title="Open a private lobby running this map, hosted on your own ECP key, so you can fly it">Test this map&hellip;</button>
+        {% if host %}<button type="button" id="mmtry" title="Open the Odyssey lobby on this map, for everyone to play">Open the Odyssey lobby on this map</button>{% endif %}
 
       </div></details>
       <details class="mmmenu"><summary>Edit</summary><div class="mmmenu-list" id="mmEdit"></div></details>
@@ -1143,13 +1158,124 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   };
   // Play it. The lobby builder already lists saved maps, so the only thing
   // missing was the trip: save if needed, then land there with this one chosen.
-  $('mmtry').onclick=function(){
+  var tryBtn=$('mmtry');
+  if(tryBtn) tryBtn.onclick=function(){
     if(!MapEd.count()){ status('Draw something first','err'); return; }
     var go=function(id){ location.href='/customgame?map='+encodeURIComponent(id); };
     if(cur.id && !dirty){ go(cur.id); return; }
-    if(!confirm('Save this map first, then open a lobby on it?')) return;
+    if(!confirm('Save this map first, then open the Odyssey lobby on it?')) return;
     save(false, function(id){ if(id) go(id); });
   };
+
+  // ---- test this map -------------------------------------------------------
+  // A private lobby on the map as it is on screen, hosted on the tester's own
+  // ECP key (the owner's on the workshop's own). One at a time; the card shows
+  // whose it is, the link when it is up, and a way to close it.
+  var testPoll=null, testOtherKey=false;
+  function testApi(path, method, body){
+    return fetch(path, {method:method||'GET', credentials:'same-origin',
+      headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
+      .then(function(r){ return r.json().then(function(j){ j._status=r.status; return j; }); });
+  }
+  function stopTestPoll(){ if(testPoll){ clearInterval(testPoll); testPoll=null; } }
+  function showTest(){
+    if(!MapEd.count()){ status('Draw something first','err'); return; }
+    var old=$('mmsheet'); if(old) old.remove();
+    var w=document.createElement('div'); w.className='mmsheet'; w.id='mmsheet';
+    w.innerHTML='<div class="card"><h2>Test this map</h2>'
+      + '<p class="sub">Opens a private team lobby running the map as it is on screen, for you and whoever you give the link to. '
+      + 'It closes once it has been empty for about three minutes, or after an hour.</p>'
+      + '<div id="mmtform"></div><div id="mmtstate"></div>'
+      + '<div class="acts"><button type="button" class="mmbtn primary" id="mmtgo">Open the test lobby</button>'
+      + '<button type="button" class="mmbtn" id="mmtstop" hidden>Close the lobby</button>'
+      + '<button type="button" class="mmbtn" id="mmtclose">Close</button></div></div>';
+    w.addEventListener('click', function(e){ if(e.target===w){ w.remove(); stopTestPoll(); } });
+    document.body.appendChild(w);
+    $('mmtclose').onclick=function(){ w.remove(); stopTestPoll(); };
+    $('mmtgo').onclick=openTest;
+    $('mmtstop').onclick=function(){
+      testApi('/api/maptest/stop','POST',{}).then(function(j){ status(j.message||'', j.ok?'ok':'err'); refreshTest(); });
+    };
+    testOtherKey=false;
+    refreshTest();
+    stopTestPoll(); testPoll=setInterval(function(){ if(!$('mmtstate')){ stopTestPoll(); return; } refreshTest(); }, 1500);
+  }
+  var testInfo=null;
+  function renderTestForm(st){
+    var f=$('mmtform'); if(!f) return;
+    var h='';
+    if(st.owner){
+      h+='<p class="fine">Runs on the workshop\u2019s own hosting key \u2014 nothing to paste.</p>';
+    } else if(st.has_saved_key && !testOtherKey){
+      h+='<div class="row"><span>Using the key you saved.</span>'
+        +'<button type="button" class="mmbtn" id="mmtother">Use a different one</button>'
+        +'<button type="button" class="mmbtn" id="mmtforget">Forget it</button></div>';
+    } else {
+      h+='<div class="row"><label>Your ECP key <input class="key" id="mmtkey" autocomplete="off" spellcheck="false" placeholder="paste it here"></label></div>';
+      if(st.can_save)
+        h+='<div class="row"><label class="cgchk"><input type="checkbox" id="mmtsave"> Remember it '
+          +(st.guest?'for the rest of this day pass':'on my account')+'</label></div>';
+      h+='<p class="fine">The lobby is hosted by <b>your</b> Starblast account, the way the modding page would host it. '
+        +'The key is sent once to open the lobby'+(st.can_save?' and kept only if you tick the box.':' and not kept.')+'</p>';
+    }
+    f.innerHTML=h;
+    var o=$('mmtother'); if(o) o.onclick=function(){ testOtherKey=true; renderTestForm(st); var k=$('mmtkey'); if(k) k.focus(); };
+    var fg=$('mmtforget'); if(fg) fg.onclick=function(){
+      testApi('/api/maptest/key','DELETE').then(function(){ status('Forgot your key','ok'); refreshTest(true); }); };
+  }
+  var testFormKey='';
+  function refreshTest(force){
+    testApi('/api/maptest/status').then(function(st){
+      if(!st.ok){ var e=$('mmtstate'); if(e) e.innerHTML='<div class="state err">'+esc(st.message||'Not allowed')+'</div>'; return; }
+      testInfo=st;
+      // the form only re-renders when what it depends on changes, so typing is not wiped
+      var fk=[st.owner,st.guest,st.has_saved_key,st.can_save].join('|');
+      if(force || fk!==testFormKey){ testFormKey=fk; renderTestForm(st); }
+      var box=$('mmtstate'), go=$('mmtgo'), stop=$('mmtstop'); if(!box) return;
+      var h='';
+      if(st.link){
+        h='<div class="state ok">'+(st.mine?'Your test lobby is up':'A test lobby is up')
+          +(st.label?' \u2014 <b>'+esc(st.label)+'</b>':'')+(st.region?' ('+esc(st.region)+')':'')+'.<br>'
+          +'<a href="'+esc(st.link)+'" target="_blank" rel="noopener">'+esc(st.link)+'</a><br>'
+          +'<button type="button" class="mmbtn" id="mmtcopy" style="margin-top:8px">Copy link</button> '
+          +'<button type="button" class="mmbtn primary" id="mmtjoin" style="margin-top:8px">Join</button></div>';
+        go.hidden=true; stop.hidden=!(st.mine||st.owner);
+      } else if(st.opening){
+        h='<div class="state">'+(st.mine?'Opening your test lobby':'Someone else\u2019s test lobby is opening')
+          +' \u2014 a few seconds.<div class="bar"><i id="mmtbar"></i></div></div>';
+        go.hidden=true; stop.hidden=!(st.mine||st.owner);
+      } else if(st.busy){
+        h='<div class="state">Someone else is testing a map right now \u2014 try again in a few minutes.</div>';
+        go.hidden=true; stop.hidden=!st.owner;
+      } else {
+        if(st.error) h='<div class="state err">'+esc(st.error)+'</div>';
+        go.hidden=false; stop.hidden=true;
+      }
+      box.innerHTML=h;
+      var bar=$('mmtbar'); if(bar){ var t0=+(box.getAttribute('data-t0')||0); if(!t0){ t0=Date.now(); box.setAttribute('data-t0',String(t0)); }
+        bar.style.width=Math.min(94, 12+ (Date.now()-t0)/40)+'%'; }
+      var cp=$('mmtcopy'); if(cp) cp.onclick=function(){ copyText(st.link, 'Copied \u2014 send it to whoever is testing with you.'); };
+      var jn=$('mmtjoin'); if(jn) jn.onclick=function(){ window.open(st.link,'_blank','noopener'); };
+    }).catch(function(){});
+  }
+  function openTest(){
+    var st=testInfo||{};
+    var body={custom_map: MapEd.str(), label: (($('mmname')||{}).value||'').trim() || (cur&&cur.name) || 'untitled'};
+    var k=$('mmtkey');
+    if(k){ body.ecp=(k.value||'').trim(); if(!body.ecp){ status('Paste your ECP key first','err'); k.focus(); return; } }
+    var sv=$('mmtsave'); if(sv && sv.checked) body.save=true;
+    var go=$('mmtgo'); if(go) go.disabled=true;
+    testApi('/api/maptest/open','POST',body).then(function(j){
+      if(go) go.disabled=false;
+      if(!j.ok){ status(j.message||'Could not open a test lobby','err'); refreshTest(); return; }
+      status(j.message||'Opening\u2026','ok');
+      if(j.note) status(j.note,'err');
+      if(k) k.value='';                      // it has left the page; nothing to keep here
+      testOtherKey=false;
+      refreshTest(true);
+    }).catch(function(){ if(go) go.disabled=false; status('Could not reach the site','err'); });
+  }
+  var testBtn=$('mmtest'); if(testBtn) testBtn.onclick=showTest;
   $('mmdownload').onclick=function(){ downloadMap(MapEd.str(), ($('mmname').value||'').trim() || cur.name); };
   $('mmopen').onclick=function(){ $('mmfile').click(); };
   $('mmfile').onchange=function(){ openMapFile(this.files && this.files[0]); this.value=''; };

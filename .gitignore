@@ -2,6 +2,7 @@ api_keys.txt
 ip_hash_secret.txt
 discord_secret.txt
 flask_secret.txt
+ecp_vault_key.txt
 owner_subs.txt
 *.db
 *.db.*

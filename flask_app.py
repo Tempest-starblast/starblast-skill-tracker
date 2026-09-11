@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.41"
+APP_VERSION = "9.13.42"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1382,6 +1382,57 @@ except OSError:
     IP_HASH_SECRET = secrets.token_hex(32)
 
 
+# Saved ECP keys for map testing. A tester hosts the lobby on THEIR key and may
+# ask for it to be remembered. It is a credential for their game account, so it
+# is sealed before it touches the database, with a key kept beside the code like
+# the others. Deliberately NO random fallback: a key made up at boot would make
+# every saved row unreadable after a restart, silently. No file means "remember
+# it" is not offered; pasting each time still works and never needs the file.
+try:
+    with open(os.path.join(BASE_DIR, 'ecp_vault_key.txt')) as _f:
+        ECP_VAULT_KEY = _f.read().strip()
+except OSError:
+    ECP_VAULT_KEY = ""
+_ECP_BOXES = {}
+ECP_KEY_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9\-]{4,60}$')
+
+
+def _ecp_box(persistent):
+    """The box that seals an ECP key. persistent=True is the vault - file-backed,
+    None when there is no file. persistent=False seals a pasted key for the
+    moment between the click and the droplet picking it up; that may use a key
+    made up per process, since a restart in that window just means clicking
+    again."""
+    k = 'vault' if persistent else 'transit'
+    if k in _ECP_BOXES:
+        return _ECP_BOXES[k]
+    box = None
+    try:
+        from cryptography.fernet import Fernet
+        if ECP_VAULT_KEY:
+            box = Fernet(ECP_VAULT_KEY.encode())
+        elif not persistent:
+            box = Fernet(Fernet.generate_key())
+    except Exception:
+        box = None
+    _ECP_BOXES[k] = box
+    return box
+
+
+def _ecp_seal(box, key):
+    return box.encrypt(key.encode('utf-8')).decode('ascii')
+
+
+def _ecp_open(box, tok, ttl=None):
+    """The key back, or None if the token is not ours, was sealed under another
+    vault key, or (with ttl) is older than it should be."""
+    try:
+        raw = box.decrypt(tok.encode('ascii'), ttl=ttl) if ttl else box.decrypt(tok.encode('ascii'))
+        return raw.decode('utf-8')
+    except Exception:
+        return None
+
+
 def source_tag(value):
     """An opaque, irreversible tag for a rate-limit subject.
 
@@ -1575,6 +1626,27 @@ def init_db():
                     last_used_at TEXT,
                     revoked INTEGER DEFAULT 0,
                     note TEXT
+                )''')
+    # Map testing on the tester's own ECP key. map_test is a single row - one
+    # test lobby at a time, mirroring custom_game, on its own track beside it.
+    # map_ecp_keys holds the keys people asked to have remembered, sealed (see
+    # _ecp_box); `who` is the account for a signed-in tester and 'pin:<pin>' for
+    # a guest, so a guest's key lives exactly as long as the day pass.
+    c.execute('''CREATE TABLE IF NOT EXISTS map_ecp_keys (
+                    who TEXT PRIMARY KEY,
+                    enc TEXT NOT NULL,
+                    added_at TEXT,
+                    last_used_at TEXT
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS map_test (
+                    id INTEGER PRIMARY KEY,
+                    who TEXT, label TEXT,
+                    wanted_at TEXT, picked_at TEXT,
+                    options_json TEXT, custom_map TEXT,
+                    ecp_once TEXT, use_saved INTEGER DEFAULT 0,
+                    link TEXT, sid INTEGER, region TEXT,
+                    started_at TEXT, updated_at TEXT,
+                    last_error TEXT, stop_requested INTEGER DEFAULT 0
                 )''')
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -12880,6 +12952,8 @@ def api_map_pin_edit(pin):
     if request.method == 'DELETE':
         n = c.execute("UPDATE map_pins SET revoked = 1 WHERE pin = ? AND owner_sub = ?",
                       (str(pin), sub_id)).rowcount
+        if n:                        # the pass is over, and so is any key saved under it
+            c.execute("DELETE FROM map_ecp_keys WHERE who = ?", ('pin:' + str(pin),))
     else:
         n = c.execute("UPDATE map_pins SET holder = NULL WHERE pin = ? AND owner_sub = ?",
                       (str(pin), sub_id)).rowcount
@@ -12888,6 +12962,306 @@ def api_map_pin_edit(pin):
     if not n:
         return jsonify({"ok": False, "message": "No such pin."}), 404
     return jsonify({"ok": True}), 200
+
+
+# ---------------------------------------------------------------------------
+# Map testing: a private lobby on THIS map, hosted on the tester's own ECP key.
+# The owner's tests run on the workshop's own key (the droplet has it already);
+# everyone else pastes theirs. Nothing here touches the Odyssey custom lobby.
+MAPTEST_WINDOW_S = 90       # an open request older than this is forgotten
+
+
+def _maptest_who():
+    """(who, store, guest): who is the identity a saved key hangs off - the
+    account when signed in with maps access, 'pin:<pin>' for a guest; store is
+    whose map store they are in. (None, None, False) means no access."""
+    owner_sub, guest = maps_actor()
+    if not owner_sub:
+        return None, None, False
+    if guest:
+        return 'pin:' + str(session.get('map_pin') or ''), owner_sub, True
+    return owner_sub, owner_sub, False
+
+
+def _maptest_fresh(ts, seconds=MAPTEST_WINDOW_S):
+    if not ts:
+        return False
+    try:
+        return (time.time() - time.mktime(time.strptime(ts, '%Y-%m-%d %H:%M:%S'))) < seconds
+    except Exception:
+        return False
+
+
+def _maptest_prune_keys(c):
+    """A guest's saved key goes with the pass it was saved under."""
+    now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    c.execute("DELETE FROM map_ecp_keys WHERE who LIKE 'pin:%' AND substr(who, 5) IN "
+              "(SELECT pin FROM map_pins WHERE revoked = 1 OR COALESCE(expires_at, '') <= ?)", (now,))
+    c.execute("DELETE FROM map_ecp_keys WHERE who LIKE 'pin:%' AND substr(who, 5) NOT IN "
+              "(SELECT pin FROM map_pins)")
+
+
+def _maptest_saved(c, who):
+    vault = _ecp_box(True)
+    if not vault or not who:
+        return None
+    row = c.execute("SELECT enc FROM map_ecp_keys WHERE who = ?", (who,)).fetchone()
+    return row[0] if row else None
+
+
+@app.route('/api/maptest/key', methods=['GET', 'DELETE'])
+def api_maptest_key():
+    """GET: is a key remembered for me, and can this server remember one at all.
+    DELETE: forget mine. The key itself never comes back out this way."""
+    who, _store, _guest = _maptest_who()
+    if not who:
+        return jsonify({"ok": False, "message": "My Maps needs the host's account or a guest pin."}), 403
+    conn = db()
+    c = conn.cursor()
+    _maptest_prune_keys(c)
+    if request.method == 'DELETE':
+        c.execute("DELETE FROM map_ecp_keys WHERE who = ?", (who,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True, "has": False}), 200
+    has = bool(_maptest_saved(c, who))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "has": has, "can_save": bool(_ecp_box(True))}), 200
+
+
+@app.route('/api/maptest/open', methods=['POST'])
+def api_maptest_open():
+    """Ask for a test lobby on a map. The map is the text as drawn (so what is on
+    screen is what gets tested, saved or not) or a saved map by id. The key is
+    pasted, or the one remembered for me, or - for the owner - the host's own."""
+    who, store, guest = _maptest_who()
+    if not who:
+        return jsonify({"ok": False, "message": "My Maps needs the host's account or a guest pin."}), 403
+    is_owner = (not guest) and (store in OWNER_SUBS)
+    body = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    _maptest_prune_keys(c)
+    # ---- the map
+    cmap, label, size = '', '', 0
+    mid = body.get('map_id')
+    if mid:
+        try:
+            mid = int(mid)
+        except (TypeError, ValueError):
+            mid = 0
+        row = c.execute("SELECT name, size, map FROM custom_maps WHERE id = ? AND owner_sub = ?",
+                        (mid, store)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"ok": False, "message": "No such map."}), 404
+        label, size, cmap = row[0], int(row[1] or 0), row[2]
+    else:
+        cmap = body.get('custom_map') or ''
+        label = str(body.get('label') or 'untitled').strip()[:80] or 'untitled'
+    cmap = normalize_custom_map(cmap)
+    if not re.search(r'[1-9]', cmap):
+        conn.close()
+        return jsonify({"ok": False, "message": "Draw something first."}), 400
+    if not size:
+        size = len(cmap.rstrip('\n').split('\n'))
+    opts = normalize_custom_options({"root_mode": "team", "friendly_colors": 3, "map_size": size})
+    # ---- the key
+    ecp = str(body.get('ecp') or '').strip()
+    save = bool(body.get('save'))
+    ecp_once, use_saved, saved, note = '', 0, False, ''
+    if ecp:
+        if not ECP_KEY_RE.match(ecp):
+            conn.close()
+            return jsonify({"ok": False, "message": "That does not look like an ECP key."}), 400
+        box = _ecp_box(False)
+        if not box:
+            conn.close()
+            return jsonify({"ok": False, "message": "Map testing is not available right now."}), 503
+        ecp_once = _ecp_seal(box, ecp)
+        if save:
+            vault = _ecp_box(True)
+            if vault:
+                now = time.strftime('%Y-%m-%d %H:%M:%S')
+                c.execute("INSERT INTO map_ecp_keys (who, enc, added_at, last_used_at) VALUES (?,?,?,?) "
+                          "ON CONFLICT(who) DO UPDATE SET enc=excluded.enc, added_at=excluded.added_at",
+                          (who, _ecp_seal(vault, ecp), now, now))
+                saved = True
+            else:
+                note = "Remembering keys is not set up on this server, so you will paste it next time."
+    elif is_owner:
+        pass                                 # the host has the owner's key already
+    elif _maptest_saved(c, who):
+        use_saved = 1
+    else:
+        conn.close()
+        return jsonify({"ok": False, "message": "Paste your ECP key first."}), 400
+    # ---- one at a time
+    row = c.execute("SELECT link, wanted_at, who FROM map_test WHERE id = 1").fetchone()
+    if row and (row[0] or _maptest_fresh(row[1])):
+        conn.commit()
+        conn.close()
+        mine = (row[2] == who)
+        return jsonify({"ok": False, "busy": True, "mine": mine,
+                        "message": ("Your test lobby is already up." if mine else
+                                    "Someone else is testing a map right now - try again in a few minutes.")}), 409
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    c.execute("INSERT INTO map_test (id, who, label, wanted_at, picked_at, options_json, custom_map, "
+              "ecp_once, use_saved, link, sid, region, last_error, stop_requested, updated_at) "
+              "VALUES (1,?,?,?,'',?,?,?,?,'',NULL,'','',0,?) ON CONFLICT(id) DO UPDATE SET "
+              "who=excluded.who, label=excluded.label, wanted_at=excluded.wanted_at, picked_at='', "
+              "options_json=excluded.options_json, custom_map=excluded.custom_map, "
+              "ecp_once=excluded.ecp_once, use_saved=excluded.use_saved, link='', sid=NULL, "
+              "region='', last_error='', stop_requested=0, updated_at=excluded.updated_at",
+              (who, label, now, json.dumps(opts), cmap, ecp_once, use_saved, now))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "saved": saved, "note": note,
+                    "message": "Opening a test lobby - this takes a few seconds."}), 200
+
+
+@app.route('/api/maptest/pending')
+def api_maptest_pending():
+    """The droplet host polls this (key-gated). The key is handed over exactly
+    once: the sealed copy is dropped the moment it leaves."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT link, wanted_at, picked_at, options_json, custom_map, ecp_once, use_saved, who "
+                    "FROM map_test WHERE id = 1").fetchone()
+    if not row or row[0] or row[2] or not _maptest_fresh(row[1]):
+        conn.close()
+        return jsonify({"wanted": False}), 200
+    try:
+        opts = json.loads(row[3]) if row[3] else {}
+    except Exception:
+        opts = {}
+    opts = normalize_custom_options(opts)
+    opts["custom_map"] = row[4] or ''
+    ecp, owner = None, False
+    if row[6]:                                       # the key remembered for them
+        vault = _ecp_box(True)
+        enc = _maptest_saved(c, row[7])
+        ecp = _ecp_open(vault, enc) if (vault and enc) else None
+        if ecp:
+            c.execute("UPDATE map_ecp_keys SET last_used_at = ? WHERE who = ?",
+                      (time.strftime('%Y-%m-%d %H:%M:%S'), row[7]))
+    elif row[5]:                                     # pasted for this one test
+        box = _ecp_box(False)
+        ecp = _ecp_open(box, row[5], ttl=MAPTEST_WINDOW_S + 30) if box else None
+    else:
+        owner = True                                 # the host uses its own key
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    if not owner and not ecp:
+        c.execute("UPDATE map_test SET ecp_once='', wanted_at='', picked_at='', last_error=?, updated_at=? "
+                  "WHERE id = 1", ("The key could not be read - paste it again.", now))
+        conn.commit()
+        conn.close()
+        return jsonify({"wanted": False}), 200
+    c.execute("UPDATE map_test SET ecp_once='', picked_at=?, updated_at=? WHERE id = 1", (now, now))
+    conn.commit()
+    conn.close()
+    return jsonify({"wanted": True, "options": opts, "ecp": ecp, "owner": owner}), 200
+
+
+@app.route('/api/maptest/set', methods=['POST'])
+def api_maptest_set():
+    """The droplet reports the test lobby's link (key-gated). Empty = down. An
+    explicit error is kept; a plain clear leaves the last error alone so a
+    failed start's message survives the clear that follows it."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    link = str(d.get('link') or '')[:200]
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    conn = db()
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO map_test (id) VALUES (1)")
+    if link:
+        c.execute("UPDATE map_test SET link=?, sid=?, region=?, started_at=?, updated_at=?, wanted_at='', "
+                  "picked_at='', ecp_once='', last_error='', stop_requested=0 WHERE id = 1",
+                  (link, d.get('sid'), str(d.get('region') or '')[:16], now, now))
+    else:
+        c.execute("UPDATE map_test SET link='', sid=NULL, wanted_at='', picked_at='', ecp_once='', "
+                  "updated_at=? WHERE id = 1", (now,))
+        if 'error' in d:
+            c.execute("UPDATE map_test SET last_error=? WHERE id = 1", (str(d.get('error') or '')[:400],))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/api/maptest/stopcheck')
+def api_maptest_stopcheck():
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT stop_requested FROM map_test WHERE id = 1").fetchone()
+    conn.close()
+    return jsonify({"stop": bool(row and row[0])}), 200
+
+
+@app.route('/api/maptest/status')
+def api_maptest_status():
+    """What the workshop page polls: is a test lobby up or opening, is it mine,
+    and the link if it is (the owner sees any test's link - it is their workshop)."""
+    who, store, guest = _maptest_who()
+    if not who:
+        return jsonify({"ok": False, "message": "My Maps needs the host's account or a guest pin."}), 403
+    is_owner = (not guest) and (store in OWNER_SUBS)
+    conn = db()
+    c = conn.cursor()
+    _maptest_prune_keys(c)
+    row = c.execute("SELECT link, region, wanted_at, picked_at, last_error, who, label, started_at "
+                    "FROM map_test WHERE id = 1").fetchone()
+    has_saved = bool(_maptest_saved(c, who))
+    conn.commit()
+    conn.close()
+    link = (row[0] if row else '') or ''
+    opening = (not link) and bool(row) and _maptest_fresh(row[2])
+    mine = bool(row) and (row[5] == who)
+    return jsonify({
+        "ok": True, "owner": is_owner, "guest": guest,
+        "can_save": bool(_ecp_box(True)), "has_saved_key": has_saved,
+        "busy": bool(link or opening), "opening": opening, "mine": mine,
+        "link": link if (mine or is_owner) else '',
+        "region": (row[1] if row else '') or '',
+        "label": ((row[6] if row else '') or '') if (link or opening) else '',
+        "started_at": ((row[7] if row else '') or '') if link else '',
+        "error": ((row[4] if row else '') or '') if mine else '',
+    }), 200
+
+
+@app.route('/api/maptest/stop', methods=['POST'])
+def api_maptest_stop():
+    """Close my test lobby (the owner may close anyone's). Not yet picked up =
+    the request is simply withdrawn; running = the host is told to stop it."""
+    who, store, guest = _maptest_who()
+    if not who:
+        return jsonify({"ok": False, "message": "My Maps needs the host's account or a guest pin."}), 403
+    is_owner = (not guest) and (store in OWNER_SUBS)
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT who, link, wanted_at, picked_at FROM map_test WHERE id = 1").fetchone()
+    if not row or not (row[1] or _maptest_fresh(row[2])):
+        conn.close()
+        return jsonify({"ok": True, "message": "No test lobby is open."}), 200
+    if row[0] != who and not is_owner:
+        conn.close()
+        return jsonify({"ok": False, "message": "That test lobby is not yours."}), 403
+    if not row[1] and not row[3]:
+        c.execute("UPDATE map_test SET wanted_at='', ecp_once='', updated_at=? WHERE id = 1",
+                  (time.strftime('%Y-%m-%d %H:%M:%S'),))
+        msg = "Cancelled."
+    else:
+        c.execute("UPDATE map_test SET stop_requested=1 WHERE id = 1")
+        msg = "Closing the test lobby."
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "message": msg}), 200
 
 
 @app.route('/api/maps/pin', methods=['POST'])
