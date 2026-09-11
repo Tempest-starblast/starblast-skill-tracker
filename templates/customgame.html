@@ -391,6 +391,15 @@
       maps.forEach(function(m){ var o=document.createElement('option'); o.value=m.id;
         o.textContent=m.name+' · '+m.size+'×'+m.size+' · '+m.cells+' asteroids'; s.appendChild(o); });
       if(!maps.length){ var o=document.createElement('option'); o.value=''; o.textContent='(no saved maps yet — build one in My Maps)'; s.appendChild(o); }
+      // Arriving from "Open a lobby on this map" in the editor: pick that map and
+      // load it, so the trip is one click rather than find-it-in-the-list again.
+      var want=(new URLSearchParams(location.search)).get('map');
+      if(want && maps.some(function(m){ return String(m.id) === String(want); })){
+        s.value = String(want);
+        var u = document.getElementById('mapuse');
+        if(u) u.click();
+        s.scrollIntoView({block:'center'});
+      }
     }).catch(function(){});
     var use=document.getElementById('mapuse'); if(use) use.onclick=function(){ var id=s.value; if(!id) return;
       fetch('/api/maps/'+encodeURIComponent(id),{cache:'no-store'}).then(function(r){return r.json();})

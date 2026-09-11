@@ -110,6 +110,22 @@
 .mmsectitle{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;flex:1}
 .mmcount{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
 .mmnote2{margin:6px 0 8px;font-size:12px;line-height:1.55;color:var(--muted,#8aa0b0)}
+/* Map contents: the summary, then the things it is summarising. */
+.mmsum{display:grid;grid-template-columns:1fr auto;gap:3px 10px;margin:8px 0 4px;
+  font-size:12px;font-variant-numeric:tabular-nums}
+.mmsum dt{color:var(--muted,#8aa0b0);margin:0}
+.mmsum dd{margin:0;text-align:right;color:var(--text)}
+.mmsum dd.warn{color:var(--amber,#ffc757)}
+.mmsum dd.ok{color:var(--green,#66e6b8)}
+.mmbars{display:flex;gap:3px;align-items:flex-end;height:26px;margin:6px 0 2px}
+.mmbars i{flex:1;border-radius:2px 2px 0 0;min-height:2px;display:block}
+.mmobjs{max-height:34vh;overflow:auto;scrollbar-width:thin;margin-top:8px}
+.mmobjs li{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);
+  font-size:12.5px}
+.mmobjs li:first-child{border-top:0}
+.mmobjs li.on{color:var(--green,#66e6b8)}
+.mmobjs .oname{flex:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mmobjs .ometa{color:var(--muted,#8aa0b0);font-size:11px;white-space:nowrap}
 /* Dimmed when the chosen tool has no wall to widen. */
 .mapthicklbl.off,#mapthickgrp.off,.cgval.off{opacity:.38}
 /* First on the toolbar, like every editor: the way back. */
@@ -275,6 +291,18 @@
   <div class="mmcard adv"><h2>Raw map text</h2>
     <textarea id="o_custom_map" class="mmraw" spellcheck="false"></textarea>
     <p class="mmempty" style="margin:6px 0 0;font-size:11px">This is what the game gets. Paste a map here and use Insert &rsaquo; Apply pasted text.</p></div>
+  <div class="mmcard">
+    <button type="button" class="mmsechead" id="mmctog" aria-expanded="false" aria-controls="mmcbody">
+      <span class="mmsecarrow">&#9656;</span><span class="mmsectitle">Map contents</span>
+      <span class="mmcount" id="mmccount"></span>
+    </button>
+    <div id="mmcbody" hidden>
+      <dl class="mmsum" id="mmcsum"></dl>
+      <div class="mmbars" id="mmcbars" title="Asteroid mass in each team's wedge of the map"></div>
+      <p class="mmnote2" id="mmcnote" style="margin:4px 0 0"></p>
+      <ul class="mmlist mmobjs" id="mmobjs"></ul>
+    </div>
+  </div>
   {% if host %}
   <div class="mmcard">
     <button type="button" class="mmsechead" id="mmgtog" aria-expanded="false" aria-controls="mmgbody">
@@ -314,6 +342,8 @@
         <input type="file" id="mmfile" accept=".txt,.map,text/plain" style="display:none">
         <button type="button" id="mmdownload" title="Save this map to your device as a .txt file">Download as .txt</button>
         <button type="button" id="mmcopy" title="Copy the map text to your clipboard">Copy map text</button>
+        <button type="button" id="mmpng" title="Save the map as a picture, for posting in Discord">Export as image</button>
+        <button type="button" id="mmtry" title="Open an Odyssey lobby on this map so you can play it">Open a lobby on this map</button>
 
       </div></details>
       <details class="mmmenu"><summary>Edit</summary><div class="mmmenu-list" id="mmEdit"></div></details>
@@ -474,6 +504,12 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     // View
     var vw=$('mmView'); var ob=mv('maporbit',vw); var ms=mv('mapselect',vw); if(ms) ms.title='Drag the stations around their ring yourself';
     var cp=$('mapclearpath') && $('mapclearpath').closest('label'); if(cp){ mv(cp, ed); cp.title='Keep the ring the stations orbit free of asteroids (nothing is deleted - turn it off and they come back)'; }   // Edit: it changes the map
+    // Snapping: two magnets, on by default, and a way to switch them off.
+    var snapBtn=document.createElement('button'); snapBtn.type='button';
+    function snapLabel(){ snapBtn.textContent = (MapEd.snap && MapEd.snap()) ? 'Snapping on \u2713' : 'Snapping off'; }
+    snapBtn.title='Pull what you draw onto the centre of the map and onto the ring the stations orbit.';
+    snapBtn.onclick=function(){ if(MapEd.snap) MapEd.snap(!MapEd.snap()); snapLabel(); };
+    vw.insertBefore(snapBtn, vw.firstChild); snapLabel();
     var adv=mv('mapadv',vw);
     // The advanced controls live in the side panel; turning them on with the
     // panel folded looked like nothing happening at all.
@@ -603,6 +639,76 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     tu.disabled = !mu || mu.disabled; tr.disabled = !mr || mr.disabled;
   })();
 
+  // ---- map contents: the summary, then the objects --------------------------
+  // One section, because "how much is in here" and "what is in here" are the
+  // same question asked at two zoom levels.
+  (function(){
+    var tog=$('mctog')||$('mmctog'), body=$('mmcbody'), sum=$('mmcsum'),
+        bars=$('mmcbars'), note=$('mmcnote'), list=$('mmobjs'), cnt=$('mmccount');
+    if(!tog || !body) return;
+    var TEAM_HUES=[150,270,30];
+    function pct(x){ return Math.round(x*100); }
+    function draw(){
+      if(body.hidden) { refreshCount(); return; }
+      var b = MapEd.balance && MapEd.balance();
+      if(!b){ sum.innerHTML=''; return; }
+      var rows=[
+        ['Asteroids', b.asteroids.toLocaleString(), ''],
+        ['Total mass', b.mass.toLocaleString(), ''],
+        ['Density', pct(b.density)+'%', ''],
+        ['Sector spread', pct(b.spread)+'%', b.spread<=0.05?'ok':(b.spread<=0.15?'':'warn')],
+        ['In the station lane', String(b.inOrbitLane), b.inOrbitLane?'warn':'ok']
+      ];
+      sum.innerHTML = rows.map(function(r){
+        return '<dt>'+r[0]+'</dt><dd class="'+r[2]+'">'+r[1]+'</dd>'; }).join('');
+      var top = Math.max(1, Math.max.apply(null, b.sectors.map(function(x){ return x.mass; })));
+      bars.innerHTML = b.sectors.map(function(x,i){
+        var h = Math.max(2, Math.round(24 * x.mass / top));
+        return '<i style="height:'+h+'px;background:hsl('+((150+i*360/b.teams)%360)+',70%,58%)" title="Team '+(i+1)+': '+x.mass.toLocaleString()+'"></i>'; }).join('');
+      note.textContent = b.asteroids === 0 ? 'Nothing on the map yet.'
+        : b.inOrbitLane ? (b.inOrbitLane+' asteroids sit where the stations orbit. Turn on Clear station path under Edit to lift them.')
+        : b.spread > 0.15 ? 'One team\u2019s wedge is much richer than another\u2019s. Symmetry makes this even by construction.'
+        : 'Evenly shared between the teams.';
+      drawObjects();
+    }
+    function drawObjects(){
+      var n = MapEd.shapeCount ? MapEd.shapeCount() : 0;
+      var sel = MapEd.selectedIds ? MapEd.selectedIds() : [];
+      list.innerHTML='';
+      if(!n){ list.innerHTML='<li class="mmempty">No shapes \u2014 everything here is painted straight onto the map.</li>'; return; }
+      (MapEd.objects ? MapEd.objects() : []).forEach(function(o){
+        var li=document.createElement('li');
+        if(sel.indexOf(o.id)>=0) li.className='on';
+        li.innerHTML='<span class="oname">'+esc(o.label)+'</span>'
+          +'<span class="ometa">'+o.cells+' cells'+(o.sym>1?(' \u00b7 '+o.sym+'\u00d7 sym'):'')+'</span>'
+          +'<button class="mmbtn" data-o="del" type="button">Delete</button>';
+        li.querySelector('.oname').onclick=function(){ MapEd.select(o.id); drawObjects(); };
+        li.querySelector('[data-o=del]').onclick=function(){ MapEd.select(o.id); MapEd.deleteSelection && MapEd.deleteSelection(); draw(); };
+        list.appendChild(li);
+      });
+    }
+    function refreshCount(){
+      var b = MapEd.balance && MapEd.balance();
+      if(cnt) cnt.textContent = b ? b.asteroids.toLocaleString() : '';
+    }
+    function setOpen(open){
+      body.hidden=!open; tog.setAttribute('aria-expanded', open?'true':'false');
+      try{ localStorage.setItem('mm_contents_open', open?'1':'0'); }catch(e){}
+      if(open) draw();
+    }
+    tog.addEventListener('click', function(){ setOpen(body.hidden); });
+    var open=false; try{ open = localStorage.getItem('mm_contents_open')==='1'; }catch(e){}
+    setOpen(open); refreshCount();
+    // Kept honest as the map changes, but debounced - a brush stroke is hundreds
+    // of changes and this counts every cell on the map. Exposed rather than
+    // wrapping MapEd.onChange, because the page assigns that AFTER this runs and
+    // would quietly replace the wrapper.
+    var t=null;
+    window.mmContentsChanged = function(){
+      clearTimeout(t); t=setTimeout(function(){ draw(); refreshCount(); }, 450);
+    };
+  })();
+
   fitCanvas(); window.addEventListener('resize', fitCanvas); setTimeout(fitCanvas, 300);
   (function(){
     var zi=$('mmzi'), zo=$('mmzo'), zf=$('mmzf'), st=$('mmstage');
@@ -647,7 +753,10 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     e.innerHTML = '“'+esc(cur.name)+'” &middot; ' + state;
     e.title = dirty ? 'Save writes these changes to “'+cur.name+'”'
                     : 'Everything here is in “'+cur.name+'”'; }
-  MapEd.onChange = function(){ setDirty(true); };
+  MapEd.onChange = function(){
+    setDirty(true);
+    if(window.mmContentsChanged) window.mmContentsChanged();
+  };
   // When Apply pasted has nothing to work with, take the person to the box it
   // wants: panel open, advanced on, cursor in it. It used to just fail quietly.
   MapEd.onNeedRawText = function(msg){
@@ -829,7 +938,9 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       if(typeof after==='function') after(d);
     });
   }
-  function save(asCopy){
+  // `done` is optional and receives the saved map's id, so a caller can do
+  // something with the map it just saved (open a lobby on it, say).
+  function save(asCopy, done){
     var map=MapEd.str();
     if(!map){ status('Place some asteroids first','err'); return; }
     var name=($('mmname').value||'').trim()||'Untitled map';
@@ -853,6 +964,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         if(!forking) curPrev={at:'', name:fromName||j.name};   // the server's timestamp appears when it is next loaded
         else curPrev=null;
         showRestore();
+        if(typeof done === 'function') done(j.id || cur.id);
         status(forking && fromName ? 'Saved as a new map — “'+fromName+'” is untouched'
                                    : (forking ? 'Saved as a new map' : 'Saved'), 'ok');
         listMaps(); })
@@ -1002,6 +1114,25 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   showFileAt();
 
   $('mmcopy').onclick=function(){ copyText(MapEd.str(), 'Copied — paste it into the lobby’s map box.'); };
+  // A picture of the map, for posting where this community talks.
+  $('mmpng').onclick=function(){
+    var url = MapEd.exportPNG && MapEd.exportPNG();
+    if(!url){ status('Nothing to export','err'); return; }
+    var a=document.createElement('a');
+    a.href=url;
+    a.download=(safeFileName(($('mmname').value||'').trim() || cur.name)).replace(/\.txt$/,'') + '.png';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    status('Saved the picture','ok');
+  };
+  // Play it. The lobby builder already lists saved maps, so the only thing
+  // missing was the trip: save if needed, then land there with this one chosen.
+  $('mmtry').onclick=function(){
+    if(!MapEd.count()){ status('Draw something first','err'); return; }
+    var go=function(id){ location.href='/customgame?map='+encodeURIComponent(id); };
+    if(cur.id && !dirty){ go(cur.id); return; }
+    if(!confirm('Save this map first, then open a lobby on it?')) return;
+    save(false, function(id){ if(id) go(id); });
+  };
   $('mmdownload').onclick=function(){ downloadMap(MapEd.str(), ($('mmname').value||'').trim() || cur.name); };
   $('mmopen').onclick=function(){ $('mmfile').click(); };
   $('mmfile').onchange=function(){ openMapFile(this.files && this.files[0]); this.value=''; };
