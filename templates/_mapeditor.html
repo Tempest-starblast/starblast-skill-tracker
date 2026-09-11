@@ -222,7 +222,16 @@ window.MapEd = (function(){
     drawBases(ctx,n,cs,cv);
     drawGhost(ctx, cs);
     if(!readOnly) drawSelection(ctx, cs); }
-  function drawMap(){ renderLayer(); paintCanvas(); }
+  function drawMap(){ renderLayer(); paintCanvas(); updateBakeBtn(); }
+  function updateBakeBtn(){
+    var b=$('mapsymbake'); if(!b) return;
+    var n = mapGrid ? symShapes().length : 0;
+    b.disabled = !(n || symOn());
+    b.title = n
+      ? ('Turn the rotations of ' + n + (n===1?' shape':' shapes')
+         + ' into ordinary asteroids and switch symmetry off, so you can draw something that is NOT repeated \u2014 a word, say. Undo puts the shapes back.')
+      : 'Switch symmetry off so the next thing you draw is placed once.';
+  }
   // Team-mode bases, from the game's own formula (starblast-modding Station.js: the
   // ring radius is map_size*5*sqrt(2)/2 in world units, the world spanning +-map_size*5,
   // i.e. 0.707 of the half-width = map*sqrt(2)/4 in cells; the angle is phase +
@@ -568,6 +577,28 @@ window.MapEd = (function(){
     l.forEach(function(s){ shapeCellsOf(s).forEach(function(rc){ mapGrid[rc[0]][rc[1]]=cellValue(s,rc); }); });
     shapes=shapes.filter(function(x){ return !isSel(x.id); }); setSel([]); drawMap(); syncMapText(); updateSelBar();
     var i=$('mapselinfo'); if(i) i.textContent='Flattened into ordinary asteroids — Undo (Ctrl+Z) turns them back into shapes'; }
+  // Freeze the symmetry that is live right now. Every shape carrying rotations
+  // becomes plain asteroids (its arms stop being one object and can be edited
+  // separately), and the setting goes off so the NEXT thing drawn is placed once
+  // - which is the point: a word is not symmetric.
+  function symShapes(){ return shapes.filter(function(x){ return (x.sym||1) > 1 || x.symM; }); }
+  function bakeSymmetry(){
+    var l = symShapes();
+    if(!l.length && !symOn()) return 0;
+    pushUndo();
+    l.forEach(bakeShape);                       // flatten into the painted layer, drop the shape
+    symN = 1; symMirror = false;
+    var sy=$('mapsym'), sm=$('mapsymm');
+    if(sy) sy.value = '1';
+    if(sm) sm.checked = false;
+    setSel([]); drawMap(); syncMapText(); updateSelBar();
+    var i=$('mapselinfo');
+    if(i) i.textContent = l.length
+      ? ('Symmetry baked in \u2014 ' + l.length + (l.length===1?' shape is':' shapes are')
+         + ' now ordinary asteroids, and what you draw next is placed once')
+      : 'Symmetry off \u2014 what you draw next is placed once';
+    return l.length;
+  }
   // Rotate or flip everything selected, about the middle of what is selected.
   // A geometric shape is defined by two points, so transforming those turns the
   // shape exactly; a patch of lifted asteroids has to have its cells moved.
@@ -1012,7 +1043,8 @@ window.MapEd = (function(){
         + '<button type="button" class="mapshape" data-shape="corner" title="Drag an L: two bars meeting at the corner you start from">\u221F Corner</button>'
         + '<span class="cgsep"></span><span id="mapsymgrp" class="mapsymgrp" title="Draw once, get every rotation. Three-fold matches the three team stations, so a map built with it is fair by construction.">Symmetry'
         + '<select id="mapsym"><option value="1">off</option><option value="2">2</option><option value="3">3 (teams)</option><option value="4">4</option><option value="6">6</option></select>'
-        + '<label class="cgchk" style="padding:0 0 0 6px"><input type="checkbox" id="mapsymm">mirror</label></span>'
+        + '<label class="cgchk" style="padding:0 0 0 6px"><input type="checkbox" id="mapsymm">mirror</label>'
+        + '<button type="button" id="mapsymbake" disabled>Bake in</button></span>'
         + '<span class="cgsep"></span><span class="mapthicklbl" title="How many cells wide the wall of an outline shape is - Frame, Ring, Bar and Corner. Not asteroid size.">Line width</span>'
         + '<input type="range" id="mapthick" min="1" max="12" step="1" value="3"><span class="cgval" id="mapthick_v">3</span>'
         + '<span id="maphover" class="cgxyhint" style="margin-left:auto"></span></div>'
@@ -1398,6 +1430,8 @@ window.MapEd = (function(){
     }
     if(sy) sy.addEventListener('change', readSym);
     if(sm) sm.addEventListener('change', readSym);
+    var sb=$('mapsymbake');
+    if(sb) sb.addEventListener('click', function(){ bakeSymmetry(); });
     var tk=$('mapthick'); if(tk){ tk.addEventListener('input', function(){ $('mapthick_v').textContent=this.value; }); wheelStep(tk); }
     var bv=$('mapbrush'); if(bv){ bv.addEventListener('input', function(){
       $('mapbrush_v').textContent=this.value; mapErase=false; var er=$('maperase'); if(er) er.textContent='Erase'; });
@@ -1640,6 +1674,7 @@ window.MapEd = (function(){
   api.deleteSelection = deleteSel;
   api.turn = transformSel;
   api.snap = function(on){ if(on!==undefined){ snapOn=!!on; snapHit=null; drawMap(); } return snapOn; };
+  api.bakeSymmetry = bakeSymmetry;
   api.symmetry = function(order, mirror){
     if(order !== undefined){
       symN = Math.max(1, order | 0); symMirror = !!mirror;
