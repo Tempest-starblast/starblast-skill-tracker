@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.50"
+APP_VERSION = "9.13.51"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4672,6 +4672,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.51", "at": "2026-09-11T22:15:00Z", "changes": [
+        "<b>In a replay, players now join the board when they joined the game.</b> Each team’s roster used to show every name from the first second, so someone who arrived at minute forty sat there at 0:00 with a zero. Now a name appears the moment the replay reaches the point they came in — and scrubbing back before it, they leave again.",
+    ]},
     {"version": "9.13.50", "at": "2026-09-11T21:30:00Z", "changes": [
         "<b>Live radar in very large lobbies no longer glitches.</b> In a lobby with fifty-plus ships, dots would fly across the map, change colour, and flicker in and out. The game reuses a ship’s number for the next pilot who spawns, and the radar was gliding the old dot to the new pilot’s spot; a ship the watcher had not yet placed on a team dropped out of the picture for a moment and came back. Now a reused number is drawn as a new ship, a ship missing from one update fades instead of vanishing and only goes if it stays away, and the public view (which updates less often) no longer snaps ships that are simply fast.",
         "The small corner radar that follows you between pages is always the team radar, whatever you last chose on Live matches.",

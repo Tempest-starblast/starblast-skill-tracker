@@ -70,6 +70,8 @@
 .prow .pb i{display:block;height:100%;border-radius:3px}
 .prow .ps{font-family:var(--data,monospace);font-size:11px;color:var(--muted,#8aa0b0);text-align:right;font-variant-numeric:tabular-nums}
 .prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
+/* Not in the game yet at this point of the replay: joins the board when they join. */
+.prow.notyet{display:none}
 .prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
 .prow[data-key]{cursor:pointer}
 #radarMap .rship{cursor:pointer}
@@ -479,8 +481,11 @@ function buildReplay(ST, RD){
       if(order[key] > gmax) gmax = order[key];
       timeline[key] = new Array(frames.length).fill(0);
     });
+    // The frame each pilot first appears in: their row joins the board there.
+    var firstFrame = {};
     frames.forEach(function(f, fi){ f[1].forEach(function(p){
       var key = p[2] + '|' + p[0], a = timeline[key];
+      if(!(key in firstFrame)) firstFrame[key] = fi;
       if(a && (p[1]||0) > a[fi]) a[fi] = p[1] || 0;
     }); });
     Object.keys(timeline).forEach(function(key){
@@ -909,6 +914,9 @@ function buildReplay(ST, RD){
       if(inGap) a = 0;
       Object.keys(rowRef).forEach(function(key){
         var tl = timeline[key], s = tl ? lerp(tl[i], tl[j], a) : 0, ref = rowRef[key];
+        // On the board only once the playhead has reached the frame they joined in.
+        var jf = firstFrame[key], joined = (jf == null) || ((i + a) >= jf);
+        if(ref.row) ref.row.classList.toggle('notyet', !joined);
         ref.cur = s;
         ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
         ref.sc.textContent = Math.round(s).toLocaleString();
