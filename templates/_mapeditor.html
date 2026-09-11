@@ -208,6 +208,15 @@ window.MapEd = (function(){
     ctx.strokeStyle = 'rgba(102,230,184,.22)';
     ctx.lineWidth = Math.max(1, cs * 0.06);
     ctx.setLineDash([cs * 0.8, cs * 0.8]);
+    if(symZoneOn()){
+      // The zone this order can repeat inside a square: the inscribed circle.
+      ctx.beginPath(); ctx.arc(cx, cy, (n / 2) * cs, 0, 6.2832); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(102,230,184,.55)'; ctx.font = Math.max(9, cs * 0.95) + 'px system-ui,sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText('symmetry zone \u2014 ' + symN + '-fold repeats inside this circle', cx, cy - (n / 2) * cs + cs * 0.6);
+      ctx.setLineDash([cs * 0.8, cs * 0.8]);
+    }
     var turns = Math.max(symMirror ? 2 : 1, symN);
     for(var i = 0; i < turns; i++){
       var a = Math.PI * i / turns - Math.PI / 2;
@@ -303,26 +312,44 @@ window.MapEd = (function(){
   var symN = 1, symMirror = false;
   function symOn(){ return symN > 1 || symMirror; }
   // Every image of one cell, itself included, deduplicated and clipped.
+  // How many cells the last symCells call refused because a copy would have
+  // left the map - so the stroke that produced nothing can be explained.
+  var symRefused = 0;
   function symImages(r, c, n, out, seen){
     var half = n / 2, x0 = c + 0.5 - half, y0 = r + 0.5 - half;
-    var turns = Math.max(1, symN | 0);
+    var turns = Math.max(1, symN | 0), tmp = [];
     for(var i = 0; i < turns; i++){
       var a = 2 * Math.PI * i / turns, ca = Math.cos(a), sa = Math.sin(a);
       for(var m = 0; m <= (symMirror ? 1 : 0); m++){
         var x = m ? -x0 : x0, y = y0;
         var rx = x * ca - y * sa, ry = x * sa + y * ca;
         var cc = Math.floor(rx + half), rr = Math.floor(ry + half);
-        if(rr < 0 || cc < 0 || rr >= n || cc >= n) continue;
-        var k = rr * n + cc;
-        if(seen[k]) continue;
-        seen[k] = 1; out.push([rr, cc]);
+        // A copy that would land off the map means this cell cannot be repeated
+        // at all: place none of its copies, or the map stops being symmetric.
+        // (Only 3- and 6-fold can hit this: a square turns by 90 and 180 onto
+        // itself, never by 60 or 120, so their corners are outside the zone.)
+        if(rr < 0 || cc < 0 || rr >= n || cc >= n){ symRefused++; return false; }
+        tmp.push([rr, cc]);
       }
     }
+    for(var j = 0; j < tmp.length; j++){
+      var k = tmp[j][0] * n + tmp[j][1];
+      if(seen[k]) continue;
+      seen[k] = 1; out.push(tmp[j]);
+    }
+    return true;
+  }
+  // The zone 3- and 6-fold can repeat: the circle inscribed in the map.
+  function symZoneOn(){ return symN === 3 || symN === 6; }
+  function symHint(){
+    var i=$('mapselinfo'); if(!i) return;
+    i.textContent = 'Outside the symmetry zone \u2014 at ' + symN + '-fold the corners have no room for every copy, so nothing was placed there. Draw inside the circle, or switch symmetry off for the corners.';
   }
   // A list of cells -> that list plus every symmetric image of it.
   function symCells(cells, n){
     if(!symOn() || !cells.length) return cells;
     var out = [], seen = {};
+    symRefused = 0;
     for(var i = 0; i < cells.length; i++){
       var before = out.length;
       symImages(cells[i][0], cells[i][1], n, out, seen);
@@ -1193,6 +1220,7 @@ window.MapEd = (function(){
       // shapes are drawn on top of the painted layer, so clearing the layer
       // underneath changed nothing anybody could see.
       var cells = symOn() ? symCells([[r,c]], n) : [[r,c]];
+      if(symOn() && !cells.length && symRefused){ symHint(); return; }   // a corner at 3/6-fold: say why
       if(mapErase){ eraseCells(cells); return; }
       var v = brush();
       cells.forEach(function(rc){
