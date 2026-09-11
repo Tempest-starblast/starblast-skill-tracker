@@ -321,24 +321,47 @@ window.MapEd = (function(){
   // stair-step (two sources into one cell, a hole between). Four points per
   // cell - the quadrant centres - close the holes; the 0-degree copy is
   // unchanged because all four stay in the cell.
-  var SYM_ONE = [[0.5, 0.5]], SYM_FOUR = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+  // Inverse mapping, the way an image editor rotates pixels: for each candidate
+  // target cell, turn its centre BACK and keep it only if that lands inside the
+  // source cell. Every target is claimed by one source - no doubles, no bulk -
+  // and a turned line is a thin, regular staircase with about as many cells as
+  // the original (rotation keeps area). A quarter or half turn maps the grid
+  // onto itself, so those come out exactly as before.
   function symImages(r, c, n, out, seen){
     var half = n / 2, turns = Math.max(1, symN | 0), tmp = [];
-    var offs = (turns === 3 || turns === 6) ? SYM_FOUR : SYM_ONE;
+    var cx0 = c - half, cy0 = r - half;                 // the source cell: [cx0,cx0+1) x [cy0,cy0+1)
     for(var i = 0; i < turns; i++){
       var a = 2 * Math.PI * i / turns, ca = Math.cos(a), sa = Math.sin(a);
       for(var m = 0; m <= (symMirror ? 1 : 0); m++){
-        for(var o = 0; o < offs.length; o++){
-          var x0 = c + offs[o][0] - half, y0 = r + offs[o][1] - half;
-          var x = m ? -x0 : x0, y = y0;
+        // Turn the cell's four corners forward to bound where its copy can land.
+        var minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+        for(var k = 0; k < 4; k++){
+          var px = cx0 + (k & 1), py = cy0 + (k >> 1);
+          var x = m ? -px : px, y = py;
           var rx = x * ca - y * sa, ry = x * sa + y * ca;
-          var cc = Math.floor(rx + half), rr = Math.floor(ry + half);
-          // A copy that would land off the map means this cell cannot be repeated
-          // at all: place none of its copies, or the map stops being symmetric.
-          // (Only 3- and 6-fold can hit this: a square turns by 90 and 180 onto
-          // itself, never by 60 or 120, so their corners are outside the zone.)
-          if(rr < 0 || cc < 0 || rr >= n || cc >= n){ symRefused++; return false; }
-          tmp.push([rr, cc]);
+          if(rx < minx) minx = rx; if(rx > maxx) maxx = rx;
+          if(ry < miny) miny = ry; if(ry > maxy) maxy = ry;
+        }
+        // A copy that would land off the map means this cell cannot be repeated
+        // at all: place none of its copies, or the map stops being symmetric.
+        // (Only 3- and 6-fold can hit this: a square turns by 90 and 180 onto
+        // itself, never by 60 or 120, so their corners are outside the zone.)
+        if(minx + half < -1e-9 || miny + half < -1e-9 || maxx + half > n + 1e-9 || maxy + half > n + 1e-9){ symRefused++; return false; }
+        var got = 0;
+        var tc0 = Math.max(0, Math.floor(minx + half)), tc1 = Math.min(n - 1, Math.ceil(maxx + half) - 1);
+        var tr0 = Math.max(0, Math.floor(miny + half)), tr1 = Math.min(n - 1, Math.ceil(maxy + half) - 1);
+        for(var tr = tr0; tr <= tr1; tr++) for(var tc = tc0; tc <= tc1; tc++){
+          var tx = tc + 0.5 - half, ty = tr + 0.5 - half;
+          var bx = tx * ca + ty * sa, by = -tx * sa + ty * ca;   // turn the target's centre back
+          if(m) bx = -bx;
+          if(bx >= cx0 && bx < cx0 + 1 && by >= cy0 && by < cy0 + 1){ tmp.push([tr, tc]); got++; }
+        }
+        // A lone cell's turned square can straddle the grid and catch no centre at
+        // all: fall back to the cell under its turned centre, so a single dot
+        // always has every copy.
+        if(!got){
+          var xc = (m ? -(cx0 + 0.5) : (cx0 + 0.5)), yc = cy0 + 0.5;
+          tmp.push([Math.floor(xc * sa + yc * ca + half), Math.floor(xc * ca - yc * sa + half)]);
         }
       }
     }
