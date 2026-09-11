@@ -109,6 +109,12 @@
 .mmsheet .bar i{display:block;height:100%;width:0;background:var(--green,#66e6b8);transition:width .4s}
 .mmsheet .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .mmsheet .fine{font-size:11.5px;color:var(--muted);margin:6px 0 0;line-height:1.5}
+.mmsheet .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.mmsheet .seg button{border:0;border-radius:0;background:transparent;padding:6px 12px;font-size:12.5px;color:var(--text)}
+.mmsheet .seg button+button{border-left:1px solid var(--line)}
+.mmsheet .seg button.on{background:var(--green,#66e6b8);color:#0b1117;font-weight:600}
+.mmsheet .clock{font:600 15px ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;color:var(--green,#66e6b8)}
+.mmsheet .clock.low{color:var(--amber,#ffc757)}
 .mmfs{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit;
   font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   color:var(--green,#66e6b8);background:rgba(102,230,184,.10);border:1px solid var(--green,#66e6b8)}
@@ -1184,7 +1190,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     var w=document.createElement('div'); w.className='mmsheet'; w.id='mmsheet';
     w.innerHTML='<div class="card"><h2>Test this map</h2>'
       + '<p class="sub">Opens a private team lobby running the map as it is on screen, for you and whoever you give the link to. '
-      + 'It closes once it has been empty for about three minutes, or after an hour.</p>'
+      + 'It closes when its time is up, or once it has been empty for about three minutes. The time left is shown in the game too.</p>'
       + '<div id="mmtform"></div><div id="mmtstate"></div>'
       + '<div class="acts"><button type="button" class="mmbtn primary" id="mmtgo">Open the test lobby</button>'
       + '<button type="button" class="mmbtn" id="mmtstop" hidden>Close the lobby</button>'
@@ -1201,9 +1207,19 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     stopTestPoll(); testPoll=setInterval(function(){ if(!$('mmtstate')){ stopTestPoll(); return; } refreshTest(); }, 1500);
   }
   var testInfo=null;
+  var TEST_MINUTES=[1,5,10];
+  function testMinutes(v){
+    if(v!==undefined){ try{ localStorage.setItem('mm_test_min', String(v)); }catch(e){} }
+    var m=5; try{ m=parseInt(localStorage.getItem('mm_test_min')||'5',10); }catch(e){}
+    return TEST_MINUTES.indexOf(m)>=0 ? m : 5;
+  }
   function renderTestForm(st){
     var f=$('mmtform'); if(!f) return;
     var h='';
+    var choices=(st.choices&&st.choices.length)?st.choices:TEST_MINUTES, cur=testMinutes();
+    h+='<div class="row"><span>Keep it open for</span><span class="seg" id="mmtmin">'
+      + choices.map(function(m){ return '<button type="button" data-m="'+m+'"'+(m===cur?' class="on"':'')+'>'+m+' min</button>'; }).join('')
+      + '</span></div>';
     if(st.owner){
       h+='<p class="fine">Runs on the workshop\u2019s own hosting key \u2014 nothing to paste.</p>';
     } else if(st.has_saved_key && !testOtherKey){
@@ -1219,6 +1235,9 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         +'The key is sent once to open the lobby'+(st.can_save?' and kept only if you tick the box.':' and not kept.')+'</p>';
     }
     f.innerHTML=h;
+    var seg=$('mmtmin'); if(seg) seg.querySelectorAll('button').forEach(function(b){
+      b.onclick=function(){ testMinutes(parseInt(b.getAttribute('data-m'),10));
+        seg.querySelectorAll('button').forEach(function(x){ x.classList.toggle('on', x===b); }); }; });
     var o=$('mmtother'); if(o) o.onclick=function(){ testOtherKey=true; renderTestForm(st); var k=$('mmtkey'); if(k) k.focus(); };
     var fg=$('mmtforget'); if(fg) fg.onclick=function(){
       testApi('/api/maptest/key','DELETE').then(function(){ status('Forgot your key','ok'); refreshTest(true); }); };
@@ -1234,8 +1253,10 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       var box=$('mmtstate'), go=$('mmtgo'), stop=$('mmtstop'); if(!box) return;
       var h='';
       if(st.link){
+        var left=Math.max(0, st.seconds_left|0), mm=Math.floor(left/60), ss=('0'+(left%60)).slice(-2);
         h='<div class="state ok">'+(st.mine?'Your test lobby is up':'A test lobby is up')
-          +(st.label?' \u2014 <b>'+esc(st.label)+'</b>':'')+(st.region?' ('+esc(st.region)+')':'')+'.<br>'
+          +(st.label?' \u2014 <b>'+esc(st.label)+'</b>':'')+(st.region?' ('+esc(st.region)+')':'')
+          +' \u00b7 <span class="clock'+(left<=30?' low':'')+'" title="'+st.minutes+' minute lobby">'+mm+':'+ss+' left</span>.<br>'
           +'<a href="'+esc(st.link)+'" target="_blank" rel="noopener">'+esc(st.link)+'</a><br>'
           +'<button type="button" class="mmbtn" id="mmtcopy" style="margin-top:8px">Copy link</button> '
           +'<button type="button" class="mmbtn primary" id="mmtjoin" style="margin-top:8px">Join</button></div>';
@@ -1264,6 +1285,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     var k=$('mmtkey');
     if(k){ body.ecp=(k.value||'').trim(); if(!body.ecp){ status('Paste your ECP key first','err'); k.focus(); return; } }
     var sv=$('mmtsave'); if(sv && sv.checked) body.save=true;
+    body.minutes=testMinutes();
     var go=$('mmtgo'); if(go) go.disabled=true;
     testApi('/api/maptest/open','POST',body).then(function(j){
       if(go) go.disabled=false;

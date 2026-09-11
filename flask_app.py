@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.42"
+APP_VERSION = "9.13.43"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1648,6 +1648,10 @@ def init_db():
                     started_at TEXT, updated_at TEXT,
                     last_error TEXT, stop_requested INTEGER DEFAULT 0
                 )''')
+    try:                                  # how long the tester asked for (1/5/10)
+        c.execute("ALTER TABLE map_test ADD COLUMN minutes INTEGER")
+    except sqlite3.OperationalError:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS checkins (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     player TEXT NOT NULL,
@@ -12969,6 +12973,8 @@ def api_map_pin_edit(pin):
 # The owner's tests run on the workshop's own key (the droplet has it already);
 # everyone else pastes theirs. Nothing here touches the Odyssey custom lobby.
 MAPTEST_WINDOW_S = 90       # an open request older than this is forgotten
+MAPTEST_MINUTES = (1, 5, 10)   # how long a test lobby may stay open - these three, no others
+MAPTEST_DEFAULT_MIN = 5
 
 
 def _maptest_who():
@@ -12990,6 +12996,18 @@ def _maptest_fresh(ts, seconds=MAPTEST_WINDOW_S):
         return (time.time() - time.mktime(time.strptime(ts, '%Y-%m-%d %H:%M:%S'))) < seconds
     except Exception:
         return False
+
+
+def _maptest_left(started_at, minutes):
+    """Seconds a running test lobby has left, from when its link appeared."""
+    if not started_at:
+        return 0
+    m = minutes if minutes in MAPTEST_MINUTES else MAPTEST_DEFAULT_MIN
+    try:
+        t0 = time.mktime(time.strptime(started_at, '%Y-%m-%d %H:%M:%S'))
+    except Exception:
+        return 0
+    return max(0, int(round(m * 60 - (time.time() - t0))))
 
 
 def _maptest_prune_keys(c):
@@ -13067,6 +13085,12 @@ def api_maptest_open():
     if not size:
         size = len(cmap.rstrip('\n').split('\n'))
     opts = normalize_custom_options({"root_mode": "team", "friendly_colors": 3, "map_size": size})
+    try:
+        minutes = int(body.get('minutes') or MAPTEST_DEFAULT_MIN)
+    except (TypeError, ValueError):
+        minutes = MAPTEST_DEFAULT_MIN
+    if minutes not in MAPTEST_MINUTES:
+        minutes = MAPTEST_DEFAULT_MIN
     # ---- the key
     ecp = str(body.get('ecp') or '').strip()
     save = bool(body.get('save'))
@@ -13108,16 +13132,17 @@ def api_maptest_open():
                                     "Someone else is testing a map right now - try again in a few minutes.")}), 409
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     c.execute("INSERT INTO map_test (id, who, label, wanted_at, picked_at, options_json, custom_map, "
-              "ecp_once, use_saved, link, sid, region, last_error, stop_requested, updated_at) "
-              "VALUES (1,?,?,?,'',?,?,?,?,'',NULL,'','',0,?) ON CONFLICT(id) DO UPDATE SET "
+              "ecp_once, use_saved, link, sid, region, last_error, stop_requested, updated_at, minutes) "
+              "VALUES (1,?,?,?,'',?,?,?,?,'',NULL,'','',0,?,?) ON CONFLICT(id) DO UPDATE SET "
               "who=excluded.who, label=excluded.label, wanted_at=excluded.wanted_at, picked_at='', "
               "options_json=excluded.options_json, custom_map=excluded.custom_map, "
               "ecp_once=excluded.ecp_once, use_saved=excluded.use_saved, link='', sid=NULL, "
-              "region='', last_error='', stop_requested=0, updated_at=excluded.updated_at",
-              (who, label, now, json.dumps(opts), cmap, ecp_once, use_saved, now))
+              "region='', last_error='', stop_requested=0, updated_at=excluded.updated_at, "
+              "minutes=excluded.minutes",
+              (who, label, now, json.dumps(opts), cmap, ecp_once, use_saved, now, minutes))
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "saved": saved, "note": note,
+    return jsonify({"ok": True, "saved": saved, "note": note, "minutes": minutes,
                     "message": "Opening a test lobby - this takes a few seconds."}), 200
 
 
@@ -13129,8 +13154,8 @@ def api_maptest_pending():
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT link, wanted_at, picked_at, options_json, custom_map, ecp_once, use_saved, who "
-                    "FROM map_test WHERE id = 1").fetchone()
+    row = c.execute("SELECT link, wanted_at, picked_at, options_json, custom_map, ecp_once, use_saved, who, "
+                    "minutes FROM map_test WHERE id = 1").fetchone()
     if not row or row[0] or row[2] or not _maptest_fresh(row[1]):
         conn.close()
         return jsonify({"wanted": False}), 200
@@ -13163,7 +13188,8 @@ def api_maptest_pending():
     c.execute("UPDATE map_test SET ecp_once='', picked_at=?, updated_at=? WHERE id = 1", (now, now))
     conn.commit()
     conn.close()
-    return jsonify({"wanted": True, "options": opts, "ecp": ecp, "owner": owner}), 200
+    minutes = row[8] if (row[8] in MAPTEST_MINUTES) else MAPTEST_DEFAULT_MIN
+    return jsonify({"wanted": True, "options": opts, "ecp": ecp, "owner": owner, "minutes": minutes}), 200
 
 
 @app.route('/api/maptest/set', methods=['POST'])
@@ -13215,7 +13241,7 @@ def api_maptest_status():
     conn = db()
     c = conn.cursor()
     _maptest_prune_keys(c)
-    row = c.execute("SELECT link, region, wanted_at, picked_at, last_error, who, label, started_at "
+    row = c.execute("SELECT link, region, wanted_at, picked_at, last_error, who, label, started_at, minutes "
                     "FROM map_test WHERE id = 1").fetchone()
     has_saved = bool(_maptest_saved(c, who))
     conn.commit()
@@ -13231,6 +13257,9 @@ def api_maptest_status():
         "region": (row[1] if row else '') or '',
         "label": ((row[6] if row else '') or '') if (link or opening) else '',
         "started_at": ((row[7] if row else '') or '') if link else '',
+        "minutes": (row[8] if (row and row[8] in MAPTEST_MINUTES) else MAPTEST_DEFAULT_MIN) if (link or opening) else 0,
+        "seconds_left": _maptest_left(row[7], row[8]) if link else 0,
+        "choices": list(MAPTEST_MINUTES),
         "error": ((row[4] if row else '') or '') if mine else '',
     }), 200
 
