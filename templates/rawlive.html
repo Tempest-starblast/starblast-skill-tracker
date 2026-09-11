@@ -405,6 +405,10 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
       var ti=e[0],id=e[1],x=sbToWorld(e[2]),y=-sbToWorld(e[3]); seen[id]=1;
       var nm=idName[id];
       var sh=c.ships[id];
+      // The game reuses ship ids. The same id on a DIFFERENT team is a different
+      // pilot: drop the old dot and place a fresh one - never glide between them.
+      if(sh && sh.ti!==ti){ clearTimeout(sh.fold); sh.el.remove(); delete c.ships[id]; sh=null; }
+      if(sh && sh.miss){ sh.miss=0; sh.el.style.opacity=''; }   // it is back: undo the fade
       if(!sh){
         var g=document.createElementNS('http://www.w3.org/2000/svg','g');
         g.setAttribute('class','ship');
@@ -444,7 +448,10 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
         // A jump no ship can make in one update is an id reused by a new pilot or a
         // glitch, not flight - snap. Otherwise 1.25x the elapsed gap so the dot is
         // still moving when the next update lands.
-        var jump=Math.hypot(ux-sh.x,uy-sh.y)>55;
+        // The snap threshold is for one owner-cadence update (1.4 s); on a slower
+        // cadence a fast ship legitimately moves further, so scale it (to 4x).
+        var gapMs=Math.max(1400, now-sh.last);
+        var jump=Math.hypot(ux-sh.x,uy-sh.y) > 55*Math.min(4, gapMs/1400);
         var dt=jump?0:Math.min(9000,Math.max(1200,(now-sh.last)*1.25));
         sh.el.style.transitionDuration=dt+'ms';
         sh.el.style.transform='translate('+ux+'px,'+uy+'px)';
@@ -460,7 +467,13 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
         }, dt+40); }
       }
     });
-    for(var id in c.ships){ if(!seen[id]){ c.ships[id].el.remove(); delete c.ships[id]; } }
+    // A ship missing from ONE snapshot is not gone: the watcher leaves out a
+    // ship until its team is attributed, and respawns re-attribute. Keep it,
+    // faded, for four seconds; remove it only if it stays away.
+    for(var id in c.ships){ var s2=c.ships[id];
+      if(seen[id]) continue;
+      if(!s2.miss){ s2.miss=now; s2.el.style.opacity='0.4'; }
+      else if(now-s2.miss>4000){ clearTimeout(s2.fold); s2.el.remove(); delete c.ships[id]; } }
   }
 
   async function tick(){
@@ -496,13 +509,15 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     }catch(e){status.textContent='Reconnecting…';}
   }
   // ---- Team mode | Survival -------------------------------------------------
+  // The mini player (the pinned corner radar) is always the team radar.
+  var rlMini = !!new URLSearchParams(location.search).get('mini');
   var rlMode='team';
-  try{ rlMode = localStorage.getItem('rl_mode')==='survival' ? 'survival' : 'team'; }catch(e){}
+  try{ rlMode = (!rlMini && localStorage.getItem('rl_mode')==='survival') ? 'survival' : 'team'; }catch(e){}
   var survWrap=document.getElementById('rlSurv'), survList=document.getElementById('rlSurvList'),
       survEmpty=document.getElementById('rlSurvEmpty'), modeEl=document.getElementById('rlMode');
   function setMode(m){
-    rlMode = (m==='survival') ? 'survival' : 'team';
-    try{ localStorage.setItem('rl_mode', rlMode); }catch(e){}
+    rlMode = (m==='survival' && !rlMini) ? 'survival' : 'team';
+    if(!rlMini){ try{ localStorage.setItem('rl_mode', rlMode); }catch(e){} }
     if(modeEl) modeEl.querySelectorAll('button').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-m')===rlMode); });
     var surv = rlMode==='survival';
     wrap.style.display = surv ? 'none' : '';

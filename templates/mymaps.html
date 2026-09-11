@@ -578,7 +578,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     // size) or every asteroid on its own. A selection limits it to the selection.
     var rsSep=document.createElement('div'); rsSep.className='mmmenu-sep'; ed.appendChild(rsSep);
     var rsNote=document.createElement('div'); rsNote.className='mmmenu-note'; rsNote.textContent='Randomize asteroid sizes'; ed.appendChild(rsNote);
-    // One function for the menu items and the keys (S / Shift+S), so they can never drift.
+    // One function for the menu items and the keys (Shift+S / Alt+S), so they can never drift.
     randomizeSizesUI = function(keep){
       if(!MapEd.count()){ status('Nothing to randomize','err'); return; }
       var r=MapEd.randomizeSizes ? MapEd.randomizeSizes(keep) : {changed:0};
@@ -588,12 +588,12 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     };
     function rsBtn(label, title, keep){
       var b=document.createElement('button'); b.type='button'; b.textContent=label; b.title=title;
-      kbd(b, keep ? 'S' : 'Shift+S');
+      kbd(b, keep ? 'Shift+S' : 'Alt+S');
       b.onclick=function(){ randomizeSizesUI(keep); };
       ed.appendChild(b); return b;
     }
-    rsBtn('Keeping the symmetry', 'An asteroid and every one of its symmetric images get one shared random size, so a symmetric map stays symmetric. Uses the symmetry that is switched on. Shortcut: S', true);
-    rsBtn('Every asteroid on its own', 'Every asteroid rolls its own size. Sizes come out the way a generated field looks: mostly small, a few big. Shortcut: Shift+S', false);
+    rsBtn('Keeping the symmetry', 'An asteroid and every one of its symmetric images get one shared random size, so a symmetric map stays symmetric. Uses the symmetry that is switched on. Shortcut: Shift+S', true);
+    rsBtn('Every asteroid on its own', 'Every asteroid rolls its own size. Sizes come out the way a generated field looks: mostly small, a few big. Shortcut: Alt+S', false);
     // Snapping: two magnets, on by default, and a way to switch them off.
     var snapBtn=document.createElement('button'); snapBtn.type='button';
     function snapLabel(){ snapBtn.textContent = (MapEd.snap && MapEd.snap()) ? 'Snapping on \u2713' : 'Snapping off'; }
@@ -1449,6 +1449,10 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       ['Let go of the selection', 'Esc'],
       ['Nudge by one cell', 'Arrow keys'],
       ['Nudge by five', 'Shift + arrows'],
+      ['Rotate a quarter turn', 'Shift+R'],
+      ['Rotate the other way', 'Alt+R'],
+      ['Flip left to right', 'Shift+H'],
+      ['Flip top to bottom', 'Shift+V'],
     ]],
     ['Looking at it', [
       ['Zoom in / out', 'Ctrl + / Ctrl -'],
@@ -1457,8 +1461,8 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       ['Everything you can do here', 'Right-click the map'],
     ]],
     ['Drawing', [
-      ['Randomize asteroid sizes, keeping the symmetry', 'S'],
-      ['Randomize every asteroid\u2019s size on its own', 'Shift+S'],
+      ['Randomize asteroid sizes, keeping the symmetry', 'Shift+S'],
+      ['Randomize every asteroid\u2019s size on its own', 'Alt+S'],
       ['Straight line with the brush', 'Shift + drag'],
       ['One step on any slider', 'Wheel over it'],
     ]],
@@ -1486,9 +1490,10 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     if(tag==='input'||tag==='textarea'||tag==='select') return;
     if((e.ctrlKey||e.metaKey) && e.key==='/'){ e.preventDefault(); showKeys(); }
     else if(e.key==='Escape'){ var sh=$('mmsheet'); if(sh) sh.remove(); }
-    // S for sizes: keeping the symmetry; Shift+S every asteroid on its own. Not with Ctrl (that is Save).
-    else if((e.key==='s'||e.key==='S') && !(e.ctrlKey||e.metaKey||e.altKey) && !$('mmsheet') && randomizeSizesUI){
-      e.preventDefault(); randomizeSizesUI(!e.shiftKey); }
+    // Shift+S: randomize sizes keeping the symmetry; Alt+S: every asteroid on its
+    // own. Never a bare letter, and never with Ctrl - that is Save.
+    else if((e.key==='s'||e.key==='S') && (e.shiftKey||e.altKey) && !(e.ctrlKey||e.metaKey) && !$('mmsheet') && randomizeSizesUI){
+      e.preventDefault(); randomizeSizesUI(!e.altKey); }
   });
   listMaps();
 })();

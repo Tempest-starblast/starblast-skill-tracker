@@ -1118,10 +1118,10 @@ window.MapEd = (function(){
         + '<span class="cgsep"></span><span title="The size of the asteroids in what you have selected. The Asteroid size control above sets the size for NEW ones.">Asteroid size (selected)</span><input type="range" id="mapselv" min="0" max="9" step="1" value="9"><span class="cgval" id="mapselv_v">9</span>'
         + '<span id="mapseltw"><span>Line width</span> <input type="range" id="mapselt" min="1" max="12" step="1" value="3"><span class="cgval" id="mapselt_v">3</span></span>'
         + '<span class="cgsep"></span><span class="mapturn" title="Turn what is selected, about its own middle">'
-        + '<button type="button" id="mapselrccw" title="Rotate a quarter turn anticlockwise (Shift+R)">\u21ba</button>'
-        + '<button type="button" id="mapselrcw" title="Rotate a quarter turn clockwise (R)">\u21bb</button>'
-        + '<button type="button" id="mapselfh" title="Flip left to right (H)">\u21c4</button>'
-        + '<button type="button" id="mapselfv" title="Flip top to bottom (V)">\u21c5</button></span>'
+        + '<button type="button" id="mapselrccw" title="Rotate a quarter turn anticlockwise (Alt+R)">\u21ba</button>'
+        + '<button type="button" id="mapselrcw" title="Rotate a quarter turn clockwise (Shift+R)">\u21bb</button>'
+        + '<button type="button" id="mapselfh" title="Flip left to right (Shift+H)">\u21c4</button>'
+        + '<button type="button" id="mapselfv" title="Flip top to bottom (Shift+V)">\u21c5</button></span>'
         + '<button type="button" id="mapselcopy" title="Copy this shape to paste later (Ctrl+C)">Copy</button>'
         + '<button type="button" id="mapselpaste" title="Paste the last thing you copied (Ctrl+V)">Paste</button>'
         + '<button type="button" id="mapseldup" title="Duplicate this shape right here (Ctrl+D)">Duplicate</button>'
@@ -1409,9 +1409,12 @@ window.MapEd = (function(){
       else if((e.ctrlKey||e.metaKey)&&(e.key==='d'||e.key==='D')){ e.preventDefault(); duplicateSel(); }
       else if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')){ if(copySel()) e.preventDefault(); }
       else if((e.ctrlKey||e.metaKey)&&(e.key==='x'||e.key==='X')){ e.preventDefault(); cutSel(); }
-      else if(e.key==='r'||e.key==='R'){ e.preventDefault(); transformSel(e.shiftKey?'rotccw':'rotcw'); }
-      else if(e.key==='h'||e.key==='H'){ e.preventDefault(); transformSel('fliph'); }
-      else if(e.key==='v'||e.key==='V'){ if(e.ctrlKey||e.metaKey) return; e.preventDefault(); transformSel('flipv'); }
+      // Always with a modifier - a bare letter is too easy to hit by accident.
+      // Shift+R / Alt+R rotate, Shift+H / Shift+V flip. Ctrl+R (reload), Ctrl+V
+      // (paste) and Ctrl+H (history) stay the browser's.
+      else if((e.key==='r'||e.key==='R') && (e.shiftKey||e.altKey) && !(e.ctrlKey||e.metaKey)){ e.preventDefault(); transformSel(e.altKey?'rotccw':'rotcw'); }
+      else if((e.key==='h'||e.key==='H') && e.shiftKey && !(e.ctrlKey||e.metaKey||e.altKey)){ e.preventDefault(); transformSel('fliph'); }
+      else if((e.key==='v'||e.key==='V') && e.shiftKey && !(e.ctrlKey||e.metaKey||e.altKey)){ e.preventDefault(); transformSel('flipv'); }
       else if(e.key.indexOf('Arrow')===0){ e.preventDefault(); var k=e.shiftKey?5:1;
         nudgeSel(e.key==='ArrowLeft'?-k:e.key==='ArrowRight'?k:0, e.key==='ArrowUp'?-k:e.key==='ArrowDown'?k:0); } });
     // ---- right-click on the map ------------------------------------------
@@ -1443,8 +1446,8 @@ window.MapEd = (function(){
       if(sel.length){
         m.appendChild(ctxItem('Cut', 'Ctrl+X', cutSel));
         m.appendChild(ctxItem('Copy', 'Ctrl+C', function(){ copySel(); }));
-        m.appendChild(ctxItem('Rotate', 'R', function(){ transformSel('rotcw'); }));
-        m.appendChild(ctxItem('Flip left to right', 'H', function(){ transformSel('fliph'); }));
+        m.appendChild(ctxItem('Rotate', 'Shift+R', function(){ transformSel('rotcw'); }));
+        m.appendChild(ctxItem('Flip left to right', 'Shift+H', function(){ transformSel('fliph'); }));
         m.appendChild(ctxItem('Duplicate', 'Ctrl+D', duplicateSel));
         m.appendChild(ctxItem('Delete', 'Del', deleteSel));
         sep();
