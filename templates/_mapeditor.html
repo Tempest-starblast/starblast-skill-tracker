@@ -315,21 +315,31 @@ window.MapEd = (function(){
   // How many cells the last symCells call refused because a copy would have
   // left the map - so the stroke that produced nothing can be explained.
   var symRefused = 0;
+  // Where inside a cell the turn is sampled. A quarter or half turn maps the
+  // grid onto itself, so the cell's centre is exact. A third or a sixth does
+  // not: one point per cell, floored, leaves a rotated line as a dotted
+  // stair-step (two sources into one cell, a hole between). Four points per
+  // cell - the quadrant centres - close the holes; the 0-degree copy is
+  // unchanged because all four stay in the cell.
+  var SYM_ONE = [[0.5, 0.5]], SYM_FOUR = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
   function symImages(r, c, n, out, seen){
-    var half = n / 2, x0 = c + 0.5 - half, y0 = r + 0.5 - half;
-    var turns = Math.max(1, symN | 0), tmp = [];
+    var half = n / 2, turns = Math.max(1, symN | 0), tmp = [];
+    var offs = (turns === 3 || turns === 6) ? SYM_FOUR : SYM_ONE;
     for(var i = 0; i < turns; i++){
       var a = 2 * Math.PI * i / turns, ca = Math.cos(a), sa = Math.sin(a);
       for(var m = 0; m <= (symMirror ? 1 : 0); m++){
-        var x = m ? -x0 : x0, y = y0;
-        var rx = x * ca - y * sa, ry = x * sa + y * ca;
-        var cc = Math.floor(rx + half), rr = Math.floor(ry + half);
-        // A copy that would land off the map means this cell cannot be repeated
-        // at all: place none of its copies, or the map stops being symmetric.
-        // (Only 3- and 6-fold can hit this: a square turns by 90 and 180 onto
-        // itself, never by 60 or 120, so their corners are outside the zone.)
-        if(rr < 0 || cc < 0 || rr >= n || cc >= n){ symRefused++; return false; }
-        tmp.push([rr, cc]);
+        for(var o = 0; o < offs.length; o++){
+          var x0 = c + offs[o][0] - half, y0 = r + offs[o][1] - half;
+          var x = m ? -x0 : x0, y = y0;
+          var rx = x * ca - y * sa, ry = x * sa + y * ca;
+          var cc = Math.floor(rx + half), rr = Math.floor(ry + half);
+          // A copy that would land off the map means this cell cannot be repeated
+          // at all: place none of its copies, or the map stops being symmetric.
+          // (Only 3- and 6-fold can hit this: a square turns by 90 and 180 onto
+          // itself, never by 60 or 120, so their corners are outside the zone.)
+          if(rr < 0 || cc < 0 || rr >= n || cc >= n){ symRefused++; return false; }
+          tmp.push([rr, cc]);
+        }
       }
     }
     for(var j = 0; j < tmp.length; j++){
