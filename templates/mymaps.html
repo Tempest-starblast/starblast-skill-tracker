@@ -578,19 +578,22 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     // size) or every asteroid on its own. A selection limits it to the selection.
     var rsSep=document.createElement('div'); rsSep.className='mmmenu-sep'; ed.appendChild(rsSep);
     var rsNote=document.createElement('div'); rsNote.className='mmmenu-note'; rsNote.textContent='Randomize asteroid sizes'; ed.appendChild(rsNote);
+    // One function for the menu items and the keys (S / Shift+S), so they can never drift.
+    randomizeSizesUI = function(keep){
+      if(!MapEd.count()){ status('Nothing to randomize','err'); return; }
+      var r=MapEd.randomizeSizes ? MapEd.randomizeSizes(keep) : {changed:0};
+      var msg='Randomized '+r.changed+' asteroid size'+(r.changed===1?'':'s')+(r.selection?' in the selection':'');
+      if(keep && !r.sym) msg+=' \u2014 symmetry is off, so each on its own';
+      status(msg, 'ok');
+    };
     function rsBtn(label, title, keep){
       var b=document.createElement('button'); b.type='button'; b.textContent=label; b.title=title;
-      b.onclick=function(){
-        if(!MapEd.count()){ status('Nothing to randomize','err'); return; }
-        var r=MapEd.randomizeSizes ? MapEd.randomizeSizes(keep) : {changed:0};
-        var msg='Randomized '+r.changed+' asteroid size'+(r.changed===1?'':'s')+(r.selection?' in the selection':'');
-        if(keep && !r.sym) msg+=' \u2014 symmetry is off, so each on its own';
-        status(msg, 'ok');
-      };
+      kbd(b, keep ? 'S' : 'Shift+S');
+      b.onclick=function(){ randomizeSizesUI(keep); };
       ed.appendChild(b); return b;
     }
-    rsBtn('Keeping the symmetry', 'An asteroid and every one of its symmetric images get one shared random size, so a symmetric map stays symmetric. Uses the symmetry that is switched on.', true);
-    rsBtn('Every asteroid on its own', 'Every asteroid rolls its own size. Sizes come out the way a generated field looks: mostly small, a few big.', false);
+    rsBtn('Keeping the symmetry', 'An asteroid and every one of its symmetric images get one shared random size, so a symmetric map stays symmetric. Uses the symmetry that is switched on. Shortcut: S', true);
+    rsBtn('Every asteroid on its own', 'Every asteroid rolls its own size. Sizes come out the way a generated field looks: mostly small, a few big. Shortcut: Shift+S', false);
     // Snapping: two magnets, on by default, and a way to switch them off.
     var snapBtn=document.createElement('button'); snapBtn.type='button';
     function snapLabel(){ snapBtn.textContent = (MapEd.snap && MapEd.snap()) ? 'Snapping on \u2713' : 'Snapping off'; }
@@ -1259,7 +1262,8 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
   // A private lobby on the map as it is on screen, hosted on the tester's own
   // ECP key (the owner's on the workshop's own). One at a time; the card shows
   // whose it is, the link when it is up, and a way to close it.
-  var testPoll=null, testOtherKey=false;
+  var testPoll=null, testOtherKey=false, testFormKey='', testClosing=0;   // testClosing = when Close was pressed
+  var randomizeSizesUI;                             // set where the Edit menu is built (no initialiser: that runs later and would wipe it)
   function testApi(path, method, body){
     return fetch(path, {method:method||'GET', credentials:'same-origin',
       headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
@@ -1276,7 +1280,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
           : 'Opens a private <b>team</b> lobby running the map as it is on screen, for you and whoever you give the link to. ')
       + 'It closes when its time is up, or once it has been empty for about three minutes. The time left is shown in the game too.</p>'
       + '<div id="mmtform"></div><div id="mmtstate"></div>'
-      + '<div class="acts"><button type="button" class="mmbtn primary" id="mmtgo">Open the test lobby</button>'
+      + '<div class="acts"><button type="button" class="mmbtn primary" id="mmtgo" disabled>Choose how long first</button>'
       + '<button type="button" class="mmbtn" id="mmtstop" hidden>Close the lobby</button>'
       + '<button type="button" class="mmbtn" id="mmtclose">Close</button></div></div>';
     w.addEventListener('click', function(e){ if(e.target===w){ w.remove(); stopTestPoll(); } });
@@ -1284,24 +1288,33 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     $('mmtclose').onclick=function(){ w.remove(); stopTestPoll(); };
     $('mmtgo').onclick=openTest;
     $('mmtstop').onclick=function(){
-      testApi('/api/maptest/stop','POST',{}).then(function(j){ status(j.message||'', j.ok?'ok':'err'); refreshTest(); });
+      testClosing=Date.now(); refreshTest(true);        // show the closing state at once, not on the next poll
+      testApi('/api/maptest/stop','POST',{}).then(function(j){ if(!j.ok){ testClosing=0; status(j.message||'', 'err'); } refreshTest(); })
+        .catch(function(){ testClosing=0; status('Could not reach the site','err'); refreshTest(); });
     };
-    testOtherKey=false;
+    testOtherKey=false; testChosen=null; testFormKey='';   // a fresh card: fresh choice, and the form always renders
     refreshTest();
     stopTestPoll(); testPoll=setInterval(function(){ if(!$('mmtstate')){ stopTestPoll(); return; } refreshTest(); }, 1500);
   }
   var testInfo=null;
   var TEST_MINUTES=[1,5,10];
+  // Chosen for THIS card only - nothing pre-selected, nothing remembered - so a
+  // lobby can never open with a time nobody picked.
+  var testChosen=null;
   function testMinutes(v){
-    if(v!==undefined){ try{ localStorage.setItem('mm_test_min', String(v)); }catch(e){} }
-    var m=5; try{ m=parseInt(localStorage.getItem('mm_test_min')||'5',10); }catch(e){}
-    return TEST_MINUTES.indexOf(m)>=0 ? m : 5;
+    if(v!==undefined) testChosen = (TEST_MINUTES.indexOf(v)>=0) ? v : null;
+    return testChosen;
+  }
+  function goLabel(){
+    var go=$('mmtgo'); if(!go) return;
+    go.disabled = !testChosen;
+    go.textContent = testChosen ? ('Go \u00b7 '+testChosen+' min') : 'Choose how long first';
   }
   function renderTestForm(st){
     var f=$('mmtform'); if(!f) return;
     var h='';
     var choices=(st.choices&&st.choices.length)?st.choices:TEST_MINUTES, cur=testMinutes();
-    h+='<div class="row"><span>Keep it open for</span><span class="seg" id="mmtmin">'
+    h+='<div class="row"><span><b>1.</b> How long?</span><span class="seg" id="mmtmin">'
       + choices.map(function(m){ return '<button type="button" data-m="'+m+'"'+(m===cur?' class="on"':'')+'>'+m+' min</button>'; }).join('')
       + '</span></div>';
     if(st.owner){
@@ -1321,12 +1334,12 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     f.innerHTML=h;
     var seg=$('mmtmin'); if(seg) seg.querySelectorAll('button').forEach(function(b){
       b.onclick=function(){ testMinutes(parseInt(b.getAttribute('data-m'),10));
-        seg.querySelectorAll('button').forEach(function(x){ x.classList.toggle('on', x===b); }); }; });
+        seg.querySelectorAll('button').forEach(function(x){ x.classList.toggle('on', x===b); }); goLabel(); }; });
+    goLabel();
     var o=$('mmtother'); if(o) o.onclick=function(){ testOtherKey=true; renderTestForm(st); var k=$('mmtkey'); if(k) k.focus(); };
     var fg=$('mmtforget'); if(fg) fg.onclick=function(){
       testApi('/api/maptest/key','DELETE').then(function(){ status('Forgot your key','ok'); refreshTest(true); }); };
   }
-  var testFormKey='';
   function refreshTest(force){
     testApi('/api/maptest/status').then(function(st){
       if(!st.ok){ var e=$('mmtstate'); if(e) e.innerHTML='<div class="state err">'+esc(st.message||'Not allowed')+'</div>'; return; }
@@ -1336,6 +1349,15 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       if(force || fk!==testFormKey){ testFormKey=fk; renderTestForm(st); }
       var box=$('mmtstate'), go=$('mmtgo'), stop=$('mmtstop'); if(!box) return;
       var h='';
+      if(!st.link && !st.opening) testClosing=0;        // it is down: the closing state is over
+      if(st.link && testClosing){
+        var slow = (Date.now()-testClosing) > 25000;
+        h='<div class="state">'+(slow ? 'Still closing \u2014 the host is taking longer than usual.'
+                                       : 'Closing the lobby \u2014 a few seconds.')
+          +'<div class="bar"><i style="width:'+Math.min(94, 12+(Date.now()-testClosing)/40)+'%"></i></div></div>';
+        go.hidden=true; stop.hidden=!slow;             // offer Close again only if it is dragging on
+        box.innerHTML=h; return;
+      }
       if(st.link){
         var left=Math.max(0, st.seconds_left|0), mm=Math.floor(left/60), ss=('0'+(left%60)).slice(-2);
         h='<div class="state ok">'+(st.mine?'Your ':'A ')+(st.mode==='survival'?'survival ':'')+'test lobby is up'
@@ -1354,7 +1376,7 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
         go.hidden=true; stop.hidden=!st.owner;
       } else {
         if(st.error) h='<div class="state err">'+esc(st.error)+'</div>';
-        go.hidden=false; stop.hidden=true;
+        go.hidden=false; stop.hidden=true; goLabel();
       }
       box.innerHTML=h;
       var bar=$('mmtbar'); if(bar){ var t0=+(box.getAttribute('data-t0')||0); if(!t0){ t0=Date.now(); box.setAttribute('data-t0',String(t0)); }
@@ -1369,7 +1391,8 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     var k=$('mmtkey');
     if(k){ body.ecp=(k.value||'').trim(); if(!body.ecp){ status('Paste your ECP key first','err'); k.focus(); return; } }
     var sv=$('mmtsave'); if(sv && sv.checked) body.save=true;
-    body.minutes=testMinutes();
+    if(!testChosen){ status('Choose how long first','err'); var sg=$('mmtmin'); if(sg) sg.scrollIntoView({block:'nearest'}); return; }
+    body.minutes=testChosen;
     body.mode=(MapEd.mode?MapEd.mode():'team');
     var go=$('mmtgo'); if(go) go.disabled=true;
     testApi('/api/maptest/open','POST',body).then(function(j){
@@ -1434,6 +1457,8 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       ['Everything you can do here', 'Right-click the map'],
     ]],
     ['Drawing', [
+      ['Randomize asteroid sizes, keeping the symmetry', 'S'],
+      ['Randomize every asteroid\u2019s size on its own', 'Shift+S'],
       ['Straight line with the brush', 'Shift + drag'],
       ['One step on any slider', 'Wheel over it'],
     ]],
@@ -1461,6 +1486,9 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     if(tag==='input'||tag==='textarea'||tag==='select') return;
     if((e.ctrlKey||e.metaKey) && e.key==='/'){ e.preventDefault(); showKeys(); }
     else if(e.key==='Escape'){ var sh=$('mmsheet'); if(sh) sh.remove(); }
+    // S for sizes: keeping the symmetry; Shift+S every asteroid on its own. Not with Ctrl (that is Save).
+    else if((e.key==='s'||e.key==='S') && !(e.ctrlKey||e.metaKey||e.altKey) && !$('mmsheet') && randomizeSizesUI){
+      e.preventDefault(); randomizeSizesUI(!e.shiftKey); }
   });
   listMaps();
 })();
