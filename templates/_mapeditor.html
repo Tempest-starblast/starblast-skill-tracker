@@ -518,6 +518,80 @@ window.MapEd = (function(){
   // Higher S averages out the font rasteriser's own left/right unevenness at thin
   // points like the apex of an A, which is what was left of the asymmetry.
   var TEXT_SS = 12, TEXT_COVER = 0.30, TEXT_GAP = 1;
+  // Small text: a 5x7 dot font, glyph by glyph. A typeface shrunk to nine cells
+  // loses its counters (the hole in an A) and its diagonals; at this size the
+  // shape has to be decided by hand, so it is. Used at heights of BITMAP_MAX_H
+  // and under; taller text keeps the typeface, where the holes survive.
+  var BITMAP_MAX_H = 11;
+  var DOT_FONT = {
+    'A': ['.###.','#...#','#...#','#####','#...#','#...#','#...#'],
+    'B': ['####.','#...#','#...#','####.','#...#','#...#','####.'],
+    'C': ['.###.','#...#','#....','#....','#....','#...#','.###.'],
+    'D': ['###..','#..#.','#...#','#...#','#...#','#..#.','###..'],
+    'E': ['#####','#....','#....','####.','#....','#....','#####'],
+    'F': ['#####','#....','#....','####.','#....','#....','#....'],
+    'G': ['.###.','#...#','#....','#.###','#...#','#...#','.####'],
+    'H': ['#...#','#...#','#...#','#####','#...#','#...#','#...#'],
+    'I': ['.###.','..#..','..#..','..#..','..#..','..#..','.###.'],
+    'J': ['..###','...#.','...#.','...#.','...#.','#..#.','.##..'],
+    'K': ['#...#','#..#.','#.#..','##...','#.#..','#..#.','#...#'],
+    'L': ['#....','#....','#....','#....','#....','#....','#####'],
+    'M': ['#...#','##.##','#.#.#','#.#.#','#...#','#...#','#...#'],
+    'N': ['#...#','#...#','##..#','#.#.#','#..##','#...#','#...#'],
+    'O': ['.###.','#...#','#...#','#...#','#...#','#...#','.###.'],
+    'P': ['####.','#...#','#...#','####.','#....','#....','#....'],
+    'Q': ['.###.','#...#','#...#','#...#','#.#.#','#..#.','.##.#'],
+    'R': ['####.','#...#','#...#','####.','#.#..','#..#.','#...#'],
+    'S': ['.####','#....','#....','.###.','....#','....#','####.'],
+    'T': ['#####','..#..','..#..','..#..','..#..','..#..','..#..'],
+    'U': ['#...#','#...#','#...#','#...#','#...#','#...#','.###.'],
+    'V': ['#...#','#...#','#...#','#...#','#...#','.#.#.','..#..'],
+    'W': ['#...#','#...#','#...#','#.#.#','#.#.#','#.#.#','.#.#.'],
+    'X': ['#...#','#...#','.#.#.','..#..','.#.#.','#...#','#...#'],
+    'Y': ['#...#','#...#','.#.#.','..#..','..#..','..#..','..#..'],
+    'Z': ['#####','....#','...#.','..#..','.#...','#....','#####'],
+    '0': ['.###.','#...#','#..##','#.#.#','##..#','#...#','.###.'],
+    '1': ['..#..','.##..','..#..','..#..','..#..','..#..','.###.'],
+    '2': ['.###.','#...#','....#','...#.','..#..','.#...','#####'],
+    '3': ['#####','...#.','..#..','...#.','....#','#...#','.###.'],
+    '4': ['...#.','..##.','.#.#.','#..#.','#####','...#.','...#.'],
+    '5': ['#####','#....','####.','....#','....#','#...#','.###.'],
+    '6': ['..##.','.#...','#....','####.','#...#','#...#','.###.'],
+    '7': ['#####','....#','...#.','..#..','.#...','.#...','.#...'],
+    '8': ['.###.','#...#','#...#','.###.','#...#','#...#','.###.'],
+    '9': ['.###.','#...#','#...#','.####','....#','...#.','.##..'],
+    '-': ['.....','.....','.....','#####','.....','.....','.....'],
+    '+': ['.....','..#..','..#..','#####','..#..','..#..','.....'],
+    '=': ['.....','.....','#####','.....','#####','.....','.....'],
+    '.': ['.....','.....','.....','.....','.....','.##..','.##..'],
+    ',': ['.....','.....','.....','.....','.##..','..#..','.#...'],
+    ':': ['.....','.##..','.##..','.....','.##..','.##..','.....'],
+    '!': ['..#..','..#..','..#..','..#..','..#..','.....','..#..'],
+    '?': ['.###.','#...#','....#','...#.','..#..','.....','..#..'],
+    "'": ['.##..','..#..','.#...','.....','.....','.....','.....'],
+    '/': ['....#','...#.','...#.','..#..','.#...','.#...','#....'],
+    '&': ['.##..','#..#.','#..#.','.##..','#.#.#','#..#.','.##.#'],
+    '(': ['..#..','.#...','#....','#....','#....','.#...','..#..'],
+    ')': ['..#..','...#.','....#','....#','....#','...#.','..#..'],
+    '_': ['.....','.....','.....','.....','.....','.....','#####']
+  };
+  function dotTextCells(word, value, n){
+    var chars = String(word).split('').filter(function(ch){ return ch !== '\n' && ch !== '\r'; });
+    var on = [], x = 0, any = false;
+    chars.forEach(function(ch, i){
+      if(ch === ' '){ x += 3 + TEXT_GAP; return; }
+      var g = DOT_FONT[ch.toUpperCase()];
+      if(!g){ x += 3 + TEXT_GAP; return; }           // a character the font has not got: a gap
+      for(var r = 0; r < 7; r++) for(var c = 0; c < 5; c++) if(g[r].charAt(c) === '#'){ on.push([r, x + c]); any = true; }
+      x += 5 + TEXT_GAP;
+    });
+    if(!any) return {cells: [], fits: true, wide: 0};
+    var w = Math.max.apply(null, on.map(function(rc){ return rc[1]; })) + 1, h = 7;
+    if(w > n || h > n) return {cells: [], fits: false, wide: Math.max(w, h)};
+    var r0 = Math.floor((n - h) / 2), c0 = Math.floor((n - w) / 2), cells = [];
+    on.forEach(function(rc){ var r = r0 + rc[0], c = c0 + rc[1]; if(r >= 0 && c >= 0 && r < n && c < n) cells.push([r, c, value]); });
+    return {cells: cells, fits: true, wide: w};
+  }
   function textCells(word, heightCells, value){
     word = String(word == null ? '' : word);
     var n = mapGrid.length;
@@ -536,6 +610,7 @@ window.MapEd = (function(){
   }
   // One height. Returns the cells and whether the word fitted the map.
   function textCellsAt(word, H, value, n){
+    if(H <= BITMAP_MAX_H) return dotTextCells(word, value, n);   // small: the dot font, glyph by glyph
     var chars = word.split('').filter(function(ch){ return ch !== '\n' && ch !== '\r'; });
     if(!chars.length) return {cells: [], fits: true, wide: 0};
     var S = TEXT_SS, fs = H * S;
@@ -1198,7 +1273,7 @@ window.MapEd = (function(){
         + '<span class="cgimghint">Tweak these after importing — the last image re-traces live.</span></div>'
       + '<div class="cgmapxy">Text: <input type="text" id="maptext" maxlength="20" placeholder="a word" style="width:110px">'
         + '<button type="button" id="maptextgo" title="Stamp the word into the map as asteroids - it lands selected, so you can drag it where you want">Insert</button>'
-        + '<span>Height</span><input type="range" id="maptexth" min="6" max="30" step="1" value="12"><span class="cgval" id="maptexth_v">12</span>'
+        + '<span>Height</span><input type="range" id="maptexth" min="0" max="19" step="1" value="1"><span class="cgval" id="maptexth_v">12</span>'
         + '<span id="maptexthint" class="cgxyhint"></span></div>'
       + '<div class="cgmapxy">From seed: <input type="number" id="mapseed" min="0" max="9999999" placeholder="e.g. 5000">'
         + '<button type="button" id="mapseedgo" title="Build the map this seed produces in game">Generate</button>'
@@ -1587,7 +1662,9 @@ window.MapEd = (function(){
     // seed -> map
     // text -> asteroids. The word is screened by the server before anything is drawn.
     var tx=$('maptext'), tg=$('maptextgo'), th=$('maptexth'), tv=$('maptexth_v'), tHint=$('maptexthint');
-    if(th && tv){ th.addEventListener('input', function(){ tv.textContent=this.value; }); wheelStep(th); }
+    // Step 0 is the dot font (seven cells); steps 1.. are the typeface at 12..30.
+    function textH(){ var v=parseInt((th||{}).value,10); if(isNaN(v)) return 12; return v<=0 ? 7 : 11+v; }
+    if(th && tv){ th.addEventListener('input', function(){ tv.textContent=textH(); }); wheelStep(th); }
     // What the word looks like right now, drawn but NOT added to the map. The
     // shape of it updates on every keystroke; whether it is allowed is settled
     // separately, because that answer comes from the server.
@@ -1597,7 +1674,7 @@ window.MapEd = (function(){
       if(!tx || !mapGrid) return;
       var w=currentWord();
       if(!w){ setGhost(null); if(tHint) tHint.textContent=''; return; }
-      var askH=parseInt((th||{}).value,10)||12;
+      var askH=textH();
       var cells=textCells(w, askH, brush());
       if(!cells.length){
         setGhost(null);
@@ -1644,7 +1721,7 @@ window.MapEd = (function(){
         checkWord();
         setTimeout(function(){ if(textOK === true && currentWord()===w) insertText(); }, 400);
         return; }
-      var askH=parseInt((th||{}).value,10)||12;
+      var askH=textH();
       var cells=textCells(w, askH, brush());
       if(!cells.length){
         tHint.textContent='\u201C'+w+'\u201D will not fit on a '+mapGrid.length
@@ -1880,6 +1957,7 @@ window.MapEd = (function(){
   api.selectedIds = function(){ return selIds.slice(); };
   api.lineMode = function(on){ if(on!==undefined) setShape(on ? 'line' : 'brush'); return lineMode; };
   api.textCells = textCells;
+  api.dotFont = function(){ return DOT_FONT; };
   api.insertPatch = insertPatch;
   // Everything: the shapes AND the asteroids painted straight onto the map. It
   // used to mean shapes only, so on a map drawn with the brush it did nothing.
