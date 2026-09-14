@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.75"
+APP_VERSION = "9.13.76"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.76", "at": "2026-09-14T19:30:00Z", "changes": [
+        "<b>The day's best scores now scroll under the leaderboard header.</b> The ten highest scores of the last 24 hours, one per player, five on screen at a time. A name opens that player; a region opens that region's board. It follows the region you are looking at, and it pauses while your pointer is on it.",
+    ]},
     {"version": "9.13.75", "at": "2026-09-14T18:30:00Z", "changes": [
         "<b>Old matches now show your best score too, not the one you happened to finish on.</b> New matches have recorded your highest score since earlier today; every match back to 5 September has now been raised to match, using the highest score the watcher saw you reach in that game. Scores only went up. Your best game, and the average score on your profile, may both read higher than they did.",
     ]},
@@ -8007,6 +8010,94 @@ def _board_save(key, b):
         os.replace(tmp, _board_path(key))
     except OSError:
         pass
+
+
+# The day's best scores, for the ticker under the leaderboard header. Two
+# minutes is short enough that a big game shows up while people are still
+# talking about it, and long enough that the query runs ~30 times an hour
+# across all three workers instead of once per page view.
+_TICKER_TTL = 120
+_TICKER_ROWS = 10
+_TICKER_HOURS = 24
+_TICKER_MEM = {}
+
+
+def _ticker_path(region):
+    return os.path.join(_BOARD_DIR, 'ticker_%s.pkl' % region)
+
+
+def _ticker_load(region):
+    try:
+        with open(_ticker_path(region), 'rb') as f:
+            b = pickle.load(f)
+        return b if isinstance(b, dict) and isinstance(b.get('rows'), list) else None
+    except (OSError, EOFError, pickle.PickleError, AttributeError, ValueError):
+        return None
+
+
+def _ticker_save(region, b):
+    try:
+        os.makedirs(_BOARD_DIR, exist_ok=True)
+        tmp = _ticker_path(region) + '.%d.tmp' % os.getpid()
+        with open(tmp, 'wb') as f:
+            pickle.dump(b, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, _ticker_path(region))
+    except OSError:
+        pass
+
+
+def top_scores_today(region=None, hours=_TICKER_HOURS, limit=_TICKER_ROWS):
+    """The best single-match scores of the last `hours`, best first.
+
+    One row per player - their best game, so a good night does not fill
+    the whole list with one name. The score stored for a match is the
+    highest that player reached in it, so this is a board of the day's
+    best games. Voided matches and results from before a player wiped
+    their record are left out, exactly as the profile pages leave them
+    out. Returns [] rather than raising: it is decoration on a page that
+    must render regardless.
+    """
+    region = region or ALL_REGIONS
+    now = time.time()
+    mem = _TICKER_MEM.get(region)
+    if mem and now - mem.get('built', 0) < _TICKER_TTL:
+        return mem['rows']
+    shared = _ticker_load(region)
+    if shared and now - shared.get('built', 0) < _TICKER_TTL:
+        _TICKER_MEM[region] = shared
+        return shared['rows']
+    since = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now - hours * 3600))
+    sql = ("SELECT mp.name, mp.norm_name, mp.score, m.region, m.id "
+           "FROM matches m JOIN match_players mp ON mp.match_row = m.id "
+           "WHERE m.played_at >= ? AND COALESCE(m.voided, 0) = 0 "
+           "AND mp.score IS NOT NULL AND mp.score > 0 "
+           "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
+           "WHERE norm_name = mp.norm_name), '') ")
+    args = [since]
+    if region != ALL_REGIONS:
+        sql += "AND m.region = ? "
+        args.append(region)
+    sql += "ORDER BY mp.score DESC LIMIT 300"
+    rows, seen = [], set()
+    try:
+        conn = db(timeout=4)
+        for name, norm, score, reg, mid in conn.execute(sql, args).fetchall():
+            if norm in seen:
+                continue
+            seen.add(norm)
+            rows.append({"name": name, "score": int(score or 0),
+                         "region": reg or '',
+                         "region_label": REGION_LABELS.get(reg, (reg or '').title()),
+                         "match": mid})
+            if len(rows) >= limit:
+                break
+        conn.close()
+    except sqlite3.Error:
+        return (shared or mem or {}).get('rows', [])
+    b = {"rows": rows, "built": now}
+    _TICKER_MEM[region] = b
+    _ticker_save(region, b)
+    return rows
 
 
 def board_bundle(mode, period, region):
@@ -17148,7 +17239,9 @@ def leaderboard():
                            pnum=pnum, pages=pages, q=q, found=found,
                            me_rows=me_rows, per_page=PER_PAGE,
                            total=total_ranked, mode=mode,
-                           watched_team=_wt, watched_survival=_ws)
+                           watched_team=_wt, watched_survival=_ws,
+                           top_today=(top_scores_today(region)
+                                      if mode == 'team' else []))
 
 
 init_db()  # runs on import too, since WSGI hosts never execute __main__

@@ -2,6 +2,40 @@
 {% block title %}Leaderboard - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
 .psub.watched{margin-top:-4px;opacity:.85}
+/* The day's best scores: ten rows, five visible, sliding upward forever.
+   Height is row-count x row-height so the loop lands exactly on a row. */
+.tick{--row:26px;margin:2px 0 18px;border:1px solid var(--line);border-radius:10px;
+  background:rgba(0,0,0,.28);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  overflow:hidden;max-width:560px}
+.tickhead{display:flex;align-items:center;gap:8px;padding:7px 12px 6px;
+  border-bottom:1px solid var(--line);font-size:11px;letter-spacing:.7px;
+  text-transform:uppercase;color:var(--dim)}
+.tickhead b{color:var(--muted);font-weight:600;letter-spacing:.7px}
+.tickdot{width:6px;height:6px;border-radius:50%;background:var(--green);flex:none;
+  box-shadow:0 0 8px rgba(102,230,184,.8)}
+.tickview{height:calc(var(--row) * 5);overflow:hidden;position:relative}
+.tickview:after{content:"";position:absolute;left:0;right:0;bottom:0;height:26px;
+  pointer-events:none;background:linear-gradient(rgba(5,13,22,0),rgba(5,13,22,.75))}
+.tickstrip{animation:tickroll 30s linear infinite;will-change:transform}
+.tick:hover .tickstrip,.tick:focus-within .tickstrip{animation-play-state:paused}
+@keyframes tickroll{from{transform:translateY(0)}to{transform:translateY(calc(var(--row) * -10))}}
+.tickrow{display:flex;align-items:center;gap:10px;height:var(--row);padding:0 12px;
+  font-size:12.5px;white-space:nowrap}
+.tickpos{width:18px;color:var(--dim);font-variant-numeric:tabular-nums;flex:none}
+.tickrow.top1 .tickpos{color:var(--amber)}
+.tickname{color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;
+  flex:1 1 auto;min-width:0}
+.tickname:hover{color:var(--green);text-decoration:underline}
+.tickscore{color:var(--blue);font-variant-numeric:tabular-nums;flex:none}
+.tickreg{color:var(--muted);text-decoration:none;flex:none;font-size:11.5px;
+  border-bottom:1px dotted rgba(153,221,255,.35)}
+.tickreg:hover{color:var(--green);border-bottom-color:var(--green)}
+@media (max-width:560px){.tick{max-width:none}.tickrow{font-size:12px;gap:8px}}
+@media (prefers-reduced-motion:reduce){
+  .tickstrip{animation:none}
+  .tickview{overflow-y:auto}
+  .tickdup{display:none}
+}
 .filters{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px;
   justify-content:space-between;align-items:center}
 .fgroup{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
@@ -156,6 +190,35 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 </div>
 <p class="psub">{{ total }} player{{ '' if total == 1 else 's' }} ranked here, best first.{% if pages > 1 %} {{ t('Page') }} {{ pnum }} / {{ pages }}.{% endif %}</p>
 <p class="psub watched">{% if mode == 'survival' %}Built from <b>{{ "{:,}".format(watched_survival) }}</b> survival round{{ '' if watched_survival == 1 else 's' }} watched so far.{% else %}Built from <b>{{ "{:,}".format(watched_team) }}</b> team match{{ '' if watched_team == 1 else 'es' }} watched so far.{% endif %}{% if last_ago %} <span class="lastwatched">Latest: <b>{{ last_ago }}</b>.</span>{% endif %}</p>
+{% if top_today %}
+{# Written out twice: the strip slides up by its own first half, so the
+   list rejoins itself with no jump. The copy is hidden from screen
+   readers, and from anyone who asked for less motion. #}
+<div class="tick" aria-label="{{ t('Best scores today') }}">
+  <div class="tickhead"><span class="tickdot"></span>
+    <b>{{ t('Best scores today') }}</b>
+    <span>&middot; {{ region_label }}</span></div>
+  <div class="tickview">
+    <div class="tickstrip">
+      {% for half in [0, 1] %}
+      <div class="{{ 'tickdup' if half }}" {% if half %}aria-hidden="true"{% endif %}>
+        {% for r in top_today %}
+        <div class="tickrow{% if loop.index == 1 %} top1{% endif %}">
+          <span class="tickpos">{{ loop.index }}</span>
+          <a class="tickname" href="/player/{{ r.name|urlencode }}"
+             title="{{ r.name }}">{{ r.name }}</a>
+          <span class="tickscore">{{ "{:,}".format(r.score) }}</span>
+          {% if r.region %}<a class="tickreg"
+             href="/?period={{ period }}&amp;region={{ r.region }}"
+             title="{{ r.region_label }} leaderboard">{{ t(r.region_label) }}</a>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
 {% if mode == 'survival' %}
 <p class="svbeta">A placement rating for last-ship-standing <b>survival</b>, from finish order only &mdash; no scores exist to a passive watcher. Winning a big lobby pays most, and outlasting strong players pays more than weak ones. Fields of 4+ count; the ~30-minute build phase is ignored. Experimental, and separate from the team-mode board.</p>
 {% endif %}
