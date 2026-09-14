@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.60"
+APP_VERSION = "9.13.61"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1902,7 +1902,7 @@ def init_db():
         c.execute("ALTER TABLE match_players ADD COLUMN deaths INTEGER")
     except sqlite3.OperationalError:
         pass
-    for _mcol in ('lobby_name TEXT', 'tracked_reads INTEGER'):
+    for _mcol in ("voided INTEGER DEFAULT 0", "void_reason TEXT", 'lobby_name TEXT', 'tracked_reads INTEGER'):
         try:
             c.execute('ALTER TABLE matches ADD COLUMN ' + _mcol)
         except sqlite3.OperationalError:
@@ -3427,7 +3427,8 @@ def replays_index():
             "OR EXISTS (SELECT 1 FROM r.trueskill_replay tr WHERE tr.sys_id = m.sys_id "
             "AND tr.at > datetime(m.played_at, '-1 hour') "
             "AND tr.at < datetime(m.played_at, '+1 hour')))")
-    full_cond = " WHERE " + have + ((" AND " + " AND ".join(where)) if where else "")
+    full_cond = (" WHERE COALESCE(m.voided, 0) = 0 AND " + have
+                 + ((" AND " + " AND ".join(where)) if where else ""))
     # The total only feeds "N replays, page X/Y" and only changes when a match
     # ends, but computing it means running the replayable-EXISTS across every
     # match ever (the row fetch below is cheap - it stops at 10). So cache it
@@ -4774,6 +4775,50 @@ def game_end():
 OWNER_TAG = "@owner "
 
 
+def void_match(c, match_row, reason):
+    """Take a recorded result back. Every rating change it paid is reversed -
+    elo, the win or the loss - for each player still carrying it (someone
+    wiped to placement since the match no longer does, and is skipped); the
+    rows go to the wipe archive under account 'void:<reason>' so the result
+    stays auditable; they are deleted from the live tables so no board,
+    history or recompute counts them again; and the match row is kept, marked
+    voided, so the archive count and the replay listing skip it. Same cursor
+    as the caller's transaction - commit is theirs. Returns
+    {reversed, skipped, delta} or None when there is no such match."""
+    m = c.execute("SELECT id, played_at, COALESCE(voided, 0) FROM matches WHERE id = ?",
+                  (match_row,)).fetchone()
+    if not m or m[2]:
+        return None
+    played_at = m[1] or ''
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    reversed_n = skipped = 0
+    total = 0.0
+    for nn, won, delta in c.execute("SELECT norm_name, won, delta FROM match_players "
+                                    "WHERE match_row = ?", (match_row,)).fetchall():
+        p = c.execute("SELECT wiped_before FROM players WHERE norm_name = ?", (nn,)).fetchone()
+        if not p or (p[0] and str(p[0]) >= played_at):
+            skipped += 1
+            continue
+        c.execute("UPDATE players SET elo = elo - ?, "
+                  "wins = MAX(0, COALESCE(wins, 0) - ?), "
+                  "losses = MAX(0, COALESCE(losses, 0) - ?) WHERE norm_name = ?",
+                  (float(delta or 0.0), 1 if won else 0, 0 if won else 1, nn))
+        reversed_n += 1
+        total += float(delta or 0.0)
+    c.execute("INSERT INTO wiped_match_players "
+              "(wiped_at, account, norm_name, match_row, match_id, played_at, "
+              " region, won, delta, half, played_as, score, ship, deaths) "
+              "SELECT ?, ?, mp.norm_name, mp.match_row, m.match_id, m.played_at, "
+              " m.region, mp.won, mp.delta, mp.half, mp.played_as, mp.score, "
+              " mp.ship, mp.deaths "
+              "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+              "WHERE mp.match_row = ?", (now, 'void:' + str(reason)[:120], match_row))
+    c.execute("DELETE FROM match_players WHERE match_row = ?", (match_row,))
+    c.execute("UPDATE matches SET voided = 1, void_reason = ? WHERE id = ?",
+              (str(reason)[:200], match_row))
+    return {"reversed": reversed_n, "skipped": skipped, "delta": round(total, 2)}
+
+
 def public_entries(entries):
     """Changelog entries as anyone outside the site may see them.
 
@@ -4801,6 +4846,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.61", "at": "2026-09-14T06:00:00Z", "changes": [
+        "<b>69 results from 11 and 12 August, the first two days of scoring, have been taken back.</b> The watcher’s own connection had dropped minutes before each one; it rejoined a lobby that had already emptied and called a winner from what was left, so the recorded winners had a few hundred points against tens of thousands, or nobody was credited a win at all. Every rating change those results paid out has been reversed, and the matches no longer count anywhere. Three results from the same days that cannot be told either way were left as they stand.",
+    ]},
     {"version": "9.13.60", "at": "2026-09-14T04:30:00Z", "changes": [
         "The leaderboard and profile speed-up now holds on every visit, not only repeat ones. The site runs as several workers, and each was building its own copy of the board; they share one now, rebuilt the moment a match lands.",
     ]},
@@ -7206,9 +7254,15 @@ def _board_version():
             b = c.execute("SELECT MAX(rowid) FROM survival_results").fetchone()[0]
         except sqlite3.Error:
             b = None
+        # A void or a wipe changes ratings without adding a match: the archive
+        # it writes to is the third thing the boards are built from.
+        try:
+            w = c.execute("SELECT MAX(rowid) FROM wiped_match_players").fetchone()[0]
+        except sqlite3.Error:
+            w = None
     finally:
         conn.close()
-    return (a, b)
+    return (a, b, w)
 
 
 def _board_build(mode, period, region, version):
@@ -16071,7 +16125,8 @@ def watched_totals():
         conn = db()
         c = conn.cursor()
         try:
-            team = c.execute("SELECT COUNT(*) FROM matches").fetchone()[0] or 0
+            team = c.execute("SELECT COUNT(*) FROM matches "
+                             "WHERE COALESCE(voided, 0) = 0").fetchone()[0] or 0
         except sqlite3.Error:
             team = 0
         try:
