@@ -800,7 +800,10 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
       if(k % t)
         return 'Symmetry is on at ' + k + '-fold, and ' + k + ' does not divide ' + t
              + ' teams \u2014 a ' + k + '-fold pattern cannot split into ' + t
-             + ' equal wedges however carefully it is drawn. Use ' + t + ' or ' + (t*2) + '.';
+             + ' equal wedges however carefully it is drawn. '
+             + (function(){ var fits = [2,3,4,5,6].filter(function(o){ return o % t === 0; });
+                 return fits.length ? ('Use ' + fits.join(' or ') + '.')
+                   : ('No order the editor offers splits into ' + t + ' equal wedges.'); })();
       // With copies made by inverse mapping a turned stroke weighs what the original
       // weighs, so the one real cause left is work that predates the setting.
       return 'Symmetry is at ' + k + '-fold, so anything drawn since repeats exactly. A gap this size means '

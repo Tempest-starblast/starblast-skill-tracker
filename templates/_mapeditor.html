@@ -347,8 +347,9 @@ window.MapEd = (function(){
         }
         // A copy that would land off the map means this cell cannot be repeated
         // at all: place none of its copies, or the map stops being symmetric.
-        // (Only 3- and 6-fold can hit this: a square turns by 90 and 180 onto
-        // itself, never by 60 or 120, so their corners are outside the zone.)
+        // (Only 3-, 5- and 6-fold can hit this: a square turns by 90 and 180
+        // onto itself, never by 60, 72 or 120, so their corners are outside
+        // the zone.)
         if(minx + half < -1e-9 || miny + half < -1e-9 || maxx + half > n + 1e-9 || maxy + half > n + 1e-9){ symRefused++; return false; }
         var got = 0;
         var tc0 = Math.max(0, Math.floor(minx + half)), tc1 = Math.min(n - 1, Math.ceil(maxx + half) - 1);
@@ -375,8 +376,10 @@ window.MapEd = (function(){
     }
     return true;
   }
-  // The zone 3- and 6-fold can repeat: the circle inscribed in the map.
-  function symZoneOn(){ return symN === 3 || symN === 6; }
+  // The zone an order can repeat inside: the circle inscribed in the map.
+  // A square turns onto itself by a quarter and a half turn, so 2- and 4-fold
+  // reach the corners; every other order (3, 5, 6) cannot.
+  function symZoneOn(){ return symN > 2 && symN !== 4; }
   function symHint(){
     var i=$('mapselinfo'); if(!i) return;
     i.textContent = 'Outside the symmetry zone \u2014 at ' + symN + '-fold the corners have no room for every copy, so nothing was placed there. Draw inside the circle, or switch symmetry off for the corners.';
@@ -1246,7 +1249,7 @@ window.MapEd = (function(){
         + '<button type="button" class="mapshape" data-shape="bar" title="Drag a straight bar at any angle - Line width sets how thick it is">▬ Bar</button>'
         + '<button type="button" class="mapshape" data-shape="corner" title="Drag an L: two bars meeting at the corner you start from">\u221F Corner</button>'
         + '<span class="cgsep"></span><span id="mapsymgrp" class="mapsymgrp" title="Draw once, get every rotation. Three-fold matches the three team stations, so a map built with it is fair by construction.">Symmetry'
-        + '<select id="mapsym"><option value="1">off</option><option value="2">2</option><option value="3">3 (teams)</option><option value="4">4</option><option value="6">6</option></select>'
+        + '<select id="mapsym"><option value="1">off</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>'
         + '<label class="cgchk" style="padding:0 0 0 6px"><input type="checkbox" id="mapsymm">mirror</label>'
         + '<button type="button" id="mapsymbake" disabled>Bake in</button></span>'
         + '<span class="cgsep"></span><span class="mapthicklbl" title="How many cells wide the wall of an outline shape is - Frame, Ring, Bar and Corner. Not asteroid size.">Line width</span>'
