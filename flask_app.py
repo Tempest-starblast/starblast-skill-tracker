@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.65"
+APP_VERSION = "9.13.66"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4995,6 +4995,119 @@ def api_forgot():
         conn.commit()
     conn.close()
     return jsonify(payload), status
+
+
+# ---- response times -----------------------------------------------------------
+# Every request is timed on the way out. Each worker keeps a tally per
+# (minute, route) in memory and writes it to live.db every _REQ_FLUSH_EVERY
+# seconds, so a request costs a dictionary update, not a database write.
+_REQ_BUF = {}                 # (minute, endpoint) -> [n, total_ms, max_ms, errors]
+_REQ_FLUSH = {"at": 0.0}
+_REQ_FLUSH_EVERY = 10
+_REQ_KEEP_DAYS = 7
+
+
+def _req_stats_table(c):
+    c.execute("CREATE TABLE IF NOT EXISTS request_stats (minute TEXT, endpoint TEXT, "
+              "n INTEGER, total_ms REAL, max_ms REAL, errors INTEGER, "
+              "PRIMARY KEY (minute, endpoint))")
+
+
+def _req_flush(force=False):
+    now = time.time()
+    if not _REQ_BUF or (not force and now - _REQ_FLUSH["at"] < _REQ_FLUSH_EVERY):
+        return
+    _REQ_FLUSH["at"] = now
+    items = list(_REQ_BUF.items())
+    _REQ_BUF.clear()
+    try:
+        conn = live_db()
+        c = conn.cursor()
+        _req_stats_table(c)
+        for (minute, ep), (n, tot, mx, err) in items:
+            c.execute("INSERT INTO request_stats (minute, endpoint, n, total_ms, max_ms, errors) "
+                      "VALUES (?,?,?,?,?,?) ON CONFLICT(minute, endpoint) DO UPDATE SET "
+                      "n = n + excluded.n, total_ms = total_ms + excluded.total_ms, "
+                      "max_ms = MAX(max_ms, excluded.max_ms), errors = errors + excluded.errors",
+                      (minute, ep, n, tot, mx, err))
+        if int(now) % 30 == 0:
+            c.execute("DELETE FROM request_stats WHERE minute < ?",
+                      (time.strftime('%Y-%m-%d %H:%M', time.gmtime(now - _REQ_KEEP_DAYS * 86400)),))
+        conn.commit()
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
+@app.before_request
+def _req_start():
+    request.environ['sb.t0'] = time.perf_counter()
+
+
+@app.after_request
+def _req_done(resp):
+    try:
+        t0 = request.environ.get('sb.t0')
+        ep = request.endpoint
+        if t0 is not None and ep and ep != 'static':
+            ms = (time.perf_counter() - t0) * 1000.0
+            err = 1 if resp.status_code >= 500 else 0
+            key = (time.strftime('%Y-%m-%d %H:%M', time.gmtime()), ep)
+            b = _REQ_BUF.get(key)
+            if b is None:
+                _REQ_BUF[key] = [1, ms, ms, err]
+            else:
+                b[0] += 1
+                b[1] += ms
+                b[2] = max(b[2], ms)
+                b[3] += err
+            _req_flush()
+    except Exception:
+        pass
+    return resp
+
+
+def request_stats(hours):
+    """Requests, average and slowest response (ms) and errors over the last
+    `hours`, overall and per route, slowest routes by total time first."""
+    since = time.strftime('%Y-%m-%d %H:%M', time.gmtime(time.time() - hours * 3600))
+    rules = {}
+    for r in app.url_map.iter_rules():
+        rules.setdefault(r.endpoint, r.rule)
+    out = {"n": 0, "avg": 0.0, "max": 0.0, "errors": 0, "rows": []}
+    try:
+        conn = live_db()
+        c = conn.cursor()
+        _req_stats_table(c)
+        tot = c.execute("SELECT COALESCE(SUM(n),0), COALESCE(SUM(total_ms),0), "
+                        "COALESCE(MAX(max_ms),0), COALESCE(SUM(errors),0) FROM request_stats "
+                        "WHERE minute >= ?", (since,)).fetchone()
+        out.update({"n": tot[0], "avg": (tot[1] / tot[0]) if tot[0] else 0.0,
+                    "max": tot[2], "errors": tot[3]})
+        for ep, n, ms, mx, err in c.execute(
+                "SELECT endpoint, SUM(n), SUM(total_ms), MAX(max_ms), SUM(errors) "
+                "FROM request_stats WHERE minute >= ? GROUP BY endpoint "
+                "ORDER BY SUM(total_ms) DESC LIMIT 60", (since,)).fetchall():
+            out["rows"].append({"endpoint": ep, "path": rules.get(ep, ''), "n": n,
+                                "avg": (ms / n) if n else 0.0, "max": mx, "errors": err,
+                                "share": (100.0 * ms / tot[1]) if tot[1] else 0.0})
+        conn.close()
+    except sqlite3.Error:
+        pass
+    return out
+
+
+@app.route('/dev/status')
+def dev_status():
+    """How fast the site answers: the last hour and the last day, overall
+    and per route. Owner only."""
+    if not is_site_owner():
+        return redirect('/')
+    _req_flush(force=True)
+    lt, ls = last_watched()
+    return render_template('dev_status.html', page='status', version=APP_VERSION,
+                           hour=request_stats(1), day=request_stats(24),
+                           latest_team=ago_text(lt), latest_survival=ago_text(ls))
 
 
 def public_entries(entries):

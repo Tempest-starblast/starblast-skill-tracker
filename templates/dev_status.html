@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Response times{% endblock %}
+{% block css %}
+.stwrap{display:flex;flex-direction:column;gap:16px}
+.stcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;backdrop-filter:var(--blur)}
+.stcard h2{margin:0 0 10px;font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px}
+.tile{background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.tile .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
+.tile .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.sttab{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.sttab th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line)}
+.sttab td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);white-space:nowrap}
+.sttab td.num{text-align:right}
+.sttab td.path{color:var(--muted);font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.ms-ok{color:var(--green,#66e6b8)}.ms-warn{color:#f0c04a}.ms-bad{color:#ff7a7a}
+.stnote{color:var(--muted);font-size:12.5px;margin:8px 0 0}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Response times</h1>
+<p class="psub">How fast the site answers, timed on the way out of every request, on this server. Newest match watched <b>{{ latest_team or '?' }}</b>; newest survival round <b>{{ latest_survival or '?' }}</b>.</p>
+<div class="stwrap">
+{% for label, s in (("Last hour", hour), ("Last 24 hours", day)) %}
+{% macro cls(ms) %}{% if ms >= 1000 %}ms-bad{% elif ms >= 400 %}ms-warn{% else %}ms-ok{% endif %}{% endmacro %}
+<div class="stcard">
+  <h2>{{ label }}</h2>
+  <div class="tiles">
+    <div class="tile"><div class="l">Requests</div><div class="v">{{ "{:,}".format(s.n) }}</div></div>
+    <div class="tile"><div class="l">Average</div><div class="v {{ cls(s.avg) }}">{{ "%.0f"|format(s.avg) }} ms</div></div>
+    <div class="tile"><div class="l">Slowest</div><div class="v {{ cls(s.max) }}">{{ "%.0f"|format(s.max) }} ms</div></div>
+    <div class="tile"><div class="l">Errors</div><div class="v {% if s.errors %}ms-bad{% endif %}">{{ s.errors }}</div></div>
+  </div>
+  {% if s.rows %}
+  <div style="overflow-x:auto">
+  <table class="sttab">
+    <tr><th>Route</th><th>Path</th><th style="text-align:right">Requests</th><th style="text-align:right">Average</th><th style="text-align:right">Slowest</th><th style="text-align:right">Share of time</th><th style="text-align:right">Errors</th></tr>
+    {% for r in s.rows %}
+    <tr><td>{{ r.endpoint }}</td><td class="path">{{ r.path }}</td><td class="num">{{ "{:,}".format(r.n) }}</td>
+        <td class="num {{ cls(r.avg) }}">{{ "%.0f"|format(r.avg) }} ms</td><td class="num {{ cls(r.max) }}">{{ "%.0f"|format(r.max) }} ms</td>
+        <td class="num">{{ "%.0f"|format(r.share) }}%</td><td class="num {% if r.errors %}ms-bad{% endif %}">{{ r.errors }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="stnote">Nothing recorded yet.</p>
+  {% endif %}
+</div>
+{% endfor %}
+<p class="stnote">Green under 400 ms, amber to a second, red above. Times are the server's own work, not the network; each of the site's workers writes its tally every ten seconds, and seven days are kept.</p>
+</div>
+{% endblock %}
