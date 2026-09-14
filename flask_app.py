@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.72"
+APP_VERSION = "9.13.73"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5403,6 +5403,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.73", "at": "2026-09-14T16:00:00Z", "changes": [
+        "<b>The flood watcher now learns from every swarm it has seen.</b> Until today a flood was recognised by size alone, so a handful of friends flying one name could look like one and a compact scripted swarm could pass. The watcher has been trained on every same-name swarm recorded since August — how the ships behave, not what they are called: fresh ships that never score, all on one team, flying just enough to dodge the idle kick, gathering to a point, dying and respawning in loops, real players driven out, a station core lost. That behaviour now decides whether a smaller swarm is a scripted flood; a very large swarm is a flood on size alone, as before. A swarm the watcher turns down is still recorded as a swarm on the match. Nothing changes for matches already rated.",
+        "A results-arrival hiccup from earlier today, where the site briefly answered a few results with an error, is fixed — every one of those results was recorded.",
+    ]},
     {"version": "9.13.71", "at": "2026-09-14T14:00:00Z", "changes": [
         "<b>A match swarmed by a flood is now rated as it stood when the flood began.</b> A flood is one name flown by a whole swarm of ships at once, scripted, and the watcher can see what it does: the swarm gathers to a point on the station ring and a station’s core dies, and the real players leave. When a flood changed the game like that, the result is taken from the moment before it arrived — a station already destroyed, or the team clearly ahead by the same rule that decides a dissolved lobby — and the swarm’s names are never rated. A flood that changed nothing changes nothing. An open game with no leader at that moment gets no result rather than a coin flip.",
     ]},
