@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.71"
+APP_VERSION = "9.13.72"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4786,7 +4786,8 @@ def game_end():
     # next visitor finds them ready instead of paying for the first build;
     # then anyone whose saved play name played this match without a check-in
     # is told.
-    threading.Thread(target=_after_result, args=(_mid,), daemon=True).start()
+    if _match_id:
+        threading.Thread(target=_after_result, args=(_match_id,), daemon=True).start()
 
     # After the match is safely written: if it was flooded, put the finished
     # result in front of the owner with what it paid out, so it can be voided
