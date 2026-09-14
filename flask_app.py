@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.74"
+APP_VERSION = "9.13.75"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4017,6 +4017,89 @@ def repair_surrogates(obj):
     return obj
 
 
+@app.route('/api/score_backfill', methods=['POST'])
+def api_score_backfill():
+    """Raise stored match scores to the peak each player actually reached.
+
+    Takes {"rows": [{"match_id": .., "peaks": {in-game name: peak}}, ..],
+    "dry_run": bool}. A row is matched by the name the player PLAYED under
+    (`played_as`), falling back to the credited name, both normalized -
+    rosters are rewritten to account names at the door, so matching on the
+    credited name alone would miss everyone who plays under another name.
+    A score is only ever raised, never lowered: a peak at or below what is
+    stored leaves the row alone, so running this twice changes nothing the
+    second time.
+    """
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    rows = data.get('rows')
+    if not isinstance(rows, list):
+        return jsonify({"error": "rows must be a list"}), 400
+    if len(rows) > 400:
+        return jsonify({"error": "at most 400 matches per request"}), 400
+    dry = bool(data.get('dry_run'))
+    seen = found = raised = unchanged = unmatched = 0
+    added = 0
+    samples = []
+    conn = db()
+    c = conn.cursor()
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        seen += 1
+        mid = str(item.get('match_id') or '')[:128]
+        peaks = item.get('peaks')
+        if not mid or not isinstance(peaks, dict):
+            continue
+        c.execute("SELECT id FROM matches WHERE match_id = ?", (mid,))
+        mrow = c.fetchone()
+        if not mrow:
+            continue
+        found += 1
+        # Several in-game names can normalize to one key; the best wins.
+        by_key = {}
+        for nm, pk in peaks.items():
+            try:
+                pk = int(pk)
+            except (TypeError, ValueError):
+                continue
+            k = normalize_name(nm)
+            if k and pk > by_key.get(k, -1):
+                by_key[k] = pk
+        c.execute("SELECT rowid, name, played_as, score FROM match_players "
+                  "WHERE match_row = ?", (mrow[0],))
+        for rid, pname, played_as, score in c.fetchall():
+            pk = by_key.get(normalize_name(played_as or ''))
+            if pk is None:
+                pk = by_key.get(normalize_name(pname or ''))
+            if pk is None:
+                unmatched += 1
+                continue
+            cur = int(score or 0)
+            if pk <= cur:
+                unchanged += 1
+                continue
+            raised += 1
+            added += pk - cur
+            if len(samples) < 8:
+                samples.append({"match_id": mid, "name": pname,
+                                "from": (score if score is not None else None),
+                                "to": pk})
+            if not dry:
+                c.execute("UPDATE match_players SET score = ? WHERE rowid = ?",
+                          (pk, rid))
+    if dry:
+        conn.rollback()
+    else:
+        conn.commit()
+    conn.close()
+    return jsonify({"dry_run": dry, "matches_seen": seen, "matches_found": found,
+                    "rows_raised": raised, "rows_unchanged": unchanged,
+                    "rows_unmatched": unmatched, "points_added": added,
+                    "samples": samples}), 200
+
+
 @app.route('/api/game_end', methods=['POST'])
 def game_end():
     if not api_key_ok(request.headers.get('X-API-Key')):
@@ -5403,6 +5486,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.75", "at": "2026-09-14T18:30:00Z", "changes": [
+        "<b>Old matches now show your best score too, not the one you happened to finish on.</b> New matches have recorded your highest score since earlier today; every match back to 5 September has now been raised to match, using the highest score the watcher saw you reach in that game. Scores only went up. Your best game, and the average score on your profile, may both read higher than they did.",
+    ]},
     {"version": "9.13.74", "at": "2026-09-14T17:30:00Z", "changes": [
         "A replay of a match that was cut at a flood now says so in words — the result is the game as it stood at the moment the swarm arrived — instead of printing the raw moment as if it were a count of ships.",
     ]},
