@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.64"
+APP_VERSION = "9.13.65"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5024,6 +5024,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.65", "at": "2026-09-14T10:00:00Z", "changes": [
+        "A profile now says <i>skill rank</i> beside the ship-named rank under your name. The seven ranks are named after the game’s ships and drawn with that ship, which read to some as the ship you fly most; it is where you sit on the leaderboard, and hovering it says so. Ships you actually fly are listed further down, as before.",
+    ]},
     {"version": "9.13.64", "at": "2026-09-14T09:00:00Z", "changes": [
         "The Play page now says it plainly: a game under a name other than your account name only counts if you press <i>Check in &amp; play</i> there first, whether Protection is on or off. It used to say results always go to your account, which is true only after a check-in, and a warning now appears the moment the play name you save differs from your account name.",
     ]},

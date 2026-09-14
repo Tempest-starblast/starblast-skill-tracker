@@ -216,7 +216,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
     <div class="pbox-id">
       <h1 class="pname2">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}" title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span></h1>
       <div class="pbox-rank">
-        {%- if d %}<span class="rk-name">{{ d.name }}</span><span class="rk-band">{{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>
+        {%- if d %}<span class="rk-name" title="Your skill rank: one of seven, named after the game&#39;s ships from Fly up to Shadow X-3, from where you sit on the leaderboard. It is not the ship you fly - see Ships flown further down.">{{ d.name }}</span><span class="rk-band" title="Your skill rank: one of seven, named after the game&#39;s ships from Fly up to Shadow X-3, from where you sit on the leaderboard. It is not the ship you fly - see Ships flown further down.">{{ t('Skill rank') }} &middot; {{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>
         {%- elif player.placements_left %}<span class="rk-name">{{ t('In placements') }}</span><span class="rk-band">{{ player.placements_left }} {{ t('more to earn a rank') }}</span>
         {%- else %}<span class="rk-band">Rank #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>{% endif %}
       </div>
@@ -232,7 +232,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
   {% if player.peak %}
   <div class="pbox-peaks">
     {% if player.peak.rank %}<div class="ppk"><span class="ppk-l">{{ t('Best rank') }}</span> <span class="ppk-v">#{{ player.peak.rank }}</span>{% if player.peak.rank_at %} <span class="ppk-at">{{ player.peak.rank_at }}</span>{% endif %}</div>{% endif %}
-    {% if player.peak.division %}<div class="ppk"><span class="ppk-l">{{ t('Highest emblem') }}</span> {{ rank_emblem(player.peak.division.ship, 18, player.peak.division.color, player.peak.division.name)|safe }} <span class="ppk-v" style="color:{{ player.peak.division.color }}">{{ player.peak.division.name }}</span>{% if player.peak.div_at %} <span class="ppk-at">{{ player.peak.div_at }}</span>{% endif %}</div>{% endif %}
+    {% if player.peak.division %}<div class="ppk"><span class="ppk-l">{{ t('Highest rank') }}</span> {{ rank_emblem(player.peak.division.ship, 18, player.peak.division.color, player.peak.division.name)|safe }} <span class="ppk-v" style="color:{{ player.peak.division.color }}">{{ player.peak.division.name }}</span>{% if player.peak.div_at %} <span class="ppk-at">{{ player.peak.div_at }}</span>{% endif %}</div>{% endif %}
   </div>
   {% endif %}
   <p class="pbox-foot"><a href="/">&larr; {{ t('Leaderboard') }}</a></p>
