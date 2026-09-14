@@ -58,8 +58,11 @@
              autocomplete="off">
       <button class="primary" onclick="saveGameName()">Save</button>
     </div>
-    <p class="desc" style="margin:10px 0 0">Results always go to
-       <b id="acctName">your account</b>.</p>
+    <p class="desc" style="margin:10px 0 0">Results go to <b id="acctName">your account</b>
+       when you press <b>Check in &amp; play</b> here before joining. Under your account name
+       they count either way; under any other name, only with the check-in.</p>
+    <p class="desc" id="gnNote" style="display:none;margin:8px 0 0;padding:8px 12px;border-radius:8px;
+       border:1px solid rgba(240,192,74,.5);background:rgba(240,192,74,.08);color:#f0d488"></p>
     <div id="ckState" style="display:none;margin:12px 0 0;padding:10px 14px;border-radius:8px;border:1px solid rgba(102,230,184,.45);background:rgba(102,230,184,.08);color:#bff3e0;font-size:13.5px;line-height:1.5"></div>
   </div>
   <div id="claimRow" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
@@ -147,9 +150,23 @@ async function loadMe(){
     myName = (d.names && d.names.length) ? d.names[0] : null;
     document.getElementById('acctName').textContent = myName || 'your account name';
     document.getElementById('gameName').value = d.game_name || '';
+    gameNameNote();
     markCheckedIn(d.checkin);
   }catch(e){}
 }
+// The one rule people miss: a play name that is not the account name is tied
+// to the account by the check-in alone. Said in amber the moment it applies.
+function gameNameNote(){
+  var el = document.getElementById('gnNote'), gn = (document.getElementById('gameName').value || '').trim();
+  var fold = function(s){ return String(s || '').toUpperCase().replace(/[^\p{L}\p{N}]/gu, ''); };
+  if(!el) return;
+  if(myName && gn && fold(gn) !== fold(myName)){
+    el.textContent = '\u201c' + gn + '\u201d is not your account name, so a game under it only counts '
+      + 'if you press Check in & play here first - whether Protection is on or off.';
+    el.style.display = 'block';
+  } else { el.style.display = 'none'; }
+}
+document.getElementById('gameName').addEventListener('input', gameNameNote);
 window.onSignedInReady = loadMe;
 window.onSignedOutReady = function(){
   myName=null;
@@ -163,6 +180,7 @@ async function saveGameName(){
   try{
     const [r,d]=await post('/account/gamename',{name:n});
     say('youMsg',r.ok,d.message);
+    if(r.ok) gameNameNote();
   }catch(e){ say('youMsg',false,'Server connection error.'); }
 }
 

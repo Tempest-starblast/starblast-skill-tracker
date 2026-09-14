@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.63"
+APP_VERSION = "9.13.64"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5024,6 +5024,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.64", "at": "2026-09-14T09:00:00Z", "changes": [
+        "The Play page now says it plainly: a game under a name other than your account name only counts if you press <i>Check in &amp; play</i> there first, whether Protection is on or off. It used to say results always go to your account, which is true only after a check-in, and a warning now appears the moment the play name you save differs from your account name.",
+    ]},
     {"version": "9.13.63", "at": "2026-09-14T08:00:00Z", "changes": [
         "<b>Played under a different name? You can fix it yourself now.</b> When you press Play here, the first ship to turn up in that lobby under your saved name is yours. Type a different name into the game and nothing matches, so that game went to the name’s own record and only the owner could move it. Your Account page now has <i>Played under a different name?</i>: enter the name, and the game is moved to you — provided you pressed Play on that match here before joining, the name has no record of its own, and the game is from the last two days. One of these a day.",
     ]},
@@ -10043,9 +10046,16 @@ def perform_set_game_name(c, sub_id, raw_name):
                                 f"once - so Protection is now ON automatically: only "
                                 f"matches you check into count, and it stays on "
                                 f"while you use a default name."}
+    if normalize_name(name) != normalize_name(who):
+        return 200, {"ok": True, "game_name": name, "differs": True,
+                     "message": f"Noted - you play as '{name}'. That is not your account "
+                                f"name, so a game under it only counts if you press "
+                                f"Check in & play here first - whether Protection is on "
+                                f"or off. It then appears under '{who}'."}
     return 200, {"ok": True, "game_name": name,
-                 "message": f"Noted - you play as '{name}'. Your results still appear "
-                            f"under '{who}' whenever you press Play."}
+                 "message": f"Noted - you play as '{name}', your account name. Your games "
+                            f"count as usual; with Protection on, only the ones you "
+                            f"check into."}
 
 
 @app.route('/account/gamename', methods=['POST'])
