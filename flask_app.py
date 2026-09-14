@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.58"
+APP_VERSION = "9.13.59"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4797,6 +4797,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.59", "at": "2026-09-14T03:30:00Z", "changes": [
+        "<b>The leaderboard and profiles open in a fraction of a second.</b> The home page was reading and sorting every ranked player on every visit before showing you fifty, and a profile rebuilt each region's whole board to find one rank. Each board is now built once and kept for under a minute, which is quicker than matches end.",
+        "The leaderboard says how long ago the newest match was watched, so you can tell at a glance that the watcher is live.",
+    ]},
     {"version": "9.13.58", "at": "2026-09-14T02:30:00Z", "changes": [
         "<b>Replays opens in a fraction of the time.</b> The archive page was re-checking every match ever recorded on every visit before it could show the ten you asked for; it now reads only those, and takes well under a second instead of two to four.",
     ]},
@@ -6783,14 +6787,13 @@ def player_profile(name):
     region_ranks = {}
     _key = normalize_name(name)
     for _rkey, _rlabel in REGIONS:
-        _rows = board_rows(c, "all", _rkey)
-        if not _rows:
+        try:
+            _rm = board_rank_map('team', 'all', _rkey)
+        except sqlite3.Error:
             continue
-        _rows.sort(key=leaderboard_sort_key)
-        for _i, _r in enumerate(_rows, start=1):
-            if normalize_name(_r[0]) == _key:
-                region_ranks[_rkey] = {"rank": _i, "of": len(_rows)}
-                break
+        if _key in _rm:
+            region_ranks[_rkey] = {"rank": _rm[_key],
+                                   "of": len(sorted_board('team', 'all', _rkey))}
 
     c.execute("SELECT COUNT(*) FROM claim_requests WHERE status = 'pending' "
               "AND name IN (SELECT name FROM players WHERE norm_name = ?)",
@@ -7167,6 +7170,60 @@ def survival_board_rows(c, period="all", region="all"):
 # players get a division; a rebuild is cheap but pointless every request.
 _DIV_CACHE = {"ts": 0.0, "map": {}}
 _DIV_TTL = 90
+
+# Every view of the board, sorted, kept for a short while. The all-time
+# all-regions board was 15k+ players read and sorted on EVERY visit before a
+# page of fifty was sliced off it, and a profile rebuilt each region's board
+# (a GROUP BY over every match ever played) three times over to find one
+# rank. Built once per view per interval instead: the board moves only as
+# matches end, minutes apart, so forty-five seconds is well inside how often
+# anyone could notice.
+_BOARD_CACHE = {}          # (mode, period, region) -> (sorted rows, ts)
+_BOARD_TTL = 45
+_RANK_CACHE = {}           # (mode, period, region) -> (rows it was built from, {norm_name: rank})
+
+
+def sorted_board(mode, period, region):
+    """The rows of one board view, sorted for ranking, from the cache when
+    fresh. Callers read the list; they must not change it."""
+    key = (mode, period, region)
+    now = time.time()
+    hit = _BOARD_CACHE.get(key)
+    if hit and now - hit[1] < _BOARD_TTL:
+        return hit[0]
+    try:
+        conn = db(timeout=4)
+        c = conn.cursor()
+        try:
+            rows = (survival_board_rows(c, period, region) if mode == 'survival'
+                    else board_rows(c, period, region))
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        if hit:
+            return hit[0]           # a stale board beats an error page
+        raise
+    rows.sort(key=leaderboard_sort_key)
+    if len(_BOARD_CACHE) > 64:
+        _BOARD_CACHE.clear()
+        _RANK_CACHE.clear()
+    _BOARD_CACHE[key] = (rows, now)
+    return rows
+
+
+def board_rank_map(mode, period, region):
+    """norm_name -> 1-based rank on one board view, built beside the cached
+    board it came from, so a profile's regional ranks are dictionary lookups."""
+    key = (mode, period, region)
+    rows = sorted_board(mode, period, region)
+    hit = _RANK_CACHE.get(key)
+    if hit and hit[0] is rows:
+        return hit[1]
+    m = {}
+    for i, r in enumerate(rows, start=1):
+        m.setdefault(normalize_name(r[0]), i)
+    _RANK_CACHE[key] = (rows, m)
+    return m
 _PEAK_STATE = {"ts": 0.0, "running": False}
 _PEAK_EVERY = 300           # write peaks at most every 5 min, off the request path
 
@@ -7178,13 +7235,9 @@ def division_map():
     if _DIV_CACHE["map"] and now - _DIV_CACHE["ts"] < _DIV_TTL:
         return _DIV_CACHE["map"]
     try:
-        conn = db(timeout=4)
-        c = conn.cursor()
-        rows = board_rows(c, "all", ALL_REGIONS)
-        conn.close()
+        rows = sorted_board('team', 'all', ALL_REGIONS)
     except sqlite3.Error:
         return _DIV_CACHE["map"]
-    rows.sort(key=leaderboard_sort_key)
     # Rank against the WHOLE board, not just non-provisional players, so the
     # division ("top X%") matches the rank a profile actually shows (#N of
     # total). Provisional players still occupy their board position (and count
@@ -15867,6 +15920,54 @@ def elo_page():
 # for a number that only ever goes up.
 _WATCHED_CACHE = {"at": 0.0, "team": 0, "survival": 0}
 _WATCHED_TTL = 300.0
+_LAST_WATCHED = {"at": 0.0, "team": None, "survival": None}
+
+
+def last_watched():
+    """When the newest team match and the newest survival round ended, as
+    the database stores them (UTC text), or None. Two indexed MAXes, kept
+    for twenty seconds."""
+    now = time.time()
+    if now - _LAST_WATCHED["at"] < 20:
+        return _LAST_WATCHED["team"], _LAST_WATCHED["survival"]
+    team = surv = None
+    try:
+        conn = db(timeout=3)
+        c = conn.cursor()
+        try:
+            team = c.execute("SELECT MAX(played_at) FROM matches").fetchone()[0]
+        except sqlite3.Error:
+            team = None
+        try:
+            surv = c.execute("SELECT MAX(ended_at) FROM survival_results").fetchone()[0]
+        except sqlite3.Error:
+            surv = None
+        conn.close()
+    except sqlite3.Error:
+        return _LAST_WATCHED["team"], _LAST_WATCHED["survival"]
+    _LAST_WATCHED.update({"at": now, "team": team, "survival": surv})
+    return team, surv
+
+
+def ago_text(stamp):
+    """'4 min ago' for a UTC 'YYYY-MM-DD HH:MM:SS' stamp; '' if unknown."""
+    if not stamp:
+        return ''
+    try:
+        then = calendar.timegm(time.strptime(
+            str(stamp).replace('T', ' ')[:19], '%Y-%m-%d %H:%M:%S'))
+    except (ValueError, TypeError):
+        return ''
+    sec = max(0, int(time.time() - then))
+    if sec < 90:
+        return 'just now'
+    if sec < 3600:
+        return '%d min ago' % (sec // 60)
+    if sec < 86400:
+        h = sec // 3600
+        return '%d hour%s ago' % (h, '' if h == 1 else 's')
+    d = sec // 86400
+    return '%d day%s ago' % (d, '' if d == 1 else 's')
 
 
 def watched_totals():
@@ -15931,13 +16032,7 @@ def leaderboard():
     # showed a player on 6.0 as 11.0 on the combined board.
     relative = region != ALL_REGIONS or gain
 
-    conn = db()
-    c = conn.cursor()
-    rows = (survival_board_rows(c, period, region) if mode == 'survival'
-            else board_rows(c, period, region))
-    conn.close()
-
-    rows.sort(key=leaderboard_sort_key)
+    rows = sorted_board(mode, period, region)
     # `total` stays the size of the whole board: it is the count the page
     # reports, and a search must not appear to shrink the leaderboard.
     total_ranked = len(rows)
@@ -16100,7 +16195,9 @@ def leaderboard():
         me_rows = [_p for _p in me_rows
                    if normalize_name(_p['name']) not in _shownset]
     _wt, _ws = watched_totals()
+    _lt, _ls = last_watched()
     return render_template('index.html', leaderboard=leaderboard_data,
+                           last_ago=ago_text(_ls if mode == 'survival' else _lt),
                            periods=PERIODS, regions=REGION_CHOICES,
                            period=period, region=region, gain=gain,
                            region_label=REGION_LABELS[region],
