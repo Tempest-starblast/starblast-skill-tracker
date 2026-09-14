@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.80"
+APP_VERSION = "9.13.81"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.81", "at": "2026-09-14T23:10:00Z", "changes": [
+        "<b>Replay ships are now the ship of the moment, and they point where they are going.</b> A ship on the radar is the hull that pilot was flying at that second — it upgrades on screen as it did in the game — and each one is turned to its heading instead of all facing up. Spectator clients that only sit and watch are no longer drawn at all.",
+    ]},
     {"version": "9.13.80", "at": "2026-09-14T22:10:00Z", "changes": [
         "<b>Every pilot on a replay radar now flies their own ship, not just the rated ones.</b> A result only records ships for the players it rates — a handful of a full lobby — so the replay now carries the ship for everyone it drew. New matches from here on.",
     ]},
@@ -8643,20 +8646,15 @@ def trueskill_replay_read():
                 seed = int(sys_id)
             except (TypeError, ValueError):
                 seed = None
-        if isinstance(best_sh, dict):
-            for _nm, _cd in best_sh.items():
-                try:
-                    _cd = int(_cd)
-                except (TypeError, ValueError):
-                    continue
-                ships.setdefault(str(_nm), _cd)
-                ships.setdefault(str(_nm).strip().upper(), _cd)
         for _code in set(ships.values()):
             _d = ship_shapes.ship_path(_code)
             if _d:
                 paths[str(_code)] = _d
                 shipnames[str(_code)] = ship_shapes.ship_name(_code) or str(_code)
-        return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
+        hide = sorted(_id for _id, _nm2 in (nm or {}).items()
+                      if is_observer_name(_nm2))
+        return jsonify({"hide": hide,
+                        "frames": best, "wp": wp, "rd": rd, "stlay": stlay,
                         "st": st, "bs": bs, "nm": nm, "hues": hues,
                         "gt0": gt0, "phases": phases, "mt0": mt0, "seed": seed,
                         "ships": ships, "paths": paths,

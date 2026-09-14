@@ -449,11 +449,18 @@ function buildReplay(ST, RD){
     // no ship on record keeps the plain cross. Defined here, above everything
     // that draws, because the rosters are built before the radar is.
     var SHIPS = res.ships || {}, SPATH = res.paths || {}, SNAME = res.shipnames || {};
+    // Ships the radar leaves out: spectator clients that sit in a lobby
+    // watching. They are not playing the match.
+    var HIDE = {}; (res.hide || []).forEach(function(i){ HIDE[String(i)] = 1; });
+    // The ship a dot or a row is flying RIGHT NOW comes with the frame. This
+    // static map is only the fallback for replays recorded before that: the
+    // ship the pilot finished in, off their result.
     var shipOf = function(nm){
       if(!nm) return null;
       var cd = SHIPS[nm];
       if(cd == null) cd = SHIPS[String(nm).trim().toUpperCase()];
       return (cd != null && SPATH[cd]) ? cd : null; };
+    var pathFor = function(cd){ return (cd != null && SPATH[cd]) ? cd : null; };
     var frames = res && res.frames;
     var haveLb = frames && frames.length >= 2;
     if(haveLb){
@@ -489,7 +496,7 @@ function buildReplay(ST, RD){
     // Each player's score at every frame, carried forward (monotonic) so a bar
     // never drops when someone briefly leaves the roster - and so scrubbing
     // backward is exact. gmax scales the bars; `order` ranks by final score.
-    var order = {}, timeline = {};
+    var order = {}, timeline = {}, shipline = {};
     frames.forEach(function(f){ f[1].forEach(function(p){
       var key = p[2] + '|' + p[0], s = p[1] || 0;
       if(!(key in order) || s > order[key]) order[key] = s;
@@ -498,6 +505,7 @@ function buildReplay(ST, RD){
     Object.keys(order).forEach(function(key){
       if(order[key] > gmax) gmax = order[key];
       timeline[key] = new Array(frames.length).fill(0);
+      shipline[key] = new Array(frames.length).fill(0);
     });
     // The frame each pilot first appears in: their row joins the board there.
     var firstFrame = {};
@@ -505,10 +513,13 @@ function buildReplay(ST, RD){
       var key = p[2] + '|' + p[0], a = timeline[key];
       if(!(key in firstFrame)) firstFrame[key] = fi;
       if(a && (p[1]||0) > a[fi]) a[fi] = p[1] || 0;
+      if(shipline[key] && p[3]) shipline[key][fi] = p[3];
     }); });
     Object.keys(timeline).forEach(function(key){
       var a = timeline[key], last = 0;
       for(var j = 0; j < a.length; j++){ if(a[j] > last) last = a[j]; a[j] = last; }
+      var sl = shipline[key], held = 0;
+      if(sl) for(var m = 0; m < sl.length; m++){ if(sl[m]) held = sl[m]; else sl[m] = held; }
     });
 
     // Which teams are in this match, ranked by final total (strongest first).
@@ -534,11 +545,12 @@ function buildReplay(ST, RD){
         .sort(function(a,b){ return order[b] - order[a]; }).slice(0, 8)
         .forEach(function(key){
           var nm = key.slice(key.indexOf('|')+1), mine = MY_NAMES.has(jnorm(nm));
+          // The hull is redrawn per frame from `shipline`; this is just the
+          // slot it goes in (and the old-replay fallback, which never changes).
           var pcode = shipOf(nm);
-          var picon = (pcode != null) ? '<svg class="pship" viewBox="0 0 100 100" aria-hidden="true">'
-            + '<path d="'+SPATH[pcode]+'" fill="'+col+'"/></svg>' : '';
-          rhtml += '<div class="prow'+(mine?' me':'')+'" data-key="'+esc(key)+'"'
-            + ((pcode != null && SNAME[pcode]) ? ' title="'+esc(SNAME[pcode])+'"' : '')+'>'
+          var picon = '<svg class="pship" viewBox="0 0 100 100" aria-hidden="true">'
+            + '<path d="'+(pcode != null ? SPATH[pcode] : '')+'" fill="'+col+'"/></svg>';
+          rhtml += '<div class="prow'+(mine?' me':'')+'" data-key="'+esc(key)+'">'
             + '<span class="pn" style="color:'+col+'">'+(mine?'<span class="youchip2">YOU</span>':'')+picon+esc(nm)+'</span>'
             + '<span class="pb"><i style="background:'+col+'"></i></span>'
             + '<span class="ps">0</span></div>';
@@ -546,7 +558,8 @@ function buildReplay(ST, RD){
       var rel = arenaEl.querySelector('[data-roster="'+k+'"]');
       if(rel){ rosterEls[k] = rel; rel.innerHTML = rhtml;
         rel.querySelectorAll('.prow').forEach(function(rw){
-          rowRef[rw.getAttribute('data-key')] = {bar: rw.querySelector('.pb i'), sc: rw.querySelector('.ps'), row: rw}; });
+          rowRef[rw.getAttribute('data-key')] = {bar: rw.querySelector('.pb i'), sc: rw.querySelector('.ps'),
+                                                  row: rw, ship: rw.querySelector('.pship path'), shipCode: null}; });
       }
     });
 
@@ -687,6 +700,11 @@ function buildReplay(ST, RD){
       var wDelta = function(x0, x1){ var d = x1 - x0; if(d > HALF) d -= WRAP; else if(d < -HALF) d += WRAP; return d; };
       var wWrap = function(v){ if(v > HALF) v -= WRAP; else if(v < -HALF) v += WRAP; return v; };
       var hlKey = null, lastRadar = null;   // roster-hover -> ship spotlight state
+      // Where each ship was last seen pointing. Radar reads carry no heading,
+      // so it is taken from the movement between frames and REMEMBERED: a ship
+      // holding station keeps facing the way it was going instead of snapping
+      // back to nose-up.
+      var HEADING = {};
       drawRadarAt = function(i, j, a, ta){
         if(ta === undefined) ta = a;
         var map = document.getElementById('radarMap'); if(!map) return;
@@ -694,18 +712,43 @@ function buildReplay(ST, RD){
         map.setAttribute('viewBox', (-RMX)+' '+(-RMX)+' '+(2*RMX)+' '+(2*RMX));
         var A = rdSeries[i] || [], B = rdSeries[j] || [], mapB = {}, pts = [];
         B.forEach(function(e){ mapB[sKey(e)] = e; });
+        // Headings, worked out separately from the interpolation pair: when the
+        // replay sits still on one frame those two are the SAME frame, so there
+        // is no movement in them to read a heading from and every ship would
+        // point nose-up until playback started. Take the step to the next frame
+        // (or back from the previous one at the very end) instead.
+        (function(){
+          var h0 = rdSeries[i] || [], hn = rdSeries[i + 1], hp = rdSeries[i - 1];
+          var h1 = hn || hp, back = !hn && !!hp;
+          if(!h1 || h1 === h0) return;
+          var hm = {}; h1.forEach(function(e){ hm[sKey(e)] = e; });
+          h0.forEach(function(e){
+            var b = hm[sKey(e)]; if(!b) return;
+            var dx = wDelta(sX(e), sX(b)), dy = wDelta(sY(e), sY(b));
+            if(back){ dx = -dx; dy = -dy; }
+            var len = Math.hypot(dx, dy);
+            if(len > 0.4 && len <= 55) HEADING[sKey(e)] = Math.atan2(-dy, dx) * 180 / Math.PI + 90;
+          });
+        })();
+        // e = [team, id, x, y, ship] - the ship is the hull flown at THAT read.
+        var shipAt = function(e){ return (e && e.length > 4) ? e[4] : null; };
         A.forEach(function(e){
           var k = sKey(e), b = mapB[k], id = has4(e) ? e[1] : null;
           if(b && has4(e)){
             var ddx = wDelta(sX(e), sX(b)), ddy = wDelta(sY(e), sY(b));
+            // y is drawn negated, so the on-screen heading flips with it. Below
+            // half a unit of travel is noise, not a turn.
+            if(Math.hypot(ddx, ddy) > 0.5 && Math.hypot(ddx, ddy) <= 55)
+              HEADING[k] = Math.atan2(-ddy, ddx) * 180 / Math.PI + 90;
             // Frames are ~3.5s apart and a ship covers < 40 units in that; a bigger
             // jump is an id reused by a new pilot or a glitch, not flight. Cut to it.
-            if(Math.hypot(ddx, ddy) > 55) pts.push(a < 0.5 ? [e[0], sX(e), sY(e), id] : [e[0], sX(b), sY(b), id]);
-            else pts.push([e[0], wWrap(sX(e) + ddx * a), wWrap(sY(e) + ddy * a), id]);
+            if(Math.hypot(ddx, ddy) > 55) pts.push(a < 0.5 ? [e[0], sX(e), sY(e), id, shipAt(e), HEADING[k]] : [e[0], sX(b), sY(b), id, shipAt(b), HEADING[k]]);
+            else pts.push([e[0], wWrap(sX(e) + ddx * a), wWrap(sY(e) + ddy * a), id, shipAt(a < 0.5 ? e : b), HEADING[k]]);
             delete mapB[k]; }
-          else pts.push([e[0], sX(e), sY(e), id]);
+          else pts.push([e[0], sX(e), sY(e), id, shipAt(e), HEADING[k]]);
         });
-        Object.keys(mapB).forEach(function(kk){ var b = mapB[kk]; pts.push([b[0], sX(b), sY(b), has4(b) ? b[1] : null]); });
+        Object.keys(mapB).forEach(function(kk){ var b = mapB[kk];
+          pts.push([b[0], sX(b), sY(b), has4(b) ? b[1] : null, shipAt(b), HEADING[kk]]); });
         var g = '<rect x="'+(-RMX)+'" y="'+(-RMX)+'" width="'+(2*RMX)+'" height="'+(2*RMX)+'" rx="'+(RMX/16)+'" fill="rgba(3,12,26,.55)" stroke="rgba(153,221,255,.16)"/>'
           + '<line x1="'+(-RMX)+'" y1="0" x2="'+RMX+'" y2="0" stroke="rgba(153,221,255,.05)"/>'
           + '<line x1="0" y1="'+(-RMX)+'" x2="0" y2="'+RMX+'" stroke="rgba(153,221,255,.05)"/>'
@@ -718,32 +761,40 @@ function buildReplay(ST, RD){
         // silhouettes are drawn in a 0..100 box, so one scale places it over
         // the spot the cross would have marked. No ship on record (an unnamed
         // dot, or a result recorded before ships were stored) -> the cross.
-        var mark = function(x, y, r, code, col){
+        // The silhouettes are drawn nose-up in a 0..100 box: move the origin
+        // to where the ship is, turn it to its heading, then draw the shape
+        // centred on that origin. rot is degrees clockwise from nose-up.
+        var mark = function(x, y, r, code, col, rot){
           var d = (code != null) ? SPATH[code] : null;
           if(!d) return cross(x, y, r);
           var w = r * 3.1, sc = w / 100;
           return '<path d="' + d + '" fill="' + col + '" stroke="none" transform="translate('
-            + (x - w / 2).toFixed(2) + ',' + (y - w / 2).toFixed(2) + ') scale(' + sc.toFixed(4) + ')"/>'; };
+            + x.toFixed(2) + ',' + y.toFixed(2) + ') rotate(' + (rot || 0).toFixed(1) + ') translate('
+            + (-w / 2).toFixed(2) + ',' + (-w / 2).toFixed(2) + ') scale(' + sc.toFixed(4) + ')"/>'; };
         // The map wraps (period 256, the view is +-132): a ship near an edge is also
         // drawn one period over, so crossing the edge slides it off one side and onto
         // the other instead of popping. Only copies that land in view are emitted.
-        var ghosts = function(x, y, r, code, col){ var out = '';
+        var ghosts = function(x, y, r, code, col, rot){ var out = '';
           [[-WRAP,0],[WRAP,0],[0,-WRAP],[0,WRAP],[-WRAP,-WRAP],[WRAP,-WRAP],[-WRAP,WRAP],[WRAP,WRAP]].forEach(function(o){
             var gx = x + o[0], gy = y + o[1];
-            if(Math.abs(gx) <= RMX + r && Math.abs(gy) <= RMX + r) out += mark(gx, gy, r, code, col); });
+            if(Math.abs(gx) <= RMX + r && Math.abs(gy) <= RMX + r) out += mark(gx, gy, r, code, col, rot); });
           return out; };
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
+          if(p[3] != null && HIDE[String(p[3])]) return;   // a spectator, not a player
           var nm = (p[3] != null) ? NM[p[3]] : null;
           // data-key = team|name matches the roster row's data-key, so a hover on
           // either the ship (or its label) or the row spotlights the other.
-          var code = shipOf(nm);
+          // The hull flown at this moment; a replay recorded before the hull
+          // travelled with each frame falls back to the one on the result.
+          var code = pathFor(p[4]) || shipOf(nm);
+          var rot = p[5] || 0;
           var rawKey = nm ? (p[0] + '|' + nm) : null;
           var dk = rawKey ? esc(rawKey) : null;
           var hl = (rawKey && rawKey === hlKey);
           g += '<g class="rship'+(hl ? ' hl' : '')+'"'+(dk ? ' data-key="'+dk+'"' : '')+' stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
             + (hl ? '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+(r*2.6).toFixed(1)+'" fill="'+c+'" opacity="0.30" stroke="none"/>' : '')
             + (nm ? '<title>'+esc(nm)+((code != null && SNAME[code]) ? ' \u00b7 '+esc(SNAME[code]) : '')+'</title>' : '')
-            + mark(x, y, r, code, c) + ghosts(x, y, r, code, c)
+            + mark(x, y, r, code, c, rot) + ghosts(x, y, r, code, c, rot)
             + (nm ? '<text x="'+x.toFixed(1)+'" y="'+(y - r*1.9).toFixed(1)+'" fill="'+c+'" font-size="'+(RMX/24).toFixed(1)+'" text-anchor="middle" opacity="0.9" stroke="rgba(3,8,16,.85)" stroke-width="'+(RMX/150).toFixed(2)+'" style="paint-order:stroke">'+esc(nm.length > 9 ? nm.slice(0,8)+'…' : nm)+'</text>' : '')
             + '</g>';
         });
@@ -953,6 +1004,15 @@ function buildReplay(ST, RD){
         ref.cur = s;
         ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
         ref.sc.textContent = Math.round(s).toLocaleString();
+        // The hull they are flying at this moment, drawn only when it changes.
+        if(ref.ship){
+          var sl = shipline[key], cd = pathFor(sl ? sl[i] : 0) || shipOf(key.slice(key.indexOf('|')+1));
+          if(cd !== ref.shipCode){
+            ref.shipCode = cd;
+            ref.ship.setAttribute('d', cd != null ? SPATH[cd] : '');
+            if(ref.row) ref.row.setAttribute('title', (cd != null && SNAME[cd]) ? SNAME[cd] : '');
+          }
+        }
       });
       // Keep each roster sorted highest-score-first, live, like a leaderboard -
       // only touching the DOM when the order actually changes.
