@@ -710,6 +710,19 @@ function buildReplay(ST, RD){
       // holding station keeps facing the way it was going instead of snapping
       // back to nose-up.
       var HEADING = {};
+      // What is actually DRAWN, eased toward HEADING a little each paint and
+      // always the short way round. Reads are ~3s apart, so a ship that turns
+      // between two of them would otherwise snap through the whole angle in
+      // one frame; this makes it swing round instead.
+      var FACING = {};
+      var ease = function(k, target){
+        if(target == null) return FACING[k] || 0;
+        var cur = FACING[k];
+        if(cur == null){ FACING[k] = target; return target; }
+        var d = ((target - cur + 540) % 360) - 180;      // -180..180
+        FACING[k] = cur + d * 0.22;
+        return FACING[k];
+      };
       drawRadarAt = function(i, j, a, ta){
         if(ta === undefined) ta = a;
         var map = document.getElementById('radarMap'); if(!map) return;
@@ -793,7 +806,7 @@ function buildReplay(ST, RD){
           // map is the ship a pilot finished in, which would be wrong from the
           // first second and only exists for the players a result rated.
           var code = pathFor(p[4]);
-          var rot = p[5] || 0;
+          var rot = ease(p[0] + '|' + p[3], p[5]);
           var rawKey = nm ? (p[0] + '|' + nm) : null;
           var dk = rawKey ? esc(rawKey) : null;
           var hl = (rawKey && rawKey === hlKey);
@@ -1063,7 +1076,11 @@ function buildReplay(ST, RD){
       if(drawRawStations){ var si = Math.round(pos); if(si !== shownStRaw){ drawRawStations(si); shownStRaw = si; } }
       var tnow = lerp(frames[i][0], frames[j][0], ta);
       if(drawField) drawField(tnow);
-      tEl.textContent = fmtT(tnow);
+      // The game's own match clock. A recording does not always begin at the
+      // first second of a match - the watcher joins when it reaches the lobby -
+      // so showing time-since-we-arrived made a match look as though it opened
+      // with ships already upgraded and points on the board.
+      tEl.textContent = fmtT(tnow + MT0);
       var frac = (T1 > T0) ? (tnow - T0) / (T1 - T0) : 0;
       seek.value = Math.round(SEEKN * Math.max(0, Math.min(1, frac)));
       if(fillEl) fillEl.style.width = (100 * Math.max(0, Math.min(1, frac))) + '%';
@@ -1073,6 +1090,8 @@ function buildReplay(ST, RD){
     // 640ms stepping ran ~5x faster than the match, and unevenly.)
     var timer = null, lastT = 0;
     var T0 = frames[0][0], T1 = frames[frames.length - 1][0];
+    var MT0 = (typeof res.mt0 === 'number' && res.mt0 > 0 && res.mt0 < 4 * 3600) ? res.mt0 : 0;
+    if(MT0 >= 45 && tEl) tEl.title = 'Match time. This recording starts ' + fmtT(MT0) + ' into the game.';
     // A hole costs the viewer a beat, not the minutes it really lasted: hold on
     // the last real reading long enough to read the notice, then cut to the far
     // side. Nothing can be shown in between, so there is nothing to play.

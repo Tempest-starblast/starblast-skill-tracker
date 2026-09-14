@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.82"
+APP_VERSION = "9.13.83"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.83", "at": "2026-09-15T01:00:00Z", "changes": [
+        "<b>The replay clock now reads the game’s own match time.</b> A recording begins when the watcher reaches the lobby, which is not always the first second of the match — so a replay could open at “0m” with ships already upgraded and points on the board. It now opens at the real time on the match clock.",
+        "Ships turn smoothly on the radar instead of snapping to each new heading.",
+    ]},
     {"version": "9.13.82", "at": "2026-09-15T00:10:00Z", "changes": [
         "<b>A replay no longer gives away the result before it starts.</b> The win chance is blank until the model has actually read the match \u2014 it used to fill the opening minutes with the FINAL numbers, so a replay opened showing 100% beside the eventual winner, and even sorted the team panels by it.",
         "On the radar a ship is drawn only where the hull flown at that moment was recorded. Replays from before that was kept show the plain marker throughout instead of a scattering of ships, and the roster still names what each pilot finished in.",
