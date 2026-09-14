@@ -1073,7 +1073,7 @@ function buildReplay(ST, RD){
       }
       if(markWp) markWp(Math.round(pos));
       if(drawRadarAt) drawRadarAt(i, j, a, ta);
-      if(drawRawStations){ var si = Math.round(pos); if(si !== shownStRaw){ drawRawStations(si); shownStRaw = si; } }
+      if(drawRawStations){ var si = Math.round(pos); if(si !== shownStRaw){ drawRawStations(si); shownStRaw = si; soundStations(si); } }
       var tnow = lerp(frames[i][0], frames[j][0], ta);
       if(drawField) drawField(tnow);
       // The game's own match clock. A recording does not always begin at the
@@ -1089,6 +1089,22 @@ function buildReplay(ST, RD){
     // real time. (Frames are ~3.5s apart but not exactly; the old one-frame-per-
     // 640ms stepping ran ~5x faster than the match, and unevenly.)
     var timer = null, lastT = 0;
+    // A station's core finally going, and the end of the match: the only two
+    // moments loud enough to be worth a sound. Silent unless the reader asked
+    // for sound, and never while scrubbing backwards.
+    var stGone = {}, endRung = false, lastSoundIdx = -1;
+    function soundStations(si){
+      if(!window.SBSound || !SBSound.isOn() || !stSeries) return;
+      var back = si < lastSoundIdx; lastSoundIdx = si;
+      var row = stSeries[si]; if(!row || back) return;
+      row.forEach(function(st, k){
+        var hp = st && st[2];
+        if(!hp || !hp.length) return;
+        var dead = hp.filter(function(h){ return !h; }).length;
+        if(dead >= hp.length && !stGone[k]){ stGone[k] = 1; SBSound.play('thud'); }
+      });
+      if(si >= frames.length - 2 && !endRung){ endRung = true; SBSound.play('chime'); }
+    }
     var T0 = frames[0][0], T1 = frames[frames.length - 1][0];
     var MT0 = (typeof res.mt0 === 'number' && res.mt0 > 0 && res.mt0 < 4 * 3600) ? res.mt0 : 0;
     if(MT0 >= 45 && tEl) tEl.title = 'Match time. This recording starts ' + fmtT(MT0) + ' into the game.';

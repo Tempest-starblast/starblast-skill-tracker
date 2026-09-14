@@ -95,6 +95,13 @@ body::after{
 .topbar,.page{position:relative;z-index:1}
 a{color:inherit}
 
+.sndbtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
+  border-radius:8px;border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--muted);
+  cursor:pointer;padding:0;flex:none}
+.sndbtn:hover{color:var(--text);border-color:rgba(153,221,255,.4)}
+.sndbtn.on{color:var(--green);border-color:rgba(102,230,184,.5);background:rgba(102,230,184,.10)}
+.sndbtn svg{width:15px;height:15px}
+.sndbtn .sx{display:none}.sndbtn:not(.on) .sx{display:block}
 .topbar{background:rgba(2,6,12,.5);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-bottom:1px solid var(--line);padding:16px 20px}
 .brandrow{max-width:1100px;margin:0 auto 14px;display:flex;align-items:center;gap:12px}
 .brand{flex:1;text-align:center}
@@ -470,6 +477,15 @@ async function devRestore(){
         {%- endfor %}
       </div>
     </details>
+    <button type="button" class="sndbtn" id="sndBtn" aria-pressed="false"
+            title="Sound" aria-label="Sound">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 9v6h4l5 4V5L9 9H5z" fill="currentColor" stroke="none"/>
+        <path d="M17 9.5a3.5 3.5 0 0 1 0 5"/>
+        <path class="sx" d="M20 5L4 19"/>
+      </svg>
+    </button>
     <div class="brand"><a href="/">Starblast Skill Leaderboard</a></div>
     <div class="authbox">
       <div id="authOut">
@@ -812,6 +828,136 @@ document.addEventListener('keydown', function(e){
   }
   m.addEventListener('mouseenter', ackMenu);
   m.querySelector('a').addEventListener('click', ackMenu);
+})();
+</script>
+<script>
+/* The site's own sounds. Every one is built here out of an oscillator, a
+   short noise burst and an envelope - nothing is sampled from the game.
+   Silent until switched on, and the switch is the gesture a browser needs
+   before it will let a page make any sound at all. */
+(function(){
+  var KEY = 'sb-sound', WARP = 'sb-warp';
+  var on = false;
+  try { on = localStorage.getItem(KEY) === '1'; } catch (e) {}
+  var ctx = null;
+  function audio(){
+    if(ctx) return ctx;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return null;
+    try { ctx = new AC(); } catch (e) { return null; }
+    return ctx;
+  }
+  // A short band of noise, for the breath under a sweep or a thud.
+  function noise(c, dur){
+    var n = Math.max(1, Math.floor(c.sampleRate * dur));
+    var buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    for(var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    var src = c.createBufferSource(); src.buffer = buf; return src;
+  }
+  function env(c, g, peak, dur, t0){
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + Math.min(0.02, dur / 4));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  }
+  var VOICES = {
+    // Arriving: a tone falling through a closing filter, with a breath of
+    // noise behind it.
+    warp: function(c, t){
+      var o = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(880, t);
+      o.frequency.exponentialRampToValueAtTime(150, t + 0.34);
+      f.type = 'lowpass';
+      f.frequency.setValueAtTime(2600, t);
+      f.frequency.exponentialRampToValueAtTime(320, t + 0.34);
+      env(c, g, 0.075, 0.38, t);
+      o.connect(f); f.connect(g); g.connect(c.destination);
+      o.start(t); o.stop(t + 0.42);
+      var nz = noise(c, 0.3), ng = c.createGain(), nf = c.createBiquadFilter();
+      nf.type = 'bandpass'; nf.frequency.setValueAtTime(1200, t);
+      nf.frequency.exponentialRampToValueAtTime(300, t + 0.3);
+      env(c, ng, 0.03, 0.3, t);
+      nz.connect(nf); nf.connect(ng); ng.connect(c.destination); nz.start(t);
+    },
+    // A control answering you: one clean, quiet tick.
+    blip: function(c, t){
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(660, t);
+      o.frequency.exponentialRampToValueAtTime(940, t + 0.05);
+      env(c, g, 0.045, 0.07, t);
+      o.connect(g); g.connect(c.destination);
+      o.start(t); o.stop(t + 0.09);
+    },
+    // A station core going: low, short, felt more than heard.
+    thud: function(c, t){
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(110, t);
+      o.frequency.exponentialRampToValueAtTime(34, t + 0.5);
+      env(c, g, 0.16, 0.55, t);
+      o.connect(g); g.connect(c.destination);
+      o.start(t); o.stop(t + 0.6);
+      var nz = noise(c, 0.35), ng = c.createGain(), nf = c.createBiquadFilter();
+      nf.type = 'lowpass'; nf.frequency.setValueAtTime(700, t);
+      env(c, ng, 0.07, 0.35, t);
+      nz.connect(nf); nf.connect(ng); ng.connect(c.destination); nz.start(t);
+    },
+    // The end of a match: two notes, up.
+    chime: function(c, t){
+      [[523.25, 0], [784, 0.13]].forEach(function(p){
+        var o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(p[0], t + p[1]);
+        env(c, g, 0.06, 0.4, t + p[1]);
+        o.connect(g); g.connect(c.destination);
+        o.start(t + p[1]); o.stop(t + p[1] + 0.45);
+      });
+    }
+  };
+  var last = 0;
+  function play(name){
+    if(!on || document.hidden) return;
+    var v = VOICES[name]; if(!v) return;
+    var c = audio(); if(!c) return;
+    if(c.state === 'suspended'){ try { c.resume(); } catch (e) {} }
+    var now = c.currentTime;
+    if(name === 'blip'){ if(now - last < 0.04) return; last = now; }
+    try { v(c, now + 0.01); } catch (e) {}
+  }
+  window.SBSound = {play: play, isOn: function(){ return on; }};
+
+  var btn = document.getElementById('sndBtn');
+  function paint(){
+    if(!btn) return;
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.title = on ? 'Sound on' : 'Sound off';
+  }
+  if(btn) btn.addEventListener('click', function(){
+    on = !on;
+    try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+    paint();
+    if(on) play('blip');          // the click that allows the first sound
+  });
+  paint();
+
+  // A page arriving. The sound cannot be played on the way OUT - the page
+  // that started it is gone before it finishes - so the click leaves a note
+  // and the page that loads next plays it.
+  document.addEventListener('click', function(ev){
+    var a = ev.target.closest && ev.target.closest('a[href]');
+    if(a){
+      var href = a.getAttribute('href') || '';
+      var internal = href && href[0] === '/' && !a.target && !a.hasAttribute('download')
+                     && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && ev.button === 0;
+      if(internal){ try { sessionStorage.setItem(WARP, '1'); } catch (e) {} }
+      return;
+    }
+    if(ev.target.closest && ev.target.closest('button, .pill, .tabs a, summary, .chip')) play('blip');
+  }, true);
+  try {
+    if(sessionStorage.getItem(WARP) === '1'){ sessionStorage.removeItem(WARP); play('warp'); }
+  } catch (e) {}
 })();
 </script>
 </body></html>

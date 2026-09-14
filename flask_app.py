@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.83"
+APP_VERSION = "9.13.84"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.84", "at": "2026-09-15T02:00:00Z", "changes": [
+        "<b>The site can make a noise now, if you want it to.</b> There is a speaker in the header \u2014 off until you press it, and remembered after that. With it on you get a warp as a page arrives, a soft tick on buttons, and in a replay a low thud when a station\u2019s core goes and two notes when the match ends. The sounds are the site\u2019s own, built in the browser; the game\u2019s audio belongs to Starblast and is not used.",
+    ]},
     {"version": "9.13.83", "at": "2026-09-15T01:00:00Z", "changes": [
         "<b>The replay clock now reads the game’s own match time.</b> A recording begins when the watcher reaches the lobby, which is not always the first second of the match — so a replay could open at “0m” with ships already upgraded and points on the board. It now opens at the real time on the match clock.",
         "Ships turn smoothly on the radar instead of snapping to each new heading.",
