@@ -75,6 +75,13 @@
 .prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
 /* Not in the game yet at this point of the replay: joins the board when they join. */
 .prow.notyet{display:none}
+/* Out of the match: the station is gone, and the panel says so. */
+.team.out{opacity:.55}
+.team.out .t-name{text-decoration:line-through;text-decoration-thickness:2px}
+.team.out .t-name:after{content:" ¹5";font-weight:700;margin-left:5px;text-decoration:none;display:inline-block}
+/* The last team standing. */
+.team.won{box-shadow:inset 0 0 0 1px rgba(255,199,87,.45), 0 0 26px rgba(255,199,87,.13)}
+.team.won .t-name:after{content:" °5";color:var(--amber,#ffc757);margin-left:6px}
 /* Still on the scoreboard, no longer in the game: their score stands, but
    there is no ship of theirs on the radar to find. */
 .prow.left{opacity:.45}
@@ -1106,7 +1113,7 @@ function buildReplay(ST, RD){
       }
       if(markWp) markWp(Math.round(pos));
       if(drawRadarAt) drawRadarAt(i, j, a, ta);
-      if(drawRawStations){ var si = Math.round(pos); if(si !== shownStRaw){ drawRawStations(si); shownStRaw = si; soundStations(si); } }
+      if(drawRawStations){ var si = Math.round(pos); if(si !== shownStRaw){ drawRawStations(si); shownStRaw = si; soundStations(si); markStandings(si); } }
       var tnow = lerp(frames[i][0], frames[j][0], ta);
       if(drawField) drawField(tnow);
       // The game's own match clock. A recording does not always begin at the
@@ -1126,6 +1133,33 @@ function buildReplay(ST, RD){
     // moments loud enough to be worth a sound. Silent unless the reader asked
     // for sound, and never while scrubbing backwards.
     var stGone = {}, endRung = false, lastSoundIdx = -1;
+    // Who is still standing. A team whose station has no module left is out
+    // of the match; when only one is left, that is the winner - said on the
+    // panel so the end of a replay cannot be misread. Recomputed from the
+    // frame itself, so scrubbing backwards puts teams back in the match.
+    function markStandings(si){
+      if(!stSeries) return;
+      var row = stSeries[si]; if(!row) return;
+      var out = {}, alive = [];
+      // A team is out when nobody is left flying for them, or when the station
+      // itself is gone. Either one ends their match.
+      var manned = {};
+      ((frames[si] || [])[1] || []).forEach(function(p){ manned[p[2]] = 1; });
+      teams.forEach(function(k){
+        var st = row[k], hp = st && st[2];
+        var stationGone = !!(hp && hp.length && hp.every(function(h){ return !h; }));
+        var dead = stationGone || !manned[k];
+        out[k] = dead;
+        if(!dead) alive.push(k);
+        var p = teamPanel[k];
+        if(p) p.classList.toggle('out', dead);
+      });
+      var anyOut = teams.some(function(k){ return out[k]; });
+      teams.forEach(function(k){
+        var p = teamPanel[k];
+        if(p) p.classList.toggle('won', anyOut && alive.length === 1 && alive[0] === k);
+      });
+    }
     function soundStations(si){
       if(!window.SBSound || !SBSound.isOn() || !stSeries) return;
       var back = si < lastSoundIdx; lastSoundIdx = si;
