@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.86"
+APP_VERSION = "9.13.87"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.87", "at": "2026-09-15T03:50:00Z", "changes": [
+        "<b>A replay’s team lists now show who is still in the game.</b> The list is the match’s standings, so a pilot keeps the score they earned — but once they leave, their row is struck through and dimmed, instead of sitting there with no ship of theirs anywhere on the radar.",
+    ]},
     {"version": "9.13.86", "at": "2026-09-15T03:20:00Z", "changes": [
         "<b>The win-chance graph no longer shows drops that never happened.</b> The model does not read every single moment, and each unread one was being drawn as a fall to zero — sharp spikes mid-match and a plunge at the end — while the team meters beside it showed nothing of the kind. The graph now reads exactly what the meters read, and begins where the model begins.",
     ]},

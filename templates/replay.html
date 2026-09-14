@@ -75,6 +75,11 @@
 .prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
 /* Not in the game yet at this point of the replay: joins the board when they join. */
 .prow.notyet{display:none}
+/* Still on the scoreboard, no longer in the game: their score stands, but
+   there is no ship of theirs on the radar to find. */
+.prow.left{opacity:.45}
+.prow.left .pn{text-decoration:line-through;text-decoration-thickness:1px;
+  text-decoration-color:rgba(255,255,255,.35)}
 .prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
 .prow[data-key]{cursor:pointer}
 #radarMap .rship{cursor:pointer}
@@ -494,7 +499,7 @@ function buildReplay(ST, RD){
     // Each player's score at every frame, carried forward (monotonic) so a bar
     // never drops when someone briefly leaves the roster - and so scrubbing
     // backward is exact. gmax scales the bars; `order` ranks by final score.
-    var order = {}, timeline = {}, shipline = {};
+    var order = {}, timeline = {}, shipline = {}, presence = {};
     frames.forEach(function(f){ f[1].forEach(function(p){
       var key = p[2] + '|' + p[0], s = p[1] || 0;
       if(!(key in order) || s > order[key]) order[key] = s;
@@ -504,6 +509,7 @@ function buildReplay(ST, RD){
       if(order[key] > gmax) gmax = order[key];
       timeline[key] = new Array(frames.length).fill(0);
       shipline[key] = new Array(frames.length).fill(0);
+      presence[key] = new Array(frames.length).fill(0);
     });
     // The frame each pilot first appears in: their row joins the board there.
     var firstFrame = {};
@@ -512,6 +518,7 @@ function buildReplay(ST, RD){
       if(!(key in firstFrame)) firstFrame[key] = fi;
       if(a && (p[1]||0) > a[fi]) a[fi] = p[1] || 0;
       if(shipline[key] && p[3]) shipline[key][fi] = p[3];
+      if(presence[key]) presence[key][fi] = 1;
     }); });
     Object.keys(timeline).forEach(function(key){
       var a = timeline[key], last = 0;
@@ -1037,6 +1044,15 @@ function buildReplay(ST, RD){
         // On the board only once the playhead has reached the frame they joined in.
         var jf = firstFrame[key], joined = (jf == null) || ((i + a) >= jf);
         if(ref.row) ref.row.classList.toggle('notyet', !joined);
+        // Scores are kept once earned, so the board is the match's standings -
+        // but a pilot who has left is not on the map any more, and a row with
+        // no ship behind it reads as a mistake. Say they are gone.
+        var here = presence[key] ? presence[key][i] : 1;
+        if(ref.row && ref.here !== here){
+          ref.here = here;
+          ref.row.classList.toggle('left', !here);
+          if(ref.ship) ref.ship.style.opacity = here ? '' : '0';
+        }
         ref.cur = s;
         ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
         ref.sc.textContent = Math.round(s).toLocaleString();
