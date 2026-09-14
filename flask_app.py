@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.67"
+APP_VERSION = "9.13.68"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2212,7 +2212,8 @@ def init_db():
     # settings, so loading it back can still re-tune the trace.
     for _col in ("image TEXT", "img_opts TEXT", "shapes TEXT", "base TEXT",
                  "prev_map TEXT", "prev_base TEXT", "prev_shapes TEXT",
-                 "prev_size INTEGER", "prev_name TEXT", "prev_at TEXT", "mode TEXT"):
+                 "prev_size INTEGER", "prev_name TEXT", "prev_at TEXT", "mode TEXT",
+                 "opts TEXT"):
         try:
             c.execute("ALTER TABLE custom_maps ADD COLUMN %s" % _col)
         except sqlite3.OperationalError:
@@ -14457,7 +14458,41 @@ def api_maps():
         mid = c.lastrowid
     conn.commit()
     conn.close()
+    _map_opts_save(mid, body)
     return jsonify({"ok": True, "id": mid, "name": name, "size": size, "cells": cells, "mode": mode}), 200
+
+
+def _map_opts_save(mid, body):
+    """The station settings a map was built around - teams and station size,
+    both 1..5 - kept with the map so it opens the way it was drawn."""
+    opts = {}
+    for key in ("teams", "station_size"):
+        try:
+            v = int(body.get(key))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= v <= 5:
+            opts[key] = v
+    if not opts or not mid:
+        return
+    try:
+        conn = db(timeout=3)
+        conn.execute("UPDATE custom_maps SET opts = ? WHERE id = ?", (json.dumps(opts), mid))
+        conn.commit()
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
+def _map_opts(mid):
+    try:
+        conn = db(timeout=3)
+        r = conn.execute("SELECT opts FROM custom_maps WHERE id = ?", (mid,)).fetchone()
+        conn.close()
+        o = json.loads(r[0]) if r and r[0] else {}
+        return o if isinstance(o, dict) else {}
+    except (sqlite3.Error, ValueError, TypeError):
+        return {}
 
 
 @app.route('/api/maps/<int:mid>/restore', methods=['POST'])
@@ -14534,7 +14569,7 @@ def api_map_one(mid):
     return jsonify({"ok": True, "id": row[0], "name": row[2], "size": row[3], "map": row[4],
                     "cells": row[5] or 0, "image": row[6] or None, "img_opts": _iopts,
                     "shapes": _shapes, "base": row[9] or "", "prev": _prev,
-                    "mode": row[13] or "team"}), 200
+                    "mode": row[13] or "team", "opts": _map_opts(row[0])}), 200
 
 
 CUSTOM_MODE_LABEL = {"team": "Team mode", "invasion": "Invasion", "deathmatch": "Deathmatch"}

@@ -73,7 +73,10 @@ window.MapEd = (function(){
   function isSurvival(){ return rootMode()==='survival'; }
   function pathBand(n){
     var ss=parseFloat(($('o_station_size')||{}).value); if(isNaN(ss)) ss=2;
-    return {r:n*Math.SQRT2/4, half:Math.max(2, 1.5*ss+1)};   // ring radius + station half-width, in cells
+    // Half-width for a LEVEL-4 station, not a fresh one: the blueprint is
+    // twelve modules out to 2.5 module units from the core, plus half a module
+    // - three units - and a module unit grows with the station size setting.
+    return {r:n*Math.SQRT2/4, half:Math.max(2, 3*ss)};       // ring radius + station half-width, in cells
   }
   function inPath(row,col,n,band){
     if(isSurvival()) return false;                 // no stations, no lane
@@ -1922,6 +1925,18 @@ window.MapEd = (function(){
     return zoomF;
   };
   api.resetUndo = function(){ mapUndo=[]; mapRedo=[]; syncHistory(); };
+  // The stations' angle around their ring, in degrees: 0 is where they start
+  // a match. Setting it stops the orbit and puts them there; reading it
+  // follows a hand-drag or the orbit, so a dial can track either.
+  api.orbitAngle = function(deg){
+    if(deg !== undefined){
+      setOrbit(false);
+      var d = ((parseFloat(deg) || 0) % 360 + 360) % 360;
+      orbitAng = d * Math.PI / 180;
+      paintCanvas();
+    }
+    return ((orbitAng * 180 / Math.PI) % 360 + 360) % 360;
+  };
   // Build the field a given seed produces in game, straight into the editor.
   // Same generator the asteroid baker uses, so it matches what players would fly.
   api.fromSeed = function(seed, size, teams){
