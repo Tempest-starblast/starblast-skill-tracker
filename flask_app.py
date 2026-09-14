@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.61"
+APP_VERSION = "9.13.62"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4817,6 +4817,40 @@ def void_match(c, match_row, reason):
     c.execute("UPDATE matches SET voided = 1, void_reason = ? WHERE id = ?",
               (str(reason)[:200], match_row))
     return {"reversed": reversed_n, "skipped": skipped, "delta": round(total, 2)}
+
+
+def move_result(c, match_row, from_norm, to_norm):
+    """Re-credit one player's result in one match from one record to another:
+    the match_players row is re-keyed to the destination (played_as kept),
+    the rating change and the win or loss come off the source ledger and go
+    onto the destination's, exactly as the ledger applied them (a loss keeps
+    the 500 floor). For the name-trap case where a game under an alt name
+    landed on that name's standalone record. Same cursor as the caller's
+    transaction. Returns {delta, won, from, to} with both ledgers after, or
+    None when the row is missing, the destination is missing, or the
+    destination already has a row in that match."""
+    src = c.execute("SELECT won, delta FROM match_players WHERE match_row = ? AND norm_name = ?",
+                    (match_row, from_norm)).fetchone()
+    dst = c.execute("SELECT name FROM players WHERE norm_name = ?", (to_norm,)).fetchone()
+    if not src or not dst:
+        return None
+    if c.execute("SELECT 1 FROM match_players WHERE match_row = ? AND norm_name = ?",
+                 (match_row, to_norm)).fetchone():
+        return None
+    won, delta = int(src[0] or 0), float(src[1] or 0.0)
+    c.execute("UPDATE match_players SET name = ?, norm_name = ? "
+              "WHERE match_row = ? AND norm_name = ?", (dst[0], to_norm, match_row, from_norm))
+    c.execute("UPDATE players SET elo = ROUND(elo - ?, 2), "
+              "wins = MAX(0, COALESCE(wins, 0) - ?), losses = MAX(0, COALESCE(losses, 0) - ?) "
+              "WHERE norm_name = ?", (delta, 1 if won else 0, 0 if won else 1, from_norm))
+    c.execute("UPDATE players SET elo = ROUND(MAX(500, elo + ?), 2), "
+              "wins = COALESCE(wins, 0) + ?, losses = COALESCE(losses, 0) + ? "
+              "WHERE norm_name = ?", (delta, 1 if won else 0, 0 if won else 1, to_norm))
+    after = {}
+    for k, nn in (("from", from_norm), ("to", to_norm)):
+        r = c.execute("SELECT elo, wins, losses FROM players WHERE norm_name = ?", (nn,)).fetchone()
+        after[k] = {"elo": r[0], "wins": r[1], "losses": r[2]} if r else None
+    return {"delta": delta, "won": won, "from": after["from"], "to": after["to"]}
 
 
 def public_entries(entries):
