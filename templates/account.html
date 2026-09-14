@@ -165,6 +165,7 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 
 <div class="card" id="inboxCard" style="display:none">
   <h2>{{ t('Invites & updates') }}</h2>
+  <div id="missedList"></div>
   <div id="inviteList"></div>
   <div id="updateList"></div>
   <p class="msg" id="inboxMsg"></p>
@@ -353,13 +354,33 @@ async function loadMe(){
 async function loadInbox(){
   try{
     const d = await (await fetch('/me/notices')).json();
-    const inv = d.invites || [], upd = d.updates || [];
+    const inv = d.invites || [], upd = d.updates || [], mis = d.missed || [];
     const card = document.getElementById('inboxCard');
     const il = document.getElementById('inviteList');
     const ul = document.getElementById('updateList');
-    il.textContent = ''; ul.textContent = '';
-    if (!inv.length && !upd.length){ card.style.display = 'none'; return; }
+    const ml = document.getElementById('missedList');
+    il.textContent = ''; ul.textContent = ''; ml.textContent = '';
+    if (!inv.length && !upd.length && !mis.length){ card.style.display = 'none'; return; }
     card.style.display = 'block';
+    mis.forEach(function(b){
+      // One decision for the whole batch, wins and losses together.
+      const row = el('div', 'clanrow');
+      const games = b.games.map(function(g){
+        return (g.won ? 'win ' : 'loss ') + (g.delta >= 0 ? '+' : '') + g.delta + ' (' + g.at.slice(5) + ')';
+      }).join(', ');
+      const txt = el('div', 'ctag');
+      txt.style.whiteSpace = 'normal';
+      txt.textContent = 'Your play name ' + b.name + ' finished ' + b.games.length
+        + (b.games.length === 1 ? ' game' : ' games') + ' without a check-in: ' + games
+        + '. Net ' + (b.total >= 0 ? '+' : '') + b.total + '. Was that you? Taking them moves all of them to your account.';
+      row.appendChild(txt);
+      const yes = el('button', 'primary', 'Take them all');
+      yes.onclick = function(){ decideMissed(b.name, true); };
+      const no = el('button', 'ghost', 'Not me');
+      no.onclick = function(){ decideMissed(b.name, false); };
+      row.appendChild(yes); row.appendChild(no);
+      ml.appendChild(row);
+    });
     inv.forEach(function(v){
       const row = el('div', 'clanrow');
       row.appendChild(el('div', 'ctag', v.clan + ' invited ' + v.name));
@@ -377,6 +398,14 @@ async function loadInbox(){
       post('/me/notices/seen', {}).catch(function(){});
     }
   }catch(e){}
+}
+async function decideMissed(name, take){
+  try{
+    const [r, d] = await post('/api/missed/decide', {name: name, take: take});
+    say('inboxMsg', r.ok, d.message);
+    loadInbox();
+    if (r.ok && take) setTimeout(function(){ location.reload(); }, 1600);
+  }catch(e){ say('inboxMsg', false, 'Server connection error.'); }
 }
 async function answerInvite(id, accept){
   try{

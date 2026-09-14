@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.66"
+APP_VERSION = "9.13.67"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1986,6 +1986,22 @@ def init_db():
                     undone_at TEXT
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_credit_moves_sub ON credit_moves(sub, at)")
+    # Every change of an account's saved play name, with the time - so "what
+    # was my play name when that game was played" can be answered later.
+    c.execute('''CREATE TABLE IF NOT EXISTS play_name_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT, name TEXT, at TEXT)''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_play_name_log ON play_name_log(sub, at)")
+    # "Your saved play name finished this match with no check-in": one row per
+    # account and match, offered in the inbox and by Discord message, decided
+    # once for every open row under that name.
+    c.execute('''CREATE TABLE IF NOT EXISTS missed_notices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    at TEXT, sub TEXT, name TEXT, norm TEXT,
+                    match_row INTEGER, sys_id INTEGER,
+                    status TEXT DEFAULT 'open', decided_at TEXT,
+                    dm_sent INTEGER DEFAULT 0,
+                    UNIQUE (sub, match_row))''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_missed_sub ON missed_notices(sub, status, at)")
 
     # Flood evidence: how badly one name was duplicated in this match, and
     # by whom. Recorded for every match, judged by nobody - it exists so a
@@ -4751,8 +4767,10 @@ def game_end():
     conn.commit()
     conn.close()
     # The boards this result changed, rebuilt now in the background so the
-    # next visitor finds them ready instead of paying for the first build.
-    threading.Thread(target=prewarm_boards, daemon=True).start()
+    # next visitor finds them ready instead of paying for the first build;
+    # then anyone whose saved play name played this match without a check-in
+    # is told.
+    threading.Thread(target=_after_result, args=(_mid,), daemon=True).start()
 
     # After the match is safely written: if it was flooded, put the finished
     # result in front of the owner with what it paid out, so it can be voided
@@ -4981,6 +4999,237 @@ def claim_missed_result(c, sub_id, raw_name):
                  "message": "Moved to '%s': %s." % (who, "; ".join(parts))}
 
 
+MISSED_WINDOW_HOURS = 48      # how long a notice stays open
+MISSED_QUIET_DAYS = 7         # "not me" quiets that name for this long
+
+
+def _after_result(match_id):
+    prewarm_boards()
+    notify_missed_results(match_id)
+
+
+def notify_missed_results(match_id):
+    """After a result is written: every account whose SAVED PLAY NAME finished
+    this match on nobody's record - no check-in, so the name's own row got the
+    result - gets a notice. Skipped when the account already has a result in
+    the match (one person is one ship), when another account has ever checked
+    in under the name, when the name has a record of its own, or when the
+    account said "not me" for that name this week. Runs off the request path."""
+    try:
+        conn = db(timeout=6)
+        c = conn.cursor()
+        m = c.execute("SELECT id, sys_id FROM matches WHERE match_id = ?", (match_id,)).fetchone()
+        if not m:
+            conn.close()
+            return 0
+        mid, sys_id = m
+        rows = c.execute("SELECT norm_name, name FROM match_players WHERE match_row = ?",
+                         (mid,)).fetchall()
+        if not rows:
+            conn.close()
+            return 0
+        in_match = {r[0] for r in rows}
+        ph = ",".join("?" for _ in rows)
+        owned = {r[0] for r in c.execute(
+            "SELECT norm_name FROM players WHERE google_sub IS NOT NULL AND google_sub != '' "
+            "AND norm_name IN (%s)" % ph, [r[0] for r in rows]).fetchall()}
+        cands = [(nn, nm) for nn, nm in rows if nn and nn not in owned]
+        if not cands:
+            conn.close()
+            return 0
+        by_norm = {}
+        for sub, gn, acct in c.execute(
+                "SELECT google_sub, game_name, norm_name FROM players WHERE google_sub IS NOT NULL "
+                "AND google_sub != '' AND game_name IS NOT NULL AND game_name != ''").fetchall():
+            k = normalize_name(gn)
+            if k and k != acct:
+                by_norm.setdefault(k, []).append((sub, acct))
+        now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+        quiet_since = time.strftime('%Y-%m-%d %H:%M:%S',
+                                    time.gmtime(time.time() - MISSED_QUIET_DAYS * 86400))
+        made = 0
+        for nn, nm in cands:
+            for sub, acct in by_norm.get(nn, []):
+                if acct in in_match:
+                    continue
+                if c.execute("SELECT 1 FROM name_bindings WHERE in_game_name = ? AND sub != ? "
+                             "LIMIT 1", (nm, sub)).fetchone():
+                    continue
+                if c.execute("SELECT 1 FROM missed_notices WHERE sub = ? AND norm = ? "
+                             "AND status = 'declined' AND decided_at > ?",
+                             (sub, nn, quiet_since)).fetchone():
+                    continue
+                rec = c.execute("SELECT COALESCE(wins, 0) + COALESCE(losses, 0) FROM players "
+                                "WHERE norm_name = ?", (nn,)).fetchone()
+                if rec and rec[0] > FORGOT_MAX_RECORD_GAMES:
+                    continue
+                c.execute("INSERT OR IGNORE INTO missed_notices (at, sub, name, norm, match_row, sys_id) "
+                          "VALUES (?,?,?,?,?,?)", (now, sub, nm, nn, mid, sys_id))
+                made += c.rowcount if c.rowcount and c.rowcount > 0 else 0
+        conn.commit()
+        conn.close()
+        return made
+    except sqlite3.Error:
+        return 0
+
+
+def missed_batches(c, sub_id):
+    """This account's open notices from the last MISSED_WINDOW_HOURS, one batch
+    per name, each game with its result as it stands on the name's own row.
+    A game that has since moved or been voided drops out."""
+    since = time.strftime('%Y-%m-%d %H:%M:%S',
+                          time.gmtime(time.time() - MISSED_WINDOW_HOURS * 3600))
+    out = {}
+    for nid, name, norm, mid in c.execute(
+            "SELECT id, name, norm, match_row FROM missed_notices WHERE sub = ? "
+            "AND status = 'open' AND at > ? ORDER BY id", (sub_id, since)).fetchall():
+        mp = c.execute("SELECT mp.won, mp.delta, m.played_at, m.sys_id, COALESCE(m.lobby_name, '') "
+                       "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+                       "WHERE mp.match_row = ? AND mp.norm_name = ? AND COALESCE(m.voided, 0) = 0",
+                       (mid, norm)).fetchone()
+        if not mp:
+            c.execute("UPDATE missed_notices SET status = 'stale' WHERE id = ?", (nid,))
+            continue
+        b = out.setdefault(norm, {"name": name, "norm": norm, "games": [], "total": 0.0})
+        b["games"].append({"match": mid, "at": (mp[2] or '')[:16], "won": bool(mp[0]),
+                           "delta": round(float(mp[1] or 0), 1), "sys": mp[3], "lobby": mp[4]})
+        b["total"] += float(mp[1] or 0)
+    for b in out.values():
+        b["total"] = round(b["total"], 1)
+    return list(out.values())
+
+
+def decide_missed(c, sub_id, raw_name, take):
+    """One decision for every open game under that name. Take: each result is
+    moved with move_result, wins and losses alike, under the same limits as
+    the form (a name without a record of its own, one claim a day). Not me:
+    the name is quiet for MISSED_QUIET_DAYS. Does NOT commit."""
+    key = normalize_name(str(raw_name or '')[:40])
+    batches = [b for b in missed_batches(c, sub_id) if b["norm"] == key]
+    if not batches:
+        return 404, {"ok": False, "message": "Nothing open under that name."}
+    b = batches[0]
+    now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    if not take:
+        c.execute("UPDATE missed_notices SET status = 'declined', decided_at = ? "
+                  "WHERE sub = ? AND norm = ? AND status = 'open'", (now, sub_id, key))
+        return 200, {"ok": True, "moved": [],
+                     "message": "Noted. We won't ask about '%s' again for a week." % b["name"]}
+    who = account_name_for(c, sub_id)
+    if not who:
+        return 400, {"ok": False, "message": "Set your account name first."}
+    me = normalize_name(who)
+    row = c.execute("SELECT name, google_sub, COALESCE(wins, 0) + COALESCE(losses, 0) "
+                    "FROM players WHERE norm_name = ?", (key,)).fetchone()
+    if row and row[1]:
+        return 400, {"ok": False, "message": "'%s' belongs to an account now." % row[0]}
+    if row and row[2] > FORGOT_MAX_RECORD_GAMES:
+        return 400, {"ok": False,
+                     "message": "'%s' has a record of its own by now, so its games can't be "
+                                "moved this way." % row[0]}
+    if c.execute("SELECT 1 FROM name_bindings WHERE in_game_name = ? AND sub != ? LIMIT 1",
+                 (b["name"], sub_id)).fetchone():
+        return 400, {"ok": False,
+                     "message": "Another account has checked in under that name, so its games "
+                                "can't be moved to yours."}
+    day_ago = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(time.time() - 86400))
+    n_today = c.execute("SELECT COUNT(DISTINCT at) FROM credit_moves WHERE sub = ? AND at > ? "
+                        "AND undone_at IS NULL", (sub_id, day_ago)).fetchone()[0]
+    if n_today >= FORGOT_PER_DAY:
+        return 429, {"ok": False, "message": "One of these a day - try again tomorrow."}
+    moved = []
+    for g in b["games"]:
+        mid = g["match"]
+        if c.execute("SELECT 1 FROM match_players WHERE match_row = ? AND norm_name = ?",
+                     (mid, me)).fetchone():
+            continue
+        r = move_result(c, mid, key, me)
+        if not r:
+            continue
+        c.execute("INSERT INTO credit_moves (at, sub, match_row, from_norm, to_norm, played_as, "
+                  "delta, won, how) VALUES (?,?,?,?,?,?,?,?,?)",
+                  (now, sub_id, mid, key, me, b["name"], r["delta"], r["won"],
+                   "missed notice: saved play name, no check-in, lobby %s" % g["sys"]))
+        c.execute("UPDATE missed_notices SET status = 'taken', decided_at = ? "
+                  "WHERE sub = ? AND match_row = ?", (now, sub_id, mid))
+        moved.append({"match": mid, "at": g["at"], "won": r["won"], "delta": r["delta"]})
+    c.execute("UPDATE missed_notices SET status = 'stale', decided_at = ? "
+              "WHERE sub = ? AND norm = ? AND status = 'open'", (now, sub_id, key))
+    if not moved:
+        return 404, {"ok": False, "message": "Nothing left to move under that name."}
+    parts = ["%s %+.1f on %s" % ("win" if m["won"] else "loss", m["delta"], m["at"][5:])
+             for m in moved]
+    return 200, {"ok": True, "moved": moved, "account_name": who,
+                 "message": "Moved to '%s': %s." % (who, "; ".join(parts))}
+
+
+@app.route('/api/missed/decide', methods=['POST'])
+def api_missed_decide():
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = decide_missed(c, sub_id, data.get('name'), bool(data.get('take')))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+def _discord_id_for(c, sub):
+    """The Discord user to message for an account: the account itself when it
+    signed in with Discord, else a linked Discord, else None."""
+    if sub.startswith('discord:'):
+        return sub.split(':', 1)[1]
+    try:
+        r = c.execute("SELECT discord_id FROM discord_links WHERE account_sub = ?", (sub,)).fetchone()
+        return r[0] if r else None
+    except sqlite3.Error:
+        return None
+
+
+@app.route('/api/bot/missed/pending')
+def bot_missed_pending():
+    """Open notices not yet sent by Discord message, one per account and name."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    since = time.strftime('%Y-%m-%d %H:%M:%S',
+                          time.gmtime(time.time() - MISSED_WINDOW_HOURS * 3600))
+    out, seen = [], set()
+    for sub, name, norm, sys_id, n in c.execute(
+            "SELECT sub, name, norm, MIN(sys_id), COUNT(*) FROM missed_notices "
+            "WHERE status = 'open' AND dm_sent = 0 AND at > ? GROUP BY sub, norm "
+            "ORDER BY MIN(id) LIMIT 20", (since,)).fetchall():
+        did = _discord_id_for(c, sub)
+        if not did or (sub, norm) in seen:
+            continue
+        seen.add((sub, norm))
+        out.append({"sub": sub, "discord_id": did, "name": name, "games": n, "sys_id": sys_id})
+    conn.close()
+    return jsonify({"missed": out}), 200
+
+
+@app.route('/api/bot/missed/delivered', methods=['POST'])
+def bot_missed_delivered():
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    sub, name = str(d.get('sub') or ''), str(d.get('name') or '')
+    if not sub or not name:
+        return jsonify({"ok": False}), 200
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE missed_notices SET dm_sent = 1 WHERE sub = ? AND norm = ? AND status = 'open'",
+              (sub, normalize_name(name)))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
 @app.route('/api/forgot', methods=['POST'])
 def api_forgot():
     """Played under a different name - move that game to my account."""
@@ -5137,6 +5386,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.67", "at": "2026-09-14T12:00:00Z", "changes": [
+        "<b>Forgot to check in under your play name? You are told, and you can take the results.</b> If the play name you saved finishes a match with no check-in, the result goes to that name’s own row — and now a notice appears in your Account inbox, with a Discord message from the bot. It offers one decision for every game under that name from the last two days, wins and losses together: take them all, or say it wasn’t you. The same limits as the check-in form apply, one of these a day.",
+        "The bot now also messages you while the match is still running if your saved play name is flying without a check-in, whether or not Protection is on, so you can check in in time and skip all of the above.",
+    ]},
     {"version": "9.13.65", "at": "2026-09-14T10:00:00Z", "changes": [
         "A profile now says <i>skill rank</i> beside the ship-named rank under your name. The seven ranks are named after the game’s ships and drawn with that ship, which read to some as the ship you fly most; it is where you sit on the leaderboard, and hovering it says so. Ships you actually fly are listed further down, as before.",
     ]},
@@ -6880,7 +7133,17 @@ def bot_checkin_nudge():
     c.execute("SELECT norm_name, google_sub, name FROM players "
               "WHERE strict_mode = 1 AND google_sub IS NOT NULL "
               "AND google_sub != ''")
-    protected_owners = {r[0]: (r[1], r[2]) for r in c.fetchall() if r[0]}
+    protected_owners = {r[0]: (r[1], r[2], 'protected') for r in c.fetchall() if r[0]}
+    # A saved play name that is not the account name only counts with a
+    # check-in, protection on or off - so a ship under one, with no check-in,
+    # is flying for nothing just the same. Told while it can still be fixed.
+    c.execute("SELECT game_name, norm_name, google_sub, name FROM players "
+              "WHERE google_sub IS NOT NULL AND google_sub != '' "
+              "AND game_name IS NOT NULL AND game_name != ''")
+    for gn, nn, sub, acct in c.fetchall():
+        k = normalize_name(gn)
+        if k and k != nn and k not in protected_owners:
+            protected_owners[k] = (sub, acct, 'playname')
     if not protected_owners:
         conn.close()
         return jsonify({"nudges": []}), 200
@@ -6893,7 +7156,7 @@ def bot_checkin_nudge():
         owner = protected_owners.get(key)
         if not owner:
             continue
-        sub, acct = owner
+        sub, acct, reason = owner
         c.execute("SELECT 1 FROM checkins WHERE sub = ? AND sys_id = ? "
                   "AND created_at > datetime('now', ?)",
                   (sub, sys_id, '-%d seconds' % CHECKIN_VALID_SECONDS))
@@ -6903,9 +7166,10 @@ def bot_checkin_nudge():
                   (sub, sys_id))
         if c.fetchone():
             continue
-        out.append({"sys_id": sys_id, "account": acct,
+        out.append({"sys_id": sys_id, "account": acct, "reason": reason,
+                    "played_as": seen_name,
                     "lobby": lobby_name.get(sys_id) or ("Lobby %s" % sys_id),
-                    "discord_id": sub.split(':', 1)[1] if sub.startswith('discord:') else None,
+                    "discord_id": _discord_id_for(c, sub),
                     "sub": sub})
     conn.close()
     return jsonify({"nudges": out[:10]}), 200
@@ -10151,6 +10415,11 @@ def perform_set_game_name(c, sub_id, raw_name):
         return 400, {"ok": False,
                      "message": "That name isn't allowed. Please choose another."}
     c.execute("UPDATE players SET game_name = ? WHERE name = ?", (name or None, who))
+    try:
+        c.execute("INSERT INTO play_name_log (sub, name, at) VALUES (?,?,?)",
+                  (sub_id, name or '', time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())))
+    except sqlite3.Error:
+        pass
     if not name:
         return 200, {"ok": True, "game_name": "",
                      "message": "Cleared. Your profile no longer says what you play as."}
@@ -11088,8 +11357,13 @@ def my_notices():
     c = conn.cursor()
     invites = notice_invites(c, sub_id)
     updates = notice_updates(c, sub_id)
+    try:
+        missed = missed_batches(c, sub_id)
+        conn.commit()
+    except sqlite3.Error:
+        missed = []
     conn.close()
-    return jsonify({"invites": invites, "updates": updates}), 200
+    return jsonify({"invites": invites, "updates": updates, "missed": missed}), 200
 
 
 @app.route('/me/notices/seen', methods=['POST'])
