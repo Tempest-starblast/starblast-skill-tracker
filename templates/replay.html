@@ -78,6 +78,9 @@
 .prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
 .prow[data-key]{cursor:pointer}
 #radarMap .rship{cursor:pointer}
+/* Said beside the clock when a recording begins mid-match. */
+.cfrom{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim,#5d7f93);
+  border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap}
 /* Mini-player mode (?mini=1): show ONLY the radar, filling the frame, and hide
    every bit of page chrome so the replay can ride along in the corner player. */
 body.mini{overflow:hidden;margin:0;background:#04070d}
@@ -1107,12 +1110,23 @@ function buildReplay(ST, RD){
     }
     var T0 = frames[0][0], T1 = frames[frames.length - 1][0];
     var MT0 = (typeof res.mt0 === 'number' && res.mt0 > 0 && res.mt0 < 4 * 3600) ? res.mt0 : 0;
-    if(MT0 >= 45 && tEl) tEl.title = 'Match time. This recording starts ' + fmtT(MT0) + ' into the game.';
+    if(MT0 >= 45 && tEl){
+      tEl.title = 'Match time. This recording starts ' + fmtT(MT0) + ' into the game.';
+      // The watcher reaches a lobby when it finds it, which is not always the
+      // first second of a match - so say so, or the opening frame looks wrong:
+      // ships already upgraded, points already scored.
+      var note = document.createElement('span');
+      note.className = 'cfrom';
+      note.textContent = 'joined ' + fmtT(MT0) + ' in';
+      note.title = 'Nothing before this was recorded: the watcher reached this lobby '
+                 + fmtT(MT0) + ' into the match.';
+      tEl.insertAdjacentElement('afterend', note);
+    }
     // A hole costs the viewer a beat, not the minutes it really lasted: hold on
     // the last real reading long enough to read the notice, then cut to the far
     // side. Nothing can be shown in between, so there is nothing to play.
     var GAP_DWELL = 900, holdTo = 0, holdEnd = 0;
-    var tcur = T1, fi = Math.max(0, frames.length - 2);
+    var tcur = T0, fi = 0;
     function posAt(t){                     // match seconds -> fractional frame index
       if(t <= T0 || frames.length < 2) return 0;
       if(t >= T1) return frames.length - 1;
@@ -1184,7 +1198,10 @@ function buildReplay(ST, RD){
         gapsEl.appendChild(b);
       });
     }
-    renderAt(frames.length - 1);
+    // Open at the beginning and run. A replay parked on its last frame showed
+    // the finished match before the reader had watched any of it.
+    renderAt(0);
+    run();
   }).catch(function(e){ console.error('replay failed:', e); arenaMsg('Could not load this replay.'); });
 
   // Match with a battlefield but no raw leaderboard: radar + stations only.
@@ -1227,7 +1244,9 @@ function buildReplay(ST, RD){
     btn.onclick = function(){ if(timer) stop(); else run(); };
     spd.onchange = function(){ if(timer){ stop(); run(); } };
     seek.oninput = function(){ stop(); showAt(+seek.value); };
-    showAt(pts.length - 1);
+    // Same as the full player: open at the beginning and run.
+    showAt(0);
+    run();
   }
 }
 fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){

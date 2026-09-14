@@ -919,7 +919,7 @@ document.addEventListener('keydown', function(e){
     if(!on || document.hidden) return;
     var v = VOICES[name]; if(!v) return;
     var c = audio(); if(!c) return;
-    if(c.state === 'suspended'){ try { c.resume(); } catch (e) {} }
+    if(c.state === 'suspended'){ try { var p = c.resume(); if(p && p.catch) p.catch(function(){}); } catch (e) {} }
     var now = c.currentTime;
     if(name === 'blip'){ if(now - last < 0.04) return; last = now; }
     try { v(c, now + 0.01); } catch (e) {}
