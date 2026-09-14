@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.68"
+APP_VERSION = "9.13.69"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -14068,7 +14068,17 @@ def api_maptest_open():
                                          "survival_time": max(1, minutes // 2),
                                          "survival_level": 8})
     else:
-        opts = normalize_custom_options({"root_mode": "team", "friendly_colors": 3, "map_size": size})
+        # The stations the map was drawn around: teams and station size, 1..5
+        # each (the game allows up to five teams), as the editor has them set.
+        def _st(key, default):
+            try:
+                v = int(body.get(key))
+            except (TypeError, ValueError):
+                return default
+            return v if 1 <= v <= 5 else default
+        opts = normalize_custom_options({"root_mode": "team", "map_size": size,
+                                         "friendly_colors": _st('teams', 3),
+                                         "station_size": _st('station_size', 2)})
     # ---- the key
     ecp = str(body.get('ecp') or '').strip()
     save = bool(body.get('save'))

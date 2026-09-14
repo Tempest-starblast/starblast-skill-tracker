@@ -1415,6 +1415,8 @@ var PIN_EXPIRES = {{ pin_expires|tojson }};
     if(!testChosen){ status('Choose how long first','err'); var sg=$('mmtmin'); if(sg) sg.scrollIntoView({block:'nearest'}); return; }
     body.minutes=testChosen;
     body.mode=(MapEd.mode?MapEd.mode():'team');
+    body.teams=parseInt(($('o_friendly_colors')||{}).value,10)||3;          // the stations the map was drawn around
+    body.station_size=parseInt(($('o_station_size')||{}).value,10)||2;
     var go=$('mmtgo'); if(go) go.disabled=true;
     testApi('/api/maptest/open','POST',body).then(function(j){
       if(go) go.disabled=false;
