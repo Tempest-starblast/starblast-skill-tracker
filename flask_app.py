@@ -24,7 +24,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.57"
+APP_VERSION = "9.13.58"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -416,6 +416,20 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
 _TSR_MIGRATED = False
 
 
+def _ensure_replay_indexes(conn, schema=''):
+    """The two indexes the Replays listing walks: replays by lobby and end
+    time (is this match replayable?) and the no-result rows by end time.
+    Both covering, so the listing never touches the trajectory blobs. Safe
+    to call on every connection; a no-op once they exist."""
+    for name, cols in (("idx_tsreplay_sys_at", "(sys_id, at)"),
+                       ("idx_tsreplay_nr", "(no_result, at)")):
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS %s%s ON trueskill_replay %s"
+                         % (schema, name, cols))
+        except sqlite3.Error:
+            pass
+
+
 def replay_db():
     """Connection to the replay-trajectory database (trueskill_replay), kept
     separate from players.db so its large blob writes never lock the board."""
@@ -438,6 +452,7 @@ def replay_db():
             except sqlite3.OperationalError:
                 pass
         _TSR_MIGRATED = True
+    _ensure_replay_indexes(conn)
     return conn
 
 
@@ -3287,7 +3302,7 @@ def replay_data_unscored(key):
 
 
 _REPLAY_COUNT_CACHE = {}     # (mode, date, sysq) -> (total, ts)
-_REPLAY_COUNT_TTL = 60       # the archive count moves only as matches end
+_REPLAY_COUNT_TTL = 300      # the archive count moves only as matches end
 
 
 def _survival_replays_page(pg, date, sysq):
@@ -3398,14 +3413,19 @@ def replays_index():
         conn.execute("ATTACH DATABASE ? AS r", (REPLAY_DB_PATH,))
     except sqlite3.Error:
         pass
+    _ensure_replay_indexes(conn, 'r.')
     c = conn.cursor()
     # A match is replayable if it has a frozen score trajectory (match_replays)
     # OR a raw radar/win-prob trajectory (r.trueskill_replay, matched to this
     # match's lobby + end time). The player renders from the latter, so listing
     # only match_replays hid replays that were actually viewable (reported bug).
+    # "Within an hour" is written as a window on the replay's end time so the
+    # (sys_id, at) index answers it, instead of date arithmetic the database
+    # had to evaluate for every match ever recorded.
     have = ("(EXISTS (SELECT 1 FROM match_replays mr WHERE mr.match_row = m.id) "
             "OR EXISTS (SELECT 1 FROM r.trueskill_replay tr WHERE tr.sys_id = m.sys_id "
-            "AND ABS(strftime('%s', m.played_at) - strftime('%s', tr.at)) < 3600))")
+            "AND tr.at > datetime(m.played_at, '-1 hour') "
+            "AND tr.at < datetime(m.played_at, '+1 hour')))")
     full_cond = " WHERE " + have + ((" AND " + " AND ".join(where)) if where else "")
     # The total only feeds "N replays, page X/Y" and only changes when a match
     # ends, but computing it means running the replayable-EXISTS across every
@@ -3434,26 +3454,28 @@ def replays_index():
     pg = min(pg, pages)
     rows = []
     if total:
-        # Scored matches and no-result replays in ONE list, newest first.
+        # Scored matches and no-result replays in ONE list, newest first. Each
+        # side is asked for the newest pg*10 it has and the two are merged
+        # here. A single UNION had to build BOTH lists in full before it could
+        # sort them, which meant re-checking every match ever recorded on every
+        # visit; asked separately, each side walks its own newest-first index
+        # and stops as soon as it has enough.
+        want = pg * 10
+        c.execute("SELECT 'm', m.id, '', m.lobby_name, m.sys_id, "
+                  "COALESCE(m.region,'america'), m.played_at, "
+                  "COALESCE(m.tracked_reads, 0) * 10, '' FROM matches m" + full_cond +
+                  " ORDER BY m.played_at DESC, m.id DESC LIMIT ?", args + [want])
+        got = c.fetchall()
         try:
-            c.execute("SELECT 'm' AS kind, m.id AS id, '' AS key, m.lobby_name AS name, "
-                      "m.sys_id AS sys, COALESCE(m.region,'america') AS region, "
-                      "m.played_at AS at, COALESCE(m.tracked_reads, 0) * 10 AS secs, "
-                      "'' AS reason FROM matches m" + full_cond +
-                      " UNION ALL "
-                      "SELECT 'nr', 0, tr.match_key, tr.name, tr.sys_id, "
+            c.execute("SELECT 'nr', 0, tr.match_key, tr.name, tr.sys_id, "
                       "COALESCE(tr.region,'america'), tr.at, COALESCE(tr.dur_s, 0), "
                       "COALESCE(tr.reason, '') FROM r.trueskill_replay tr" + nr_cond +
-                      " ORDER BY at DESC, id DESC LIMIT 10 OFFSET ?",
-                      args + nr_args + [(pg - 1) * 10])
-            got = c.fetchall()
+                      " ORDER BY tr.at DESC LIMIT ?", nr_args + [want])
+            got += c.fetchall()
         except sqlite3.Error:
-            c.execute("SELECT 'm', m.id, '', m.lobby_name, m.sys_id, "
-                      "COALESCE(m.region,'america'), m.played_at, "
-                      "COALESCE(m.tracked_reads, 0) * 10, '' FROM matches m" + full_cond +
-                      " ORDER BY m.played_at DESC, m.id DESC LIMIT 10 OFFSET ?",
-                      args + [(pg - 1) * 10])
-            got = c.fetchall()
+            pass
+        got.sort(key=lambda x: (str(x[6] or ''), x[1] or 0), reverse=True)
+        got = got[(pg - 1) * 10: pg * 10]
         labels = dict(REGIONS)
         for kind, mid, key, name, sysid, region, at, secs, reason in got:
             rows.append({"kind": kind, "id": mid, "key": key or '',
@@ -4775,6 +4797,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.58", "at": "2026-09-14T02:30:00Z", "changes": [
+        "<b>Replays opens in a fraction of the time.</b> The archive page was re-checking every match ever recorded on every visit before it could show the ten you asked for; it now reads only those, and takes well under a second instead of two to four.",
+    ]},
     {"version": "9.13.52", "at": "2026-09-11T23:30:00Z", "changes": [
         "<b>Replays now keep matches that could not be scored.</b> A match the watcher saw from start to finish but could not call — an event lobby that never sent readable station data, say — used to vanish without a trace. It now stays in Replays, marked <i>no result</i>, with its radar and rosters as they stood. Nothing in it is rated.",
         "Replays can be searched by server name, not only by number and date.",
