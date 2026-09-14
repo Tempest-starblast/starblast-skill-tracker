@@ -577,7 +577,18 @@ function buildReplay(ST, RD){
         wpCarry.push(carried);
       }
       while(lastGoodIdx > 0 && !(wp[lastGoodIdx] && wp[lastGoodIdx].some(function(v){ return v > 0.005; }))) lastGoodIdx--;
-      var wpPts = frames.map(function(f, i){ return {t: f[0], p: wp[i] || [0,0,0]}; });
+      // The chart is drawn from the SAME carried readings as the team meters.
+      // Plotting the raw series put a cliff to zero at every frame the model
+      // did not read - mid-match spikes, and a plunge at the end - which the
+      // meters never showed, so the two disagreed. The curve also begins where
+      // the model begins rather than at zero.
+      var wpFirst = 0;
+      while(wpFirst < wpCarry.length && !wpCarry[wpFirst]) wpFirst++;
+      if(wpFirst >= frames.length) wpFirst = 0;
+      var wpPts = [];
+      for(var wi = wpFirst; wi < frames.length; wi++)
+        wpPts.push({t: frames[wi][0], p: wpCarry[wi] || [0,0,0]});
+      if(!wpPts.length) wpPts = [{t: frames[0][0], p: [0,0,0]}];
       legend(document.getElementById('legend1'), null);
       var svg = document.getElementById('chartP');
       lines(svg, wpPts, function(p,k){ return (p.p && p.p[k]) || 0; },
@@ -596,9 +607,12 @@ function buildReplay(ST, RD){
         c.setAttribute('r', '3.4'); svg.appendChild(c); return c; });
       var wpNow = document.getElementById('wpNow');
       markWp = function(i){
-        var x = X(wpPts[i].t);
+        // The chart starts at the model's first reading, so the playhead index
+        // is offset from the frame index; before that there is nothing to mark.
+        var pi = Math.max(0, Math.min(wpPts.length - 1, i - wpFirst));
+        var x = X(wpPts[pi].t);
         head.setAttribute('x1', x); head.setAttribute('x2', x);
-        var actual = wpPts[i].p;
+        var actual = (i < wpFirst) ? [0,0,0] : wpPts[pi].p;
         [0,1,2].forEach(function(k){
           var v = actual[k] || 0;
           if(v > 0.0005){
@@ -607,7 +621,7 @@ function buildReplay(ST, RD){
             dots[k].setAttribute('fill', COLS[k]); dots[k].style.display = '';
           } else dots[k].style.display = 'none';
         });
-        var src = actual.some(function(v){ return v > 0.005; }) ? actual : wpCarry[i];
+        var src = actual.some(function(v){ return v > 0.005; }) ? actual : null;
         if(wpNow) wpNow.innerHTML = !src ? '<span style="color:var(--dim,#5d7f93)">not yet</span>'
           : [0,1,2].filter(function(k){ return src[k] > 0.005; })
               .map(function(k){ return '<b style="color:'+COLS[k]+'">'+Math.round(src[k]*100)+'%</b>'; }).join(' &middot; ');
