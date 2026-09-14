@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.76"
+APP_VERSION = "9.13.77"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5487,7 +5487,7 @@ def public_entries(entries):
 
 CHANGELOG = [
     {"version": "9.13.76", "at": "2026-09-14T19:30:00Z", "changes": [
-        "<b>The day's best scores now scroll under the leaderboard header.</b> The ten highest scores of the last 24 hours, one per player, five on screen at a time. A name opens that player; a region opens that region's board. It follows the region you are looking at, and it pauses while your pointer is on it.",
+        "<b>The day's best scores now scroll beside the leaderboard header.</b> The ten highest scores of the last 24 hours, one per player, five on screen at a time. A name opens that player; a region opens that region's board. It follows the region you are looking at, and it pauses while your pointer is on it.",
     ]},
     {"version": "9.13.75", "at": "2026-09-14T18:30:00Z", "changes": [
         "<b>Old matches now show your best score too, not the one you happened to finish on.</b> New matches have recorded your highest score since earlier today; every match back to 5 September has now been raised to match, using the highest score the watcher saw you reach in that game. Scores only went up. Your best game, and the average score on your profile, may both read higher than they did.",
