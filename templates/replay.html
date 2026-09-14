@@ -452,14 +452,9 @@ function buildReplay(ST, RD){
     // Ships the radar leaves out: spectator clients that sit in a lobby
     // watching. They are not playing the match.
     var HIDE = {}; (res.hide || []).forEach(function(i){ HIDE[String(i)] = 1; });
-    // The ship a dot or a row is flying RIGHT NOW comes with the frame. This
-    // static map is only the fallback for replays recorded before that: the
-    // ship the pilot finished in, off their result.
-    var shipOf = function(nm){
-      if(!nm) return null;
-      var cd = SHIPS[nm];
-      if(cd == null) cd = SHIPS[String(nm).trim().toUpperCase()];
-      return (cd != null && SPATH[cd]) ? cd : null; };
+    // A hull is only ever drawn from the frame it was recorded in. The
+    // result's own ship map is the ship a pilot FINISHED in, which is the
+    // wrong answer at every moment before the end, so it is not used here.
     var pathFor = function(cd){ return (cd != null && SPATH[cd]) ? cd : null; };
     var frames = res && res.frames;
     var haveLb = frames && frames.length >= 2;
@@ -545,11 +540,9 @@ function buildReplay(ST, RD){
         .sort(function(a,b){ return order[b] - order[a]; }).slice(0, 8)
         .forEach(function(key){
           var nm = key.slice(key.indexOf('|')+1), mine = MY_NAMES.has(jnorm(nm));
-          // The hull is redrawn per frame from `shipline`; this is just the
-          // slot it goes in (and the old-replay fallback, which never changes).
-          var pcode = shipOf(nm);
+          // An empty slot: the hull is drawn into it per frame from `shipline`.
           var picon = '<svg class="pship" viewBox="0 0 100 100" aria-hidden="true">'
-            + '<path d="'+(pcode != null ? SPATH[pcode] : '')+'" fill="'+col+'"/></svg>';
+            + '<path d="" fill="'+col+'"/></svg>';
           rhtml += '<div class="prow'+(mine?' me':'')+'" data-key="'+esc(key)+'">'
             + '<span class="pn" style="color:'+col+'">'+(mine?'<span class="youchip2">YOU</span>':'')+picon+esc(nm)+'</span>'
             + '<span class="pb"><i style="background:'+col+'"></i></span>'
@@ -568,7 +561,18 @@ function buildReplay(ST, RD){
     var markWp = null, lastGoodIdx = frames.length - 1;
     var haveWp = wp && wp.length === frames.length &&
                  wp.some(function(r){ return r && (r[0]||r[1]||r[2]); });
+    // The model reads nothing for the opening frames and nothing once the
+    // result is settled. Carry each reading FORWARD only: a frame before the
+    // first reading has no probability at all, and must never borrow the one
+    // from the end of the match.
+    var wpCarry = [];
     if(haveWp){
+      var carried = null;
+      for(var ci = 0; ci < wp.length; ci++){
+        var rowc = wp[ci];
+        if(rowc && rowc.some(function(v){ return v > 0.005; })) carried = rowc;
+        wpCarry.push(carried);
+      }
       while(lastGoodIdx > 0 && !(wp[lastGoodIdx] && wp[lastGoodIdx].some(function(v){ return v > 0.005; }))) lastGoodIdx--;
       var wpPts = frames.map(function(f, i){ return {t: f[0], p: wp[i] || [0,0,0]}; });
       legend(document.getElementById('legend1'), null);
@@ -600,9 +604,10 @@ function buildReplay(ST, RD){
             dots[k].setAttribute('fill', COLS[k]); dots[k].style.display = '';
           } else dots[k].style.display = 'none';
         });
-        var src = actual.some(function(v){ return v > 0.005; }) ? actual : wpPts[lastGoodIdx].p;
-        if(wpNow) wpNow.innerHTML = [0,1,2].filter(function(k){ return src[k] > 0.005; })
-          .map(function(k){ return '<b style="color:'+COLS[k]+'">'+Math.round(src[k]*100)+'%</b>'; }).join(' &middot; ');
+        var src = actual.some(function(v){ return v > 0.005; }) ? actual : wpCarry[i];
+        if(wpNow) wpNow.innerHTML = !src ? '<span style="color:var(--dim,#5d7f93)">not yet</span>'
+          : [0,1,2].filter(function(k){ return src[k] > 0.005; })
+              .map(function(k){ return '<b style="color:'+COLS[k]+'">'+Math.round(src[k]*100)+'%</b>'; }).join(' &middot; ');
       };
     }
 
@@ -784,9 +789,10 @@ function buildReplay(ST, RD){
           var nm = (p[3] != null) ? NM[p[3]] : null;
           // data-key = team|name matches the roster row's data-key, so a hover on
           // either the ship (or its label) or the row spotlights the other.
-          // The hull flown at this moment; a replay recorded before the hull
-          // travelled with each frame falls back to the one on the result.
-          var code = pathFor(p[4]) || shipOf(nm);
+          // The hull flown at THIS moment, and nothing else: the per-match
+          // map is the ship a pilot finished in, which would be wrong from the
+          // first second and only exists for the players a result rated.
+          var code = pathFor(p[4]);
           var rot = p[5] || 0;
           var rawKey = nm ? (p[0] + '|' + nm) : null;
           var dk = rawKey ? esc(rawKey) : null;
@@ -1006,7 +1012,7 @@ function buildReplay(ST, RD){
         ref.sc.textContent = Math.round(s).toLocaleString();
         // The hull they are flying at this moment, drawn only when it changes.
         if(ref.ship){
-          var sl = shipline[key], cd = pathFor(sl ? sl[i] : 0) || shipOf(key.slice(key.indexOf('|')+1));
+          var sl = shipline[key], cd = pathFor(sl ? sl[i] : 0);
           if(cd !== ref.shipCode){
             ref.shipCode = cd;
             ref.ship.setAttribute('d', cd != null ? SPATH[cd] : '');
@@ -1031,10 +1037,16 @@ function buildReplay(ST, RD){
       });
       if(haveWp){
         var rI = wp[i] || [0,0,0], rJ = wp[j] || [0,0,0];
-        var sI = rI.some(function(v){ return v>0.005; }) ? rI : (wp[lastGoodIdx]||rI);
-        var sJ = rJ.some(function(v){ return v>0.005; }) ? rJ : (wp[lastGoodIdx]||rJ);
+        var sI = rI.some(function(v){ return v>0.005; }) ? rI : wpCarry[i];
+        var sJ = rJ.some(function(v){ return v>0.005; }) ? rJ : wpCarry[j];
         teams.forEach(function(k){
-          var pc = Math.round(lerp(sI[k]||0, sJ[k]||0, a) * 100);
+          // No reading yet: say so, rather than showing how it ends.
+          if(!sI && !sJ){
+            if(wpEl[k]) wpEl[k].textContent = '\u2014';
+            if(wpBar[k]) wpBar[k].style.width = '0%';
+            return;
+          }
+          var pc = Math.round(lerp((sI||sJ)[k]||0, (sJ||sI)[k]||0, a) * 100);
           if(wpEl[k]) wpEl[k].textContent = pc + '%';
           if(wpBar[k]) wpBar[k].style.width = pc + '%';
         });
@@ -1042,7 +1054,9 @@ function buildReplay(ST, RD){
       if(haveWp){
         var fi = Math.round(pos);
         if(fi !== lastSlotFrame){ lastSlotFrame = fi;
-          assignSlots((wp[fi] && wp[fi].some(function(v){ return v > 0.003; })) ? wp[fi] : wp[lastGoodIdx]); }
+          // Only a reading this match has actually reached may move the panels.
+          var wr = (wp[fi] && wp[fi].some(function(v){ return v > 0.003; })) ? wp[fi] : wpCarry[fi];
+          if(wr) assignSlots(wr); }
       }
       if(markWp) markWp(Math.round(pos));
       if(drawRadarAt) drawRadarAt(i, j, a, ta);

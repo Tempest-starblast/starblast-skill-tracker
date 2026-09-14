@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.81"
+APP_VERSION = "9.13.82"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.82", "at": "2026-09-15T00:10:00Z", "changes": [
+        "<b>A replay no longer gives away the result before it starts.</b> The win chance is blank until the model has actually read the match \u2014 it used to fill the opening minutes with the FINAL numbers, so a replay opened showing 100% beside the eventual winner, and even sorted the team panels by it.",
+        "On the radar a ship is drawn only where the hull flown at that moment was recorded. Replays from before that was kept show the plain marker throughout instead of a scattering of ships, and the roster still names what each pilot finished in.",
+    ]},
     {"version": "9.13.81", "at": "2026-09-14T23:10:00Z", "changes": [
         "<b>Replay ships are now the ship of the moment, and they point where they are going.</b> A ship on the radar is the hull that pilot was flying at that second — it upgrades on screen as it did in the game — and each one is turned to its heading instead of all facing up. Spectator clients that only sit and watch are no longer drawn at all.",
     ]},
@@ -8646,7 +8650,19 @@ def trueskill_replay_read():
                 seed = int(sys_id)
             except (TypeError, ValueError):
                 seed = None
-        for _code in set(ships.values()):
+        # Every hull this replay actually draws needs its silhouette sent, not
+        # only the ships on the result: the radar and the roster carry a code
+        # per FRAME, and a code with no path here falls back to a bare marker.
+        _codes = set(ships.values())
+        for _f in (best or []):
+            for _p in (_f[1] if len(_f) > 1 else []) or []:
+                if len(_p) > 3 and _p[3]:
+                    _codes.add(_p[3])
+        for _fr in (rd or []):
+            for _e in _fr or []:
+                if len(_e) > 4 and _e[4]:
+                    _codes.add(_e[4])
+        for _code in _codes:
             _d = ship_shapes.ship_path(_code)
             if _d:
                 paths[str(_code)] = _d
