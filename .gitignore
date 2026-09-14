@@ -9,3 +9,4 @@ owner_subs.txt
 *.bak*
 __pycache__/
 _wipe_report.txt
+boardcache/

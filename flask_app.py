@@ -8,6 +8,7 @@ import json
 import sqlite3
 import math
 import os
+import pickle
 import time
 import secrets
 import hmac
@@ -24,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.59"
+APP_VERSION = "9.13.60"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4732,6 +4733,9 @@ def game_end():
 
     conn.commit()
     conn.close()
+    # The boards this result changed, rebuilt now in the background so the
+    # next visitor finds them ready instead of paying for the first build.
+    threading.Thread(target=prewarm_boards, daemon=True).start()
 
     # After the match is safely written: if it was flooded, put the finished
     # result in front of the owner with what it paid out, so it can be voided
@@ -4797,6 +4801,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.60", "at": "2026-09-14T04:30:00Z", "changes": [
+        "The leaderboard and profile speed-up now holds on every visit, not only repeat ones. The site runs as several workers, and each was building its own copy of the board; they share one now, rebuilt the moment a match lands.",
+    ]},
     {"version": "9.13.59", "at": "2026-09-14T03:30:00Z", "changes": [
         "<b>The leaderboard and profiles open in a fraction of a second.</b> The home page was reading and sorting every ranked player on every visit before showing you fifty, and a profile rebuilt each region's whole board to find one rank. Each board is now built once and kept for under a minute, which is quicker than matches end.",
         "The leaderboard says how long ago the newest match was watched, so you can tell at a glance that the watcher is live.",
@@ -7171,59 +7178,147 @@ def survival_board_rows(c, period="all", region="all"):
 _DIV_CACHE = {"ts": 0.0, "map": {}}
 _DIV_TTL = 90
 
-# Every view of the board, sorted, kept for a short while. The all-time
-# all-regions board was 15k+ players read and sorted on EVERY visit before a
-# page of fifty was sliced off it, and a profile rebuilt each region's board
-# (a GROUP BY over every match ever played) three times over to find one
-# rank. Built once per view per interval instead: the board moves only as
-# matches end, minutes apart, so forty-five seconds is well inside how often
-# anyone could notice.
-_BOARD_CACHE = {}          # (mode, period, region) -> (sorted rows, ts)
-_BOARD_TTL = 45
-_RANK_CACHE = {}           # (mode, period, region) -> (rows it was built from, {norm_name: rank})
+# Every view of the board - rows sorted for ranking, name -> rank, and for the
+# canonical board each player's division - built once and SHARED by every
+# worker through a file. The site runs as several worker processes with
+# separate memory, so a cache kept only in the process left most visits on a
+# cold worker paying the full build. A bundle is keyed by the newest team
+# match and survival round: it is rebuilt the moment a result lands, and
+# otherwise every _BOARD_TTL seconds (renames, clan moves). A worker asks the
+# database whether anything landed at most every _BOARD_RECHECK seconds.
+_BOARD_CACHE = {}          # (mode, period, region) -> bundle
+_BOARD_TTL = 300
+_BOARD_RECHECK = 15
+_BOARD_DIR = os.path.join(BASE_DIR, 'boardcache')
+
+
+def _board_version():
+    """What every board is built from: the newest team match and the newest
+    survival round. Two indexed MAXes."""
+    conn = db(timeout=3)
+    try:
+        c = conn.cursor()
+        try:
+            a = c.execute("SELECT MAX(id) FROM matches").fetchone()[0]
+        except sqlite3.Error:
+            a = None
+        try:
+            b = c.execute("SELECT MAX(rowid) FROM survival_results").fetchone()[0]
+        except sqlite3.Error:
+            b = None
+    finally:
+        conn.close()
+    return (a, b)
+
+
+def _board_build(mode, period, region, version):
+    conn = db(timeout=4)
+    try:
+        c = conn.cursor()
+        rows = (survival_board_rows(c, period, region) if mode == 'survival'
+                else board_rows(c, period, region))
+    finally:
+        conn.close()
+    rows.sort(key=leaderboard_sort_key)
+    norms = [normalize_name(r[0]) for r in rows]
+    ranks_map = {}
+    for i, nn in enumerate(norms, start=1):
+        ranks_map.setdefault(nn, i)
+    b = {"rows": rows, "ranks": ranks_map, "version": version, "built": time.time()}
+    if mode == 'team' and period == 'all' and region == ALL_REGIONS:
+        # The canonical board also carries every player's division (top-X% of
+        # the WHOLE board, provisional players included in the denominator)
+        # and the entries the peak recorder wants, so no worker works those
+        # out a second time.
+        total = len(rows)
+        divs, entries = {}, []
+        for i, row in enumerate(rows):
+            div = ranks.division_for(i, total)
+            if not div:
+                continue
+            divs[norms[i]] = div["key"]
+            if (row[2] or 0) + (row[3] or 0) >= PROVISIONAL_GAMES:
+                entries.append((norms[i], i + 1, div["key"], div["level"]))
+        b["divs"] = divs
+        b["entries"] = entries
+    return b
+
+
+def _board_path(key):
+    return os.path.join(_BOARD_DIR, 'board_%s_%s_%s.pkl' % key)
+
+
+def _board_load(key):
+    try:
+        with open(_board_path(key), 'rb') as f:
+            b = pickle.load(f)
+        return b if isinstance(b, dict) and 'rows' in b else None
+    except (OSError, EOFError, pickle.PickleError, AttributeError, ValueError):
+        return None
+
+
+def _board_save(key, b):
+    try:
+        os.makedirs(_BOARD_DIR, exist_ok=True)
+        tmp = _board_path(key) + '.%d.tmp' % os.getpid()
+        with open(tmp, 'wb') as f:
+            pickle.dump(b, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, _board_path(key))
+    except OSError:
+        pass
+
+
+def board_bundle(mode, period, region):
+    """One board view, fresh: from this worker's memory, else from the file
+    another worker wrote, else built here and written for the others."""
+    key = (mode, period, region)
+    now = time.time()
+    b = _BOARD_CACHE.get(key)
+    if b and now - b.get("checked", 0) < _BOARD_RECHECK:
+        return b
+    try:
+        version = _board_version()
+    except sqlite3.Error:
+        if b:
+            return b                 # a stale board beats an error page
+        raise
+
+    def fresh(x):
+        return bool(x) and x.get("version") == version and now - x.get("built", 0) < _BOARD_TTL
+    if not fresh(b):
+        f = _board_load(key)
+        b = f if fresh(f) else None
+    if b is None:
+        b = _board_build(mode, period, region, version)
+        _board_save(key, b)
+    b["checked"] = now
+    _BOARD_CACHE[key] = b
+    return b
 
 
 def sorted_board(mode, period, region):
-    """The rows of one board view, sorted for ranking, from the cache when
-    fresh. Callers read the list; they must not change it."""
-    key = (mode, period, region)
-    now = time.time()
-    hit = _BOARD_CACHE.get(key)
-    if hit and now - hit[1] < _BOARD_TTL:
-        return hit[0]
-    try:
-        conn = db(timeout=4)
-        c = conn.cursor()
-        try:
-            rows = (survival_board_rows(c, period, region) if mode == 'survival'
-                    else board_rows(c, period, region))
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        if hit:
-            return hit[0]           # a stale board beats an error page
-        raise
-    rows.sort(key=leaderboard_sort_key)
-    if len(_BOARD_CACHE) > 64:
-        _BOARD_CACHE.clear()
-        _RANK_CACHE.clear()
-    _BOARD_CACHE[key] = (rows, now)
-    return rows
+    """The rows of one board view, sorted for ranking. Read-only."""
+    return board_bundle(mode, period, region)["rows"]
 
 
 def board_rank_map(mode, period, region):
-    """norm_name -> 1-based rank on one board view, built beside the cached
-    board it came from, so a profile's regional ranks are dictionary lookups."""
-    key = (mode, period, region)
-    rows = sorted_board(mode, period, region)
-    hit = _RANK_CACHE.get(key)
-    if hit and hit[0] is rows:
-        return hit[1]
-    m = {}
-    for i, r in enumerate(rows, start=1):
-        m.setdefault(normalize_name(r[0]), i)
-    _RANK_CACHE[key] = (rows, m)
-    return m
+    """norm_name -> 1-based rank on one board view."""
+    return board_bundle(mode, period, region)["ranks"]
+
+
+def prewarm_boards(survival=False):
+    """Build the boards a visitor is about to want, right after a result is
+    written, so nobody pays for the first build. Run off the request path."""
+    keys = ([('survival', 'all', ALL_REGIONS)] if survival else
+            [('team', 'all', ALL_REGIONS)] + [('team', 'all', r) for r, _ in REGIONS])
+    for k in keys:
+        try:
+            _BOARD_CACHE.pop(k, None)    # re-check the version right away
+            board_bundle(*k)
+        except sqlite3.Error:
+            pass
+
+
 _PEAK_STATE = {"ts": 0.0, "running": False}
 _PEAK_EVERY = 300           # write peaks at most every 5 min, off the request path
 
@@ -7235,27 +7330,21 @@ def division_map():
     if _DIV_CACHE["map"] and now - _DIV_CACHE["ts"] < _DIV_TTL:
         return _DIV_CACHE["map"]
     try:
-        rows = sorted_board('team', 'all', ALL_REGIONS)
+        b = board_bundle('team', 'all', ALL_REGIONS)
     except sqlite3.Error:
         return _DIV_CACHE["map"]
-    # Rank against the WHOLE board, not just non-provisional players, so the
-    # division ("top X%") matches the rank a profile actually shows (#N of
-    # total). Provisional players still occupy their board position (and count
-    # in the denominator) but don't display an emblem - that gating is done by
-    # the leaderboard row and the profile, not here.
-    total = len(rows)
-    m = {}
-    entries = []
-    for i, row in enumerate(rows):
-        div = ranks.division_for(i, total)
-        if not div:
-            continue
-        nn = normalize_name(row[0])
-        m[nn] = div
-        if (row[2] or 0) + (row[3] or 0) >= PROVISIONAL_GAMES:
-            entries.append((nn, i + 1, div["key"], div["level"]))
+    if _DIV_CACHE["map"] and b.get("built") == _DIV_CACHE.get("built"):
+        _DIV_CACHE["ts"] = now       # same board as last time: same map
+        return _DIV_CACHE["map"]
+    # Divisions were worked out when the board was built (against the WHOLE
+    # board, provisional players in the denominator, so the "top X%" matches
+    # the #N of total a profile shows); here they are just looked up.
+    by_key = {r["key"]: r for r in ranks.RANKS}
+    m = {nn: by_key[k] for nn, k in (b.get("divs") or {}).items() if k in by_key}
+    entries = b.get("entries") or []
     _DIV_CACHE["ts"] = now
     _DIV_CACHE["map"] = m
+    _DIV_CACHE["built"] = b.get("built")
     # Persist career peaks off the request path, at most every few minutes, so
     # the (occasionally large) write never blocks a page load.
     if entries and not _PEAK_STATE["running"] and \
@@ -8018,6 +8107,8 @@ def survival_push():
             continue
     conn.commit()
     conn.close()
+    if n:
+        threading.Thread(target=prewarm_boards, kwargs={"survival": True}, daemon=True).start()
     return jsonify({"ok": True, "count": n}), 200
 
 
