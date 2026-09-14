@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.69"
+APP_VERSION = "9.13.70"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5387,6 +5387,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.70", "at": "2026-09-14T13:00:00Z", "changes": [
+        "A result now records the highest score you reached in the match, not the score you finished with. Dying near the end takes score away in the game, and that was showing up on your profile as if you had played a smaller game than you did.",
+    ]},
     {"version": "9.13.67", "at": "2026-09-14T12:00:00Z", "changes": [
         "<b>Forgot to check in under your play name? You are told, and you can take the results.</b> If the play name you saved finishes a match with no check-in, the result goes to that name’s own row — and now a notice appears in your Account inbox, with a Discord message from the bot. It offers one decision for every game under that name from the last two days, wins and losses together: take them all, or say it wasn’t you. The same limits as the check-in form apply, one of these a day.",
         "The bot now also messages you while the match is still running if your saved play name is flying without a check-in, whether or not Protection is on, so you can check in in time and skip all of the above.",
