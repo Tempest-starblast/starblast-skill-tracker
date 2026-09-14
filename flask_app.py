@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.62"
+APP_VERSION = "9.13.63"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1970,6 +1970,22 @@ def init_db():
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_wiped_mp_norm "
               "ON wiped_match_players(norm_name, wiped_at)")
+    # A result moved from a name's standalone record onto the account that
+    # played under it (the "played under a different name" fix), and its undo.
+    c.execute('''CREATE TABLE IF NOT EXISTS credit_moves (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    at TEXT,
+                    sub TEXT,
+                    match_row INTEGER,
+                    from_norm TEXT,
+                    to_norm TEXT,
+                    played_as TEXT,
+                    delta REAL,
+                    won INTEGER,
+                    how TEXT,
+                    undone_at TEXT
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_credit_moves_sub ON credit_moves(sub, at)")
 
     # Flood evidence: how badly one name was duplicated in this match, and
     # by whom. Recorded for every match, judged by nobody - it exists so a
@@ -4853,6 +4869,134 @@ def move_result(c, match_row, from_norm, to_norm):
     return {"delta": delta, "won": won, "from": after["from"], "to": after["to"]}
 
 
+FORGOT_WINDOW_HOURS = 48      # how far back a missed result can be claimed
+FORGOT_MATCH_HOURS = 6        # the match must end within this long of the check-in
+FORGOT_MAX_RECORD_GAMES = 2   # the name's standalone record must still be this small
+FORGOT_PER_DAY = 1            # successful claims per account per day
+
+
+def claim_missed_result(c, sub_id, raw_name):
+    """'I pressed Play here but played under a different name.' Shared by the
+    website and the bot; does NOT commit. Returns (http_status, payload).
+
+    The proof is the check-in: the account pressed Play on that lobby (a
+    checkins row), and the named ship turned up in that lobby AFTER it, on a
+    ship nobody else is bound to. No check-in, nothing to go on, nothing
+    moves. Then the result that lobby's match paid to the name's standalone
+    record is moved onto the account. Limits: only names without a record
+    of their own (FORGOT_MAX_RECORD_GAMES games at most, never one another
+    account owns or has checked in with), matches from the last
+    FORGOT_WINDOW_HOURS, FORGOT_PER_DAY successful claims a day, and never a
+    match the account already has a result in - one person is one ship."""
+    name = str(raw_name or '').strip()[:40]
+    if not name:
+        return 400, {"ok": False, "message": "Which name did you play under?"}
+    who = account_name_for(c, sub_id)
+    if not who:
+        return 400, {"ok": False, "message": "Set your account name first."}
+    me = normalize_name(who)
+    key = normalize_name(name)
+    if not key or key == me:
+        return 400, {"ok": False,
+                     "message": "That is your own name - its results already count for you."}
+    row = c.execute("SELECT name, google_sub, COALESCE(wins, 0) + COALESCE(losses, 0) "
+                    "FROM players WHERE norm_name = ?", (key,)).fetchone()
+    if row and row[1]:
+        return 400, {"ok": False,
+                     "message": "'%s' belongs to an account. If it is yours as well, "
+                                "ask for a merge instead." % row[0]}
+    if row and row[2] > FORGOT_MAX_RECORD_GAMES:
+        return 400, {"ok": False,
+                     "message": "'%s' has a record of its own by now, so its games "
+                                "can't be moved this way." % row[0]}
+    names = {name} | ({row[0]} if row else set())
+    for nm in names:
+        if c.execute("SELECT 1 FROM name_bindings WHERE in_game_name = ? AND sub != ? "
+                     "LIMIT 1", (nm, sub_id)).fetchone():
+            return 400, {"ok": False,
+                         "message": "Another account has checked in under that name, "
+                                    "so its games can't be moved to yours."}
+    now_t = time.time()
+    now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now_t))
+    day_ago = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now_t - 86400))
+    n_today = c.execute("SELECT COUNT(DISTINCT at) FROM credit_moves WHERE sub = ? "
+                        "AND at > ? AND undone_at IS NULL", (sub_id, day_ago)).fetchone()[0]
+    if n_today >= FORGOT_PER_DAY:
+        return 429, {"ok": False, "message": "One of these a day - try again tomorrow."}
+    since = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now_t - FORGOT_WINDOW_HOURS * 3600))
+    checkins = c.execute("SELECT sys_id, created_at FROM checkins WHERE sub = ? "
+                         "AND COALESCE(bound, 0) = 0 AND created_at > ? "
+                         "ORDER BY created_at", (sub_id, since)).fetchall()
+    if not checkins:
+        return 404, {"ok": False,
+                     "message": "No Play check-in from you in the last %d hours. Only a "
+                                "game you opened from the Play page here can be moved."
+                                % FORGOT_WINDOW_HOURS}
+    taken = {(r[0], r[1]) for r in c.execute("SELECT sys_id, ship_id FROM name_bindings").fetchall()}
+    moved, done = [], set()
+    for sys_id, created_at in checkins:
+        # The named ship turned up in that lobby after the click, on a ship
+        # nobody else is bound to.
+        ship = None
+        for an, ship_id, region in c.execute(
+                "SELECT name, ship_id, region FROM appearances WHERE sys_id = ? "
+                "AND at >= ? ORDER BY at", (sys_id, created_at)).fetchall():
+            if normalize_name(an) == key and (sys_id, ship_id) not in taken:
+                ship = (ship_id, region)
+                break
+        if ship is None:
+            continue
+        for mid, played_at in c.execute(
+                "SELECT id, played_at FROM matches WHERE sys_id = ? AND played_at > ? "
+                "AND played_at < datetime(?, ?) AND COALESCE(voided, 0) = 0 ORDER BY id",
+                (sys_id, created_at, created_at, '+%d hours' % FORGOT_MATCH_HOURS)).fetchall():
+            if mid in done:
+                continue
+            if c.execute("SELECT 1 FROM match_players WHERE match_row = ? AND norm_name = ?",
+                         (mid, me)).fetchone():
+                continue          # the account already has a result there
+            r = move_result(c, mid, key, me)
+            if not r:
+                continue
+            done.add(mid)
+            c.execute("INSERT INTO credit_moves (at, sub, match_row, from_norm, to_norm, "
+                      "played_as, delta, won, how) VALUES (?,?,?,?,?,?,?,?,?)",
+                      (now, sub_id, mid, key, me, name, r["delta"], r["won"],
+                       "check-in %s lobby %s ship %s" % (created_at, sys_id, ship[0])))
+            c.execute("INSERT OR REPLACE INTO name_bindings "
+                      "(sub, in_game_name, sys_id, ship_id, region, bound_at) "
+                      "VALUES (?,?,?,?,?,?)", (sub_id, name, sys_id, ship[0], ship[1], now))
+            taken.add((sys_id, ship[0]))
+            moved.append({"match": mid, "at": (played_at or '')[:16], "won": r["won"],
+                          "delta": r["delta"]})
+    if not moved:
+        return 404, {"ok": False,
+                     "message": "Nothing to move. A game can be moved when you pressed "
+                                "Play on that match here before joining, '%s' turned up "
+                                "in it afterwards, and the result has been recorded."
+                                % name}
+    parts = ["%s %+.1f on %s" % ("win" if m["won"] else "loss", m["delta"], m["at"][5:])
+             for m in moved]
+    return 200, {"ok": True, "moved": moved, "account_name": who,
+                 "message": "Moved to '%s': %s." % (who, "; ".join(parts))}
+
+
+@app.route('/api/forgot', methods=['POST'])
+def api_forgot():
+    """Played under a different name - move that game to my account."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = claim_missed_result(c, sub_id, data.get('name'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
 def public_entries(entries):
     """Changelog entries as anyone outside the site may see them.
 
@@ -4880,6 +5024,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.63", "at": "2026-09-14T08:00:00Z", "changes": [
+        "<b>Played under a different name? You can fix it yourself now.</b> When you press Play here, the first ship to turn up in that lobby under your saved name is yours. Type a different name into the game and nothing matches, so that game went to the name’s own record and only the owner could move it. Your Account page now has <i>Played under a different name?</i>: enter the name, and the game is moved to you — provided you pressed Play on that match here before joining, the name has no record of its own, and the game is from the last two days. One of these a day.",
+    ]},
     {"version": "9.13.61", "at": "2026-09-14T06:00:00Z", "changes": [
         "<b>69 results from 11 and 12 August, the first two days of scoring, have been taken back.</b> The watcher’s own connection had dropped minutes before each one; it rejoined a lobby that had already emptied and called a winner from what was left, so the recorded winners had a few hundred points against tens of thousands, or nobody was credited a win at all. Every rating change those results paid out has been reversed, and the matches no longer count anywhere. Three results from the same days that cannot be told either way were left as they stand.",
     ]},
@@ -7294,9 +7441,16 @@ def _board_version():
             w = c.execute("SELECT MAX(rowid) FROM wiped_match_players").fetchone()[0]
         except sqlite3.Error:
             w = None
+        # So does a moved result (played under a different name), or its undo.
+        try:
+            r = c.execute("SELECT MAX(rowid), SUM(undone_at IS NOT NULL) "
+                          "FROM credit_moves").fetchone()
+            m = (r[0], r[1])
+        except sqlite3.Error:
+            m = None
     finally:
         conn.close()
-    return (a, b, w)
+    return (a, b, w, m)
 
 
 def _board_build(mode, period, region, version):
@@ -14366,6 +14520,54 @@ def dev_merges_decide(rid):
     conn.commit()
     conn.close()
     return redirect('/dev/merges')
+
+
+@app.route('/dev/moves')
+def dev_moves():
+    """Every result moved by the 'played under a different name' fix, newest
+    first, with an undo."""
+    if not is_site_owner():
+        return redirect('/')
+    conn = db()
+    c = conn.cursor()
+    rows = []
+    for rid, at, sub, mid, fn, tn, pa, delta, won, how, undone in c.execute(
+            "SELECT id, at, sub, match_row, from_norm, to_norm, played_as, delta, won, "
+            "how, undone_at FROM credit_moves ORDER BY id DESC LIMIT 100").fetchall():
+        m = c.execute("SELECT played_at, sys_id, COALESCE(region,'') FROM matches WHERE id = ?",
+                      (mid,)).fetchone()
+        fr = c.execute("SELECT name, COALESCE(wins,0), COALESCE(losses,0), ROUND(COALESCE(elo,1000),1) "
+                       "FROM players WHERE norm_name = ?", (fn,)).fetchone()
+        tr = c.execute("SELECT name, COALESCE(wins,0), COALESCE(losses,0), ROUND(COALESCE(elo,1000),1) "
+                       "FROM players WHERE norm_name = ?", (tn,)).fetchone()
+        rows.append({"id": rid, "when": (at or '')[:16], "sub": sub or '', "match": mid,
+                     "match_at": (m[0] or '')[:16] if m else '', "sys": m[1] if m else '',
+                     "region": m[2] if m else '', "played_as": pa, "delta": delta, "won": won,
+                     "how": how, "undone": (undone or '')[:16], "from_rec": fr, "to_rec": tr})
+    conn.close()
+    return render_template('dev_moves.html', page='moves', version=APP_VERSION, rows=rows)
+
+
+@app.route('/dev/moves/<int:rid>/undo', methods=['POST'])
+def dev_moves_undo(rid):
+    if not is_site_owner():
+        return jsonify({"ok": False, "message": "Not authorised."}), 403
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT match_row, from_norm, to_norm, undone_at FROM credit_moves "
+                    "WHERE id = ?", (rid,)).fetchone()
+    if not row:
+        conn.close()
+        return ("No such move", 404)
+    mid, from_norm, to_norm, undone = row
+    if not undone:
+        back = move_result(c, mid, to_norm, from_norm)
+        if back:
+            c.execute("UPDATE credit_moves SET undone_at = ? WHERE id = ?",
+                      (time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()), rid))
+            conn.commit()
+    conn.close()
+    return redirect('/dev/moves')
 
 
 @app.route('/clan/leader/request', methods=['POST'])

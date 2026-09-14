@@ -170,6 +170,35 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   <p class="msg" id="inboxMsg"></p>
 </div>
 
+{% if signed_in and account_name %}
+<div class="card" id="forgotCard">
+  <h2>Played under a different name?</h2>
+  <p class="desc">When you press <b>Play</b> here, the first ship to turn up in that lobby
+     under your saved name is yours. If you typed a different name into the game, that
+     game went to the name&rsquo;s own record. Enter it and the game is moved to you
+     &mdash; provided you pressed Play on that match here before joining, the name has no
+     record of its own, and the game is from the last two days. One of these a day.</p>
+  <div class="row">
+    <input type="text" id="forgotName" placeholder="The name you played as" maxlength="40" autocomplete="off">
+    <button class="primary" onclick="forgotClaim()">Move it to me</button>
+  </div>
+  <p class="msg" id="forgotMsg"></p>
+</div>
+<script>
+async function forgotClaim(){
+  var i = document.getElementById('forgotName'), m = document.getElementById('forgotMsg');
+  m.textContent = 'Checking…'; m.style.color = '';
+  try{
+    var r = await fetch('/api/forgot', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                       body: JSON.stringify({name: i.value})});
+    var d = await r.json();
+    m.textContent = (d && d.message) || 'Something went wrong.';
+    if(d && d.ok){ m.style.color = 'var(--green,#66e6b8)'; setTimeout(function(){ location.reload(); }, 2200); }
+  }catch(e){ m.textContent = 'Server connection error.'; }
+}
+</script>
+{% endif %}
+
 <div class="card" id="heldCard" style="display:none">
   <h2>Matches that did not count</h2>
   <p class="desc">Every result the tracker sets aside is written down with its reason.
@@ -281,6 +310,7 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
      touches your real account.</p>
   <button class="primary" onclick="devActAs()">Test as a new player</button>
   <p class="msg" id="devMsg"></p>
+  <p class="desc" style="margin-top:10px"><a href="/dev/moves">Moved results</a> &middot; <a href="/dev/merges">Merge requests</a></p>
 </div>
 <script>
 async function devActAs(){

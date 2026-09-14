@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Moved results - review{% endblock %}
+{% block css %}
+.dmwrap{display:flex;flex-direction:column;gap:14px}
+.dm{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;backdrop-filter:var(--blur)}
+.dm.undone{opacity:.6}
+.dm h3{margin:0 0 6px;font-size:16px}
+.dm h3 .st{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.dm .rec{color:var(--muted);font-size:12.5px;margin:2px 0}
+.dm .rec b{color:var(--text)}
+.dm form{display:flex;gap:8px;align-items:center;margin-top:11px;flex-wrap:wrap}
+.dm button{font:inherit;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;padding:8px 16px;border:1px solid #ff7a7a;background:transparent;color:#ff7a7a}
+.dm .done{color:var(--muted);font-size:12.5px;margin-top:7px}
+{% endblock %}
+{% block body %}
+<h1 class="ptitle">Moved results</h1>
+<p class="psub">Games moved by players with <i>Played under a different name?</i>, newest first. Undo puts the result and its rating change back where it was.</p>
+<div class="dmwrap">
+{% for r in rows %}
+  <div class="dm {% if r.undone %}undone{% endif %}">
+    <h3>{{ r.played_as }} &rarr; {{ r.to_rec[0] if r.to_rec else r.to_norm }} <span class="st">&middot; {{ 'win' if r.won else 'loss' }} {{ '%+.1f' % r.delta }}{% if r.undone %} &middot; undone {{ r.undone }}{% endif %}</span></h3>
+    <div class="rec">match #{{ r.match }} &middot; {{ r.match_at }} &middot; {{ r.region }} &middot; lobby {{ r.sys }} &middot; moved {{ r.when }} &middot; acct {{ r.sub[:22] }}</div>
+    <div class="rec">from <b>{{ r.from_rec[0] if r.from_rec else '?' }}</b>: {% if r.from_rec %}{{ r.from_rec[1] }}W&nbsp;{{ r.from_rec[2] }}L &middot; {{ r.from_rec[3] }}{% else %}gone{% endif %}
+      &nbsp; to <b>{{ r.to_rec[0] if r.to_rec else '?' }}</b>: {% if r.to_rec %}{{ r.to_rec[1] }}W&nbsp;{{ r.to_rec[2] }}L &middot; {{ r.to_rec[3] }}{% else %}gone{% endif %}</div>
+    <div class="rec">proof: {{ r.how }}</div>
+    {% if not r.undone %}
+    <form method="post" action="/dev/moves/{{ r.id }}/undo" onsubmit="return confirm('Put this result back on {{ r.played_as }}?')">
+      <button type="submit">Undo</button>
+    </form>
+    {% else %}
+    <div class="done">Undone.</div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="dm"><p style="margin:0;color:var(--muted)">Nothing moved yet.</p></div>
+{% endfor %}
+</div>
+{% endblock %}
