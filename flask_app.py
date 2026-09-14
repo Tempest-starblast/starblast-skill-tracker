@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.79"
+APP_VERSION = "9.13.80"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.80", "at": "2026-09-14T22:10:00Z", "changes": [
+        "<b>Every pilot on a replay radar now flies their own ship, not just the rated ones.</b> A result only records ships for the players it rates — a handful of a full lobby — so the replay now carries the ship for everyone it drew. New matches from here on.",
+    ]},
     {"version": "9.13.79", "at": "2026-09-14T21:40:00Z", "changes": [
         "<b>From now on a replay knows what everyone flew, not just whoever was still on screen at the end.</b> The watcher was reading each pilot’s ship off the final scoreboard, so anyone who had already left had none recorded — and a tier-1 Fly was never recorded at all. It now watches the whole match and keeps the highest ship each pilot reached. Matches already recorded keep what they had.",
     ]},
@@ -8490,6 +8493,12 @@ def trueskill_replay_push():
         # id -> player name, so the replay radar can label each ship dot.
         if isinstance(nm, dict) and nm:
             obj["nm"] = nm
+        # name -> ship code, for EVERY pilot in the lobby. A result only
+        # carries ships for the players it rates, which is a fraction of a
+        # 70-player game, so the replay brings its own.
+        _sh = m.get('sh')
+        if isinstance(_sh, dict) and _sh:
+            obj["sh"] = {str(_k)[:32]: _v for _k, _v in list(_sh.items())[:200]}
         payload = obj if len(obj) > 1 else frames
         try:
             blob = zlib.compress(json.dumps(payload).encode('utf-8'))
@@ -8580,7 +8589,7 @@ def trueskill_replay_read():
                            (sys_id,)).fetchall()
         rc.close()
     best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = (None,) * 8
-    best_hues = best_gt0 = best_phases = best_mt0 = best_seed = None
+    best_hues = best_gt0 = best_phases = best_mt0 = best_seed = best_sh = None
     for data, first_ts in cands:
         try:
             obj = json.loads(zlib.decompress(data).decode('utf-8'))
@@ -8591,11 +8600,11 @@ def trueskill_replay_read():
         if isinstance(obj, dict):
             frames = obj.get("f"); mwp = obj.get("wp"); mrd = obj.get("rd")
             mstl = obj.get("stlay"); mst = obj.get("st"); mbs = obj.get("bs")
-            mnm = obj.get("nm"); mhu = obj.get("hues")
+            mnm = obj.get("nm"); mhu = obj.get("hues"); msh = obj.get("sh")
             mgt = obj.get("gt0"); mph = obj.get("phases"); mmt = obj.get("mt0"); msd = obj.get("seed")
         else:
             frames, mwp, mrd, mstl, mst, mbs = obj, None, None, None, None, None
-            mnm = None; mhu = None; mgt = None; mph = None; mmt = None; msd = None
+            mnm = None; mhu = None; mgt = None; mph = None; mmt = None; msd = None; msh = None
         if not frames:
             continue
         # played_at is ~match end; the raw match ends at first_ts + last elapsed.
@@ -8605,6 +8614,7 @@ def trueskill_replay_read():
             best, best_gap, best_wp, best_rd, best_stl, best_st, best_bs, best_nm = \
                 frames, gap, mwp, mrd, mstl, mst, mbs, mnm
             best_hues = mhu; best_gt0 = mgt; best_phases = mph; best_mt0 = mmt; best_seed = msd
+            best_sh = msh
     # A stray sys_id reuse is possible; only trust a match within ~1 hour.
     if best is not None and (best_gap is None or best_gap <= 3600):
         # Prefer the raw multi-factor model's own win-prob; fall back to the
@@ -8633,6 +8643,14 @@ def trueskill_replay_read():
                 seed = int(sys_id)
             except (TypeError, ValueError):
                 seed = None
+        if isinstance(best_sh, dict):
+            for _nm, _cd in best_sh.items():
+                try:
+                    _cd = int(_cd)
+                except (TypeError, ValueError):
+                    continue
+                ships.setdefault(str(_nm), _cd)
+                ships.setdefault(str(_nm).strip().upper(), _cd)
         for _code in set(ships.values()):
             _d = ship_shapes.ship_path(_code)
             if _d:
