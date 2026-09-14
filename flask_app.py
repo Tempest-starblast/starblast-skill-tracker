@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.77"
+APP_VERSION = "9.13.78"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5486,6 +5486,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.78", "at": "2026-09-14T21:00:00Z", "changes": [
+        "<b>Replays now draw each pilot\u2019s ship.</b> On the radar every ship is its own silhouette instead of the same cross, and the roster shows the outline beside each name. It is the ship that pilot finished the match in, so older replays get it too.",
+        "<b>Replays no longer stop short of the finish.</b> A replay trims off the moment the game resets the lobby at the end; that trim was also cutting the last minute of the real match, so a replay could end with stations still standing that were destroyed seconds later. The ending is back.",
+    ]},
     {"version": "9.13.76", "at": "2026-09-14T19:30:00Z", "changes": [
         "<b>The day's best scores now scroll beside the leaderboard header.</b> The ten highest scores of the last 24 hours, one per player, five on screen at a time. A name opens that player; a region opens that region's board. It follows the region you are looking at, and it pauses while your pointer is on it.",
     ]},
@@ -8520,6 +8524,10 @@ def trueskill_replay_read():
     live match_row gives a sys_id + played_at; we return the raw-feed trajectory
     for that lobby whose end lines up with played_at."""
     key = str(request.args.get('key') or '').strip()
+    # name -> ship code, and the silhouettes for the codes this match used.
+    # A replay addressed by key alone has no scored match behind it, so it
+    # has no ships: the radar falls back to the plain marker.
+    ships, paths, shipnames = {}, {}, {}
     conn = db()
     c = conn.cursor()
     if key:
@@ -8547,6 +8555,23 @@ def trueskill_replay_read():
             pend = calendar.timegm(time.strptime(played_at, '%Y-%m-%d %H:%M:%S'))
         except (ValueError, TypeError):
             pend = None
+        # What each pilot flew, for the radar and the roster. The ship stored
+        # on a result is the one they finished in, and it is keyed by the
+        # name they PLAYED under - which is the name the replay's rosters and
+        # radar labels carry, whoever the result was credited to. An upper
+        # case key rides along so the page can still find a pilot whose name
+        # differs only in case.
+        for _pn, _pa, _sc in c.execute(
+                "SELECT name, played_as, ship FROM match_players "
+                "WHERE match_row = ? AND ship IS NOT NULL", (mid,)).fetchall():
+            try:
+                _sc = int(_sc)
+            except (TypeError, ValueError):
+                continue
+            for _nm in (_pn, _pa):          # played_as wins - it is written last
+                if _nm:
+                    ships[str(_nm)] = _sc
+                    ships[str(_nm).strip().upper()] = _sc
         rc = replay_db()
         cands = rc.execute("SELECT data, first_ts FROM trueskill_replay WHERE sys_id = ?",
                            (sys_id,)).fetchall()
@@ -8605,9 +8630,16 @@ def trueskill_replay_read():
                 seed = int(sys_id)
             except (TypeError, ValueError):
                 seed = None
+        for _code in set(ships.values()):
+            _d = ship_shapes.ship_path(_code)
+            if _d:
+                paths[str(_code)] = _d
+                shipnames[str(_code)] = ship_shapes.ship_name(_code) or str(_code)
         return jsonify({"frames": best, "wp": wp, "rd": rd, "stlay": stlay,
                         "st": st, "bs": bs, "nm": nm, "hues": hues,
-                        "gt0": gt0, "phases": phases, "mt0": mt0, "seed": seed}), 200
+                        "gt0": gt0, "phases": phases, "mt0": mt0, "seed": seed,
+                        "ships": ships, "paths": paths,
+                        "shipnames": shipnames}), 200
     conn.close()
     return jsonify({"frames": None}), 200
 

@@ -66,6 +66,9 @@
 .t-roster::-webkit-scrollbar-thumb{background:var(--line2,rgba(153,221,235,.24));border-radius:3px}
 .prow{display:grid;grid-template-columns:1fr 32px auto;align-items:center;gap:7px}
 .prow .pn{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The pilot's ship, beside their name - sized to the text, never shrinking
+   the name it belongs to. */
+.prow .pn .pship{width:11px;height:11px;margin-right:5px;vertical-align:-1px;opacity:.9}
 .prow .pb{height:8px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
 .prow .pb i{display:block;height:100%;border-radius:3px}
 .prow .ps{font-family:var(--data,monospace);font-size:11px;color:var(--muted,#8aa0b0);text-align:right;font-variant-numeric:tabular-nums}
@@ -441,6 +444,16 @@ function buildReplay(ST, RD){
     // The lobby's own team colours, when the match recorded them (the welcome
     // isn't stored for raw-watched matches, so this is where hues arrive).
     applyHues(res.hues);
+    // What each pilot flew, for the radar markers and the roster rows. Keyed
+    // by the name they played under, with an upper-case fallback; a name with
+    // no ship on record keeps the plain cross. Defined here, above everything
+    // that draws, because the rosters are built before the radar is.
+    var SHIPS = res.ships || {}, SPATH = res.paths || {}, SNAME = res.shipnames || {};
+    var shipOf = function(nm){
+      if(!nm) return null;
+      var cd = SHIPS[nm];
+      if(cd == null) cd = SHIPS[String(nm).trim().toUpperCase()];
+      return (cd != null && SPATH[cd]) ? cd : null; };
     var frames = res && res.frames;
     var haveLb = frames && frames.length >= 2;
     if(haveLb){
@@ -454,7 +467,10 @@ function buildReplay(ST, RD){
       while(_end > 1){
         var teamsN = new Set(frames[_end][1].map(function(p){ return p[2]; })).size;
         var tot = 0; frames[_end][1].forEach(function(p){ tot += p[1] || 0; });
-        if(teamsN < 2 || tot < 0.35 * maxTot) _end--; else break;
+        // BOTH, not either: the last minute of a real match often has only
+        // the winners left on the board, and their scores are intact. The
+        // reset is the frame where one team AND the scores are gone.
+        if(teamsN < 2 && tot < 0.35 * maxTot) _end--; else break;
       }
       frames = frames.slice(0, _end + 1);
       haveLb = frames.length >= 2;
@@ -518,8 +534,12 @@ function buildReplay(ST, RD){
         .sort(function(a,b){ return order[b] - order[a]; }).slice(0, 8)
         .forEach(function(key){
           var nm = key.slice(key.indexOf('|')+1), mine = MY_NAMES.has(jnorm(nm));
-          rhtml += '<div class="prow'+(mine?' me':'')+'" data-key="'+esc(key)+'">'
-            + '<span class="pn" style="color:'+col+'">'+(mine?'<span class="youchip2">YOU</span>':'')+esc(nm)+'</span>'
+          var pcode = shipOf(nm);
+          var picon = (pcode != null) ? '<svg class="pship" viewBox="0 0 100 100" aria-hidden="true">'
+            + '<path d="'+SPATH[pcode]+'" fill="'+col+'"/></svg>' : '';
+          rhtml += '<div class="prow'+(mine?' me':'')+'" data-key="'+esc(key)+'"'
+            + ((pcode != null && SNAME[pcode]) ? ' title="'+esc(SNAME[pcode])+'"' : '')+'>'
+            + '<span class="pn" style="color:'+col+'">'+(mine?'<span class="youchip2">YOU</span>':'')+picon+esc(nm)+'</span>'
             + '<span class="pb"><i style="background:'+col+'"></i></span>'
             + '<span class="ps">0</span></div>';
         });
@@ -694,25 +714,36 @@ function buildReplay(ST, RD){
         var NM = res.nm || {};
         var cross = function(x, y, r){ return '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'"/>'
           + '<line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'"/>'; };
+        // The pilot's own ship, nose-up, filled in the team colour. The
+        // silhouettes are drawn in a 0..100 box, so one scale places it over
+        // the spot the cross would have marked. No ship on record (an unnamed
+        // dot, or a result recorded before ships were stored) -> the cross.
+        var mark = function(x, y, r, code, col){
+          var d = (code != null) ? SPATH[code] : null;
+          if(!d) return cross(x, y, r);
+          var w = r * 3.1, sc = w / 100;
+          return '<path d="' + d + '" fill="' + col + '" stroke="none" transform="translate('
+            + (x - w / 2).toFixed(2) + ',' + (y - w / 2).toFixed(2) + ') scale(' + sc.toFixed(4) + ')"/>'; };
         // The map wraps (period 256, the view is +-132): a ship near an edge is also
         // drawn one period over, so crossing the edge slides it off one side and onto
         // the other instead of popping. Only copies that land in view are emitted.
-        var ghosts = function(x, y, r){ var out = '';
+        var ghosts = function(x, y, r, code, col){ var out = '';
           [[-WRAP,0],[WRAP,0],[0,-WRAP],[0,WRAP],[-WRAP,-WRAP],[WRAP,-WRAP],[-WRAP,WRAP],[WRAP,WRAP]].forEach(function(o){
             var gx = x + o[0], gy = y + o[1];
-            if(Math.abs(gx) <= RMX + r && Math.abs(gy) <= RMX + r) out += cross(gx, gy, r); });
+            if(Math.abs(gx) <= RMX + r && Math.abs(gy) <= RMX + r) out += mark(gx, gy, r, code, col); });
           return out; };
         pts.forEach(function(p){ var x = p[1], y = -p[2], r = RMX/38, c = COLS[p[0]] || '#888';
           var nm = (p[3] != null) ? NM[p[3]] : null;
           // data-key = team|name matches the roster row's data-key, so a hover on
           // either the ship (or its label) or the row spotlights the other.
+          var code = shipOf(nm);
           var rawKey = nm ? (p[0] + '|' + nm) : null;
           var dk = rawKey ? esc(rawKey) : null;
           var hl = (rawKey && rawKey === hlKey);
           g += '<g class="rship'+(hl ? ' hl' : '')+'"'+(dk ? ' data-key="'+dk+'"' : '')+' stroke="'+c+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round">'
             + (hl ? '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+(r*2.6).toFixed(1)+'" fill="'+c+'" opacity="0.30" stroke="none"/>' : '')
-            + (nm ? '<title>'+esc(nm)+'</title>' : '')
-            + cross(x, y, r) + ghosts(x, y, r)
+            + (nm ? '<title>'+esc(nm)+((code != null && SNAME[code]) ? ' \u00b7 '+esc(SNAME[code]) : '')+'</title>' : '')
+            + mark(x, y, r, code, c) + ghosts(x, y, r, code, c)
             + (nm ? '<text x="'+x.toFixed(1)+'" y="'+(y - r*1.9).toFixed(1)+'" fill="'+c+'" font-size="'+(RMX/24).toFixed(1)+'" text-anchor="middle" opacity="0.9" stroke="rgba(3,8,16,.85)" stroke-width="'+(RMX/150).toFixed(2)+'" style="paint-order:stroke">'+esc(nm.length > 9 ? nm.slice(0,8)+'…' : nm)+'</text>' : '')
             + '</g>';
         });
