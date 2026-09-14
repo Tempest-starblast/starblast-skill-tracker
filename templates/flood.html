@@ -23,6 +23,10 @@
 .fl-badge.lo{background:rgba(153,221,255,.12);color:#9ddcff;border:1px solid rgba(153,221,255,.3)}
 .fl-ev{margin-top:10px;font-size:13px;line-height:1.7}
 .fl-ev code{background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px}
+.fl-cut{margin-top:9px;padding:8px 11px;border-radius:8px;font-size:12.5px;line-height:1.65;
+  background:rgba(255,120,120,.07);border:1px solid rgba(255,140,140,.3)}
+.fl-imp{margin:6px 0 0;padding-left:18px;color:var(--dim,#8aa0b0)}
+.fl-imp li{margin:2px 0}
 .fl-players{margin-top:12px;width:100%;border-collapse:collapse;font-size:12.5px}
 .fl-players td{padding:4px 6px;border-top:1px solid rgba(153,221,255,.08)}
 .fl-players .w{color:#66E6B8}.fl-players .l{color:#ff9a9a}
@@ -48,14 +52,43 @@
 <script>
 (function(){
   function esc(x){ var d=document.createElement('div'); d.textContent=(x==null?'':String(x)); return d.innerHTML; }
+  function utc(ts){
+    var n=Number(ts);
+    if(!isFinite(n) || n<=0) return '';
+    return new Date(n*1000).toISOString().replace('T',' ').slice(0,19)+' UTC';
+  }
+  // The watcher numbers teams 0,1,2; players see 1,2,3. Older matches from
+  // the browser tracker are keyed "team_1" and already read the right way.
+  function teamLabel(t){
+    return /^\d+$/.test(t) ? 'Team '+(parseInt(t,10)+1) : String(t).replace(/^team_/i,'Team ');
+  }
+  // A cut match: the moment the flood arrived, and what it did. Stored
+  // beside the team rosters, so it must be read out separately - it is not
+  // a roster of names.
+  function cutBlock(c){
+    if(!c || typeof c!=='object') return '';
+    var when=utc(c.at);
+    var imp=(c.impact||[]).map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('');
+    return '<div class="fl-cut"><b>Rated as it stood when the flood began'+(when?' &middot; '+esc(when):'')+'</b>'+
+      '<div>The flood: <code>'+esc(c.name)+'</code> &times; <b>'+esc(c.ships)+'</b> ships'+
+      (c.team==null?'':' on '+esc(teamLabel(String(c.team))))+'. Its names were not rated.</div>'+
+      (imp?'<ul class="fl-imp">'+imp+'</ul>':'')+'</div>';
+  }
   function evidence(fl){
-    var parts=[];
-    Object.keys(fl||{}).forEach(function(team){
-      Object.keys(fl[team]).forEach(function(nm){
-        parts.push('<div>Team '+team.slice(-1)+': <code>'+esc(nm)+'</code> &times; <b>'+fl[team][nm]+'</b> ships at once</div>');
+    var parts=[], tail='';
+    Object.keys(fl||{}).forEach(function(k){
+      var v=fl[k];
+      if(k==='flood_cut'){ tail+=cutBlock(v); return; }
+      if(!v || typeof v!=='object') return;
+      if(k==='lobby'){
+        Object.keys(v).forEach(function(n){ parts.push('<div>'+esc(v[n])+' '+esc(n)+'</div>'); });
+        return;
+      }
+      Object.keys(v).forEach(function(nm){
+        parts.push('<div>'+esc(teamLabel(k))+': <code>'+esc(nm)+'</code> &times; <b>'+esc(v[nm])+'</b> ships at once</div>');
       });
     });
-    return parts.length ? '<div class="fl-ev">'+parts.join('')+'</div>' : '';
+    return (parts.length || tail) ? '<div class="fl-ev">'+parts.join('')+tail+'</div>' : '';
   }
   function badge(m){
     return m.significant ? '<span class="fl-badge hi">FLAGGED</span>'
