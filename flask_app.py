@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.70"
+APP_VERSION = "9.13.71"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4570,11 +4570,26 @@ def game_end():
             _simpeak = int(data.get('sim_players_peak') or 0)
         except (TypeError, ValueError):
             _simpeak = 0
+        # Kept as information only: a busy hour-long lobby sees far more than
+        # 24 ships come and go, so this number alone is not a flood and no
+        # longer raises the alert (it did, on nearly every match).
         if _simpeak >= 30:
             _fd = json.loads(flood_json) if flood_json else {}
             _fd["lobby"] = {"ships seen (mode allows 24)": _simpeak}
             flood_json = json.dumps(_fd, ensure_ascii=False)
-            flood_max = max(flood_max, _simpeak - 24)
+        # A result the watcher cut at a flood: when, which name, how many
+        # ships, and what the swarm did. The match then reads as what it was.
+        _cut = data.get('flood_cut')
+        if isinstance(_cut, dict) and _cut:
+            _fd = json.loads(flood_json) if flood_json else {}
+            _fd["flood_cut"] = {"at": _cut.get("at"), "name": str(_cut.get("name") or '')[:64],
+                                "ships": _cut.get("ships"), "team": _cut.get("team"),
+                                "impact": [str(x)[:120] for x in (_cut.get("impact") or [])][:6]}
+            flood_json = json.dumps(_fd, ensure_ascii=False)
+            try:
+                flood_max = max(flood_max, int(_cut.get("ships") or 0))
+            except (TypeError, ValueError):
+                pass
         _flood_json, _flood_max, _match_id = flood_json, flood_max, match_id
         c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, "
                   "region, lobby_name, tracked_reads, flood, flood_max) "
@@ -5387,6 +5402,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.71", "at": "2026-09-14T14:00:00Z", "changes": [
+        "<b>A match swarmed by a flood is now rated as it stood when the flood began.</b> A flood is one name flown by a whole swarm of ships at once, scripted, and the watcher can see what it does: the swarm gathers to a point on the station ring and a station’s core dies, and the real players leave. When a flood changed the game like that, the result is taken from the moment before it arrived — a station already destroyed, or the team clearly ahead by the same rule that decides a dissolved lobby — and the swarm’s names are never rated. A flood that changed nothing changes nothing. An open game with no leader at that moment gets no result rather than a coin flip.",
+    ]},
     {"version": "9.13.70", "at": "2026-09-14T13:00:00Z", "changes": [
         "A result now records the highest score you reached in the match, not the score you finished with. Dying near the end takes score away in the game, and that was showing up on your profile as if you had played a smaller game than you did.",
     ]},
