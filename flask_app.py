@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.99"
+APP_VERSION = "9.14.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5549,6 +5549,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.14.0", "at": "2026-09-15T18:20:00Z", "changes": [
+        "<b>Hovering a pilot now highlights their row as well as their ship.</b> On both replays and live matches, putting the pointer on a name lit that pilot's ship on the radar while the row itself sat there looking inert. The row takes the same highlight their ship's hover gives it, so the link reads the same in both directions — and on the live view the rows show a pointer cursor, which they were missing.",
+    ]},
     {"version": "9.13.99", "at": "2026-09-15T17:45:00Z", "changes": [
         "<b>Fixed: live team colours flickering between lobbies.</b> Every watched lobby was painting into one shared set of colours, so with the watcher now following every lobby it can see, the colours on screen were whichever lobby had been processed most recently — several times a second. Each lobby keeps its own hues now.",
         "<b>A live team panel now says why it has no pilots listed.</b> The public feed runs a couple of minutes behind and without names, so the roster was simply empty and looked like it had failed to load. It says how many pilots are flying for that team instead.",

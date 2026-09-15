@@ -74,7 +74,17 @@
 .prow.left .pn{text-decoration:line-through;text-decoration-thickness:1px;
   text-decoration-color:rgba(255,255,255,.35)}
 .prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
-.prow[data-key]{cursor:pointer}
+/* Hovering a pilot lights their ship on the radar - so the row has to answer
+   too, or the pointer is over something that looks inert while the map reacts.
+   Same highlight the row gets when their SHIP is hovered, so the two
+   directions of the link read as one thing. The bar and the score brighten
+   with it; on a row that is struck through (they have left) the name stays
+   struck but comes back to full strength, so it can still be read. */
+.prow[data-key]:hover,.prow[data-name]:hover{background:rgba(255,255,255,.11);
+  border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
+.prow[data-key]:hover,.prow[data-name]:hover,.prow.hl{opacity:1}
+.prow[data-key]:hover .ps,.prow[data-name]:hover .ps,.prow.hl .ps{color:var(--text)}
+.prow[data-key],.prow[data-name]{cursor:pointer}
 .youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
 .radarwrap{display:flex;flex-direction:column;min-height:0;min-width:0;padding:12px;position:relative}
 .radarcap{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
