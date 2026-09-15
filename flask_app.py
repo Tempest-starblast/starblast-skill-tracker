@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.14.0"
+APP_VERSION = "9.14.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5550,6 +5550,7 @@ def public_entries(entries):
 
 CHANGELOG = [
     {"version": "9.14.0", "at": "2026-09-15T18:20:00Z", "changes": [
+        "<b>Fixed: a highlighted pilot row made a scrollbar flash under the list.</b> The highlight made the row wider than the list it sits in, so the roster grew a horizontal scrollbar for as long as a row was lit. Lighting a row changes its colour now, not its size.",
         "<b>Hovering a pilot now highlights their row as well as their ship.</b> On both replays and live matches, putting the pointer on a name lit that pilot's ship on the radar while the row itself sat there looking inert. The row takes the same highlight their ship's hover gives it, so the link reads the same in both directions — and on the live view the rows show a pointer cursor, which they were missing.",
     ]},
     {"version": "9.13.99", "at": "2026-09-15T17:45:00Z", "changes": [
