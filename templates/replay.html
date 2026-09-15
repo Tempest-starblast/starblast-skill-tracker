@@ -1233,12 +1233,11 @@ function buildReplay(ST, RD){
     var ROSTER_CUT = (function(){
       var rdA = res.rd;
       if(!rdA || rdA.length < frames.length) return false;
-      var bad = 0;
+      var CAP = 24, bad = 0;
       for(var i = 0; i < frames.length; i++){
-        var rc = {}, pc = {};
-        (rdA[i] || []).forEach(function(e){ rc[e[0]] = (rc[e[0]] || 0) + 1; });
-        ((frames[i] || [])[1] || []).forEach(function(p){ pc[p[2]] = (pc[p[2]] || 0) + 1; });
-        for(var t in rc){ if(rc[t] > (pc[t] || 0)){ bad++; break; } }
+        var ships = (rdA[i] || []).length;
+        var rows = ((frames[i] || [])[1] || []).length;
+        if(rows === CAP && ships > CAP) bad++;
       }
       return bad > frames.length * 0.2;
     })();
