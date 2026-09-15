@@ -75,6 +75,7 @@
 .prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
 /* Not in the game yet at this point of the replay: joins the board when they join. */
 .prow.notyet{display:none}
+.prow.rfirst{border-top:0 !important}   /* top of the panel, whatever precedes it */
 /* Out of the match: the station is gone, and the panel says so. */
 .team.out{opacity:.55}
 .team.out .t-name{text-decoration:line-through;text-decoration-thickness:2px}
@@ -574,7 +575,9 @@ function buildReplay(ST, RD){
 
     // Per-team panel refs + roster rows (top 8 per team by final score). Rows
     // are built once; only their bar widths + scores update per frame (glide).
-    var rowRef = {}, wpEl = {}, wpBar = {}, gemBar = {}, rosterEls = {}, stEl = {}, stMeta = {}, teamPanel = {};
+    var rowRef = {}, wpEl = {}, wpBar = {}, gemBar = {}, rosterEls = {}, stEl = {}, stMeta = {},
+        teamPanel = {}, rosterKeys = {};
+    var ROSTER_SHOW = 8;                        // rows a panel holds at once
     teams.forEach(function(k){
       teamPanel[k] = arenaEl.querySelector('.team[data-team="'+k+'"]');
       wpEl[k] = arenaEl.querySelector('[data-wp="'+k+'"]');
@@ -583,9 +586,11 @@ function buildReplay(ST, RD){
       stEl[k] = arenaEl.querySelector('[data-stsvg="'+k+'"]');
       stMeta[k] = arenaEl.querySelector('[data-stmeta="'+k+'"]');
       var col = COLS[k] || '#8aa0b0', rhtml = '';
-      Object.keys(order).filter(function(key){ return +key.split('|')[0] === k; })
-        .sort(function(a,b){ return order[b] - order[a]; }).slice(0, 8)
-        .forEach(function(key){
+      // A row for every pilot who ever flies for this team. WHICH eight the
+      // panel holds is decided per frame, from the scores at that moment.
+      rosterKeys[k] = Object.keys(order).filter(function(key){ return +key.split('|')[0] === k; })
+        .sort(function(a,b){ return order[b] - order[a]; });
+      rosterKeys[k].forEach(function(key){
           var nm = key.slice(key.indexOf('|')+1), mine = MY_NAMES.has(jnorm(nm));
           // An empty slot: the hull is drawn into it per frame from `shipline`.
           var picon = '<svg class="pship" viewBox="0 0 100 100" aria-hidden="true">'
@@ -1076,21 +1081,43 @@ function buildReplay(ST, RD){
       var inGap = !!(gnow && a > 0 && a < 1);
       setGapChip(inGap ? gnow : null);
       if(inGap) a = 0;
+      // Every pilot's score at this instant, and whether they have arrived.
       Object.keys(rowRef).forEach(function(key){
-        var tl = timeline[key], s = tl ? lerp(tl[i], tl[j], a) : 0, ref = rowRef[key];
-        // On the board only once the playhead has reached the frame they joined in.
-        var jf = firstFrame[key], joined = (jf == null) || ((i + a) >= jf);
-        if(ref.row) ref.row.classList.toggle('notyet', !joined);
+        var tl = timeline[key], ref = rowRef[key], jf = firstFrame[key];
+        ref.cur = tl ? lerp(tl[i], tl[j], a) : 0;
+        ref.joined = (jf == null) || ((i + a) >= jf);
+      });
+      // The eight the panel holds: the highest scores among the pilots who are
+      // in the match by now. A fixed eight ranked by FINAL score listed the
+      // pilots who would end up on top rather than the ones flying, so early on
+      // a team could show an empty panel while its ships were on the radar.
+      var onBoard = {};
+      teams.forEach(function(k){
+        (rosterKeys[k] || []).filter(function(key){ return rowRef[key].joined; })
+          .sort(function(x, y){ return (rowRef[y].cur || 0) - (rowRef[x].cur || 0); })
+          .slice(0, ROSTER_SHOW)
+          .forEach(function(key, idx){ onBoard[key] = idx + 1; });
+      });
+      Object.keys(rowRef).forEach(function(key){
+        var ref = rowRef[key], rank = onBoard[key] || 0;
+        if(ref.rank !== rank){
+          ref.rank = rank;
+          if(ref.row){
+            ref.row.classList.toggle('notyet', !rank);
+            ref.row.classList.toggle('rfirst', rank === 1);
+          }
+        }
+        if(!rank) return;                  // off the board: nothing to draw into
+        var s = ref.cur;
         // Scores are kept once earned, so the board is the match's standings -
         // but a pilot who has left is not on the map any more, and a row with
         // no ship behind it reads as a mistake. Say they are gone.
         var here = (ROSTER_CUT || !presence[key]) ? 1 : presence[key][i];
-        if(ref.row && ref.here !== here){
+        if(ref.here !== here){
           ref.here = here;
-          ref.row.classList.toggle('left', !here);
+          if(ref.row) ref.row.classList.toggle('left', !here);
           if(ref.ship) ref.ship.style.opacity = here ? '' : '0';
         }
-        ref.cur = s;
         ref.bar.style.width = Math.max(0, Math.round(100 * s / gmax)) + '%';
         ref.sc.textContent = Math.round(s).toLocaleString();
         // The hull they are flying at this moment, drawn only when it changes.

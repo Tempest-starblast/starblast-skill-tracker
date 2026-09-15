@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.94"
+APP_VERSION = "9.13.95"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5533,6 +5533,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.95", "at": "2026-09-15T16:10:00Z", "changes": [
+        "<b>A replay's team panels now list the pilots who are flying at that moment.</b> They used to hold a fixed eight per team, picked by who finished with the highest score \u2014 so early in a match they listed pilots who had not arrived yet and left out the ones on the radar, and a team could show an empty panel while its ships were on the map. Every pilot in the match now has a row, and the panel shows the current top eight. Spectators no longer take a row, the same way they are already kept off the radar.",
+    ]},
     {"version": "9.13.94", "at": "2026-09-15T15:35:00Z", "changes": [
         "<b>Replays open at the start of the match, not a couple of minutes into it.</b> The watcher decided a match had begun when the all-team score first passed its threshold \u2014 but that total goes down as well as up, so in the opening exchanges it crossed the line several times, and the watcher began a new match at each crossing. One match was being filed as three: the slice holding the real opening was thrown away as too short, and the replay started from whatever was left. A match is counted once now, and a replay that still has to be joined to its opening picks up the whole of it rather than the last few seconds.",
     ]},
@@ -8753,6 +8756,12 @@ def trueskill_replay_read():
             if _d:
                 paths[str(_code)] = _d
                 shipnames[str(_code)] = ship_shapes.ship_name(_code) or str(_code)
+        # A spectator is not a pilot. They are already kept off the radar;
+        # a row for them on the board is the same confusion in another place.
+        for _fr in (best or []):
+            if len(_fr) > 1 and _fr[1]:
+                _fr[1] = [_p for _p in _fr[1]
+                          if not (_p and _p[0] and is_observer_name(_p[0]))]
         hide = sorted(_id for _id, _nm2 in (nm or {}).items()
                       if is_observer_name(_nm2))
         return jsonify({"hide": hide,
