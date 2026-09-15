@@ -43,10 +43,10 @@ body.mini .page > .console{display:block!important;margin:0;padding:0;border:non
 body.mini .console > *{display:none!important}
 body.mini .console > .arena{display:block!important;height:100vh;margin:0;padding:0}
 body.mini .arena > .team{display:none!important}
-body.mini .arena > body.mini .radarcap{display:none!important}
+body.mini .arena > .radarwrap{display:flex!important;grid-column:auto!important;grid-row:auto!important;height:100vh;padding:5px;border:none}
+body.mini .radarcap{display:none!important}
 body.mini #radarMap{max-height:100vh;max-width:100vw}
 
-.radarwrap{display:flex;flex-direction:column;min-height:0;min-width:0;padding:12px;position:relative}
 /* Shown only while the playhead is inside a stretch the feed never recorded. */
 .rgapchip{position:absolute;z-index:3;top:8px;left:50%;transform:translateX(-50%);
   font-size:11px;letter-spacing:.04em;color:#dfe8ef;background:rgba(20,28,40,.92);

@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.97"
+APP_VERSION = "9.13.98"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5549,6 +5549,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.98", "at": "2026-09-15T17:25:00Z", "changes": [
+        "<b>Fixed the radar on both the live view and replays.</b> A stray rule was stretching the radar's frame to the full height of the window, which pushed it out of its place beside the team panels and cut it off. It sits square between them again.",
+    ]},
     {"version": "9.13.97", "at": "2026-09-15T17:05:00Z", "changes": [
         "<b>The live match and the replay both get the window.</b> Both screens were sitting in the site's standard 1100px column, which is narrower than three team panels and a radar want to be. The team above the radar also scrolls its roster now instead of pushing the radar out of the frame — which is what was squashing the live radar and cutting off its bottom edge.",
     ]},
