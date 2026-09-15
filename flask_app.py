@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.96"
+APP_VERSION = "9.13.97"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5549,6 +5549,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.97", "at": "2026-09-15T17:05:00Z", "changes": [
+        "<b>The live match and the replay both get the window.</b> Both screens were sitting in the site's standard 1100px column, which is narrower than three team panels and a radar want to be. The team above the radar also scrolls its roster now instead of pushing the radar out of the frame — which is what was squashing the live radar and cutting off its bottom edge.",
+    ]},
     {"version": "9.13.96", "at": "2026-09-15T16:40:00Z", "changes": [
         "<b>A live match now looks exactly like a replay of one.</b> The same screen — three team panels around the radar, each with its win chance, its station drawn module by module, its gem bank and its pilots — with the hull each pilot is flying beside their name, and the panels placed by win probability. The only difference left is what drives it: a play bar on a replay, the watcher's feed here. Both pages now share one stylesheet, so they cannot drift apart again.",
         "<b>Fixed: the live view struck out every pilot flying a starter ship.</b> It read the ship's model number as a death, and the Fly — the ship everyone spawns in — is model 0. A pilot is shown as gone when nothing of theirs is on the radar.",

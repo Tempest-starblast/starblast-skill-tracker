@@ -6,6 +6,9 @@
    placed by win-probability. Lowest prob LEFT and highest prob RIGHT both run
    full height (down beside the radar); the middle-prob team sits above the radar.
    Panels are positioned by their data-slot (left/middle/right), set live by JS. */
+/* A page built around the arena gives it the window: the site's default
+   1100px column is narrower than the three panels and a radar want to be. */
+.page{max-width:1560px}
 .arena{display:grid;min-height:0;overflow:hidden}
 .arena.a2{grid-template-columns:minmax(0,1fr) minmax(300px,1.5fr) minmax(0,1fr)}
 .arena.a2 > .radarwrap{grid-column:2}
@@ -14,7 +17,10 @@
 .arena.a3{grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto minmax(0,1fr)}
 .arena.a3 > .radarwrap{grid-column:2;grid-row:2;border-top:1px solid var(--line)}
 .arena.a3 > .team[data-slot="left"]{grid-column:1;grid-row:1 / span 2;border-right:1px solid var(--line)}
-.arena.a3 > .team[data-slot="middle"]{grid-column:2;grid-row:1;border-bottom:1px solid var(--line)}
+.arena.a3 > .team[data-slot="middle"]{grid-column:2;grid-row:1;border-bottom:1px solid var(--line);min-height:0}
+/* The middle team sits on top of the radar, so its roster scrolls rather than
+   pushing the radar out of the grid (the arena clips what overflows). */
+.arena.a3 > .team[data-slot="middle"] .t-roster{max-height:136px}
 .arena.a3 > .team[data-slot="right"]{grid-column:3;grid-row:1 / span 2;border-left:1px solid var(--line)}
 /* Full-height side panels (underdog left / favorite right) fill their column:
    the roster spreads down the tall space instead of leaving a void by the radar. */
@@ -73,7 +79,8 @@
 .radarwrap{display:flex!important;grid-column:auto!important;grid-row:auto!important;height:100vh;padding:5px;border:none}
 .radarcap{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
   color:var(--muted,#8aa0b0);opacity:.72;text-align:center;margin-bottom:8px}
-.radarmap{flex:1;min-height:0;display:block;margin:0 auto;aspect-ratio:1;max-width:100%;max-height:100%;
+.radarmap{flex:1;min-height:0;min-width:0;display:block;margin:0 auto;aspect-ratio:1;
+  width:auto;max-width:100%;max-height:100%;
   border-radius:12px;background:rgba(3,10,22,.55);border:1px solid var(--line)}
 .cempty{color:var(--muted,#8aa0b0);font-size:13px;padding:16px}
 /* Gems bar, sitting just beneath each team's win-probability bar. */
