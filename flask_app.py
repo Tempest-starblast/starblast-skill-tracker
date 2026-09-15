@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.95"
+APP_VERSION = "9.13.96"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2844,6 +2844,10 @@ def rawlive_matches():
         _hues = d.get("hues") or []      # the lobby's team hues (once the observer sends them)
         _sh = d.get("sh") or []
         _lay = d.get("stlay") or []
+        # The hull each pilot is flying, and who is actually on the map: the
+        # radar carries every live ship, so a pilot missing from it has none.
+        _codes = _live_ship_codes(d)
+        _live_ids = set(e[1] for e in (d.get("radar") or []) if e and len(e) > 1)
         teams = []
         for k in ("team_1", "team_2", "team_3"):
             roster = d.get("teams", {}).get(k) or []
@@ -2863,7 +2867,13 @@ def rawlive_matches():
                 # as a phantom 0-score player.
                 players = sorted(
                     [{"name": r[0], "score": r[1], "tier": r[2],
-                      "dead": (r[3] == 0), "impact": impacts.get((idx, ri))}
+                      "code": (_codes.get(r[4]) if len(r) > 4 else None),
+                      # Not on the radar = nothing of theirs is flying. The old
+                      # test read row[3] - the ship MODEL - as a death, and
+                      # model 0 is the Fly, so every pilot who had just spawned
+                      # or never upgraded was struck out.
+                      "dead": (len(r) > 4 and r[4] not in _live_ids),
+                      "impact": impacts.get((idx, ri))}
                      for ri, r in enumerate(roster)
                      if r and r[0] and not is_observer_name(r[0])],
                     key=lambda q: -q["score"])[:12]
@@ -3526,14 +3536,13 @@ def replays_index():
                            date=date, sysq=sysq, q=q, mode='team')
 
 
-def _live_radar(d):
-    """The live radar rows with the hull each ship is flying appended.
+def _live_ship_codes(d):
+    """Ship id -> the hull that ship is flying, for one watcher reading.
 
-    A row is [team, id, x, y] and becomes [team, id, x, y, ship]. The code
-    comes from the same team rows the roster is built from, so this costs
-    the watcher nothing: teams row = [name, score, tier+1, model, id, ..],
-    and the site's ship code is (tier+1)*100 + (model_byte+1). Model 0 is a
-    real ship (the Fly), so the test is for None, never for truth.
+    teams row = [name, score, tier+1, model, id, ..], and the site's ship
+    code is (tier+1)*100 + (model_byte+1). Model 0 is a real ship (the
+    Fly), so the test is for None, never for truth. The radar and the
+    roster both draw from this, so they always agree.
     """
     codes = {}
     for k in ("team_1", "team_2", "team_3"):
@@ -3546,6 +3555,13 @@ def _live_radar(d):
                 continue
             if tier >= 1 and model >= 0:
                 codes[r[4]] = tier * 100 + model + 1
+    return codes
+
+
+def _live_radar(d):
+    """The live radar rows with the hull each ship is flying appended:
+    [team, id, x, y] becomes [team, id, x, y, ship]."""
+    codes = _live_ship_codes(d)
     out = []
     for e in (d.get("radar") or []):
         if not e or len(e) < 4:
@@ -5533,6 +5549,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.96", "at": "2026-09-15T16:40:00Z", "changes": [
+        "<b>A live match now looks exactly like a replay of one.</b> The same screen — three team panels around the radar, each with its win chance, its station drawn module by module, its gem bank and its pilots — with the hull each pilot is flying beside their name, and the panels placed by win probability. The only difference left is what drives it: a play bar on a replay, the watcher's feed here. Both pages now share one stylesheet, so they cannot drift apart again.",
+        "<b>Fixed: the live view struck out every pilot flying a starter ship.</b> It read the ship's model number as a death, and the Fly — the ship everyone spawns in — is model 0. A pilot is shown as gone when nothing of theirs is on the radar.",
+    ]},
     {"version": "9.13.95", "at": "2026-09-15T16:10:00Z", "changes": [
         "<b>A replay's team panels now list the pilots who are flying at that moment.</b> They used to hold a fixed eight per team, picked by who finished with the highest score \u2014 so early in a match they listed pilots who had not arrived yet and left out the ones on the radar, and a team could show an empty panel while its ships were on the map. Every pilot in the match now has a row, and the panel shows the current top eight. Spectators no longer take a row, the same way they are already kept off the radar.",
     ]},

@@ -1,0 +1,83 @@
+{# The arena: three team panels around a radar, shared by the replay and
+   the live view so the two cannot drift apart. Included inside a page's
+   {% block css %}. The radar is `.radarmap`; the replay's own element also
+   carries id="radarMap" for the handlers that reach for it. #}
+/* The arena: radar as the centrepiece, a team panel (win% + station + players)
+   placed by win-probability. Lowest prob LEFT and highest prob RIGHT both run
+   full height (down beside the radar); the middle-prob team sits above the radar.
+   Panels are positioned by their data-slot (left/middle/right), set live by JS. */
+.arena{display:grid;min-height:0;overflow:hidden}
+.arena.a2{grid-template-columns:minmax(0,1fr) minmax(300px,1.5fr) minmax(0,1fr)}
+.arena.a2 > .radarwrap{grid-column:2}
+.arena.a2 > .team[data-slot="left"]{grid-column:1;border-right:1px solid var(--line)}
+.arena.a2 > .team[data-slot="right"]{grid-column:3;border-left:1px solid var(--line)}
+.arena.a3{grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto minmax(0,1fr)}
+.arena.a3 > .radarwrap{grid-column:2;grid-row:2;border-top:1px solid var(--line)}
+.arena.a3 > .team[data-slot="left"]{grid-column:1;grid-row:1 / span 2;border-right:1px solid var(--line)}
+.arena.a3 > .team[data-slot="middle"]{grid-column:2;grid-row:1;border-bottom:1px solid var(--line)}
+.arena.a3 > .team[data-slot="right"]{grid-column:3;grid-row:1 / span 2;border-left:1px solid var(--line)}
+/* Full-height side panels (underdog left / favorite right) fill their column:
+   the roster spreads down the tall space instead of leaving a void by the radar. */
+.arena.a3 > .team[data-slot="left"] .prow,
+.arena.a3 > .team[data-slot="right"] .prow,
+.arena.a2 > .team[data-slot="left"] .prow,
+.arena.a2 > .team[data-slot="right"] .prow{flex:1 1 auto;max-height:54px}
+.arena.a3 > .team[data-slot="left"] .prow + .prow,
+.arena.a3 > .team[data-slot="right"] .prow + .prow,
+.arena.a2 > .team[data-slot="left"] .prow + .prow,
+.arena.a2 > .team[data-slot="right"] .prow + .prow{border-top:1px solid rgba(255,255,255,.05)}
+
+.team{display:flex;flex-direction:column;min-height:0;padding:10px 13px}
+.t-head{display:flex;align-items:baseline;gap:8px}
+.t-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-wp{margin-left:auto;font-family:var(--data,monospace);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.t-wpbar{height:6px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;margin:5px 0 8px}
+.t-wpbar i{display:block;height:100%;border-radius:4px}
+.t-mid{display:flex;gap:10px;align-items:center;margin-bottom:7px}
+.t-mid .stsvg{flex:0 0 auto;width:58px;height:58px;display:block}
+.t-st{font-family:var(--data,monospace);font-size:10.5px;color:var(--muted,#8aa0b0);line-height:1.55}
+.t-roster{min-height:0;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:1px}
+.t-roster::-webkit-scrollbar{width:6px}
+.t-roster::-webkit-scrollbar-thumb{background:var(--line2,rgba(153,221,235,.24));border-radius:3px}
+.prow{display:grid;grid-template-columns:1fr 32px auto;align-items:center;gap:7px}
+.prow .pn{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The pilot's ship, beside their name - sized to the text, never shrinking
+   the name it belongs to. */
+.prow .pn .pship{width:11px;height:11px;margin-right:5px;vertical-align:-1px;opacity:.9}
+.prow .pb{height:8px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
+.prow .pb i{display:block;height:100%;border-radius:3px}
+.prow .ps{font-family:var(--data,monospace);font-size:11px;color:var(--muted,#8aa0b0);text-align:right;font-variant-numeric:tabular-nums}
+.prow.me{background:rgba(153,221,255,.13);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--blue)}
+/* Not in the game yet at this point of the replay: joins the board when they join. */
+.prow.notyet{display:none}
+.prow.rfirst{border-top:0 !important}   /* top of the panel, whatever precedes it */
+/* Out of the match: the station is gone, and the panel says so. */
+.team.out{opacity:.55}
+.team.out .t-name{text-decoration:line-through;text-decoration-thickness:2px}
+.team.out .t-name:after{content:"OUT";font-size:9.5px;font-weight:700;letter-spacing:.09em;
+  margin-left:7px;padding:1px 5px;border-radius:4px;text-decoration:none;display:inline-block;
+  vertical-align:2px;color:#ff9a9a;background:rgba(255,120,120,.14);border:1px solid rgba(255,140,140,.4)}
+/* The last team standing. */
+.team.won{box-shadow:inset 0 0 0 1px rgba(255,199,87,.45), 0 0 26px rgba(255,199,87,.13)}
+.team.won .t-name:after{content:"WINNER";font-size:9.5px;font-weight:700;letter-spacing:.09em;
+  margin-left:7px;padding:1px 5px;border-radius:4px;display:inline-block;vertical-align:2px;
+  color:#ffc757;background:rgba(255,199,87,.14);border:1px solid rgba(255,199,87,.45)}
+/* Still on the scoreboard, no longer in the game: their score stands, but
+   there is no ship of theirs on the radar to find. */
+.prow.left{opacity:.45}
+.prow.left .pn{text-decoration:line-through;text-decoration-thickness:1px;
+  text-decoration-color:rgba(255,255,255,.35)}
+.prow.hl{background:rgba(255,255,255,.11);border-radius:4px;margin:0 -4px;padding:0 4px;box-shadow:inset 3px 0 0 var(--amber,#ffc757)}
+.prow[data-key]{cursor:pointer}
+.youchip2{font-size:8px;font-weight:700;background:var(--blue);color:#062038;border-radius:3px;padding:0 3px;margin-right:4px}
+.radarwrap{display:flex!important;grid-column:auto!important;grid-row:auto!important;height:100vh;padding:5px;border:none}
+.radarcap{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted,#8aa0b0);opacity:.72;text-align:center;margin-bottom:8px}
+.radarmap{flex:1;min-height:0;display:block;margin:0 auto;aspect-ratio:1;max-width:100%;max-height:100%;
+  border-radius:12px;background:rgba(3,10,22,.55);border:1px solid var(--line)}
+.cempty{color:var(--muted,#8aa0b0);font-size:13px;padding:16px}
+/* Gems bar, sitting just beneath each team's win-probability bar. */
+.t-gembar{height:5px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden;margin:0 0 8px}
+.t-gembar i{display:block;height:100%;width:0;border-radius:3px;background:#b48cff;transition:width .25s linear}
+/* A team panel that changes slot slides there instead of snapping (FLIP, see JS). */
+.arena > .team.flip{will-change:transform}

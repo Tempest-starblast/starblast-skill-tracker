@@ -3,6 +3,13 @@
 {% include "_mapgen.html" %}
 {% include "_stationglyph.html" %}
 <style>
+{% include "_arena.html" %}
+/* The live match is the replay's screen, driven by the watcher instead of a
+   play bar - so it wears the same arena, sized to the viewport the same way. */
+.rl-card > .arena{height:min(660px,calc(100vh - 330px));min-height:430px;
+  border:1px solid var(--line2,rgba(153,221,255,.28));border-radius:12px;
+  background:rgba(255,255,255,.014)}
+@media (max-width:820px){ .rl-card > .arena{height:auto} }
 .rl-head{max-width:1180px;margin:0 auto 14px}
 .rl-head h1{font-size:20px;letter-spacing:.4px;margin:0 0 4px}
 .rl-badge{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.5px;
@@ -32,8 +39,8 @@
 .rl-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#66E6B8;
   margin-right:6px;vertical-align:middle;animation:rlp 2s infinite}
 @keyframes rlp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 7px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
-.rl-wrap{max-width:1180px;margin:0 auto;display:grid;gap:14px;
-  grid-template-columns:repeat(auto-fill,minmax(370px,1fr))}
+/* One match at a time (Back / Next flips through them), so one column. */
+.rl-wrap{max-width:1180px;margin:0 auto;display:grid;gap:14px;grid-template-columns:1fr}
 .rl-card{background:rgba(153,221,255,.04);border:1px solid rgba(153,221,255,.14);
   border-radius:10px;padding:13px 15px}
 .rl-ctop{display:flex;justify-content:space-between;align-items:baseline;
@@ -43,29 +50,11 @@
   border-radius:4px;padding:1px 6px;margin-left:6px}
 .rl-fw.yes{color:#0b1016;background:#66E6B8}
 .rl-fw.no{color:#8aa0b0;border:1px solid rgba(153,221,255,.25)}
-/* stations - same look as /live */
-.rl-stations{display:flex;gap:9px;margin:2px 0 12px}
-.rl-stpanel{flex:1;min-width:0;background:radial-gradient(ellipse at 50% 40%,
-  rgba(10,26,48,.85),rgba(3,10,22,.9));border:1px solid rgba(153,221,255,.16);
-  border-radius:9px;padding:7px 7px 6px}
-.rl-stpanel svg{display:block;width:100%;height:92px;margin:2px 0 5px}
-.rl-stpanel.gone{border-color:rgba(255,120,120,.45)}
-.rl-stpanel.waiting{opacity:.55}
-.rl-sthead{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--dim,#8aa0b0)}
-.rl-sthead .lvl{font-weight:700;letter-spacing:.4px}
-.rl-sthead .g{margin-left:auto;font-variant-numeric:tabular-nums}
-.rl-chip{width:9px;height:9px;border-radius:2px;flex:none}
-.rl-gembar{width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.07);
-  overflow:hidden}
-.rl-gembar i{display:block;height:100%;border-radius:3px;background:#b48cff;
-  transition:width .8s ease}
-/* radar */
-.rl-radar{display:block;width:100%;aspect-ratio:1/1;height:auto;margin:2px 0 12px}
-.rl-radar .ship{transition-property:transform;transition-timing-function:linear;transition-duration:4s;will-change:transform;cursor:pointer}
+/* radar - the shared .radarmap, with the live view's gliding ships in it */
+.radarmap .ship{transition-property:transform;transition-timing-function:linear;
+  transition-duration:4s;will-change:transform;cursor:pointer}
 .rl-shipnm{font-size:7px;text-anchor:middle;font-weight:700;
   paint-order:stroke;stroke:rgba(3,8,16,.85);stroke-width:.55px}
-.rl-prow.rl-hl{background:rgba(255,255,255,.12);border-radius:3px;box-shadow:inset 2px 0 0 var(--amber,#ffc757)}
-.rl-prow{cursor:pointer}
 /* Mini-player mode (?mini=1): show ONLY the live radars, in a compact grid, and
    hide all chrome so the live view can ride along in the corner mini-player. */
 body.mini{overflow:hidden;margin:0;background:#04070d}
@@ -75,20 +64,14 @@ body.mini .page > *{display:none!important}
 body.mini .page > #rlWrap{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:3px;height:100vh;padding:3px;margin:0;overflow:hidden;align-content:start}
 body.mini .rl-card{display:block!important;margin:0;padding:0;background:transparent;border:none;box-shadow:none;min-width:0}
 body.mini .rl-card > *{display:none!important}
-body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;margin:0}
-/* rosters */
-.rl-teamrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:7px 0 3px}
-.rl-tname{font-weight:600;color:var(--text)}
-.rl-wp{font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;
-  letter-spacing:.02em}
-.rl-tmeta{margin-left:auto;color:var(--dim,#8aa0b0);font-size:11px;
-  font-variant-numeric:tabular-nums}
-.rl-plist{font-size:11.5px;line-height:1.5;margin-bottom:2px}
-.rl-prow{display:flex;gap:7px;align-items:center}
-.rl-prow .rn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rl-prow .rt{color:var(--dim,#8aa0b0);flex:none;font-variant-numeric:tabular-nums}
-.rl-prow .rs{flex:none;font-variant-numeric:tabular-nums;color:var(--text)}
-.rl-prow.dead .rn{color:#6a7681;text-decoration:line-through}
+body.mini .rl-card > .arena{display:block!important;height:100%!important;
+  min-height:0!important;border:none;background:transparent;border-radius:0}
+body.mini .arena > .team{display:none!important}
+body.mini .arena > .radarwrap{display:flex!important;height:100%;padding:0;border:none}
+body.mini .radarcap{display:none!important}
+body.mini .radarmap{width:100%;height:auto;margin:0;border:none;border-radius:0}
+/* The win-chance chip beside a pilot's name - the live view's own, on top
+   of the shared row. */
 .rl-impact{flex:none;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;
   padding:0 4px;border-radius:5px;letter-spacing:.01em}
 .rl-impact.up{color:#66E6B8;background:rgba(102,230,184,.12)}
@@ -106,19 +89,10 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
 .rlnav .rlcount{flex:1;text-align:center;font-size:13px;color:var(--dim,#8aa0b0);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rlnav .rlcount b{color:var(--text)}
-.rl-wrap{max-width:1040px;margin:0 auto;display:block}
+.rl-wrap{max-width:1180px;margin:0 auto;display:block}
 .rl-card{display:none}
 .rl-card.rl-active{display:block}
 .rl-card.rl-active .rl-ctop{font-size:13.5px}
-@media(min-width:840px){
-  .rl-card.rl-active{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
-    column-gap:24px;align-items:start}
-  .rl-card.rl-active > .rl-ctop{grid-column:1/-1}
-  .rl-card.rl-active > .rl-stwrap{grid-column:1;grid-row:2}
-  .rl-card.rl-active > .rl-radar{grid-column:1;grid-row:3;width:auto;height:min(56vh,520px);
-    max-width:100%;margin:4px auto 0}
-  .rl-card.rl-active > .rl-ros{grid-column:2;grid-row:2 / 4}
-}
 </style>
 
 <div class="rl-head">
@@ -230,24 +204,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
       }
       shapes+=g+'</g>';
     });
-    return '<svg viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'">'+lines+shapes+'</svg>';
-  }
-  function stationsPanel(m){
-    var p='',any=false;
-    m.teams.forEach(function(t){
-      var svg=stationSvg(t); if(!svg)return; any=true;
-      var s=t.station||[]; var lvl=s[0],gems=s[1]||0,total=s[3]||12,weak=s[4]||0,dead=s[5]||0;
-      var gone=total>0&&dead>=total;
-      var cap=(lvl!=null&&GEM_CAPS[lvl])?GEM_CAPS[lvl]:GEM_CAPS[3];
-      var pct=Math.max(0,Math.min(100,100*gems/cap));
-      var waiting=(lvl==null);
-      p+='<div class="rl-stpanel'+(gone?' gone':'')+(waiting?' waiting':'')+'">'
-        +'<div class="rl-sthead"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
-        +'<span class="lvl">'+(gone?'DESTROYED':(waiting?'reading…':'Lv '+(lvl+1)))+'</span>'
-        +'<span class="g">'+(waiting?'':((gems>=1000?(gems/1000).toFixed(1)+'k':gems)+' 💎'))+'</span></div>'
-        +svg+'<div class="rl-gembar"><i style="width:'+pct.toFixed(0)+'%"></i></div></div>';
-    });
-    return any?'<div class="rl-stations">'+p+'</div>':'';
+    return '<svg class="stsvg" viewBox="'+(-ext)+' '+(-ext)+' '+(2*ext)+' '+(2*ext)+'">'+lines+shapes+'</svg>';
   }
   function stationIcon(cx,cy,c,gone,s,sw){
     var g='<g opacity="'+(gone?0.4:1)+'">'
@@ -277,9 +234,9 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
   var WRAP=256, SHIP_R=MAPE/38;
   // The ship silhouettes the replay draws, fetched once and kept. Until they
   // arrive (or for a ship whose hull is not known yet) the plain cross stands.
-  var SHIPD={};
+  var SHIPD={}, SHIPN={};
   (function(){ try{ fetch('/api/ships').then(function(r){ return r.json(); }).then(function(j){
-      Object.keys(j.ships||{}).forEach(function(c){ SHIPD[c]=j.ships[c].d; });
+      Object.keys(j.ships||{}).forEach(function(c){ SHIPD[c]=j.ships[c].d; SHIPN[c]=j.ships[c].name; });
     }).catch(function(){}); }catch(e){} })();
   var WRAPS=[[0,0],[-WRAP,0],[WRAP,0],[0,-WRAP],[0,WRAP],[-WRAP,-WRAP],[WRAP,-WRAP],[-WRAP,WRAP],[WRAP,WRAP]];
   // One copy per wrap, each turned about its OWN centre - rotating the whole
@@ -360,22 +317,46 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
       c._shl=sh; return; } }
   }
 
+  // A team panel, exactly the replay's: name, win chance, gem bank, station,
+  // pilots. Same markup, same classes, same stylesheet.
+  function teamPanelHtml(i){
+    var col=COL[i]||'#8aa0b0';
+    return '<div class="team" data-team="'+i+'">'
+      + '<div class="t-head"><span class="t-name" style="color:'+col+'">Team '+(i+1)+'</span>'
+      + '<span class="t-wp" data-wp="'+i+'" style="color:'+col+'"></span></div>'
+      + '<div class="t-wpbar"><i data-wpbar="'+i+'" style="background:'+col+'"></i></div>'
+      + '<div class="t-gembar" title="Station gems"><i data-gembar="'+i+'"></i></div>'
+      + '<div class="t-mid"><span data-stsvg="'+i+'"></span><div class="t-st" data-stmeta="'+i+'"></div></div>'
+      + '<div class="t-roster" data-roster="'+i+'"></div></div>';
+  }
   function buildCard(sid){
     var el=document.createElement('div'); el.className='rl-card';
-    el.innerHTML='<div class="rl-ctop"></div><div class="rl-stwrap"></div>'
-      +'<svg class="rl-radar" viewBox="'+(-MAPE)+' '+(-MAPE)+' '+(2*MAPE)+' '+(2*MAPE)+'" preserveAspectRatio="xMidYMid meet">'
-      +'<g class="rl-rbase"></g><g class="rl-rst"></g><g class="rl-rships"></g></svg><div class="rl-ros"></div>';
-    var c={el:el, top:el.querySelector('.rl-ctop'), stEl:el.querySelector('.rl-stwrap'),
-           rosEl:el.querySelector('.rl-ros'), rbase:el.querySelector('.rl-rbase'),
-           rst:el.querySelector('.rl-rst'),
-           shipLayer:el.querySelector('.rl-rships'), ships:{}};
-    // hover a roster row -> halo that pilot's ship on the radar
-    c.rosEl.addEventListener('mouseover', function(ev){ var row=ev.target.closest&&ev.target.closest('.rl-prow');
-      if(row){ var n=row.querySelector('.rn'); rlShipHl(c, n?n.textContent:null); } });
-    c.rosEl.addEventListener('mouseleave', function(){ rlShipHl(c, null); });
-    // click a roster row -> that player's profile
-    c.rosEl.addEventListener('click', function(ev){ var row=ev.target.closest&&ev.target.closest('.rl-prow');
-      if(row){ var n=row.querySelector('.rn'); if(n) location.href='/player/'+encodeURIComponent(n.textContent); } });
+    el.innerHTML='<div class="rl-ctop"></div><div class="arena a3">'
+      + [0,1,2].map(teamPanelHtml).join('')
+      + '<div class="radarwrap"><div class="radarcap">Radar</div>'
+      + '<svg class="radarmap" viewBox="'+(-MAPE)+' '+(-MAPE)+' '+(2*MAPE)+' '+(2*MAPE)+'" preserveAspectRatio="xMidYMid meet">'
+      + '<g class="rl-rbase"></g><g class="rl-rst"></g><g class="rl-rships"></g></svg></div></div>';
+    var c={el:el, top:el.querySelector('.rl-ctop'), arena:el.querySelector('.arena'),
+           rbase:el.querySelector('.rl-rbase'), rst:el.querySelector('.rl-rst'),
+           shipLayer:el.querySelector('.rl-rships'), ships:{},
+           panel:{}, wpEl:{}, wpBar:{}, gemBar:{}, stEl:{}, stMeta:{}, ros:{}};
+    [0,1,2].forEach(function(i){
+      c.panel[i]=c.arena.querySelector('.team[data-team="'+i+'"]');
+      c.wpEl[i]=c.arena.querySelector('[data-wp="'+i+'"]');
+      c.wpBar[i]=c.arena.querySelector('[data-wpbar="'+i+'"]');
+      c.gemBar[i]=c.arena.querySelector('[data-gembar="'+i+'"]');
+      c.stEl[i]=c.arena.querySelector('[data-stsvg="'+i+'"]');
+      c.stMeta[i]=c.arena.querySelector('[data-stmeta="'+i+'"]');
+      c.ros[i]=c.arena.querySelector('[data-roster="'+i+'"]');
+      c.panel[i].setAttribute('data-slot', ['left','middle','right'][i]);
+    });
+    // hover a roster row -> halo that pilot's ship on the radar; click -> profile
+    c.arena.addEventListener('mouseover', function(ev){ var row=ev.target.closest&&ev.target.closest('.prow');
+      if(row) rlShipHl(c, row.getAttribute('data-name')); });
+    c.arena.addEventListener('mouseout', function(ev){ var row=ev.target.closest&&ev.target.closest('.prow');
+      if(row) rlShipHl(c, null); });
+    c.arena.addEventListener('click', function(ev){ var row=ev.target.closest&&ev.target.closest('.prow');
+      if(row){ var n=row.getAttribute('data-name'); if(n) location.href='/player/'+encodeURIComponent(n); } });
     cards[sid]=c; return c;
   }
 
@@ -388,7 +369,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     var teams=m.teams.slice().sort(function(a,b){return (b.score||0)-(a.score||0);});
     var psig=JSON.stringify([m.full_watch,m.name,teams.map(function(t){
       return [t.key,t.score,t.count,t.prob,(t.station||[]).slice(0,6),
-              (t.players||[]).map(function(p){return p.name+'|'+p.score+'|'+p.tier+'|'+(p.dead?1:0)+'|'+(p.impact==null?'':p.impact);})];})]);
+              (t.players||[]).map(function(p){return p.name+'|'+p.score+'|'+p.tier+'|'+(p.code==null?'':p.code)+'|'+(p.dead?1:0)+'|'+(p.impact==null?'':p.impact);})];})]);
     c.seed=m.seed; c.lastM=m;
     ensureAsteroids(m.seed);
     c.mAt=performance.now();
@@ -398,30 +379,58 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
       var reg=(m.region||'').replace('america','NA').replace('europe','EU').replace('asia','Asia');
       c.top.innerHTML='<b>'+esc(m.name)+'</b><span>'+reg+(m.cap?' &middot; cap '+m.cap:'')
         +'<span class="rl-fw '+(m.full_watch?'yes':'no')+'">'+(m.full_watch?'from start':'joined mid')+'</span></span>';
-      c.stEl.innerHTML=stationsPanel(m);
       c.rbase.innerHTML=radarBase(m, asteroidSvg(m.seed));
-      c.rosEl.innerHTML=teams.map(function(t){
-        var rows=(t.players||[]).map(function(p){
+      // Panels sit by win chance, as in the replay: underdog left, favourite
+      // right, the one in between above the radar.
+      var slots=['left','middle','right'];
+      (m.teams||[]).map(function(t,i){ return {i:i, p:(t.prob==null?-1:t.prob)}; })
+        .sort(function(a,b){ return a.p-b.p; })
+        .forEach(function(o,idx){ if(c.panel[o.i]) c.panel[o.i].setAttribute('data-slot', slots[idx]||'middle'); });
+      // The tallest bar in the lobby scales every bar, so the panels compare.
+      var gmax=1;
+      (m.teams||[]).forEach(function(t){ (t.players||[]).forEach(function(p){
+        if((p.score||0)>gmax) gmax=p.score||0; }); });
+      (m.teams||[]).forEach(function(t,i){
+        var col=COLORS[t.key]||'#8aa0b0', s=t.station||[];
+        var lvl=s[0], gems=s[1]||0, total=s[3]||0, dead=s[5]||0;
+        var gone=total>0&&dead>=total;
+        var nmEl=c.panel[i]&&c.panel[i].querySelector('.t-name');
+        if(nmEl){ nmEl.textContent=t.label||('Team '+(i+1)); nmEl.style.color=col; }
+        if(c.panel[i]) c.panel[i].classList.toggle('out', gone);
+        if(c.wpEl[i]){ c.wpEl[i].textContent=(t.prob!=null)?(t.prob+'%'):''; c.wpEl[i].style.color=col; }
+        if(c.wpBar[i]){ c.wpBar[i].style.width=Math.max(0,Math.min(100,t.prob||0))+'%';
+                        c.wpBar[i].style.background=col; }
+        var cap=(lvl!=null&&GEM_CAPS[lvl])?GEM_CAPS[lvl]:GEM_CAPS[3];
+        if(c.gemBar[i]) c.gemBar[i].style.width=Math.max(0,Math.min(100,100*gems/cap)).toFixed(0)+'%';
+        if(c.stEl[i]) c.stEl[i].innerHTML=stationSvg(t);
+        if(c.stMeta[i]) c.stMeta[i].innerHTML=
+          (gone?'DESTROYED':(lvl!=null?('Lv '+(lvl+1)):'Lv&nbsp;?'))
+          +'<br>'+(gems||0).toLocaleString()+' &#9670;'
+          +'<br>'+(t.count||0)+'p &middot; '+fmt(t.score||0);
+        if(!c.ros[i]) return;
+        c.ros[i].innerHTML=(t.players||[]).map(function(p){
+          var d=(p.code!=null&&SHIPD[p.code])?SHIPD[p.code]:'';
           var imp='';
           if(p.impact!=null && Math.abs(p.impact)>=0.1){
             var pos=p.impact>0;
             imp='<span class="rl-impact '+(pos?'up':'down')+'" title="how much this player is raising or lowering their team’s win chance">'
               +(pos?'+':'−')+Math.abs(p.impact).toFixed(1)+'%</span>';
           }
-          return '<div class="rl-prow'+(p.dead?' dead':'')+'"><span class="rn">'+esc(p.name)
-            +'</span>'+imp+'<span class="rt">T'+p.tier+'</span><span class="rs">'+fmt(p.score)+'</span></div>';
+          return '<div class="prow'+(p.dead?' left':'')+'" data-name="'+esc(p.name)+'"'
+            +(p.code!=null?' title="'+esc(SHIPN[p.code]||'')+'"':'')+'>'
+            +'<span class="pn" style="color:'+col+'">'
+            +'<svg class="pship" viewBox="0 0 100 100" aria-hidden="true"><path d="'+d+'" fill="'+col+'"/></svg>'
+            +esc(p.name)+imp+'</span>'
+            +'<span class="pb"><i style="background:'+col+';width:'
+            +Math.max(0,Math.round(100*(p.score||0)/gmax))+'%"></i></span>'
+            +'<span class="ps">'+fmt(p.score)+'</span></div>';
         }).join('');
-        var wp=(t.prob!=null)?'<span class="rl-wp" style="color:'+COLORS[t.key]+'">'+t.prob+'%</span>':'';
-        return '<div class="rl-teamrow"><span class="rl-chip" style="background:'+COLORS[t.key]+'"></span>'
-          +'<span class="rl-tname">'+esc(t.label)+'</span>'+wp
-          +'<span class="rl-tmeta">'+fmt(t.score)+' &middot; '+t.count+'p</span></div>'
-          +'<div class="rl-plist">'+rows+'</div>';
-      }).join('');
+      });
       // name -> current roster row, rebuilt with the roster so a ship hover can
       // find the row to spotlight even after the panel is redrawn.
       c.nameRow={};
-      c.rosEl.querySelectorAll('.rl-prow').forEach(function(row){
-        var n=row.querySelector('.rn'); if(n) c.nameRow[n.textContent]=row; });
+      c.arena.querySelectorAll('.prow[data-name]').forEach(function(row){
+        c.nameRow[row.getAttribute('data-name')]=row; });
     }
     // radar ships: glide each dot over the REAL time since it last moved, so
     // there is no stop-then-jump. Only positions that changed are touched.
@@ -448,8 +457,8 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
         c.shipLayer.appendChild(g);
         // Hover the ship (or its name) to spotlight that pilot's roster row.
         g.addEventListener('mouseenter', function(){ var row=c.nameRow&&c.nameRow[(c.ships[id]||{}).nm];
-          if(c._hl&&c._hl!==row) c._hl.classList.remove('rl-hl'); c._hl=row; if(row) row.classList.add('rl-hl'); });
-        g.addEventListener('mouseleave', function(){ if(c._hl) c._hl.classList.remove('rl-hl'); c._hl=null; });
+          if(c._hl&&c._hl!==row) c._hl.classList.remove('hl'); c._hl=row; if(row) row.classList.add('hl'); });
+        g.addEventListener('mouseleave', function(){ if(c._hl) c._hl.classList.remove('hl'); c._hl=null; });
         // Click a ship (or its name) -> that pilot's profile, the same as a roster row.
         g.addEventListener('click', function(){ var n=(c.ships[id]||{}).nm; if(n) location.href='/player/'+encodeURIComponent(n); });
         if(nm) g.style.cursor='pointer';
