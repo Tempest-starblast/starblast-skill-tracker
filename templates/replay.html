@@ -1233,13 +1233,14 @@ function buildReplay(ST, RD){
     var ROSTER_CUT = (function(){
       var rdA = res.rd;
       if(!rdA || rdA.length < frames.length) return false;
-      var CAP = 24, bad = 0;
+      var CAP = 24, bad = 0, maxRows = 0;
       for(var i = 0; i < frames.length; i++){
         var ships = (rdA[i] || []).length;
         var rows = ((frames[i] || [])[1] || []).length;
+        if(rows > maxRows) maxRows = rows;
         if(rows === CAP && ships > CAP) bad++;
       }
-      return bad > frames.length * 0.2;
+      return maxRows <= CAP && bad >= 3;
     })();
     if(ROSTER_CUT && arenaEl){
       arenaEl.insertAdjacentHTML('beforebegin',
