@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.91"
+APP_VERSION = "9.13.92"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5533,6 +5533,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.92", "at": "2026-09-15T10:00:00Z", "changes": [
+        "<b>A replay now says when its team lists are incomplete.</b> Matches recorded before today kept only the highest-scoring two dozen pilots at each moment, so a busy lobby could show ships on the radar with no row beside them, and a team could look empty when it was not. Those replays now carry a notice, and they no longer mark a team out or a pilot gone on evidence that was cut. The radar, the stations and the result were never affected.",
+    ]},
     {"version": "9.13.91", "at": "2026-09-15T09:10:00Z", "changes": [
         "<b>Live matches now draw ships the way replays do</b> — each pilot’s own silhouette, turned the way they are flying, instead of a plain cross.",
         "<b>Team colours on a live match stop flickering.</b> The page re-read each team’s colour on every refresh, so an update that arrived before the lobby’s colours were known snapped the stations back to the fallback palette and then off it again. A colour is now kept once it is known.",

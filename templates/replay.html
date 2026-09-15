@@ -1084,7 +1084,7 @@ function buildReplay(ST, RD){
         // Scores are kept once earned, so the board is the match's standings -
         // but a pilot who has left is not on the map any more, and a row with
         // no ship behind it reads as a mistake. Say they are gone.
-        var here = presence[key] ? presence[key][i] : 1;
+        var here = (ROSTER_CUT || !presence[key]) ? 1 : presence[key][i];
         if(ref.row && ref.here !== here){
           ref.here = here;
           ref.row.classList.toggle('left', !here);
@@ -1182,7 +1182,10 @@ function buildReplay(ST, RD){
         var st = row[k], hp = st && st[2];
         var stationGone = !!(hp && hp.length && hp.every(function(h){ return !h; }));
         if(stationGone) killed++;
-        var dead = stationGone || (everManned[k] && !manned[k]);
+        // With the lists cut short, an empty team is as likely to be a pilot
+        // who fell off the frame as one who left. Only a destroyed station is
+        // trustworthy then.
+        var dead = stationGone || (!ROSTER_CUT && everManned[k] && !manned[k]);
         out[k] = dead;
         if(!dead) alive.push(k);
         var p = teamPanel[k];
@@ -1204,6 +1207,30 @@ function buildReplay(ST, RD){
         if(dead >= hp.length && !stGone[k]){ stGone[k] = 1; SBSound.play('thud'); }
       });
       if(si >= frames.length - 2 && !endRung){ endRung = true; SBSound.play('chime'); }
+    }
+    // Were the team lists cut short? At a frame where the radar holds more of
+    // a team's ships than the team's list does, the list was capped. A few
+    // frames can differ while the watcher resolves a ship; a fifth of the
+    // match cannot.
+    var ROSTER_CUT = (function(){
+      var rdA = res.rd;
+      if(!rdA || rdA.length < frames.length) return false;
+      var bad = 0;
+      for(var i = 0; i < frames.length; i++){
+        var rc = {}, pc = {};
+        (rdA[i] || []).forEach(function(e){ rc[e[0]] = (rc[e[0]] || 0) + 1; });
+        ((frames[i] || [])[1] || []).forEach(function(p){ pc[p[2]] = (pc[p[2]] || 0) + 1; });
+        for(var t in rc){ if(rc[t] > (pc[t] || 0)){ bad++; break; } }
+      }
+      return bad > frames.length * 0.2;
+    })();
+    if(ROSTER_CUT && arenaEl){
+      arenaEl.insertAdjacentHTML('beforebegin',
+        '<div class="rpflood">&#9888; Incomplete recording: this match was recorded keeping only the '
+        + 'highest-scoring two dozen pilots at each moment, so ships on the radar can have no row in a '
+        + 'team list, rows come and go as the scores move, and a team can look empty when it is not. '
+        + 'The radar, the stations and the result are unaffected. Matches recorded after 15 Sep 2026 '
+        + 'keep every team\u2019s pilots.</div>');
     }
     var T0 = frames[0][0], T1 = frames[frames.length - 1][0];
     var MT0 = (typeof res.mt0 === 'number' && res.mt0 > 0 && res.mt0 < 4 * 3600) ? res.mt0 : 0;
