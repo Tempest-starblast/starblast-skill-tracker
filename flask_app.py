@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.92"
+APP_VERSION = "9.13.93"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5533,6 +5533,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.93", "at": "2026-09-15T10:40:00Z", "changes": [
+        "<b>A replay no longer marks a team out while its ships are still on the radar.</b> A team list holds the pilots whose names the watcher has resolved, and a name can arrive after the ship does \u2014 so a brief gap in the list was being read as the team being knocked out. A team is out when its station is destroyed, or when nothing of theirs has been on the map for half a minute.",
+    ]},
     {"version": "9.13.92", "at": "2026-09-15T10:00:00Z", "changes": [
         "<b>A replay now says when its team lists are incomplete.</b> Matches recorded before today kept only the highest-scoring two dozen pilots at each moment, so a busy lobby could show ships on the radar with no row beside them, and a team could look empty when it was not. Those replays now carry a notice, and they no longer mark a team out or a pilot gone on evidence that was cut. The radar, the stations and the result were never affected.",
     ]},
