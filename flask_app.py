@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.90"
+APP_VERSION = "9.13.91"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2901,7 +2901,7 @@ def rawlive_matches():
                                + (float(d.get("ts") or 0) - float(d.get("_ct0") or d.get("ts") or 0)), 1)
                          if isinstance(d.get("servertime"), (int, float)) and d.get("ts") else None)),
             "phases": (d.get("phases") if isinstance(d.get("phases"), list) else None),
-            "radar": d.get("radar") or [],
+            "radar": _live_radar(d),
             "names": _names,
             "prog": round(prog, 3),
             "wp": bool(probs),
@@ -3524,6 +3524,53 @@ def replays_index():
     return render_template('replays.html', version=APP_VERSION, page='replays',
                            rows=rows, total=total, pg=pg, pages=pages,
                            date=date, sysq=sysq, q=q, mode='team')
+
+
+def _live_radar(d):
+    """The live radar rows with the hull each ship is flying appended.
+
+    A row is [team, id, x, y] and becomes [team, id, x, y, ship]. The code
+    comes from the same team rows the roster is built from, so this costs
+    the watcher nothing: teams row = [name, score, tier+1, model, id, ..],
+    and the site's ship code is (tier+1)*100 + (model_byte+1). Model 0 is a
+    real ship (the Fly), so the test is for None, never for truth.
+    """
+    codes = {}
+    for k in ("team_1", "team_2", "team_3"):
+        for r in (d.get("teams", {}).get(k) or []):
+            if not r or len(r) < 5 or r[4] is None:
+                continue
+            try:
+                tier, model = int(r[2]), int(r[3])
+            except (TypeError, ValueError):
+                continue
+            if tier >= 1 and model >= 0:
+                codes[r[4]] = tier * 100 + model + 1
+    out = []
+    for e in (d.get("radar") or []):
+        if not e or len(e) < 4:
+            continue
+        row = list(e[:4])
+        c = codes.get(e[1])
+        if c:
+            row.append(c)
+        out.append(row)
+    return out
+
+
+@app.route('/api/ships')
+def api_ships():
+    """Every ship silhouette, once. The live radar needs the same outlines the
+    replay uses; sending them with each poll would be tens of kilobytes a
+    second, so they are fetched once and cached hard - they never change."""
+    out = {}
+    for code in sorted(ship_shapes.SHIP_NAME):
+        d = ship_shapes.ship_path(code)
+        if d:
+            out[str(code)] = {"d": d, "name": ship_shapes.ship_name(code)}
+    resp = jsonify({"ships": out})
+    resp.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+    return resp, 200
 
 
 @app.route('/api/live/state', methods=['POST'])
@@ -5486,6 +5533,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.91", "at": "2026-09-15T09:10:00Z", "changes": [
+        "<b>Live matches now draw ships the way replays do</b> — each pilot’s own silhouette, turned the way they are flying, instead of a plain cross.",
+        "<b>Team colours on a live match stop flickering.</b> The page re-read each team’s colour on every refresh, so an update that arrived before the lobby’s colours were known snapped the stations back to the fallback palette and then off it again. A colour is now kept once it is known.",
+        "A replay no longer calls a team OUT for being empty in the opening minutes, or crowns a WINNER before anyone has been knocked out. A team is out once its station is destroyed, or once the pilots it had have all left.",
+    ]},
     {"version": "9.13.90", "at": "2026-09-15T05:30:00Z", "changes": [
         "<b>A replay now ends at the kill that decided it.</b> It used to run on while the winner flew an empty map waiting for the lobby to reset. It stops a few seconds after the last enemy station goes.",
         "The team panels say OUT and WINNER in words. They were showing stray characters instead.",

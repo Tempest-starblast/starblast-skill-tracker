@@ -158,9 +158,16 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
   var DEF_COLORS={team_1:COLORS.team_1,team_2:COLORS.team_2,team_3:COLORS.team_3};
   // The lobby's own team hues (once the watcher reports them) so the live view is
   // coloured the way the game is; the fixed palette stays the fallback.
+  // A hue is kept once the watcher has reported it. Re-reading it every
+  // refresh meant any update that arrived without hues - and there are plenty,
+  // before the lobby's welcome has been seen - snapped the stations and ships
+  // back to the fallback palette and then off it again: a visible flicker.
+  var HUE_SEEN={};
   function applyHues(m){ (m.teams||[]).forEach(function(t){
     var i=parseInt(String(t.key||'').slice(-1),10)-1; if(!(i>=0&&i<3)) return;
-    var h=t.hue, c=(h!=null&&isFinite(h))?('hsl('+(((h%360)+360)%360)+',72%,64%)'):DEF_COLORS[t.key];
+    var h=t.hue;
+    if(h!=null&&isFinite(h)) HUE_SEEN[t.key]='hsl('+(((h%360)+360)%360)+',72%,64%)';
+    var c=HUE_SEEN[t.key]||DEF_COLORS[t.key];
     COLORS[t.key]=c; COL[i]=c; }); }
   var GEM_CAPS=[800,1600,3200,6400];
   var BASE_R=128*Math.SQRT2/2, MAPE=132;   // the station ring: sqrt(2)/2 of the half-width
@@ -268,9 +275,28 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
   // one-map-period offset, so the torus edge is seamless: the copies sit off-view
   // until the ship nears an edge, then the far copy is already coming in.
   var WRAP=256, SHIP_R=MAPE/38;
-  function shipMark(col){
+  // The ship silhouettes the replay draws, fetched once and kept. Until they
+  // arrive (or for a ship whose hull is not known yet) the plain cross stands.
+  var SHIPD={};
+  (function(){ try{ fetch('/api/ships').then(function(r){ return r.json(); }).then(function(j){
+      Object.keys(j.ships||{}).forEach(function(c){ SHIPD[c]=j.ships[c].d; });
+    }).catch(function(){}); }catch(e){} })();
+  var WRAPS=[[0,0],[-WRAP,0],[WRAP,0],[0,-WRAP],[0,WRAP],[-WRAP,-WRAP],[WRAP,-WRAP],[-WRAP,WRAP],[WRAP,WRAP]];
+  // One copy per wrap, each turned about its OWN centre - rotating the whole
+  // group would swing the copies around the middle of the map instead.
+  function shipMark(col, code, rot){
+    var d=(code!=null)?SHIPD[code]:null;
+    if(!d) return crossMark(col);
+    var w=SHIP_R*3.1, sc=w/100, a=(rot||0).toFixed(1), out='';
+    WRAPS.forEach(function(o){
+      out+='<g transform="translate('+o[0]+','+o[1]+') rotate('+a+') translate('
+         +(-w/2).toFixed(2)+','+(-w/2).toFixed(2)+') scale('+sc.toFixed(4)+')">'
+         +'<path d="'+d+'" fill="'+col+'"/></g>'; });
+    return out;
+  }
+  function crossMark(col){
     var r=SHIP_R, out='';
-    [[0,0],[-WRAP,0],[WRAP,0],[0,-WRAP],[0,WRAP],[-WRAP,-WRAP],[WRAP,-WRAP],[-WRAP,WRAP],[WRAP,WRAP]].forEach(function(o){
+    WRAPS.forEach(function(o){
       var x=o[0], y=o[1];
       out+='<line x1="'+(x-r).toFixed(1)+'" y1="'+(y-r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y+r).toFixed(1)+'" stroke="'+col+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round"/>'
          +'<line x1="'+(x-r).toFixed(1)+'" y1="'+(y+r).toFixed(1)+'" x2="'+(x+r).toFixed(1)+'" y2="'+(y-r).toFixed(1)+'" stroke="'+col+'" stroke-width="'+(r*0.55).toFixed(2)+'" stroke-linecap="round"/>'; });
@@ -403,6 +429,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
     var idName=m.names||{};   // owner-only: ship id -> pilot name
     (m.radar||[]).forEach(function(e){
       var ti=e[0],id=e[1],x=sbToWorld(e[2]),y=-sbToWorld(e[3]); seen[id]=1;
+      var code=(e.length>4)?e[4]:null;    // the hull this pilot is flying now
       var nm=idName[id];
       var sh=c.ships[id];
       // The game reuses ship ids. The same id on a DIFFERENT team is a different
@@ -412,7 +439,9 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
       if(!sh){
         var g=document.createElementNS('http://www.w3.org/2000/svg','g');
         g.setAttribute('class','ship');
-        g.innerHTML=shipMark(COL[ti]||'#888')
+        // The hull lives in its own group: the name label and the handlers on
+        // the ship itself survive every redraw of it.
+        g.innerHTML='<g class="hull">'+shipMark(COL[ti]||'#888', code, 0)+'</g>'
           +(nm?'<text class="rl-shipnm" x="0" y="-6" fill="'+(COL[ti]||'#888')+'">'+esc(nm)+'</text>':'');
         g.style.transitionDuration='0ms';
         g.style.transform='translate('+x+'px,'+y+'px)';
@@ -424,7 +453,7 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
         // Click a ship (or its name) -> that pilot's profile, the same as a roster row.
         g.addEventListener('click', function(){ var n=(c.ships[id]||{}).nm; if(n) location.href='/player/'+encodeURIComponent(n); });
         if(nm) g.style.cursor='pointer';
-        c.ships[id]={el:g,ti:ti,x:x,y:y,last:now,nm:nm};
+        c.ships[id]={el:g,ti:ti,x:x,y:y,last:now,nm:nm,code:code,rot:0};
         return;
       }
       if(sh.nm!==nm){   // pilot name resolved or changed - update the label
@@ -435,6 +464,21 @@ body.mini .rl-card > .rl-radar{display:block!important;width:100%;height:auto;ma
           tx.textContent=nm; }
         else if(tx){ tx.remove(); }
       }
+      // The hull, and which way it is pointing. The heading is the step the dot
+      // just made - a radar reading carries no facing - and is only taken from a
+      // step small enough to be flight rather than a wrap or a respawn. Redrawn
+      // when the hull changes or the heading moves enough to see.
+      (function(){
+        var dx=x-sh.x, dy=y-sh.y, len=Math.hypot(dx,dy);
+        if(len>0.5 && len<60) sh.rot=Math.atan2(dy,dx)*180/Math.PI+90;
+        var turned=Math.abs(((sh.rot-(sh.drawnRot==null?9999:sh.drawnRot))+540)%360-180)>8;
+        if(sh.code!==code || turned || sh.drawnRot==null){
+          sh.code=code;
+          sh.drawnRot=sh.rot;
+          var hull=sh.el.querySelector('.hull');
+          if(hull) hull.innerHTML=shipMark(COL[sh.ti]||'#888', code, sh.rot);
+        }
+      })();
       // sh.x/sh.y may sit one period outside the map mid-crossing; compare folded.
       var fx0=sh.x, fy0=sh.y;
       if(fx0>128) fx0-=WRAP; else if(fx0<-128) fx0+=WRAP;

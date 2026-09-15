@@ -1162,7 +1162,7 @@ function buildReplay(ST, RD){
     // A station's core finally going, and the end of the match: the only two
     // moments loud enough to be worth a sound. Silent unless the reader asked
     // for sound, and never while scrubbing backwards.
-    var stGone = {}, endRung = false, lastSoundIdx = -1;
+    var stGone = {}, endRung = false, lastSoundIdx = -1, everManned = {};
     // Who is still standing. A team whose station has no module left is out
     // of the match; when only one is left, that is the winner - said on the
     // panel so the end of a replay cannot be misread. Recomputed from the
@@ -1170,24 +1170,27 @@ function buildReplay(ST, RD){
     function markStandings(si){
       if(!stSeries) return;
       var row = stSeries[si]; if(!row) return;
-      var out = {}, alive = [];
-      // A team is out when nobody is left flying for them, or when the station
-      // itself is gone. Either one ends their match.
+      var out = {}, alive = [], killed = 0;
+      // A team is out when its station is gone, or when the pilots it HAD have
+      // all left. An empty team in the opening minute has not lost anything -
+      // nobody has joined it yet - so emptiness only counts against a team that
+      // was on the board earlier.
       var manned = {};
       ((frames[si] || [])[1] || []).forEach(function(p){ manned[p[2]] = 1; });
       teams.forEach(function(k){
+        if(manned[k]) everManned[k] = 1;
         var st = row[k], hp = st && st[2];
         var stationGone = !!(hp && hp.length && hp.every(function(h){ return !h; }));
-        var dead = stationGone || !manned[k];
+        if(stationGone) killed++;
+        var dead = stationGone || (everManned[k] && !manned[k]);
         out[k] = dead;
         if(!dead) alive.push(k);
         var p = teamPanel[k];
         if(p) p.classList.toggle('out', dead);
       });
-      var anyOut = teams.some(function(k){ return out[k]; });
       teams.forEach(function(k){
         var p = teamPanel[k];
-        if(p) p.classList.toggle('won', anyOut && alive.length === 1 && alive[0] === k);
+        if(p) p.classList.toggle('won', killed >= teams.length - 1 && alive.length === 1 && alive[0] === k);
       });
     }
     function soundStations(si){
