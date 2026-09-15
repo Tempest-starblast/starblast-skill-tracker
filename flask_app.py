@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.13.98"
+APP_VERSION = "9.13.99"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5549,6 +5549,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.13.99", "at": "2026-09-15T17:45:00Z", "changes": [
+        "<b>Fixed: live team colours flickering between lobbies.</b> Every watched lobby was painting into one shared set of colours, so with the watcher now following every lobby it can see, the colours on screen were whichever lobby had been processed most recently — several times a second. Each lobby keeps its own hues now.",
+        "<b>A live team panel now says why it has no pilots listed.</b> The public feed runs a couple of minutes behind and without names, so the roster was simply empty and looked like it had failed to load. It says how many pilots are flying for that team instead.",
+    ]},
     {"version": "9.13.98", "at": "2026-09-15T17:25:00Z", "changes": [
         "<b>Fixed the radar on both the live view and replays.</b> A stray rule was stretching the radar's frame to the full height of the window, which pushed it out of its place beside the team panels and cut it off. It sits square between them again.",
     ]},
