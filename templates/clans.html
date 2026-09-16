@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Clans - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+.lbtabs{display:inline-flex;border:1px solid rgba(153,221,255,.22);border-radius:9px;
+  overflow:hidden;margin:0 0 16px}
+.lbtabs a{padding:8px 16px;font-size:13px;font-weight:700;color:var(--muted,#8aa0b0);
+  text-decoration:none;background:rgba(153,221,255,.05)}
+.lbtabs a+a{border-left:1px solid rgba(153,221,255,.22)}
+.lbtabs a.on{background:rgba(102,230,184,.16);color:var(--green,#66e6b8)}
+.lbtabs a:hover:not(.on){color:var(--text)}
+
 .clanrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:11px 0;border-bottom:1px solid var(--line)}
 .clanrow:last-of-type{border-bottom:none}
@@ -23,6 +31,8 @@
 {% endblock %}
 {% block body %}
 <h1 class="ptitle">Clans</h1>
+{% set active = "clans" %}
+{% include "_lbtabs.html" %}
 <p class="psub">{{ total }} clan{{ '' if total == 1 else 's' }} claimed.</p>
 
 <div class="card" style="border-color:rgba(88,101,242,.55)">

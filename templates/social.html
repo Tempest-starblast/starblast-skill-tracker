@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Social - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.sochead{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin:0 0 4px}
+.socsub{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6;margin:0 0 18px;max-width:64ch}
+.socgrid{display:grid;gap:14px;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:start}
+@media(max-width:900px){ .socgrid{grid-template-columns:1fr} }
+.soccard{border:1px solid var(--line2,rgba(153,221,255,.18));border-radius:12px;
+  background:rgba(153,221,255,.035);padding:15px 16px}
+.soccard h2{margin:0 0 12px;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;
+  color:#cfeefc}
+.soccard h2 .n{color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0;margin-left:6px}
+
+/* Add a friend */
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;min-width:0;font-family:inherit;font-size:14px;color:var(--text);
+  background:rgba(153,221,255,.05);border:1px solid var(--line2,rgba(153,221,255,.28));
+  border-radius:9px;padding:9px 12px}
+.addrow input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
+.btn{font-family:inherit;font-size:13px;font-weight:700;border-radius:9px;cursor:pointer;
+  padding:9px 14px;white-space:nowrap;border:1px solid var(--blue,#66E6B8);
+  color:var(--blue,#66E6B8);background:rgba(102,230,184,.10)}
+.btn:hover{background:rgba(102,230,184,.22);color:#fff}
+.btn.sm{padding:5px 10px;font-size:12px}
+.btn.ghost{border-color:var(--line2,rgba(153,221,255,.28));color:var(--muted,#8aa0b0);
+  background:none}
+.btn.ghost:hover{color:#ff9a9a;border-color:rgba(255,140,140,.5);background:rgba(255,120,120,.08)}
+.msg{font-size:12.5px;color:var(--muted,#8aa0b0);margin-top:9px;min-height:1.2em}
+.msg.bad{color:#ff9a9a}
+
+/* A person */
+.prow2{display:flex;align-items:center;gap:10px;padding:9px 0;
+  border-bottom:1px solid rgba(255,255,255,.055)}
+.prow2:last-child{border-bottom:none}
+.prow2 .who{min-width:0;flex:1}
+.prow2 .nm{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;display:block;color:var(--text);text-decoration:none}
+.prow2 .nm:hover{color:var(--blue)}
+.prow2 .sub{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.prow2 .acts{display:flex;gap:6px;flex:none}
+
+/* Playing right now */
+.onnow{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
+  color:#66E6B8;letter-spacing:.3px}
+.onnow i{width:7px;height:7px;border-radius:50%;background:#66E6B8;display:inline-block;
+  animation:sp 2s infinite}
+@keyframes sp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 6px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
+.empty{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6}
+.clanline{font-size:13px;color:var(--muted,#8aa0b0);line-height:1.8}
+.clanline b{color:var(--text)}
+{% endblock %}
+{% block body %}
+<div class="sochead"><h1 class="ptitle" style="margin:0">{{ t('Social') }}</h1></div>
+<p class="socsub">Your friends and your clan. Friends can see which lobby you are in while
+you are playing, so they can join you &mdash; nobody else can, and nothing else about a live
+game is shared.</p>
+
+{% if not signed_in %}
+<div class="soccard">
+  <h2>Friends</h2>
+  <p class="empty">Sign in to add friends and see who is playing &mdash; the button is in
+    the header, or <a href="/auth/discord?next=/social">sign in with Discord</a>.</p>
+</div>
+{% else %}
+
+<div class="socgrid">
+  <div>
+    {% if incoming %}
+    <div class="soccard" style="margin-bottom:14px">
+      <h2>Friend requests <span class="n">{{ incoming|length }}</span></h2>
+      {% for p in incoming %}
+      <div class="prow2" data-name="{{ p.name }}">
+        <div class="who">
+          <a class="nm" href="/player/{{ p.name|urlencode }}">{{ p.name }}</a>
+          <span class="sub">{{ p.elo }} &middot; {{ p.wins }}W {{ p.losses }}L{% if p.clan %} &middot; {{ p.clan }}{% endif %}</span>
+        </div>
+        <div class="acts">
+          <button type="button" class="btn sm" data-act="accept">Accept</button>
+          <button type="button" class="btn sm ghost" data-act="decline">Decline</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="soccard">
+      <h2>Friends <span class="n">{{ friends|length }}</span></h2>
+      {% if friends %}
+        {% for p in friends %}
+        <div class="prow2" data-name="{{ p.name }}">
+          <div class="who">
+            <a class="nm" href="/player/{{ p.name|urlencode }}">{{ p.name }}</a>
+            {% if p.playing %}
+            <span class="sub"><span class="onnow"><i></i>Playing</span>
+              &middot; {{ p.playing.lobby }}{% if p.playing.region %} &middot; {{ p.playing.region }}{% endif %}</span>
+            {% else %}
+            <span class="sub">{{ p.elo }} &middot; {{ p.wins }}W {{ p.losses }}L{% if p.clan %} &middot; {{ p.clan }}{% endif %}</span>
+            {% endif %}
+          </div>
+          <div class="acts">
+            {% if p.playing %}<a class="btn sm" href="/play">Join</a>{% endif %}
+            <button type="button" class="btn sm ghost" data-act="remove">Remove</button>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="empty">No friends yet. Add someone by the name they play under.</p>
+      {% endif %}
+      <div class="addrow" style="margin-top:14px">
+        <input id="addq" type="text" autocomplete="off" placeholder="Add a friend by name"
+               aria-label="Add a friend by name">
+        <button type="button" class="btn" id="addbtn">Send request</button>
+      </div>
+      <div class="msg" id="msg"></div>
+      {% if outgoing %}
+      <div style="margin-top:14px">
+        <h2 style="margin-bottom:8px">Sent <span class="n">{{ outgoing|length }}</span></h2>
+        {% for p in outgoing %}
+        <div class="prow2" data-name="{{ p.name }}">
+          <div class="who"><a class="nm" href="/player/{{ p.name|urlencode }}">{{ p.name }}</a>
+            <span class="sub">waiting for an answer</span></div>
+          <div class="acts"><button type="button" class="btn sm ghost" data-act="remove">Cancel</button></div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="soccard">
+    <h2>Your clan</h2>
+    {% if clan %}
+      <p class="clanline"><b>{{ clan.tag }}</b><br>{{ clan.members }} member{{ '' if clan.members == 1 else 's' }}</p>
+      <p style="margin-top:12px"><a class="btn sm" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
+         <a class="btn sm ghost" href="/myclan" style="margin-left:6px">Manage</a></p>
+    {% else %}
+      <p class="empty">You are not in a clan. Clans are groups that share a tag; their
+        rankings live on the <a href="/clans">Leaderboard</a>.</p>
+      <p style="margin-top:12px"><a class="btn sm" href="/clans">Browse clans</a></p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  var msg=document.getElementById('msg');
+  function say(t, bad){ if(!msg) return; msg.textContent=t||''; msg.classList.toggle('bad', !!bad); }
+  function post(url, body, then){
+    fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify(body)})
+      .then(function(r){ return r.json().then(function(j){ return {s:r.status, j:j}; }); })
+      .then(function(o){
+        say(o.j.message || '', !o.j.ok);
+        if(then) then(o);
+      })
+      .catch(function(){ say('Could not reach the site.', true); });
+  }
+  // The list is rebuilt by the server, so a change that lands reloads the page
+  // rather than trying to keep two copies of the truth in step.
+  function reload(o){ if(o.j.ok) setTimeout(function(){ location.reload(); }, 450); }
+
+  document.addEventListener('click', function(ev){
+    var b=ev.target.closest && ev.target.closest('[data-act]');
+    if(!b) return;
+    var row=b.closest('.prow2'), name=row && row.getAttribute('data-name');
+    if(!name) return;
+    var act=b.getAttribute('data-act');
+    if(act==='accept')  post('/friends/respond', {name:name, accept:'1'}, reload);
+    if(act==='decline') post('/friends/respond', {name:name, accept:'0'}, reload);
+    if(act==='remove')  post('/friends/remove',  {name:name}, reload);
+  });
+
+  var add=document.getElementById('addbtn'), q=document.getElementById('addq');
+  function send(){
+    var v=(q.value||'').trim();
+    if(!v){ say('Type a name first.', true); q.focus(); return; }
+    post('/friends/request', {name:v}, function(o){ if(o.j.ok){ q.value=''; reload(o); } });
+  }
+  if(add) add.addEventListener('click', send);
+  if(q) q.addEventListener('keydown', function(e){ if(e.key==='Enter') send(); });
+})();
+</script>
+{% endif %}
+{% endblock %}

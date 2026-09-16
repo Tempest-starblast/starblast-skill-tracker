@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.15.2"
+APP_VERSION = "9.16.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1647,6 +1647,21 @@ def init_db():
 
     # Day passes for the map workshop. One row per pin; `holder` is the token of
     # the browser that claimed it, so a pin handed on does not open a second door.
+    # Friendships, one row per pair with the requester first. `state` is
+    # pending / accepted / declined; a declined row stays so that a no is not
+    # simply re-asked every minute.
+    c.execute('''CREATE TABLE IF NOT EXISTS friends (
+                    a TEXT NOT NULL,
+                    b TEXT NOT NULL,
+                    requester TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'pending',
+                    asked_at TEXT,
+                    acted_at TEXT,
+                    PRIMARY KEY (a, b)
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b, state)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_friends_a ON friends(a, state)")
+
     c.execute('''CREATE TABLE IF NOT EXISTS map_pins (
                     pin TEXT PRIMARY KEY,
                     owner_sub TEXT NOT NULL,
@@ -5549,6 +5564,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.16.0", "at": "2026-09-16T22:10:00Z", "changes": [
+        "<b>Friends.</b> Send a friend request from anyone’s profile, or by name from the new Social tab. Once you both agree, you can see which lobby a friend is in while they are playing, so you can go and join them.",
+        "<b>Only friends can see that.</b> The public live view stays two minutes behind and without names, exactly as it was. A friend sees the lobby and the region — not your score, not your position, nothing else — and only after you accepted them.",
+        "<b>The Leaderboard now covers clans as well as players.</b> Both are rankings, so they sit behind one tab strip. What is left of clans — yours, its roster, its invites — moved to Social alongside friends.",
+    ]},
     {"version": "9.15.2", "at": "2026-09-16T20:55:00Z", "changes": [
         "<b>The Info page now says what actually decides a rating.</b> It claimed a match needed four players — there is no player minimum any more. What a match does need is to run <b>ten minutes</b>, and within it each team’s <b>top eight by score</b> are the players rated, each needing about <b>ten minutes in the match</b>. None of that was written down anywhere you could read it.",
         "<b>Four features finally have an entry:</b> replays, the live view, the win chance and the Discord rank roles.",
@@ -7802,6 +7822,7 @@ def player_profile(name):
                 "division": peak_division,
                 "div_at": (str(peak_div_at)[:10] if peak_div_at else None)}
     player = {"name": stored_name,
+              "norm_name": normalize_name(stored_name),
               "display": display_name(stored_name, clan, clan_shown),
               "clan_display": clan_shown,
               "elo": f"{elo:.1f}", "wins": wins or 0,
@@ -7813,7 +7834,22 @@ def player_profile(name):
                                   if played < PROVISIONAL_GAMES else 0),
               "owned": bool(owner_sub), "protected": bool(protected),
               "bio": bio or "", "is_me": is_me}
-    return render_template('player.html', player=player, custom_games=custom_games,
+    # Where the viewer stands with this player, so the profile can offer the
+    # right button rather than one that will be refused.
+    _fs = 'none'
+    try:
+        _cc = db()
+        _cx = _cc.cursor()
+        _me = my_player(_cx)
+        if _me and player and player.get('norm_name') and _me[1] != player['norm_name']:
+            _fs = friend_state(_cx, _me[1], player['norm_name'])
+        elif _me and player and _me[1] == player.get('norm_name'):
+            _fs = 'self'
+        _cc.close()
+    except Exception:
+        _fs = 'none'
+    return render_template('player.html', player=player, friend_state=_fs,
+                           custom_games=custom_games,
                            region_ranks=region_ranks, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='players', history=history,
                            ts_history=ts_history,
@@ -11463,6 +11499,233 @@ def clan_page(tag):
     return render_template('clan.html', clan=clan, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='clans',
                            client_id=GOOGLE_CLIENT_ID, role_help=CLAN_ROLE_HELP)
+
+
+def _stamp():
+    return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+
+
+def my_player(c):
+    """(name, norm_name) of the signed-in account's player row, or None."""
+    sub_id = current_user()
+    if not sub_id:
+        return None
+    c.execute("SELECT name, norm_name FROM players WHERE google_sub = ? LIMIT 1",
+              (sub_id,))
+    row = c.fetchone()
+    return (row[0], row[1]) if row and row[1] else None
+
+
+def friend_pair(x, y):
+    """The key a pair is stored under: sorted, so one pair is one row
+    whichever of the two asked."""
+    return (x, y) if x <= y else (y, x)
+
+
+def friend_state(c, me, other):
+    """'none' | 'pending_out' | 'pending_in' | 'friends' | 'declined'."""
+    a, b = friend_pair(me, other)
+    c.execute("SELECT requester, state FROM friends WHERE a = ? AND b = ?", (a, b))
+    row = c.fetchone()
+    if not row:
+        return "none"
+    if row[1] == "accepted":
+        return "friends"
+    if row[1] == "declined":
+        return "declined"
+    # pending: whoever is NOT the requester is the one being asked.
+    return "pending_out" if row[0] == me else "pending_in"
+
+
+def friends_of(c, me):
+    """norm_names of everyone whose friendship is accepted."""
+    c.execute("SELECT a, b FROM friends WHERE state = 'accepted' AND (a = ? OR b = ?)",
+              (me, me))
+    return [(b if a == me else a) for a, b in c.fetchall()]
+
+
+def friend_requests_in(c, me):
+    """norm_names waiting on an answer from me."""
+    c.execute("SELECT a, b FROM friends WHERE state = 'pending' "
+              "AND (a = ? OR b = ?) AND requester != ?", (me, me, me))
+    return [(b if a == me else a) for a, b in c.fetchall()]
+
+
+def friends_playing(norms):
+    """{norm_name: {lobby, region, sid}} for whichever of `norms` is in a
+    lobby the watcher is in right now.
+
+    Only the lobby. A friend gets to know you are on and where to join you,
+    not how you are doing - that is what the public feed is for, delay and
+    all.
+    """
+    out = {}
+    if not norms:
+        return out
+    want = set(norms)
+    try:
+        conn = live_db()
+        rows = conn.execute("SELECT payload FROM rawlive WHERE updated > ?",
+                            (time.time() - 90,)).fetchall()
+        conn.close()
+    except Exception:
+        return out
+    for (payload,) in rows:
+        try:
+            d = json.loads(payload)
+        except (TypeError, ValueError):
+            continue
+        for _k, roster in (d.get("teams") or {}).items():
+            for r in (roster or []):
+                if not r or not r[0] or r[0] == "?":
+                    continue
+                nn = normalize_name(r[0])
+                if nn in want and nn not in out:
+                    out[nn] = {"lobby": d.get("name") or "",
+                               "region": d.get("region") or "",
+                               "sid": d.get("sid")}
+    return out
+
+
+@app.route('/social')
+def social_page():
+    """Friends, requests, and your clan - the social half of the site."""
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return render_template('social.html', version=APP_VERSION, page='social',
+                               signed_in=False, friends=[], incoming=[],
+                               outgoing=[], clan=None)
+
+    def card(nn):
+        c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
+                  "FROM players WHERE norm_name = ? LIMIT 1", (nn,))
+        r = c.fetchone()
+        if not r:
+            return None
+        return {"norm": nn, "name": r[0], "elo": r[1] or 0,
+                "wins": r[2], "losses": r[3], "clan": r[4] or ""}
+
+    fr = [x for x in (card(n) for n in friends_of(c, me[1])) if x]
+    inc = [x for x in (card(n) for n in friend_requests_in(c, me[1])) if x]
+    c.execute("SELECT a, b FROM friends WHERE state = 'pending' AND requester = ?",
+              (me[1],))
+    out = [x for x in (card(b if a == me[1] else a) for a, b in c.fetchall()) if x]
+
+    live = friends_playing([f["norm"] for f in fr])
+    for f in fr:
+        f["playing"] = live.get(f["norm"])
+    # Playing first, then by rating.
+    fr.sort(key=lambda f: (0 if f.get("playing") else 1, -f["elo"]))
+
+    c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
+              "AND clan != '' LIMIT 1", (current_user(),))
+    row = c.fetchone()
+    clan = None
+    if row and row[0]:
+        c.execute("SELECT COUNT(*) FROM players WHERE clan = ?", (row[0],))
+        clan = {"tag": row[0], "members": (c.fetchone() or [0])[0]}
+    conn.close()
+    return render_template('social.html', version=APP_VERSION, page='social',
+                           signed_in=True, me=me[0], friends=fr, incoming=inc,
+                           outgoing=out, clan=clan)
+
+
+@app.route('/friends/request', methods=['POST'])
+def friends_request():
+    """Ask someone to be a friend. Idempotent, and accepting a request that
+    is already pending the other way round just makes you friends."""
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"message": "Sign in first."}), 401
+    want = normalize_name(str(request.json.get("name") or "")
+                          if request.is_json else
+                          str(request.form.get("name") or ""))
+    if not want:
+        conn.close()
+        return jsonify({"ok": False, "message": "Who?"}), 200
+    if want == me[1]:
+        conn.close()
+        return jsonify({"ok": False, "message": "That is you."}), 200
+    c.execute("SELECT name FROM players WHERE norm_name = ? LIMIT 1", (want,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"ok": False, "message": "No player by that name."}), 200
+    st = friend_state(c, me[1], want)
+    if st == "friends":
+        conn.close()
+        return jsonify({"ok": True, "state": "friends",
+                        "message": "Already friends."}), 200
+    if st == "pending_out":
+        conn.close()
+        return jsonify({"ok": True, "state": "pending_out",
+                        "message": "Already asked."}), 200
+    if st == "pending_in":
+        # They asked first - answering by asking back is a yes.
+        a, b = friend_pair(me[1], want)
+        c.execute("UPDATE friends SET state = 'accepted', acted_at = ? "
+                  "WHERE a = ? AND b = ?", (_stamp(), a, b))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True, "state": "friends",
+                        "message": "You are now friends."}), 200
+    a, b = friend_pair(me[1], want)
+    c.execute("INSERT OR REPLACE INTO friends "
+              "(a, b, requester, state, asked_at, acted_at) "
+              "VALUES (?, ?, ?, 'pending', ?, NULL)", (a, b, me[1], _stamp()))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "state": "pending_out",
+                    "message": "Request sent to %s." % row[0]}), 200
+
+
+@app.route('/friends/respond', methods=['POST'])
+def friends_respond():
+    """Accept or decline a request that is waiting on you."""
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"message": "Sign in first."}), 401
+    body = request.json if request.is_json else request.form
+    other = normalize_name(str(body.get("name") or ""))
+    accept = str(body.get("accept") or "").lower() in ("1", "true", "yes")
+    if friend_state(c, me[1], other) != "pending_in":
+        conn.close()
+        return jsonify({"ok": False, "message": "Nothing to answer."}), 200
+    a, b = friend_pair(me[1], other)
+    c.execute("UPDATE friends SET state = ?, acted_at = ? WHERE a = ? AND b = ?",
+              ("accepted" if accept else "declined", _stamp(), a, b))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "state": "friends" if accept else "declined",
+                    "message": "You are now friends." if accept
+                               else "Request declined."}), 200
+
+
+@app.route('/friends/remove', methods=['POST'])
+def friends_remove():
+    """Unfriend, or take back a request you sent."""
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"message": "Sign in first."}), 401
+    body = request.json if request.is_json else request.form
+    other = normalize_name(str(body.get("name") or ""))
+    a, b = friend_pair(me[1], other)
+    c.execute("DELETE FROM friends WHERE a = ? AND b = ?", (a, b))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "state": "none", "message": "Removed."}), 200
 
 
 @app.route('/clan/leave', methods=['POST'])
@@ -16479,7 +16742,10 @@ def clans_page():
     small.sort(key=lambda r: (-r["size"], r["tag"]))
     return render_template('clans.html', clans=ranked, small=small,
                            total=len(rows), rank_min=CLAN_RANK_MIN,
-                           version=APP_VERSION, contact=CONTACT_HANDLE, page='clans',
+                           version=APP_VERSION, contact=CONTACT_HANDLE,
+                           # A clan directory is a ranking: it belongs to the
+                           # Leaderboard tab, beside the players.
+                           page='leaderboard',
                            notice=CLANS_NOTICE)
 
 
