@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.15.0"
+APP_VERSION = "9.15.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5549,6 +5549,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.15.1", "at": "2026-09-16T20:30:00Z", "changes": [
+        "<b>Info search puts the right card first.</b> Searching for a word that is in a card’s heading now brings that card to the top, ahead of cards that only mention the word somewhere in their text.",
+    ]},
     {"version": "9.15.0", "at": "2026-09-16T20:05:00Z", "changes": [
         "<b>The Info page now lists the ranks and what each one takes.</b> All eight divisions, from Fly up to Shadow X-3, with the emblem and the share of the board you need to reach it — top 0.5% for Shadow X-3, top 3% for Odyssey, and so on down. Your division is your place among ranked players, not a rating number, so it moves as the board around you moves. The list is generated from the ladder itself, so it cannot drift out of date. Suggested by a player — thank you.",
         "<b>And the Info page is searchable.</b> Type in the box at the top and it narrows to the cards that match, marking the words it found. /info?q=clans opens it already searched.",

@@ -67,9 +67,9 @@
 // damage the thing it is searching.
 (function(){
   var box=document.getElementById('iq'), clr=document.getElementById('iclear'),
-      none=document.getElementById('inomatch'),
+      none=document.getElementById('inomatch'), wrap=document.querySelector('.info'),
       cards=[].slice.call(document.querySelectorAll('.info .card'));
-  if(!box||!cards.length) return;
+  if(!box||!wrap||!cards.length) return;
   cards.forEach(function(c){ c._html=c.innerHTML; c._text=(c.textContent||'').toLowerCase(); });
 
   function mark(el, q){
@@ -90,13 +90,23 @@
   function run(){
     var q=(box.value||'').trim().toLowerCase();
     clr.hidden=!q;
-    var shown=0;
+    var shown=0, head=[], body=[], rest=[];
     cards.forEach(function(c){
       c.innerHTML=c._html;                      // always start from the original
       var hit=!q || c._text.indexOf(q)>=0;
       c.classList.toggle('nohit', !hit);
-      if(hit){ shown++; if(q) mark(c, q); }
+      if(!hit){ rest.push(c); return; }
+      shown++;
+      if(!q) return;
+      mark(c, q);
+      // A card whose HEADING matches is the one you were looking for; a card
+      // that only mentions the word somewhere in its prose is a lesser match.
+      var h=c.querySelector('h2'), hn=h ? (h.textContent||'').toLowerCase() : '';
+      (hn.indexOf(q)>=0 ? head : body).push(c);
     });
+    // Re-lay the cards: heading matches, then mentions, then the rest. With an
+    // empty box `cards` is already the order the page was built in.
+    (q ? head.concat(body, rest) : cards).forEach(function(c){ wrap.appendChild(c); });
     none.hidden = !q || shown>0;
   }
   box.addEventListener('input', run);
