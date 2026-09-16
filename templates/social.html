@@ -13,6 +13,7 @@
 
 /* Add a friend */
 .addrow{display:flex;gap:8px}
+.addsep{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.055)}
 .addrow input{flex:1;min-width:0;font-family:inherit;font-size:14px;color:var(--text);
   background:rgba(153,221,255,.05);border:1px solid var(--line2,rgba(153,221,255,.28));
   border-radius:9px;padding:9px 12px}
@@ -21,6 +22,7 @@
   padding:9px 14px;white-space:nowrap;border:1px solid var(--blue,#66E6B8);
   color:var(--blue,#66E6B8);background:rgba(102,230,184,.10)}
 .btn:hover{background:rgba(102,230,184,.22);color:#fff}
+a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 .btn.sm{padding:5px 10px;font-size:12px}
 .btn.ghost{border-color:var(--line2,rgba(153,221,255,.28));color:var(--muted,#8aa0b0);
   background:none}
@@ -29,15 +31,25 @@
 .msg.bad{color:#ff9a9a}
 
 /* A person */
-.prow2{display:flex;align-items:center;gap:10px;padding:9px 0;
-  border-bottom:1px solid rgba(255,255,255,.055)}
-.prow2:last-child{border-bottom:none}
+/* A person. The rule goes BETWEEN rows - :last-child cannot do that here,
+   because the add-a-friend box is the last child, so the bottom row kept a
+   line under it that belonged to nothing. */
+.prow2{display:flex;align-items:center;gap:12px;padding:10px 0;min-height:46px}
+.prow2 + .prow2{border-top:1px solid rgba(255,255,255,.055)}
 .prow2 .who{min-width:0;flex:1}
 .prow2 .nm{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;display:block;color:var(--text);text-decoration:none}
+  text-overflow:ellipsis;display:block;color:var(--text);text-decoration:none;
+  line-height:1.35}
 .prow2 .nm:hover{color:var(--blue)}
-.prow2 .sub{font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
-.prow2 .acts{display:flex;gap:6px;flex:none}
+/* The second line is a row of small things, not a sentence: laying it out as
+   one keeps the chips on the same middle line as the words beside them. */
+.prow2 .sub{display:flex;align-items:center;flex-wrap:wrap;gap:4px 7px;margin-top:2px;
+  font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;
+  line-height:1.35}
+.prow2 .acts{display:flex;gap:8px;flex:none;align-items:center}
+/* Every action button the same width, so they stack into a column down the
+   right edge instead of each ending wherever its word does. */
+.prow2 .acts .btn{min-width:92px;text-align:center;justify-content:center}
 
 /* Playing right now */
 .onnow{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
@@ -48,12 +60,12 @@
 .empty{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6}
 .clanline{font-size:13px;color:var(--muted,#8aa0b0);line-height:1.8}
 .clanline b{color:var(--text)}
-.modechip{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.7px;
-  text-transform:uppercase;border-radius:4px;padding:1px 6px;vertical-align:1px}
+.modechip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;
+  letter-spacing:.7px;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:none}
 .modechip.team{color:#0b1016;background:#66E6B8}
 .modechip.survival{color:#0b1016;background:#f0c04a}
-.ci{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
-  border-radius:50%;font-size:10px;font-weight:700;vertical-align:middle;cursor:help;line-height:1}
+.ci{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+  border-radius:50%;font-size:10px;font-weight:700;cursor:help;line-height:1;flex:none}
 .ci.yes{color:#66E6B8;background:rgba(102,230,184,.14);border:1px solid rgba(102,230,184,.45)}
 .ci.no{color:#f0c04a;background:rgba(240,192,74,.12);border:1px solid rgba(240,192,74,.45)}
 .tagchip{font-size:10.5px;color:var(--muted,#8aa0b0)}
@@ -138,7 +150,7 @@
       {% else %}
         <p class="empty">No friends yet. Add someone by the name they play under.</p>
       {% endif %}
-      <div class="addrow" style="margin-top:14px">
+      <div class="addrow addsep">
         <input id="addq" type="text" autocomplete="off" placeholder="Add a friend by name"
                aria-label="Add a friend by name">
         <button type="button" class="btn" id="addbtn">Send request</button>
@@ -163,11 +175,13 @@
     <h2>Your clan</h2>
     {% if clan %}
       <p class="clanline"><b>{{ clan.tag }}</b><br>{{ clan.members }} member{{ '' if clan.members == 1 else 's' }}</p>
-      <p style="margin-top:12px"><a class="btn sm" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
-         <a class="btn sm ghost" href="/myclan" style="margin-left:6px">Manage</a></p>
+      <div class="acts" style="margin-top:14px;display:flex;gap:8px">
+        <a class="btn sm" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
+        <a class="btn sm ghost" href="/myclan">Manage</a>
+      </div>
     {% else %}
       <p class="empty">You are not in a clan.</p>
-      <p style="margin-top:12px"><a class="btn sm" href="/clans">Browse clans</a></p>
+      <div style="margin-top:14px"><a class="btn sm" href="/clans">Browse clans</a></div>
     {% endif %}
   </div>
 </div>

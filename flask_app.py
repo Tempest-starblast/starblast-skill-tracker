@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.18.0"
+APP_VERSION = "9.18.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5570,6 +5570,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.18.1", "at": "2026-09-17T01:40:00Z", "changes": [
+        "<b>Tidied the Social page.</b> A rule was being drawn under the last person in a list where it belonged to nothing, the buttons down the right edge each stopped wherever their word ended instead of lining up, one of the clan buttons was underlined and the other was not, and the chips beside a lobby name sat a little above the words next to them. All four now share one grid.",
+    ]},
     {"version": "9.18.0", "at": "2026-09-17T01:05:00Z", "changes": [
         "<b>The explaining has moved out of the way.</b> Pages were carrying paragraphs teaching how things work, which crowded out the thing you came to look at. Those explanations now live on <a href=\"/info\">Info</a>, and each page carries a small <b>?</b> beside its title that opens Info already searched for that page’s topic. Anything that is a fact about what you are looking at — the two-minute delay, whether a match is rated — stayed on the page.",
         "<b>Friends and clanmates have an Info entry</b> covering who can see you playing, what Join does, and what checking in changes.",
