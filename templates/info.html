@@ -14,6 +14,27 @@
 .qa{font-size:14px;color:var(--muted);line-height:1.7}
 .qa b{display:block;color:var(--text);margin-top:12px}
 .qa b:first-child{margin-top:0}
+/* The rank ladder, built from ranks.py so the thresholds cannot go stale. */
+.rk-wrap{overflow-x:auto}
+.rk-tbl{border-collapse:collapse;width:100%;max-width:420px;font-size:14px}
+.rk-tbl td{padding:7px 4px;border-bottom:1px solid var(--line)}
+.rk-tbl tr:last-child td{border-bottom:none}
+.rk-em{width:26px}
+.rk-em svg{width:20px;height:20px;display:block}
+.rk-nm{font-weight:700;white-space:nowrap}
+.rk-bd{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Search across the cards. */
+.isearch{position:relative;margin:0 0 16px;max-width:420px}
+.isearch input{width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;
+  color:var(--text);background:rgba(153,221,255,.05);border:1px solid var(--line2,rgba(153,221,255,.28));
+  border-radius:9px;padding:10px 34px 10px 12px}
+.isearch input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
+.isearch .iclear{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;
+  background:none;color:var(--muted);font-size:17px;line-height:1;cursor:pointer;padding:4px 6px}
+.isearch .iclear[hidden]{display:none}
+.info mark{background:rgba(255,199,87,.28);color:var(--text);border-radius:3px;padding:0 1px}
+.info .card.nohit{display:none}
+.inomatch{color:var(--muted);font-size:14px}
 {% endblock %}
 {% block body %}
 {# Every word on this page comes from info_text_<lang>.py. The bodies are
@@ -21,7 +42,14 @@
 <h1 class="ptitle">{{ info.title }}</h1>
 <p class="psub">{{ info.sub }}</p>
 
+<div class="isearch">
+  <input id="iq" type="search" autocomplete="off" spellcheck="false"
+         placeholder="{{ info.search }}" aria-label="{{ info.search }}">
+  <button type="button" class="iclear" id="iclear" aria-label="Clear" hidden>&times;</button>
+</div>
+
 <div class="info">
+<p class="inomatch" id="inomatch" hidden>{{ info.nomatch }}</p>
 {% for heading, body in info.cards %}
 <div class="card">
   <h2>{{ heading }}</h2>
@@ -31,4 +59,52 @@
 </div>
 
 <p class="foot">{{ info.foot }}</p>
+
+<script>
+// Filter the cards as you type, and mark the hits. Only TEXT NODES are ever
+// wrapped, and every card keeps the markup it was built with so clearing the
+// box puts the page back exactly as it was - a search must not be able to
+// damage the thing it is searching.
+(function(){
+  var box=document.getElementById('iq'), clr=document.getElementById('iclear'),
+      none=document.getElementById('inomatch'),
+      cards=[].slice.call(document.querySelectorAll('.info .card'));
+  if(!box||!cards.length) return;
+  cards.forEach(function(c){ c._html=c.innerHTML; c._text=(c.textContent||'').toLowerCase(); });
+
+  function mark(el, q){
+    var walk=document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null), hits=[], n;
+    while((n=walk.nextNode())) if(n.nodeValue.toLowerCase().indexOf(q)>=0) hits.push(n);
+    hits.forEach(function(node){
+      var txt=node.nodeValue, low=txt.toLowerCase(), frag=document.createDocumentFragment(), i=0, j;
+      while((j=low.indexOf(q,i))>=0){
+        if(j>i) frag.appendChild(document.createTextNode(txt.slice(i,j)));
+        var m=document.createElement('mark'); m.textContent=txt.substr(j,q.length);
+        frag.appendChild(m); i=j+q.length;
+      }
+      if(i<txt.length) frag.appendChild(document.createTextNode(txt.slice(i)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+
+  function run(){
+    var q=(box.value||'').trim().toLowerCase();
+    clr.hidden=!q;
+    var shown=0;
+    cards.forEach(function(c){
+      c.innerHTML=c._html;                      // always start from the original
+      var hit=!q || c._text.indexOf(q)>=0;
+      c.classList.toggle('nohit', !hit);
+      if(hit){ shown++; if(q) mark(c, q); }
+    });
+    none.hidden = !q || shown>0;
+  }
+  box.addEventListener('input', run);
+  clr.addEventListener('click', function(){ box.value=''; box.focus(); run(); });
+  box.addEventListener('keydown', function(e){ if(e.key==='Escape'){ box.value=''; run(); } });
+  // Deep-link: /info?q=clan lands with the search already applied.
+  var pre=new URLSearchParams(location.search).get('q');
+  if(pre){ box.value=pre; run(); }
+})();
+</script>
 {% endblock %}

@@ -4,6 +4,8 @@ change the wording here, the translations are now out of date."""
 
 TITLE = "Info"
 SUB = "How this site works, in short."
+SEARCH = "Search this page\u2026"
+NOMATCH = "Nothing on this page matches that."
 FOOT = 'Questions? Ask [[CONTACT]] on Discord.'
 
 CARDS = [
@@ -140,4 +142,9 @@ CARDS = [
   ' Say so on <a href="/reports">Report</a> or tell [[CONTACT]] on Discord. It is read by a'
   ' person.'
   '</div>'),
+ ("Ranks",
+  '<p>Your division is your place among every ranked player on the all-time'
+  ' board, not a rating number &mdash; so it moves as the players around you'
+  ' move. Players still in their first few matches are not counted.</p>'
+  '[[RANKS]]'),
 ]

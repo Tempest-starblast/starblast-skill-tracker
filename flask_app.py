@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.14.1"
+APP_VERSION = "9.15.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5549,6 +5549,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.15.0", "at": "2026-09-16T20:05:00Z", "changes": [
+        "<b>The Info page now lists the ranks and what each one takes.</b> All eight divisions, from Fly up to Shadow X-3, with the emblem and the share of the board you need to reach it — top 0.5% for Shadow X-3, top 3% for Odyssey, and so on down. Your division is your place among ranked players, not a rating number, so it moves as the board around you moves. The list is generated from the ladder itself, so it cannot drift out of date. Suggested by a player — thank you.",
+        "<b>And the Info page is searchable.</b> Type in the box at the top and it narrows to the cards that match, marking the words it found. /info?q=clans opens it already searched.",
+    ]},
     {"version": "9.14.1", "at": "2026-09-15T18:35:00Z", "changes": [
         "<b>Fixed: a highlighted pilot row made a scrollbar flash under the list.</b> The highlight made the row wider than the list it sits in, so the roster grew a horizontal scrollbar for as long as a row was lit. Lighting a row changes its colour now, not its size.",
     ]},

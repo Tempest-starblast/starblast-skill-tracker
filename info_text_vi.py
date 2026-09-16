@@ -3,6 +3,8 @@
 
 TITLE = "Thông tin"
 SUB = "Trang này hoạt động thế nào, nói ngắn gọn."
+SEARCH = "Tìm trong trang này…"
+NOMATCH = "Không có gì trên trang này khớp với đó."
 FOOT = 'Có thắc mắc? Hỏi [[CONTACT]] trên Discord.'
 
 CARDS = [
@@ -138,4 +140,7 @@ CARDS = [
   ' Hãy nói ở trang <a href="/reports">Báo cáo</a> hoặc nhắn [[CONTACT]] trên Discord. Sẽ'
   ' có người đọc.'
   '</div>'),
+ ("Hạng",
+  '<p>Hạng của bạn là vị trí của bạn trong số tất cả người chơi đã được xếp hạng trên bảng tổng, không phải một số điểm — nên nó thay đổi khi những người quanh bạn thay đổi. Người chơi còn trong vài trận đầu tiên không được tính.</p>'
+  '[[RANKS]]'),
 ]

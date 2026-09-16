@@ -16,6 +16,7 @@ filled in at render time, so no number or handle is written down twice:
     [[K]]        the most one match can move you
     [[MINSCORE]] the minimum score to be rated at all
     [[CONTACT]]  the Discord handle to ask
+    [[RANKS]]    the rank ladder, built from ranks.py (raw HTML, ours)
 
 A language whose module is missing or broken falls back to English, one
 card at a time - a translation that gets out of step shows English text
@@ -24,6 +25,8 @@ rather than an empty page or a 500.
 import importlib
 
 from markupsafe import escape
+
+import ranks
 
 TOKENS = (("[[ELO]]", "elo"), ("[[K]]", "k"), ("[[MINSCORE]]", "minscore"),
           ("[[CONTACT]]", "contact"))
@@ -52,6 +55,9 @@ def _fill(text, values):
     for token, key in TOKENS:
         if token in text:
             text = text.replace(token, str(escape(values.get(key, ""))))
+    # Ours, not a player's - and it is a table, so it must not be escaped.
+    if "[[RANKS]]" in text:
+        text = text.replace("[[RANKS]]", ranks.info_table_html())
     return text
 
 
@@ -67,5 +73,7 @@ def page(lang, **values):
         "title": _fill(getattr(mod, "TITLE", None) or en.TITLE, values),
         "sub": _fill(getattr(mod, "SUB", None) or en.SUB, values),
         "foot": _fill(getattr(mod, "FOOT", None) or en.FOOT, values),
+        "search": getattr(mod, "SEARCH", None) or en.SEARCH,
+        "nomatch": getattr(mod, "NOMATCH", None) or en.NOMATCH,
         "cards": [(_fill(h, values), _fill(b, values)) for h, b in cards],
     }

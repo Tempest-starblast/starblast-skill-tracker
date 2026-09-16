@@ -3,6 +3,8 @@
 
 TITLE = "Info"
 SUB = "Wie diese Seite funktioniert, kurz gefasst."
+SEARCH = "Diese Seite durchsuchen…"
+NOMATCH = "Auf dieser Seite passt dazu nichts."
 FOOT = 'Fragen? Frag [[CONTACT]] auf Discord.'
 
 CARDS = [
@@ -150,4 +152,7 @@ CARDS = [
   ' Sag es unter <a href="/reports">Melden</a> oder sag [[CONTACT]] auf Discord Bescheid.'
   ' Das liest ein Mensch.'
   '</div>'),
+ ("Divisionen",
+  '<p>Deine Division ist dein Platz unter allen gewerteten Spielern der Gesamtrangliste, keine Wertungszahl — sie ändert sich also, wenn sich die Spieler um dich herum bewegen. Spieler in ihren ersten Partien zählen nicht mit.</p>'
+  '[[RANKS]]'),
 ]

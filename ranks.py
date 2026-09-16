@@ -2,7 +2,7 @@
 
 Eight divisions, mapped to iconic ships of the tree, escalating in rarity and
 flair: a plain, rundown Fly at the bottom up to a shiny holographic Shadow X-3
-for the top 0.1%. A player's division comes from their percentile among ranked
+for the top half-percent. A player's division comes from their percentile among ranked
 (non-provisional) players on the canonical all-time board, and the emblem IS
 that division's ship, drawn from the game-accurate silhouettes in ship_shapes.
 `flair` (1-8) drives how stylised the profile theme gets.
@@ -41,6 +41,22 @@ RANKS = [
      "cut": 1.01, "band": "Entry tier", "flair": 1,
      "color": "#7d858f", "glow": "rgba(125,133,143,.18)"},
 ]
+
+def info_table_html():
+    """The ladder as a table for the Info page - built from RANKS itself, so
+    a threshold can never be right in the code and wrong in the prose."""
+    rows = []
+    for r in RANKS:
+        d = ship_shapes.ship_path(r["ship"]) or ""
+        rows.append(
+            '<tr><td class="rk-em"><svg viewBox="0 0 100 100" aria-hidden="true">'
+            '<path d="%s" fill="%s"/></svg></td>'
+            '<td class="rk-nm" style="color:%s">%s</td>'
+            '<td class="rk-bd">%s</td></tr>'
+            % (d, r["color"], r["color"], r["name"], r["band"]))
+    return ('<div class="rk-wrap"><table class="rk-tbl">'
+            '<tbody>' + "".join(rows) + '</tbody></table></div>')
+
 
 RANK_BY_KEY = {r["key"]: r for r in RANKS}
 TOP_LEVEL = max(r["level"] for r in RANKS)
