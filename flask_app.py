@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.15.1"
+APP_VERSION = "9.15.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5549,6 +5549,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.15.2", "at": "2026-09-16T20:55:00Z", "changes": [
+        "<b>The Info page now says what actually decides a rating.</b> It claimed a match needed four players — there is no player minimum any more. What a match does need is to run <b>ten minutes</b>, and within it each team’s <b>top eight by score</b> are the players rated, each needing about <b>ten minutes in the match</b>. None of that was written down anywhere you could read it.",
+        "<b>Four features finally have an entry:</b> replays, the live view, the win chance and the Discord rank roles.",
+        "<b>And “I won but nothing happened” has an answer that is still true.</b> It used to say the match was probably not being watched; every match is watched now, so it names the three things that actually cause it.",
+    ]},
     {"version": "9.15.1", "at": "2026-09-16T20:30:00Z", "changes": [
         "<b>Info search puts the right card first.</b> Searching for a word that is in a card’s heading now brings that card to the top, ahead of cards that only mention the word somewhere in their text.",
     ]},

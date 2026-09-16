@@ -24,9 +24,13 @@ CARDS = [
   ' below.</p>'),
 
  ("Which games count",
-  '<p>Every live team match is now watched, from the moment it starts &mdash; there is no'
-  ' longer a limit of only a few at a time. A match just needs at least <b>four players</b>,'
-  ' and it is followed all the way to the end.</p>'
+  '<p>Every live team match is watched, from the moment the lobby appears. There is no limit'
+  ' on how many at once and no minimum number of players for a lobby to be picked up.</p>'
+  '<p>To be <b>rated</b>, a match has to run <b>at least ten minutes</b>. Shorter games are'
+  ' still recorded and can be watched back, but they move nobody&rsquo;s rating.</p>'
+  '<p>Inside a rated match, each team&rsquo;s <b>top eight by score</b> are the players rated,'
+  ' and you need roughly <b>ten minutes in the match</b> to be one of them &mdash; a winner'
+  ' needs that however early they arrived.</p>'
   '<p>The <a href="/play">Play</a> tab lists every live match and whether the watcher is on'
   ' it yet; a brand-new lobby is picked up within a few seconds. If a match is live, it'
   ' counts.</p>'),
@@ -130,8 +134,9 @@ CARDS = [
  ("Common questions",
   '<div class="qa">'
   '<b>I won but nothing happened.</b>'
-  ' The match was probably not one of the watched ones. The Play tab lists them before you'
-  ' join.'
+  ' Every live match is watched now, so it is usually one of three things: the match ran'
+  ' under ten minutes, you were not in your team&rsquo;s top eight by score, or you were not'
+  ' in it for the ten minutes a rating needs.'
   '<b>My name is on the board twice.</b>'
   ' A different spelling counts as a different player, because that is all the game reports.'
   ' Claim the one you actually play under.'
@@ -147,4 +152,33 @@ CARDS = [
   ' board, not a rating number &mdash; so it moves as the players around you'
   ' move. Players still in their first few matches are not counted.</p>'
   '[[RANKS]]'),
+ ("Replays",
+  '<p>Every watched match is recorded, and any of them can be played back from the'
+  ' <a href="/replays">Replays</a> page &mdash; the radar with each ship drawn as the hull it'
+  ' was actually flying, the stations module by module, the win chance, and the scoreboard'
+  ' moving the way it moved. Hover a pilot to find their ship on the map, or a ship to find'
+  ' their row.</p>'
+  '<p>A replay opens at the start of the match, not at the point the watcher began rating'
+  ' it.</p>'),
+
+ ("Live matches",
+  '<p>The <a href="/live">Live</a> tab is that same screen in real time: three team panels'
+  ' around the radar, each with its station, its gems and its win chance. Back and Next move'
+  ' between the lobbies being watched.</p>'
+  '<p>It runs about two minutes behind and without player names, so nothing on it can be used'
+  ' to find someone in a game that is still going.</p>'),
+
+ ("The win chance",
+  '<p>The percentage beside each team is a model&rsquo;s estimate of how often a side in that'
+  ' position goes on to win. It learns from finished matches &mdash; the scores, which way'
+  ' they are moving, the stations, and how strong the players on each side are &mdash; and it'
+  ' is retrained every night on the matches played since.</p>'
+  '<p>It is a forecast, not a verdict. When it says 70%, that side wins about seven times in'
+  ' ten, which is also to say it is wrong the other three.</p>'),
+
+ ("Ranks on Discord",
+  '<p>In the Discord server the bot gives you a coloured role for your division and keeps it'
+  ' in step as you move. The roles are hoisted, so the member list reads from Shadow X-3 at'
+  ' the top down to Fly, and reaching a new one is announced in the server.</p>'
+  '<p>Ask [[CONTACT]] for an invite.</p>'),
 ]

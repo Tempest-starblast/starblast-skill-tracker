@@ -5,6 +5,10 @@ TITLE = "说明"
 SUB = "简单说说这个网站是怎么运作的。"
 SEARCH = "搜索本页…"
 NOMATCH = "本页没有匹配的内容。"
+# Card 2 (which games count) states rules that changed on 16 Sep 2026:
+# no player minimum, a ten-minute match, top eight per team. Until this
+# file is retranslated the page shows the English card there.
+STALE = (2,)
 FOOT = '有问题？在 Discord 上找 [[CONTACT]]。'
 
 CARDS = [

@@ -18,6 +18,11 @@ filled in at render time, so no number or handle is written down twice:
     [[CONTACT]]  the Discord handle to ask
     [[RANKS]]    the rank ladder, built from ranks.py (raw HTML, ours)
 
+A language file may also set STALE = (2, 7) - the indexes of its own cards
+that are known to be out of date. Those fall back to the English card, the
+same way a missing card already does. Better a player reads the rule in
+English than reads a rule that is no longer true in their own language.
+
 A language whose module is missing or broken falls back to English, one
 card at a time - a translation that gets out of step shows English text
 rather than an empty page or a 500.
@@ -69,6 +74,13 @@ def page(lang, **values):
     # A short translation is not a reason to lose the rest of the page.
     if len(cards) < len(en.CARDS):
         cards = list(cards) + list(en.CARDS[len(cards):])
+    # ...and a card the translation has outlived shows in English instead.
+    stale = getattr(mod, "STALE", ()) if mod is not en else ()
+    if stale:
+        cards = list(cards)
+        for i in stale:
+            if 0 <= i < len(en.CARDS):
+                cards[i] = en.CARDS[i]
     return {
         "title": _fill(getattr(mod, "TITLE", None) or en.TITLE, values),
         "sub": _fill(getattr(mod, "SUB", None) or en.SUB, values),

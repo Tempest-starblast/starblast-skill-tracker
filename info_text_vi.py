@@ -5,6 +5,10 @@ TITLE = "Thông tin"
 SUB = "Trang này hoạt động thế nào, nói ngắn gọn."
 SEARCH = "Tìm trong trang này…"
 NOMATCH = "Không có gì trên trang này khớp với đó."
+# Card 2 (which games count) states rules that changed on 16 Sep 2026:
+# no player minimum, a ten-minute match, top eight per team. Until this
+# file is retranslated the page shows the English card there.
+STALE = (2,)
 FOOT = 'Có thắc mắc? Hỏi [[CONTACT]] trên Discord.'
 
 CARDS = [

@@ -5,6 +5,10 @@ TITLE = "Infos"
 SUB = "Comment ce site fonctionne, en bref."
 SEARCH = "Rechercher sur cette page…"
 NOMATCH = "Rien sur cette page ne correspond."
+# Card 2 (which games count) states rules that changed on 16 Sep 2026:
+# no player minimum, a ten-minute match, top eight per team. Until this
+# file is retranslated the page shows the English card there.
+STALE = (2,)
 FOOT = 'Des questions ? Demandez à [[CONTACT]] sur Discord.'
 
 CARDS = [

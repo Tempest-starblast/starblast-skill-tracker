@@ -5,6 +5,10 @@ TITLE = "Информация"
 SUB = "Как устроен этот сайт, коротко."
 SEARCH = "Поиск по странице…"
 NOMATCH = "На этой странице ничего не найдено."
+# Card 2 (which games count) states rules that changed on 16 Sep 2026:
+# no player minimum, a ten-minute match, top eight per team. Until this
+# file is retranslated the page shows the English card there.
+STALE = (2,)
 FOOT = 'Вопросы? Напишите [[CONTACT]] в Discord.'
 
 CARDS = [
