@@ -20,14 +20,12 @@
 }
 </script>{% endif %}{% endblock %}
 {% block css %}
-.frbar{display:flex;align-items:center;gap:9px;margin:0 0 10px;flex-wrap:wrap}
-.frbtn{font-family:inherit;font-size:12.5px;font-weight:700;border-radius:8px;cursor:pointer;
-  padding:6px 13px;border:1px solid var(--blue,#66E6B8);color:var(--blue,#66E6B8);
-  background:rgba(102,230,184,.10)}
-.frbtn:hover{background:rgba(102,230,184,.22);color:#fff}
-.frbtn[disabled]{opacity:.55;cursor:default;border-color:var(--line2,rgba(153,221,255,.28));
-  color:var(--muted,#8aa0b0);background:none}
-.frmsg{font-size:12px;color:var(--muted,#8aa0b0)}
+/* Same chip as Invite; only the colour says which is which. */
+.frchip{border-color:rgba(153,221,255,.55);background:rgba(153,221,255,.10);color:var(--blue,#99DDFF)}
+.frchip:hover{background:rgba(153,221,255,.22)}
+.frchip.done{cursor:default;opacity:.75}
+.frchip.done:hover{background:rgba(153,221,255,.10)}
+.frmsg{font-size:12px;color:var(--muted,#8aa0b0);margin:4px 0 8px;min-height:1em}
 
 .tsbeta{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:9px;font-size:10px;
   font-weight:700;letter-spacing:.5px;color:#0b0b0b;background:var(--blue);vertical-align:2px}
@@ -223,14 +221,13 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
   <div class="pbox-top">
     <div class="pbox-emblem">{% if d %}{{ rank_emblem(d.ship, 88, d.color, d.name)|safe }}{% else %}{{ rank_emblem(101, 74, '#8b949e', 'Fly')|safe }}{% endif %}</div>
     <div class="pbox-id">
-      <h1 class="pname2">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}" title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span></h1>
-{# Add a friend, straight from the profile - the same request the Social page sends. #}
-{% if friend_state != 'self' %}
-<div class="frbar" data-name="{{ player.name }}" data-state="{{ friend_state }}">
-  <button type="button" class="frbtn" id="frBtn"></button>
-  <span class="frmsg" id="frMsg"></span>
-</div>
-{% endif %}
+      <h1 class="pname2">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}" title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span>{#
+  Add a friend sits in the heading beside Invite, and wears the same chip:
+  they are the same kind of act, so they should not look like two different
+  weights of decision. #}{% if friend_state != 'self' %}<span class="frchip invchip"
+    id="frBtn" role="button" data-name="{{ player.name }}"
+    data-state="{{ friend_state }}"></span>{% endif %}</h1>
+<p class="frmsg" id="frMsg"></p>
       <div class="pbox-rank">
         {%- if d %}<span class="rk-name" title="Your skill rank: one of seven, named after the game&#39;s ships from Fly up to Shadow X-3, from where you sit on the leaderboard. It is not the ship you fly - see Ships flown further down.">{{ d.name }}</span><span class="rk-band" title="Your skill rank: one of seven, named after the game&#39;s ships from Fly up to Shadow X-3, from where you sit on the leaderboard. It is not the ship you fly - see Ships flown further down.">{{ t('Skill rank') }} &middot; {{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>
         {%- elif player.placements_left %}<span class="rk-name">{{ t('In placements') }}</span><span class="rk-band">{{ player.placements_left }} {{ t('more to earn a rank') }}</span>
@@ -674,20 +671,20 @@ Players appear once they win a tracked match. Try <a href="/players" style="colo
 <script>
 (function(){
   var bar=document.getElementById('frBtn'); if(!bar) return;
-  var box=bar.closest('.frbar'), name=box.getAttribute('data-name'),
-      msg=document.getElementById('frMsg'), st=box.getAttribute('data-state');
-  var LABEL={none:'Add friend', pending_out:'Request sent', pending_in:'Accept friend request',
-             friends:'Friends ✓', declined:'Add friend'};
+  var name=bar.getAttribute('data-name'),
+      msg=document.getElementById('frMsg'), st=bar.getAttribute('data-state');
+  var LABEL={none:'+ Add friend', pending_out:'Request sent', pending_in:'Accept request',
+             friends:'Friends ✓', declined:'+ Add friend'};
   function paint(){
-    bar.textContent = LABEL[st] || 'Add friend';
-    bar.disabled = (st === 'pending_out' || st === 'friends');
+    bar.textContent = LABEL[st] || '+ Add friend';
+    bar.classList.toggle('done', st === 'pending_out' || st === 'friends');
   }
   paint();
   bar.addEventListener('click', function(){
-    if(bar.disabled) return;
+    if(bar.classList.contains('done')) return;
     var url = (st === 'pending_in') ? '/friends/respond' : '/friends/request';
     var body = (st === 'pending_in') ? {name:name, accept:'1'} : {name:name};
-    bar.disabled = true;
+    bar.classList.add('done');
     fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
                 body:JSON.stringify(body)})
       .then(function(r){ return r.json(); })
@@ -696,7 +693,8 @@ Players appear once they win a tracked match. Try <a href="/players" style="colo
         if(msg) msg.textContent = j.message || '';
         paint();
       })
-      .catch(function(){ if(msg) msg.textContent='Could not reach the site.'; paint(); });
+      .catch(function(){ if(msg) msg.textContent='Could not reach the site.';
+                         bar.classList.remove('done'); paint(); });
   });
 })();
 </script>

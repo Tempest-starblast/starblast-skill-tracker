@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.17.0"
+APP_VERSION = "9.17.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5570,6 +5570,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.17.1", "at": "2026-09-16T23:55:00Z", "changes": [
+        "<b>Fixed: “playing now” could never find anybody.</b> It matched people by their account name, which is not what they fly under — an account name only starts out as the play name and then stops following it. It matches the play name now, which is the one tied to the account and the one on the ship.",
+        "<b>Add friend now sits beside Invite on a profile</b>, as the same size of chip, instead of a larger button on its own line underneath.",
+    ]},
     {"version": "9.17.0", "at": "2026-09-16T23:20:00Z", "changes": [
         "<b>Social shows everyone of yours who is playing — friends and clanmates.</b> A card at the top lists them with the mode they are in, the lobby, and a Join button. Clanmates appear without having to add them as friends; you already share a tag.",
         "<b>Survival counts too.</b> The survival watcher now publishes who is in each lobby, not just how many, so it is no longer the one mode where the site could say a lobby was busy but not who was in it.",
@@ -11582,12 +11586,31 @@ def people_playing(c, norms):
     out = {}
     if not norms:
         return out
-    want = set(norms)
+    # Match on the PLAY name, not the account name. The account name starts out
+    # as the play name and then stops following it - the play name is the one
+    # tied to the account and the one they are actually flying under. Matching
+    # the account name as well would also mean claiming a stranger who happens
+    # to be flying a name this player has since stopped using.
+    want = {}
+    keys = [nn for nn in set(norms) if nn]
+    for i in range(0, len(keys), 400):
+        chunk = keys[i:i + 400]
+        qs = ",".join("?" * len(chunk))
+        try:
+            for own, play in c.execute(
+                    "SELECT norm_name, COALESCE(NULLIF(game_name, ''), name) "
+                    "FROM players WHERE norm_name IN (%s)" % qs, chunk).fetchall():
+                pn = normalize_name(play or "")
+                if own and pn:
+                    want.setdefault(pn, own)
+        except sqlite3.Error:
+            pass
 
-    def note(nn, mode, lobby, region, sid):
-        if nn in want and nn not in out:
-            out[nn] = {"mode": mode, "lobby": lobby or "", "region": region or "",
-                       "sid": sid, "checked_in": False}
+    def note(seen, mode, lobby, region, sid):
+        own = want.get(seen)
+        if own and own not in out:
+            out[own] = {"mode": mode, "lobby": lobby or "", "region": region or "",
+                        "sid": sid, "checked_in": False, "as_name": seen}
 
     try:
         lc = live_db()
