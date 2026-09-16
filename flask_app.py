@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.16.1"
+APP_VERSION = "9.17.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2336,6 +2336,12 @@ def init_db():
         c.execute("ALTER TABLE players ADD COLUMN reg_ip TEXT")
     if 'norm_name' not in existing_cols:
         c.execute("ALTER TABLE players ADD COLUMN norm_name TEXT")
+    # The survival watcher publishes who is in each lobby; team-mode rosters
+    # already live in the raw feed, so this column is survival's equivalent.
+    try:
+        c.execute("ALTER TABLE live_lobbies ADD COLUMN names TEXT")
+    except sqlite3.OperationalError:
+        pass
     if 'strict_mode' not in existing_cols:
         # Off by default on purpose: registering a name must NOT quietly
         # change how it is rated. Protection is something a player turns
@@ -5564,6 +5570,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.17.0", "at": "2026-09-16T23:20:00Z", "changes": [
+        "<b>Social shows everyone of yours who is playing — friends and clanmates.</b> A card at the top lists them with the mode they are in, the lobby, and a Join button. Clanmates appear without having to add them as friends; you already share a tag.",
+        "<b>Survival counts too.</b> The survival watcher now publishes who is in each lobby, not just how many, so it is no longer the one mode where the site could say a lobby was busy but not who was in it.",
+        "<b>And it says whether they checked in.</b> A player who is in a match without checking in has the result land on whatever name the game reports rather than on their account — worth knowing while there is still time to fix it.",
+    ]},
     {"version": "9.16.1", "at": "2026-09-16T22:40:00Z", "changes": [
         "<b>Join now takes you straight into your friend’s game.</b> It checks you in for that lobby, copies your play name so the watcher can recognise your ship, and opens the game — exactly what pressing Play does, without having to find the match in the list first.",
     ]},
@@ -9128,12 +9139,16 @@ def survival_lobbies_push():
         for l in rows[:40]:
             if not isinstance(l, dict) or l.get('id') is None:
                 continue
+            _nm = l.get('names')
+            _nm = json.dumps([str(x)[:32] for x in _nm[:60]]) \
+                if isinstance(_nm, list) and _nm else None
             c.execute("INSERT OR REPLACE INTO live_lobbies "
-                      "(sys_id, name, players, age, updated_at, watching, region, mode) "
-                      "VALUES (?,?,?,?,?,?,?, 'survival')",
+                      "(sys_id, name, players, age, updated_at, watching, region, mode, names) "
+                      "VALUES (?,?,?,?,?,?,?, 'survival', ?)",
                       (int(l['id']), str(l.get('name') or ('Lobby %s' % l['id']))[:64],
                        int(l.get('players') or 0), int(l.get('age') or 0), now,
-                       1 if l.get('watching') else 0, str(l.get('region') or 'america')[:16]))
+                       1 if l.get('watching') else 0, str(l.get('region') or 'america')[:16],
+                       _nm))
         conn.commit()
     except (sqlite3.Error, TypeError, ValueError) as e:
         conn.close()
@@ -11554,6 +11569,72 @@ def friend_requests_in(c, me):
     return [(b if a == me else a) for a, b in c.fetchall()]
 
 
+def people_playing(c, norms):
+    """{norm_name: {mode, lobby, region, sid, checked_in}} for whoever of
+    `norms` is in a lobby right now, in either mode.
+
+    Team mode comes from the raw watcher's own live table; survival from the
+    roster the survival watcher publishes with its lobby list. `checked_in`
+    says whether that person told the site they were joining THAT lobby -
+    without it the result lands on whatever name the game reported, which is
+    the thing a clanmate can still fix while the match is running.
+    """
+    out = {}
+    if not norms:
+        return out
+    want = set(norms)
+
+    def note(nn, mode, lobby, region, sid):
+        if nn in want and nn not in out:
+            out[nn] = {"mode": mode, "lobby": lobby or "", "region": region or "",
+                       "sid": sid, "checked_in": False}
+
+    try:
+        lc = live_db()
+        rows = lc.execute("SELECT payload FROM rawlive WHERE updated > ?",
+                          (time.time() - 90,)).fetchall()
+        lc.close()
+    except Exception:
+        rows = []
+    for (payload,) in rows:
+        try:
+            d = json.loads(payload)
+        except (TypeError, ValueError):
+            continue
+        for _k, roster in (d.get("teams") or {}).items():
+            for r in (roster or []):
+                if r and r[0] and r[0] != "?":
+                    note(normalize_name(r[0]), "team", d.get("name"),
+                         d.get("region"), d.get("sid"))
+
+    try:
+        for sid, lname, region, names in c.execute(
+                "SELECT sys_id, name, region, names FROM live_lobbies "
+                "WHERE mode = 'survival' AND names IS NOT NULL").fetchall():
+            try:
+                got = json.loads(names) or []
+            except (TypeError, ValueError):
+                continue
+            for nm in got:
+                note(normalize_name(nm), "survival", lname, region, sid)
+    except sqlite3.Error:
+        pass
+
+    # Did they say they were joining that lobby? Check-ins are per account.
+    if out:
+        for nn, info in out.items():
+            try:
+                c.execute("SELECT 1 FROM checkins ch JOIN players p "
+                          "ON p.google_sub = ch.sub "
+                          "WHERE p.norm_name = ? AND ch.sys_id = ? "
+                          "AND ch.created_at > datetime('now', '-3 hours') LIMIT 1",
+                          (nn, info["sid"]))
+                info["checked_in"] = c.fetchone() is not None
+            except sqlite3.Error:
+                pass
+    return out
+
+
 def friends_playing(norms):
     """{norm_name: {lobby, region, sid}} for whichever of `norms` is in a
     lobby the watcher is in right now.
@@ -11617,11 +11698,38 @@ def social_page():
               (me[1],))
     out = [x for x in (card(b if a == me[1] else a) for a, b in c.fetchall()) if x]
 
-    live = friends_playing([f["norm"] for f in fr])
+    # Clanmates count as your people too: you already share a tag in public,
+    # so being told they are in a lobby is not a disclosure friendship adds.
+    mates = []
+    c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
+              "AND clan != '' LIMIT 1", (current_user(),))
+    _mc = c.fetchone()
+    my_tag = _mc[0] if _mc else None
+    if my_tag:
+        c.execute("SELECT norm_name FROM players WHERE clan = ? AND norm_name IS NOT NULL",
+                  (my_tag,))
+        friend_norms = set(f["norm"] for f in fr)
+        for (nn,) in c.fetchall():
+            if nn and nn != me[1] and nn not in friend_norms:
+                mates.append(nn)
+
+    live = people_playing(c, [f["norm"] for f in fr] + mates)
     for f in fr:
         f["playing"] = live.get(f["norm"])
     # Playing first, then by rating.
     fr.sort(key=lambda f: (0 if f.get("playing") else 1, -f["elo"]))
+
+    # Everyone of yours who is in a lobby right now, friends and clanmates
+    # together - one card answers "is anyone on?".
+    onnow = []
+    for nn, info in live.items():
+        p = card(nn)
+        if not p:
+            continue
+        p["playing"] = info
+        p["is_friend"] = nn in set(f["norm"] for f in fr)
+        onnow.append(p)
+    onnow.sort(key=lambda p: (0 if p["is_friend"] else 1, -p["elo"]))
 
     # The name they play under, so Join can copy it into the clipboard exactly
     # as the Play page does - the check-in binds an account, and the watcher
@@ -11641,7 +11749,8 @@ def social_page():
     conn.close()
     return render_template('social.html', version=APP_VERSION, page='social',
                            signed_in=True, me=me[0], play_name=play_name,
-                           friends=fr, incoming=inc, outgoing=out, clan=clan)
+                           friends=fr, incoming=inc, outgoing=out, clan=clan,
+                           onnow=onnow, my_tag=my_tag)
 
 
 @app.route('/friends/request', methods=['POST'])
