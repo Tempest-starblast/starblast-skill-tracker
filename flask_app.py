@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.16.0"
+APP_VERSION = "9.16.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5564,6 +5564,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.16.1", "at": "2026-09-16T22:40:00Z", "changes": [
+        "<b>Join now takes you straight into your friend’s game.</b> It checks you in for that lobby, copies your play name so the watcher can recognise your ship, and opens the game — exactly what pressing Play does, without having to find the match in the list first.",
+    ]},
     {"version": "9.16.0", "at": "2026-09-16T22:10:00Z", "changes": [
         "<b>Friends.</b> Send a friend request from anyone’s profile, or by name from the new Social tab. Once you both agree, you can see which lobby a friend is in while they are playing, so you can go and join them.",
         "<b>Only friends can see that.</b> The public live view stays two minutes behind and without names, exactly as it was. A friend sees the lobby and the region — not your score, not your position, nothing else — and only after you accepted them.",
@@ -11620,6 +11623,14 @@ def social_page():
     # Playing first, then by rating.
     fr.sort(key=lambda f: (0 if f.get("playing") else 1, -f["elo"]))
 
+    # The name they play under, so Join can copy it into the clipboard exactly
+    # as the Play page does - the check-in binds an account, and the watcher
+    # still has to be able to recognise the ship.
+    c.execute("SELECT COALESCE(NULLIF(game_name, ''), name) FROM players "
+              "WHERE google_sub = ? LIMIT 1", (current_user(),))
+    _gn = c.fetchone()
+    play_name = _gn[0] if _gn else me[0]
+
     c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
               "AND clan != '' LIMIT 1", (current_user(),))
     row = c.fetchone()
@@ -11629,8 +11640,8 @@ def social_page():
         clan = {"tag": row[0], "members": (c.fetchone() or [0])[0]}
     conn.close()
     return render_template('social.html', version=APP_VERSION, page='social',
-                           signed_in=True, me=me[0], friends=fr, incoming=inc,
-                           outgoing=out, clan=clan)
+                           signed_in=True, me=me[0], play_name=play_name,
+                           friends=fr, incoming=inc, outgoing=out, clan=clan)
 
 
 @app.route('/friends/request', methods=['POST'])
