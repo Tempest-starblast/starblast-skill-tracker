@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.17.1"
+APP_VERSION = "9.17.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5570,6 +5570,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.17.2", "at": "2026-09-17T00:20:00Z", "changes": [
+        "<b>Fixed the check mark sitting crooked on the leaderboard.</b> The rotating best-scores panel had taken the same CSS name as the check mark beside a player’s name, so the check was wearing the panel’s border, its rounded corners and its bottom margin. The panel was renamed; the check is a check again. The rank emblem and the NEW tag now sit on the same line as it, too.",
+    ]},
     {"version": "9.17.1", "at": "2026-09-16T23:55:00Z", "changes": [
         "<b>Fixed: “playing now” could never find anybody.</b> It matched people by their account name, which is not what they fly under — an account name only starts out as the play name and then stops following it. It matches the play name now, which is the one tied to the account and the one on the ship.",
         "<b>Add friend now sits beside Invite on a profile</b>, as the same size of chip, instead of a larger button on its own line underneath.",

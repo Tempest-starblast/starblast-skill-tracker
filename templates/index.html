@@ -18,9 +18,12 @@
 .bhead{display:flex;align-items:flex-start;justify-content:space-between;
   gap:12px 24px;flex-wrap:wrap}
 .bheadtext{flex:1 1 320px;min-width:0}
-.bhead .tick{flex:0 1 400px;margin-top:6px}
-@media (max-width:900px){.bhead .tick{flex:1 1 100%;margin-top:0}}
-.tick{--row:26px;margin:2px 0 18px;border:1px solid var(--line);border-radius:10px;
+.bhead .btick{flex:0 1 400px;margin-top:6px}
+@media (max-width:900px){.bhead .btick{flex:1 1 100%;margin-top:0}}
+/* The rotating best-scores board. Named btick, NOT tick: `.tick` is the
+   account check mark beside a player's name, and sharing the name put this
+   panel's border and margins on that check. */
+.btick{--row:26px;margin:2px 0 18px;border:1px solid var(--line);border-radius:10px;
   background:rgba(0,0,0,.28);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
   overflow:hidden;max-width:560px}
 .tickhead{display:flex;align-items:center;gap:8px;padding:7px 12px 6px;
@@ -33,7 +36,7 @@
 .tickview:after{content:"";position:absolute;left:0;right:0;bottom:0;height:26px;
   pointer-events:none;background:linear-gradient(rgba(5,13,22,0),rgba(5,13,22,.75))}
 .tickstrip{animation:tickroll 30s linear infinite;will-change:transform}
-.tick:hover .tickstrip,.tick:focus-within .tickstrip{animation-play-state:paused}
+.btick:hover .tickstrip,.btick:focus-within .tickstrip{animation-play-state:paused}
 @keyframes tickroll{from{transform:translateY(0)}to{transform:translateY(calc(var(--row) * -10))}}
 .tickrow{display:flex;align-items:center;gap:10px;height:var(--row);padding:0 12px;
   font-size:12.5px;white-space:nowrap}
@@ -104,9 +107,10 @@ tbody tr{scroll-margin-top:84px}
    from :target (which is the "jumped to this player" highlight) so both
    can be true at once without fighting. */
 .prov{display:inline-block;font-size:9.5px;letter-spacing:.6px;border-radius:4px;
-  padding:0 5px;margin-left:6px;vertical-align:1px;background:rgba(240,192,74,.12);
+  padding:0 5px;margin-left:6px;vertical-align:middle;background:rgba(240,192,74,.12);
   color:#f0c04a;border:1px solid rgba(240,192,74,.35)}
-.remb{display:inline-block;margin-right:6px;line-height:0;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+.remb{display:inline-block;margin-right:6px;line-height:0;vertical-align:middle;
+  filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
 .remb svg{vertical-align:middle}
 tfoot tr.youfoot td{position:sticky;bottom:0;z-index:6;
   background:#12241d;border-top:1px solid rgba(102,230,184,.55);
@@ -215,7 +219,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {# Written out twice: the strip slides up by its own first half, so the
    list rejoins itself with no jump. The copy is hidden from screen
    readers, and from anyone who asked for less motion. #}
-<div class="tick" aria-label="{{ t('Best scores today') }}">
+<div class="btick" aria-label="{{ t('Best scores today') }}">
   <div class="tickhead"><span class="tickdot"></span>
     <b>{{ t('Best scores today') }}</b>
     <span>&middot; {{ region_label }}</span></div>
