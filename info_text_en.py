@@ -181,4 +181,18 @@ CARDS = [
   ' in step as you move. The roles are hoisted, so the member list reads from Shadow X-3 at'
   ' the top down to Fly, and reaching a new one is announced in the server.</p>'
   '<p>Ask [[CONTACT]] for an invite.</p>'),
+ ("Friends and clanmates",
+  '<p>Send a friend request from anyone&rsquo;s profile, or by name on the'
+  ' <a href="/social">Social</a> page. Once you both agree, each of you can see which lobby'
+  ' the other is in while they are playing, and join them with one press.</p>'
+  '<p>Only people you accepted can see that, and all they see is the lobby and its region'
+  ' &mdash; not your score, not where you are on the map. The public live view stays about two'
+  ' minutes behind and without names, exactly as it was.</p>'
+  '<p>Clanmates appear the same way without being added, since you already share a tag in'
+  ' public. Beside each name is whether they <b>checked in</b>: a player who has not is having'
+  ' the result recorded against whatever name the game reports rather than against their'
+  ' account, and they can still fix that from <a href="/play">Play</a> before the match'
+  ' ends.</p>'
+  '<p>Pressing <b>Join</b> checks you in for that lobby and opens it, so joining a friend'
+  ' counts exactly as pressing Play does.</p>'),
 ]

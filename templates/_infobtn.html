@@ -1,0 +1,6 @@
+{# A small "?" beside a page title. It opens the Info page already searched
+   for this page's topic, so an explanation lives in exactly one place and a
+   page only has to point at it. Set `q` (the search) and `tip` (the hover)
+   before including. #}
+<a class="infobtn" href="/info?q={{ q|urlencode }}" title="{{ tip }}"
+   aria-label="{{ tip }}">?</a>

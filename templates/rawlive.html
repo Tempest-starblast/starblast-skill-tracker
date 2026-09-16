@@ -98,14 +98,10 @@ body.mini .radarmap{width:100%;height:auto;margin:0;border:none;border-radius:0}
 </style>
 
 <div class="rl-head">
-  <h1>Live matches</h1>
-  <div class="rl-sub">Every vanilla team lobby the new browserless watcher is following, joined at
-    the opening and stayed resident &mdash; all regions. Station replicas and a live radar, straight
-    from the game, with each team's <b>win chance</b> &mdash; learned from full matches watched end
-    to end, least certain early and sharper as the match unfolds.
-    {% if is_owner %}You're signed in: this is the <b>live, named</b> view, with each player's effect
-    on the win chance.{% else %}Shown about <b>two minutes behind</b> for security, without player
-    names.{% endif %}</div>
+  <h1>Live matches{% set q = 'live matches' %}{% set tip = 'How the live view works' %}{% include "_infobtn.html" %}</h1>
+  {# The delay is not an explanation, it is a fact about what you are looking
+     at right now - it stays, as a chip beside the status. #}
+  {% if not is_owner %}<div class="rl-sub">About two minutes behind, without player names.</div>{% endif %}
   <div class="rlmode" id="rlMode" role="tablist" aria-label="Game mode">
     <button type="button" data-m="team" class="on" role="tab">Team mode</button><button type="button" data-m="survival" role="tab">Survival</button>
   </div>
@@ -120,9 +116,6 @@ body.mini .radarmap{width:100%;height:auto;margin:0;border:none;border-radius:0}
 <div class="rl-wrap" id="rlWrap"></div>
 <div class="rl-empty" id="rlEmpty" style="display:none">No lobbies being watched right now.</div>
 <div class="rl-surv" id="rlSurv" style="display:none">
-  <p class="rl-survnote">Every survival lobby the watcher can see, all regions. Survival streams no positions to a
-    watcher, so there is no radar here &mdash; who is in it, how long it has run, and whether it is being followed.
-    A round builds up for about half an hour, then locks and plays down to the last ship.</p>
   <ul class="rl-survlist" id="rlSurvList"></ul>
   <div class="rl-empty" id="rlSurvEmpty" style="display:none">No survival lobbies right now.</div>
 </div>

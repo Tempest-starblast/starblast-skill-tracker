@@ -487,7 +487,7 @@
           + '<button type="button" id="modapply" title="Read this.options = { … } from the mod into the settings above. After that, changing a setting rewrites it in the code.">Read settings from mod ↑</button>'
           + '<input type="file" id="modfile" accept=".js,.txt,.mjs,text/plain,text/javascript,application/javascript" style="display:none">'
           + '<span id="modfile_hint">…or drop a file onto the box above.</span></div></details>'
-      + '<p class="note">Leave everything as-is for the <b>standard rated</b> lobby. Change anything (or import a mod) and it’s <b>unrated</b> — but it still records who won/lost, their teams, how long they played and their score.</p>';
+      + '<p class="note">Unchanged = <b>rated</b>. Anything changed = <b>unrated</b>, still recorded.</p>';
     box.innerHTML = '<h2>Open a lobby</h2>'
       + (errMsg ? '<div class="cgerr">'+esc(errMsg)+'</div>' : '')
       + '<p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Open one — the join link appears here for you and every Odyssey player. You can stop it anytime from the lobby screen, and it also closes on its own once everyone leaves.</p>'

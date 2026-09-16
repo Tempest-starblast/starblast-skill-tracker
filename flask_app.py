@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.17.2"
+APP_VERSION = "9.18.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5570,6 +5570,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.18.0", "at": "2026-09-17T01:05:00Z", "changes": [
+        "<b>The explaining has moved out of the way.</b> Pages were carrying paragraphs teaching how things work, which crowded out the thing you came to look at. Those explanations now live on <a href=\"/info\">Info</a>, and each page carries a small <b>?</b> beside its title that opens Info already searched for that page’s topic. Anything that is a fact about what you are looking at — the two-minute delay, whether a match is rated — stayed on the page.",
+        "<b>Friends and clanmates have an Info entry</b> covering who can see you playing, what Join does, and what checking in changes.",
+        "<b>On Social: one Join per person, and a mark instead of a label.</b> Somebody playing was listed twice with two Join buttons; the Playing-now card owns it now. Checked in is a green tick and not checked in an amber !, each explaining itself on hover.",
+    ]},
     {"version": "9.17.2", "at": "2026-09-17T00:20:00Z", "changes": [
         "<b>Fixed the check mark sitting crooked on the leaderboard.</b> The rotating best-scores panel had taken the same CSS name as the check mark beside a player’s name, so the check was wearing the panel’s border, its rounded corners and its bottom margin. The panel was renamed; the check is a check again. The rank emblem and the NEW tag now sit on the same line as it, too.",
     ]},

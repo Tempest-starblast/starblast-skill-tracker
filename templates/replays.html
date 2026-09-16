@@ -21,7 +21,7 @@
 {% block body %}
 {% set survival = (mode == 'survival') %}
 {% set mq = '&mode=survival' if survival else '' %}
-<h1 class="ptitle">{{ t('Replays') }}</h1>
+<h1 class="ptitle">{{ t('Replays') }}{% set q = 'replays' %}{% set tip = 'How replays work' %}{% include "_infobtn.html" %}</h1>
 <div class="rpmodebar">
   <a href="/replays" class="{% if not survival %}on{% endif %}">Team mode</a>
   <a href="/replays?mode=survival" class="{% if survival %}on{% endif %}">Survival</a>
