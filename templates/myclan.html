@@ -448,8 +448,11 @@ async function addMember(){
   if (!who) return say('memberMsg', false, 'Enter a player name.');
   try{
     const body = {clan: TAG, name: who};
+    {% if gems_on %}
+    // The bonus field only exists while the preview is on; so does this.
     const gEl = document.getElementById('memberGems');
     if (gEl) body.gems = parseInt(gEl.value, 10) || 0;
+    {% endif %}
     const [r, d] = await post('/clan/add', body);
     say('memberMsg', r.ok, d.message);
     if (r.ok) reloadSoon();

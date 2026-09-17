@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.24.5"
+APP_VERSION = "9.24.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -12181,6 +12181,11 @@ def clan_page(tag):
     # the leaderboard and their profile. `ranks` is a local dict here (place
     # within the clan), so reach the module via division_map() instead.
     _divmap = division_map()
+    # Worn emblems for the roster - defined HERE. 9.23.0 referenced these two
+    # names in the member dict without defining them, and every clan page was
+    # a 500 for the 35 minutes until a live check finally looked at the status.
+    _ships_ok_c = gems_visible()
+    _shipmap_c = display_ship_map() if _ships_ok_c else {}
 
     members = []
     total_wins = total_losses = total_elo = 0
