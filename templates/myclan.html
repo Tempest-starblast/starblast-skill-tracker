@@ -50,6 +50,10 @@
 .lockm{display:inline-flex;line-height:0;flex:0 0 auto;align-items:center}
 /* Swatch pickers for role colours and the page tint. */
 .swrow{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 2px}
+ul.styles{list-style:none;padding:0;margin:4px 0 10px}
+ul.styles li{display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap}
+ul.styles .badge{margin:0}
+button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 .sw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;
   cursor:pointer;padding:0;transition:transform .1s,border-color .1s}
 .sw:hover{transform:scale(1.12)}
@@ -308,6 +312,24 @@
             onclick="pickTheme(this)" aria-label="{{ key }} tint"></button>
     {%- endfor %}
   </div>
+  <div class="sub">{{ t('Tag stylings') }}</div>
+  <p class="desc">Other ways of writing {{ clan.tag }} &mdash; fancy letters, brackets, a symbol
+     after it. Every styling still has to spell {{ clan.tag }}. Members choose which one to wear
+     on Your account; the default is what the clan page shows.</p>
+  <ul class="styles" id="styleList">
+    {%- for s in clan.styles %}
+    <li><span class="badge">{{ s.shown }}</span>
+      {% if s.default %}<span class="sub" style="margin:0">{{ t('default') }}</span>{% else %}
+      <button type="button" class="tiny" onclick="styleAct('default', {{ s.id }})">{{ t('Make default') }}</button>{% endif %}
+      {% if clan.styles|length > 1 %}<button type="button" class="tiny" onclick="styleAct('remove', {{ s.id }})">{{ t('Remove') }}</button>{% endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  <div class="row">
+    <input id="styleNew" maxlength="32" placeholder="e.g. [{{ clan.tag }}] or a fancy-letter version">
+    <button type="button" onclick="styleAdd()">{{ t('Add styling') }}</button>
+  </div>
+  <p class="msg" id="styleMsg"></p>
   <div class="sub">{{ t('Clan bio') }}</div>
   <textarea id="clanBio" class="bioarea" maxlength="{{ clan.bio_max }}"
             placeholder="Tell people who you are..."
@@ -547,6 +569,23 @@ async function saveRoleNames(){
     say('roleNamesMsg', d.ok, d.message);
     if (d.ok) reloadSoon();
   }catch(e){ say('roleNamesMsg', false, 'Server connection error.'); }
+}
+async function styleAdd(){
+  const shown = document.getElementById('styleNew').value;
+  try{
+    const [r, d] = await post('/clan/style', {clan: TAG, action: 'add', shown: shown});
+    say('styleMsg', d.ok, d.message);
+    if (d.ok) reloadSoon();
+  }catch(e){ say('styleMsg', false, 'Server connection error.'); }
+}
+async function styleAct(action, id){
+  if (action === 'remove' &&
+      !window.confirm('Remove this styling? Anyone wearing it shows the default again.')) return;
+  try{
+    const [r, d] = await post('/clan/style', {clan: TAG, action: action, id: id});
+    say('styleMsg', d.ok, d.message);
+    if (d.ok) reloadSoon();
+  }catch(e){ say('styleMsg', false, 'Server connection error.'); }
 }
 async function saveProfile(){
   const bio = document.getElementById('clanBio').value;

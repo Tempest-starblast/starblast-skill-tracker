@@ -95,7 +95,12 @@ CARDS = [
   ' automatically.</p>'
   '<p><b>Your tag is shown exactly as it is written</b> &mdash; fancy letters and all. The'
   ' plain-letter version is only used behind the scenes, so that every styling of a tag'
-  ' counts as one clan and searching for it works either way.</p>'
+  ' counts as one clan and searching for it works either way. A leader can add other'
+  ' stylings of the tag on <a href="/myclan">Your clan</a>, and each member picks the one'
+  ' to wear on <a href="/account">Your account</a>.</p>'
+  '<p><b>A match under your clan&#39;s tag counts for you</b>, whatever styling the tag is'
+  ' typed in. Only members of that clan are matched this way, and what follows the tag has'
+  ' to be your name.</p>'
   '<p><b>Ranks.</b> A leader can appoint co-leaders and moderators. A moderator removes'
   ' ordinary members; a co-leader does everything the leader can except delete the clan or'
   ' touch another co-leader. Nobody can remove someone of their own rank or above.</p>'),

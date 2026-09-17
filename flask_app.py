@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.25.0"
+APP_VERSION = "9.26.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1465,6 +1465,133 @@ def clan_display(c, tag):
     return (row[0] if row and row[0] else tag)
 
 
+_TAG_CACHE = {"ts": 0.0, "styles": {}, "worn": {}, "members": {}}
+
+
+def tag_cache_reset():
+    _TAG_CACHE["ts"] = 0.0
+
+
+def _tag_cache(c):
+    """Three maps, rebuilt every minute and at once when a styling or a
+    member's pick changes:
+
+      styles  {clan: [(id, shown), ...]}  the default first
+      worn    {account name: shown}       members wearing a pick of their own
+      members {clan: {bare key: (sub, account name)}}
+              every member of the clan by their name WITHOUT the tag, in
+              every styling the clan has; a bare key two members share is
+              left out, because it would be nobody's.
+    """
+    now = time.time()
+    if now - _TAG_CACHE["ts"] < 60:
+        return _TAG_CACHE
+    styles, worn, members, seen = {}, {}, {}, {}
+    try:
+        default = {r[0]: (r[1] or r[0]) for r in
+                   c.execute("SELECT tag, display_tag FROM clans").fetchall()}
+        for sid, clan, shown in c.execute(
+                "SELECT id, clan, shown FROM clan_tag_styles ORDER BY id").fetchall():
+            styles.setdefault(clan, []).append((sid, shown))
+        for clan, lst in styles.items():
+            d = default.get(clan)
+            lst.sort(key=lambda x: 0 if x[1] == d else 1)
+        for name, shown in c.execute(
+                "SELECT p.name, s.shown FROM players p "
+                "JOIN clan_tag_styles s ON s.id = p.tag_style AND s.clan = p.clan "
+                "WHERE p.tag_style IS NOT NULL").fetchall():
+            worn[name] = shown
+        for sub, name, game, clan in c.execute(
+                "SELECT google_sub, name, game_name, clan FROM players "
+                "WHERE clan IS NOT NULL AND clan != '' AND google_sub IS NOT NULL "
+                "AND google_sub != '' AND " + NOT_SANDBOX).fetchall():
+            shows = [s for _i, s in styles.get(clan, [])] or [default.get(clan) or clan]
+            keys = set()
+            for raw in (name, game):
+                if not raw:
+                    continue
+                for s in shows:
+                    k = normalize_name(display_name(raw, clan, s))
+                    if k:
+                        keys.add(k)
+            for k in keys:
+                seen.setdefault(clan, {}).setdefault(k, set()).add((sub, name))
+        for clan, m in seen.items():
+            members[clan] = {k: next(iter(v)) for k, v in m.items() if len(v) == 1}
+    except sqlite3.Error:
+        return _TAG_CACHE
+    _TAG_CACHE.update(ts=now, styles=styles, worn=worn, members=members)
+    return _TAG_CACHE
+
+
+def clan_styles(c, tag):
+    """[(id, shown), ...] for one clan, the default first."""
+    return list(_tag_cache(c)["styles"].get(tag, []))
+
+
+def worn_tag_map(c):
+    """{account name: the styling that member chose to wear}."""
+    return _tag_cache(c)["worn"]
+
+
+def player_tag(c, name, clan):
+    """The tag as this member wears it: their own pick, else the clan's default."""
+    if not clan:
+        return None
+    return worn_tag_map(c).get(name) or clan_display(c, clan)
+
+
+def account_tag_styles(c, name, clan):
+    """The stylings of this member's clan tag with the worn one marked -
+    or nothing when there is only one, since there is nothing to choose."""
+    if not clan:
+        return []
+    styles = clan_styles(c, clan)
+    if len(styles) < 2:
+        return []
+    c.execute("SELECT tag_style FROM players WHERE name = ?", (name,))
+    row = c.fetchone()
+    mine = row[0] if row else None
+    if mine is not None and mine not in {i for i, _s in styles}:
+        mine = None
+    return [{"id": i, "shown": s,
+             "on": (i == mine) if mine is not None else (n == 0)}
+            for n, (i, s) in enumerate(styles)]
+
+
+def clan_member_for_tagged_name(c, name):
+    """The account a tagged roster name belongs to, or None.
+
+    'S2F BHU', 'SᄅF̶ ↝ BHU' and '𝐒𝟐𝐅BHU' are one person if an account
+    called BHU - or SᄅF̶ BHU - is a member of S2F. The tag is taken off the
+    way the pages take it off for display, in every styling the clan has,
+    and what is left must match exactly one member of THAT clan. Nobody
+    outside the clan is ever matched this way: the tag is the evidence.
+    Longest tag first, so SRW is tried before SR could eat its first
+    letters.
+    """
+    cache = _tag_cache(c)
+    members = cache["members"]
+    if not members or not name:
+        return None
+    for clan in sorted(members, key=len, reverse=True):
+        roster = members[clan]
+        shows = [s for _i, s in cache["styles"].get(clan, [])] or [clan]
+        tried = set()
+        for shown in shows:
+            rest = display_name(name, clan, shown)
+            if rest == name:
+                continue
+            key = normalize_name(rest)
+            if not key or key in tried:
+                continue
+            tried.add(key)
+            hit = roster.get(key)
+            if hit:
+                return hit[1]
+    return None
+
+
 def clan_custom_labels(c, tag):
     """Only the role titles a clan has explicitly renamed: {role: label}."""
     if not tag:
@@ -1928,10 +2055,29 @@ def init_db():
     # there, so nothing can be paid out twice.
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_gem_once "
               "ON gem_ledger(owner_kind, owner, reason, ref)")
+    # Every styling a clan's tag is written in (9.26.0). The plain key is
+    # the clan; a styling is one way of spelling it - SᄅF̶ ↝, 𝐒𝟐𝐅, [S2F] -
+    # and every styling folds to the same key, so a "new version of the
+    # tag" is a row here, never a second clan. clans.display_tag stays the
+    # default; a member may wear any styling of their own clan.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_tag_styles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    clan TEXT NOT NULL,
+                    shown TEXT NOT NULL,
+                    created_by TEXT,
+                    created_at TEXT,
+                    UNIQUE(clan, shown)
+                )''')
+    c.execute("INSERT OR IGNORE INTO clan_tag_styles (clan, shown, created_by, created_at) "
+              "SELECT tag, COALESCE(NULLIF(display_tag, ''), tag), created_by, created_at "
+              "FROM clans")
     for _gcol in ("ALTER TABLE players ADD COLUMN gems INTEGER DEFAULT 0",
                   "ALTER TABLE clans ADD COLUMN gems INTEGER DEFAULT 0",
                   # The ship worn as your emblem. NULL = your division's own.
-                  "ALTER TABLE players ADD COLUMN display_ship INTEGER"):
+                  "ALTER TABLE players ADD COLUMN display_ship INTEGER",
+                  # The styling of the clan tag this member wears. NULL = the
+                  # clan's default.
+                  "ALTER TABLE players ADD COLUMN tag_style INTEGER"):
         try:
             c.execute(_gcol)
         except sqlite3.OperationalError:
@@ -5997,6 +6143,22 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.26.0", "at": "2026-09-18T01:30:00Z", "changes": [
+        "<b>Your clan tag, however it is written, is yours.</b> A match under "
+        "your clan\u2019s tag and your name now counts for your account whatever "
+        "styling the tag is typed in \u2014 \u01a6\u024c\u2727, [SR] and SR are one "
+        "tag. Until now a different styling landed the result on a separate row. "
+        "Only members of that clan are matched this way; the tag is the evidence.",
+        "<b>Tag stylings.</b> A leader or co-leader can add other ways of writing "
+        "the clan\u2019s tag on Your clan (up to 6) and choose the default. Every "
+        "member picks which styling to wear on Your account; it shows beside "
+        "your name on the leaderboard, your profile and your home page.",
+        "Pressing Check in after you have already joined a match is still refused "
+        "\u2014 a late check-in could claim any ship already flying \u2014 but the "
+        "message now says what that means: the match still counts for you under "
+        "your play name or clan tag, and the check-in only adds proof of which "
+        "ship.",
+    ]},
     {"version": "9.25.0", "at": "2026-09-17T23:20:00Z", "changes": [
         "<b>Matches played under your play name now count for your account "
         "without a check-in.</b> If you have told the site what you are called "
@@ -7895,10 +8057,11 @@ def player_search_index():
         conn = db(timeout=3)
         cur = conn.cursor()
         disp = clan_display_map(cur)
+        worn = worn_tag_map(cur)
         for name, elo, wins, losses, clan in cur.execute(
                 "SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
                 "FROM players WHERE name IS NOT NULL AND " + NOT_SANDBOX):
-            shown = disp.get(clan) if clan else None
+            shown = (worn.get(name) or disp.get(clan)) if clan else None
             rows.append({
                 "name": name,
                 "display": display_name(name, clan, shown),
@@ -8382,7 +8545,7 @@ def player_profile(name):
                                   sum(r["played"] for r in played_anywhere))}
     # Read while the connection is open - the dict below is built after
     # close, and a query there is exactly the 500 this line replaces.
-    clan_shown = clan_display(c, clan) if clan else ""
+    clan_shown = player_tag(c, stored_name, clan) if clan else ""
     # This player's recorded custom-lobby games (unrated) for the profile card.
     custom_games = []
     try:
@@ -10623,9 +10786,13 @@ def perform_checkin(c, sub_id, sys_id):
             if normalize_name(_an) in _keys:
                 return 400, {"ok": False, "already_playing": True,
                              "message": f"A ship called '{play_as}' is already in that "
-                                        f"match, so this check-in can't be accepted - "
-                                        f"checking in must come BEFORE you join. "
-                                        f"Next match, press Play first."}
+                                        f"match, so this check-in can't be taken: checking "
+                                        f"in has to come before you join, or anyone could "
+                                        f"claim a ship already flying. If that ship is you, "
+                                        f"the match still counts for your account under "
+                                        f"your play name or your clan's tag - the check-in "
+                                        f"only adds proof of which ship. Next match, press "
+                                        f"Play first."}
 
     # One live check-in per account. Without this you could check into
     # every fresh lobby at once, watch which one is going well and join
@@ -11042,8 +11209,10 @@ def account_for_ingame_name(c, name, sys_id=None):
     was this account, scoped to the lobby on purpose so a single check-in is
     never a standing claim on a name. Failing that, the play name: an account
     that has declared it plays as this name gets the result, no check-in
-    needed. The check-in keeps its job - saying which ship - and Protection
-    still holds a protected account's result unless it was checked in.
+    needed. Failing that, a clan tag: the tag in any of its stylings plus the
+    name of a member of that clan is that member. The check-in keeps its job
+    - saying which ship - and Protection still holds a protected account's
+    result unless it was checked in.
     """
     if not name:
         return None
@@ -11057,7 +11226,9 @@ def account_for_ingame_name(c, name, sys_id=None):
     if not key:
         return None
     hit = play_name_map(c).get(key)
-    return hit[1] if hit else None
+    if hit:
+        return hit[1]
+    return clan_member_for_tagged_name(c, name)
 
 
 def current_user():
@@ -14124,6 +14295,7 @@ def bot_top_route():
     rows = (survival_board_rows(c, period, region) if mode == 'survival'
             else board_rows(c, period, region))
     shown = clan_display_map(c)
+    worn = worn_tag_map(c)
     conn.close()
     rows.sort(key=leaderboard_sort_key)
     out = []
@@ -14131,7 +14303,7 @@ def bot_top_route():
             rows[offset:offset + n], start=offset + 1):
         played = wins + losses
         out.append({"place": i, "name": name, "display": display_name(name, clan),
-                    "clan_display": shown.get(clan, clan),
+                    "clan_display": worn.get(name) or shown.get(clan, clan),
                     # Over a window this is rating gained, not a standing -
                     # the bot labels the column from `gain`. Survival elo is
                     # already absolute at 1000 like the team base, so the same
@@ -17695,6 +17867,9 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     c.execute("INSERT INTO clans (tag, display_tag, created_by, created_at) "
               "VALUES (?, ?, ?, ?)",
               (tag, shown if shown and shown != tag else None, sub_id, now))
+    c.execute("INSERT OR IGNORE INTO clan_tag_styles (clan, shown, created_by, created_at) "
+              "VALUES (?, ?, ?, ?)", (tag, shown or tag, sub_id, now))
+    tag_cache_reset()
     c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) VALUES (?, ?, ?)",
               (tag, sub_id, now))
     joined, elsewhere = join_admin_names(c, sub_id, tag)
@@ -17918,7 +18093,9 @@ def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
     members = (c.fetchone() or [0])[0]
     # clan_locked stays 0 so a name can be tagged again later; the clan is
     # gone, not the players.
-    c.execute("UPDATE players SET clan = NULL WHERE clan = ?", (known,))
+    c.execute("UPDATE players SET clan = NULL, tag_style = NULL WHERE clan = ?", (known,))
+    c.execute("DELETE FROM clan_tag_styles WHERE clan = ?", (known,))
+    tag_cache_reset()
     c.execute("DELETE FROM clan_admins WHERE clan = ?", (known,))
     c.execute("DELETE FROM clan_codes WHERE clan = ?", (known,))
     c.execute("DELETE FROM clan_invites WHERE clan = ?", (known,))
@@ -18116,6 +18293,130 @@ def perform_clan_profile(c, sub_id, raw_tag, bio=None, theme=None, trusted=False
     return 200, {"ok": True, "clan": known, "message": "Clan profile saved."}
 
 
+CLAN_STYLES_MAX = 6
+CLAN_STYLE_MAX_LEN = 32
+
+
+def perform_clan_style(c, sub_id, raw_tag, action, shown=None, style_id=None,
+                       trusted=False):
+    """Add, remove or make default one styling of a clan's tag. Leader or
+    co-leader. A styling must spell the SAME tag in other letters - it
+    folds to the clan's key - or it is a different tag and needs its own
+    request. Does NOT commit."""
+    known = canonical_clan_tag(raw_tag, all_clan_tags(c))
+    if not known:
+        return 404, {"ok": False, "message": "No clan with that tag."}
+    if not trusted and not may_manage(c, sub_id, known):
+        return 403, {"ok": False,
+                     "message": "Only the leader or a co-leader can change how the "
+                                "tag is written."}
+    rows = c.execute("SELECT id, shown FROM clan_tag_styles WHERE clan = ? ORDER BY id",
+                     (known,)).fetchall()
+    if action == 'add':
+        text = ' '.join(str(shown or '').split())[:CLAN_STYLE_MAX_LEN]
+        if not text:
+            return 400, {"ok": False, "message": "Write the tag the way you want it shown."}
+        if clean_clan_tag(text) != known:
+            return 400, {"ok": False,
+                         "message": f"That reads as a different tag, not another way of "
+                                    f"writing {known}. A new tag needs its own request "
+                                    f"from the Clans page."}
+        if any(r[1] == text for r in rows):
+            return 400, {"ok": False, "message": "That styling is already on the list."}
+        if len(rows) >= CLAN_STYLES_MAX:
+            return 400, {"ok": False,
+                         "message": f"A clan can have up to {CLAN_STYLES_MAX} stylings of "
+                                    f"its tag. Remove one first."}
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        c.execute("INSERT INTO clan_tag_styles (clan, shown, created_by, created_at) "
+                  "VALUES (?, ?, ?, ?)", (known, text, sub_id, now))
+        tag_cache_reset()
+        return 200, {"ok": True,
+                     "message": f"Added. Members can now wear {text} - they pick it on "
+                                f"Your account."}
+    try:
+        sid = int(style_id)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "message": "Pick a styling first."}
+    row = next((r for r in rows if r[0] == sid), None)
+    if row is None:
+        return 404, {"ok": False, "message": "That styling is not on this clan's list."}
+    if action == 'default':
+        c.execute("UPDATE clans SET display_tag = ? WHERE tag = ?",
+                  (row[1] if row[1] != known else None, known))
+        tag_cache_reset()
+        return 200, {"ok": True,
+                     "message": f"{row[1]} is now the default - the clan page shows it, "
+                                f"and so does every member without a pick of their own."}
+    if action == 'remove':
+        if len(rows) < 2:
+            return 400, {"ok": False,
+                         "message": "A clan keeps at least one way of writing its tag."}
+        c.execute("UPDATE players SET tag_style = NULL WHERE tag_style = ?", (sid,))
+        c.execute("DELETE FROM clan_tag_styles WHERE id = ?", (sid,))
+        if clan_display(c, known) == row[1]:
+            nxt = next(r for r in rows if r[0] != sid)
+            c.execute("UPDATE clans SET display_tag = ? WHERE tag = ?",
+                      (nxt[1] if nxt[1] != known else None, known))
+        tag_cache_reset()
+        return 200, {"ok": True,
+                     "message": "Removed. Anyone wearing it shows the default again."}
+    return 400, {"ok": False, "message": "Unknown action."}
+
+
+@app.route('/clan/style', methods=['POST'])
+def clan_style_route():
+    """Add, remove or make default a styling of the clan's tag."""
+    sub_id = current_user()
+    trusted = api_key_ok(request.headers.get('X-API-Key'))
+    if not sub_id and not trusted:
+        return jsonify({"message": "Sign in first."}), 401
+    data = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_clan_style(c, sub_id, data.get('clan'), data.get('action'),
+                                         shown=data.get('shown'), style_id=data.get('id'),
+                                         trusted=trusted)
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+@app.route('/account/tagstyle', methods=['POST'])
+def account_tagstyle():
+    """Wear one styling of your clan's tag; blank = the clan's default."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"message": "Sign in first."}), 401
+    raw = (request.json or {}).get('id')
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT name, clan FROM players WHERE google_sub = ?", (sub_id,))
+    row = c.fetchone()
+    if not row or not row[1]:
+        conn.close()
+        return jsonify({"ok": False, "message": "You are not in a clan."}), 400
+    if raw in (None, '', 0, '0'):
+        c.execute("UPDATE players SET tag_style = NULL WHERE google_sub = ?", (sub_id,))
+    else:
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({"ok": False, "message": "Pick a styling first."}), 400
+        c.execute("SELECT 1 FROM clan_tag_styles WHERE id = ? AND clan = ?", (sid, row[1]))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({"ok": False,
+                            "message": "That styling is not one of your clan's."}), 400
+        c.execute("UPDATE players SET tag_style = ? WHERE google_sub = ?", (sid, sub_id))
+    conn.commit()
+    conn.close()
+    tag_cache_reset()
+    return jsonify({"ok": True, "message": "Saved - that is how your tag shows now."})
+
+
 @app.route('/clan/profile', methods=['POST'])
 def clan_profile_route():
     """Save a clan's bio and/or page tint."""
@@ -18283,6 +18584,8 @@ def my_clan_page():
         "tag": tag, "display": _shown, "members": members,
         "size": len(members), "region": region,
         "region_label": REGION_LABELS.get(region, ""), "regions": REGIONS,
+        "styles": [{"id": i, "shown": s, "default": n == 0}
+                   for n, (i, s) in enumerate(clan_styles(c, tag))],
         "bio": clan_bio, "bio_max": CLAN_BIO_MAX,
         "theme": clan_theme, "theme_color": CLAN_THEMES.get(clan_theme, ""),
         "role_colors": role_colors, "role_color_keys": role_color_keys,
@@ -18416,12 +18719,13 @@ def account_page():
             conn.commit()
             gained = sum(r["gained"] for r in region_split(c, name))
             acct = {
-                "name": name, "display": display_name(name, clan, clan_display(c, clan)) if clan else name,
+                "name": name, "display": display_name(name, clan, player_tag(c, name, clan)) if clan else name,
                 "elo": f"{elo:.2f}".rstrip('0').rstrip('.'),
                 "rank": rank, "total": total, "wins": wins, "losses": losses,
                 "winrate": f"{round(100 * wins / played)}%" if played else "-",
                 "gained": ("%+.2f" % gained) if played else "-",
-                "clan": clan, "clan_display": clan_display(c, clan) if clan else None,
+                "clan": clan, "clan_display": player_tag(c, name, clan) if clan else None,
+                "tag_styles": account_tag_styles(c, name, clan),
                 "by_region": by_region, "recent": recent,
                 "wipe_available": int(wipe_avail or 0),
                 "bio": bio or "",
@@ -19153,7 +19457,7 @@ def home_page():
     rank_of = c.fetchone()[0]
     division = division_map().get(nn) if played >= PROVISIONAL_GAMES else None
     peak_division = ranks.RANK_BY_KEY.get(peak_div_key) if peak_div_key else None
-    clan_shown = clan_display(c, clan) if clan else None
+    clan_shown = player_tag(c, name, clan) if clan else None
 
     balance = gem_balance(c, "player", nn)
     emblem, emblem_color, mythic = worn_emblem(nn, display_ship_map(), True)
@@ -19257,6 +19561,7 @@ def leaderboard():
     _cx = db()
     _cc = _cx.cursor()
     _shown = clan_display_map(_cc)
+    _worn = worn_tag_map(_cc)
     _cc.execute("SELECT norm_name FROM players "
                 "WHERE google_sub IS NOT NULL AND norm_name IS NOT NULL")
     _accounts = {r[0] for r in _cc.fetchall()}
@@ -19361,8 +19666,9 @@ def leaderboard():
         # The region cell links through to that region's board, so it needs the
         # key for the URL as well as the full label for the text.
         home = home_region.get(nn)
-        # The tag exactly as its leader wrote it (styled), or the plain tag.
-        disp = _shown.get(clan, clan) if clan else None
+        # The styling this member wears, else the tag as its leader wrote
+        # it, else the plain tag.
+        disp = (_worn.get(name) or _shown.get(clan, clan)) if clan else None
         d = {
             "rank": rank,
             "name": name,

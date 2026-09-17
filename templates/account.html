@@ -60,6 +60,15 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
     <span class="acctsub">SKILL &middot; {{ t('Rank') }} #{{ acct.rank }} {{ 'of' }} {{ acct.total }}</span>
     <span class="acctsub"><a href="/player/{{ acct.name|urlencode }}">Public profile &rarr;</a>
       {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% endif %}</span>
+    {%- if acct.tag_styles %}
+    <span class="acctsub">{{ t('Wear your tag as') }}
+      <select id="tagStyle" onchange="pickTagStyle(this)" style="margin-left:4px">
+        {%- for s in acct.tag_styles %}
+        <option value="{{ s.id }}"{% if s.on %} selected{% endif %}>{{ s.shown }}</option>
+        {%- endfor %}
+      </select>
+      <span class="msg" id="tagStyleMsg" style="display:inline;margin-left:6px"></span></span>
+    {%- endif %}
   </div>
   <div class="acctstats">
     <div class="stat"><div class="label">{{ t('Record') }}</div><div class="value">{{ acct.wins }}-{{ acct.losses }}</div></div>
@@ -355,6 +364,13 @@ async function devActAs(mode){
 let myName = {{ (account_name or '')|tojson }};
 let claimTarget = null;
 
+async function pickTagStyle(sel){
+  try{
+    const [r, d] = await post('/account/tagstyle', {id: sel.value});
+    say('tagStyleMsg', d.ok, d.message);
+    if (d.ok) setTimeout(function(){ location.reload(); }, 900);
+  }catch(e){ say('tagStyleMsg', false, 'Server connection error.'); }
+}
 async function post(u,b){
   const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
   return [r, await r.json()];
