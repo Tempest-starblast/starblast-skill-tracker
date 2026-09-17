@@ -7,7 +7,7 @@
    right, one border round the lot. Not a hero floating over the page - the
    page's own first thing, sitting where a table used to. */
 .profcard{position:relative;overflow:hidden;display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(220px,300px);
+  grid-template-columns:minmax(0,1fr) minmax(220px,300px);grid-auto-rows:auto;
   border-radius:16px;border:1px solid var(--rk,rgba(153,221,255,.25));
   background:linear-gradient(150deg,rgba(153,221,255,.07),rgba(2,6,12,.35));
   box-shadow:0 18px 50px rgba(0,0,0,.45);margin:0 0 18px}
@@ -55,6 +55,9 @@
 .gemsub{font-size:12.5px;color:var(--muted,#8aa0b0)}
 .gemsub b{color:#66E6B8}
 
+/* Everything under the identity row lives inside the same card. */
+.profbody{grid-column:1 / -1;position:relative;z-index:1;padding:20px 24px 6px;
+  border-top:1px solid rgba(153,221,255,.14)}
 .sec{margin:0 0 18px}
 .sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 10px}
 .sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
@@ -129,8 +132,8 @@
     <span class="gemsub">{% if today_gems %}<b>+{{ '{:,}'.format(today_gems) }}</b> today &middot; {% endif %}{{ have|length }} of {{ total_ach }} achievements</span>
     <span class="gemgo"><a href="/shop">Shop</a> &middot; <a href="/achievements">Achievements</a></span>
   </div>
-</div>
 
+<div class="profbody">
 <section class="sec">
   <div class="sechead"><h2>Achievements</h2><span class="n">{{ have|length }}/{{ total_ach }}</span>
     <a class="more" href="/achievements">See all</a></div>
@@ -173,6 +176,8 @@
     <a href="/account"><b>Your account</b><span>Names, protection, settings</span></a>
   </div>
 </section>
+</div>
+</div>
 <script>
 (function(){
   // The Show more only exists when there is more: measure the clamped box and
