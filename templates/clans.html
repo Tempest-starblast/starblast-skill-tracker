@@ -30,7 +30,7 @@
   font-weight:700;background:#3a3320;border:1px solid #6b5320;color:#f0c04a}
 {% endblock %}
 {% block body %}
-<h1 class="ptitle">Clans{% set q = 'clans' %}{% set tip = 'How clans work' %}{% include "_infobtn.html" %}</h1>
+<div class="ptitlerow"><h1 class="ptitle">Clans</h1>{% set q = 'clans' %}{% set tip = 'How clans work' %}{% include "_infobtn.html" %}</div>
 {% set active = "clans" %}
 {% include "_lbtabs.html" %}
 <p class="psub">{{ total }} clan{{ '' if total == 1 else 's' }} claimed.</p>

@@ -417,10 +417,13 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 }
 /* The "?" beside a page title: the page says what it is, Info says how it
    works, and this is the door between them. */
-.infobtn{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;
+/* Title + its "?" as one flex line, so the mark sits on the title's centre
+   however big the title is. vertical-align guesses; this does not. */
+.ptitlerow{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 6px}
+.ptitlerow .ptitle{margin:0}
+.infobtn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
   border-radius:50%;border:1px solid var(--line2,rgba(153,221,255,.34));color:var(--muted,#8aa0b0);
-  font-size:11.5px;font-weight:700;text-decoration:none;vertical-align:middle;margin-left:9px;
-  line-height:1;flex:none}
+  font-size:12.5px;font-weight:700;text-decoration:none;line-height:1;flex:none}
 .infobtn:hover{color:var(--green,#66e6b8);border-color:var(--green,#66e6b8);
   background:rgba(102,230,184,.10)}
 {% block css %}{% endblock %}

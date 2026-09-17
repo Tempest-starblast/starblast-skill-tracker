@@ -45,7 +45,7 @@
 .rhead span{font-size:12px;color:var(--dim)}
 {% endblock %}
 {% block body %}
-<h1 class="ptitle">Play{% set q = 'checking in' %}{% set tip = 'How checking in works' %}{% include "_infobtn.html" %}</h1>
+<div class="ptitlerow"><h1 class="ptitle">Play</h1>{% set q = 'checking in' %}{% set tip = 'How checking in works' %}{% include "_infobtn.html" %}</div>
 <div class="card" id="youCard">
   <h2>In game name</h2>
   <div id="notSignedIn">

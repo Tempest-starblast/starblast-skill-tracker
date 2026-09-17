@@ -25,7 +25,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.18.1"
+APP_VERSION = "9.18.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5570,6 +5570,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.18.2", "at": "2026-09-17T02:20:00Z", "changes": [
+        "<b>The <b>?</b> beside a page title sits on the title’s line now</b> rather than hanging below it, on every page that has one.",
+        "<b>Social looks like the rest of the site.</b> Everyone carries their division’s ship emblem and their name in that division’s colour, the way the leaderboard shows them; rows light up under the pointer, and anyone in a match glows green.",
+    ]},
     {"version": "9.18.1", "at": "2026-09-17T01:40:00Z", "changes": [
         "<b>Tidied the Social page.</b> A rule was being drawn under the last person in a list where it belonged to nothing, the buttons down the right edge each stopped wherever their word ended instead of lining up, one of the clan buttons was underlined and the other was not, and the chips beside a lobby name sat a little above the words next to them. All four now share one grid.",
     ]},
@@ -11717,6 +11721,10 @@ def social_page():
                                signed_in=False, friends=[], incoming=[],
                                outgoing=[], clan=None)
 
+    # Their division, so a row can wear the same emblem the leaderboard gives
+    # them. Already computed when the board was built; this only looks it up.
+    dmap = division_map()
+
     def card(nn):
         c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
                   "FROM players WHERE norm_name = ? LIMIT 1", (nn,))
@@ -11724,7 +11732,8 @@ def social_page():
         if not r:
             return None
         return {"norm": nn, "name": r[0], "elo": r[1] or 0,
-                "wins": r[2], "losses": r[3], "clan": r[4] or ""}
+                "wins": r[2], "losses": r[3], "clan": r[4] or "",
+                "division": dmap.get(nn)}
 
     fr = [x for x in (card(n) for n in friends_of(c, me[1])) if x]
     inc = [x for x in (card(n) for n in friend_requests_in(c, me[1])) if x]
