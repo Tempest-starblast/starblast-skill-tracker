@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.24.6"
+APP_VERSION = "9.25.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5997,6 +5997,21 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.25.0", "at": "2026-09-17T23:20:00Z", "changes": [
+        "<b>Matches played under your play name now count for your account "
+        "without a check-in.</b> If you have told the site what you are called "
+        "in game, a result under that name lands on your account, full stop. "
+        "Until now it only did if you had pressed Play first; otherwise it "
+        "landed on whatever unowned row that spelling matched, and some people "
+        "have a second record of their own games sitting under their tagged name "
+        "for exactly that reason.",
+        "Checking in still matters, for what it was always for: it says which "
+        "ship was yours. If somebody else flies your name in the same lobby the "
+        "match is held unless you checked in, and Protection still counts only "
+        "the matches you checked into. A play name two accounts both claim "
+        "counts for neither, and a play name that is somebody else\u2019s "
+        "account name never takes their results.",
+    ]},
     {"version": "9.24.2", "at": "2026-09-17T22:10:00Z", "changes": [
         "<b>Leaderboard rows line up.</b> The clan tag has its own column now, "
         "with a dash where a player has none, so the rank emblem and the name "
@@ -10977,24 +10992,72 @@ def bind_appearances_to_checkins(c):
         c.execute("UPDATE checkins SET bound = 1 WHERE rowid = ?", (rowid,))
 
 
-def account_for_ingame_name(c, name, sys_id=None):
-    """The account this in-game name belongs to IN THIS MATCH, or None.
+_PLAY_CACHE = {"ts": 0.0, "map": {}}
 
-    Scoped to sys_id deliberately. A binding records that one ship in one
-    lobby was one account - it is not a standing claim on the name. Looked
-    up by name alone, a single check-in credited that account for every
-    later match anyone played under the same name, which is the duplicate
-    name problem turned around: instead of two players sharing a rating,
-    one player quietly collects the other's results forever.
+
+def play_name_map(c):
+    """normalised play name -> (sub, account name), for every account that
+    has declared one. Rebuilt every minute, and at once when one is set.
+
+    A name two accounts both claim is left out: it belongs to neither. So is
+    a play name that is some OTHER account's account name - an account name
+    outranks a play-name claim, or setting your play name to TEKIT would
+    collect TEKIT's results. Default game names and names that normalise to
+    nothing never map to anybody.
     """
-    if not name or sys_id is None:
+    now = time.time()
+    if now - _PLAY_CACHE["ts"] < 60:
+        return _PLAY_CACHE["map"]
+    owned = {}
+    claims = {}
+    try:
+        for sub, name, game in c.execute(
+                "SELECT google_sub, name, game_name FROM players "
+                "WHERE google_sub IS NOT NULL AND google_sub != '' AND " + NOT_SANDBOX
+        ).fetchall():
+            nk = normalize_name(name)
+            if nk:
+                owned[nk] = sub
+            gk = normalize_name(game or "")
+            if game and gk and gk != nk and not is_default_game_name(game):
+                claims.setdefault(gk, []).append((sub, name))
+    except sqlite3.Error:
+        return _PLAY_CACHE["map"]
+    m = {}
+    for gk, who in claims.items():
+        if len(who) != 1:
+            continue                              # two accounts, nobody's name
+        sub, name = who[0]
+        if gk in owned and owned[gk] != sub:
+            continue                              # somebody's ACCOUNT name
+        m[gk] = (sub, name)
+    _PLAY_CACHE["ts"], _PLAY_CACHE["map"] = now, m
+    return m
+
+
+def account_for_ingame_name(c, name, sys_id=None):
+    """The account this in-game name belongs to, or None.
+
+    First a check-in binding for THIS lobby - proof that one particular ship
+    was this account, scoped to the lobby on purpose so a single check-in is
+    never a standing claim on a name. Failing that, the play name: an account
+    that has declared it plays as this name gets the result, no check-in
+    needed. The check-in keeps its job - saying which ship - and Protection
+    still holds a protected account's result unless it was checked in.
+    """
+    if not name:
         return None
-    c.execute("SELECT sub FROM name_bindings WHERE in_game_name = ? AND sys_id = ? "
-              "LIMIT 1", (name, sys_id))
-    row = c.fetchone()
-    if not row:
+    if sys_id is not None:
+        c.execute("SELECT sub FROM name_bindings WHERE in_game_name = ? AND sys_id = ? "
+                  "LIMIT 1", (name, sys_id))
+        row = c.fetchone()
+        if row:
+            return account_name_for(c, row[0])
+    key = normalize_name(name)
+    if not key:
         return None
-    return account_name_for(c, row[0])
+    hit = play_name_map(c).get(key)
+    return hit[1] if hit else None
 
 
 def current_user():
@@ -11468,6 +11531,7 @@ def perform_set_game_name(c, sub_id, raw_name):
         return 400, {"ok": False,
                      "message": "That name isn't allowed. Please choose another."}
     c.execute("UPDATE players SET game_name = ? WHERE name = ?", (name or None, who))
+    _PLAY_CACHE["ts"] = 0.0                       # results follow the new name at once
     try:
         c.execute("INSERT INTO play_name_log (sub, name, at) VALUES (?,?,?)",
                   (sub_id, name or '', time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())))
@@ -11676,6 +11740,7 @@ def set_account_name():
         c.execute("UPDATE players SET game_name = ? WHERE name = ? AND "
                   "(game_name IS NULL OR game_name = '' OR game_name = ?)",
                   (name, name, mine[0]))
+        _PLAY_CACHE["ts"] = 0.0
         left = MAX_ACCOUNT_NAME_CHANGES - (used + 1)
         msg = (f"Your account name is now '{name}'. "
                + (f"You can change it {left} more time." if left

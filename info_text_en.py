@@ -63,7 +63,8 @@ CARDS = [
   ' <a href="/settings">Settings</a>.</p>'
   '<p><b>Your play name</b> is whatever you are called in Starblast right now. Set it on'
   ' the <a href="/play">Play</a> page, and change it as often as you like &mdash; it is how'
-  ' we recognise your ship in a lobby, nothing more.</p>'
+  ' we recognise your ship in a lobby, and a match played under it counts for your'
+  ' account.</p>'
   '<p>They start out the same, and for most people they stay the same. They only differ if'
   ' you play under something else for a while.</p>'),
 
@@ -74,8 +75,11 @@ CARDS = [
   ' one place however you are called in game.</p>'
   '<p>So keep the play name on the Play page the same as the name in your ship. That is the'
   ' one that has to match; your account name does not.</p>'
-  '<p><b>If you do not check in</b>, the result simply lands on whatever name the game'
-  ' reported. That only counts for you if you own that name.</p>'
+  '<p><b>If you do not check in</b>, a match under your play name still counts for you.'
+  ' What the check-in adds is proof of which ship was yours: if somebody else flies your'
+  ' name in the same lobby, the match is held unless you checked in, and'
+  ' <b>Protection</b> counts only the matches you checked into. A play name two accounts'
+  ' both claim counts for neither.</p>'
   '<p>A <b>&#10003;</b> beside a name means that player has Protection switched on: only'
   ' matches they checked into count for them. It is a stricter, slower rating, and it is'
   ' optional &mdash; find it in <a href="/settings">Settings</a>.</p>'),

@@ -58,9 +58,10 @@
              autocomplete="off">
       <button class="primary" onclick="saveGameName()">Save</button>
     </div>
-    <p class="desc" style="margin:10px 0 0">Results go to <b id="acctName">your account</b>
-       when you press <b>Check in &amp; play</b> here before joining. Under your account name
-       they count either way; under any other name, only with the check-in.</p>
+    <p class="desc" style="margin:10px 0 0">A match under this name counts for
+       <b id="acctName">your account</b>. <b>Check in &amp; play</b> adds proof of which ship was
+       yours &mdash; it settles a lobby where somebody else flies your name, and it is what
+       Protection counts.</p>
     <p class="desc" id="gnNote" style="display:none;margin:8px 0 0;padding:8px 12px;border-radius:8px;
        border:1px solid rgba(240,192,74,.5);background:rgba(240,192,74,.08);color:#f0d488"></p>
     <div id="ckState" style="display:none;margin:12px 0 0;padding:10px 14px;border-radius:8px;border:1px solid rgba(102,230,184,.45);background:rgba(102,230,184,.08);color:#bff3e0;font-size:13.5px;line-height:1.5"></div>
@@ -161,8 +162,8 @@ function gameNameNote(){
   var fold = function(s){ return String(s || '').toUpperCase().replace(/[^\p{L}\p{N}]/gu, ''); };
   if(!el) return;
   if(myName && gn && fold(gn) !== fold(myName)){
-    el.textContent = '\u201c' + gn + '\u201d is not your account name, so a game under it only counts '
-      + 'if you press Check in & play here first - whether Protection is on or off.';
+    el.textContent = '\u201c' + gn + '\u201d is not your account name. Saved here, a game under it still '
+      + 'counts for you; Check in & play adds proof of which ship was yours.';
     el.style.display = 'block';
   } else { el.style.display = 'none'; }
 }
