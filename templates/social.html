@@ -72,8 +72,16 @@
 .btn.ghost{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);
   background:none}
 .btn.ghost:hover{color:#ff9a9a;border-color:rgba(255,140,140,.55);background:rgba(255,120,120,.09)}
-/* Asked once, waiting for the second press. */
-.btn.confirm{color:#ff9a9a;border-color:rgba(255,140,140,.75);background:rgba(255,120,120,.16)}
+/* Asked as a question, with both answers on screen. */
+.askdlg{border:1px solid var(--line2,rgba(153,221,255,.3));border-radius:14px;padding:20px 22px;
+  background:#0a1522;color:var(--text);max-width:380px;width:calc(100% - 32px);
+  box-shadow:0 24px 60px rgba(0,0,0,.6)}
+.askdlg::backdrop{background:rgba(2,6,12,.72)}
+.askdlg p{margin:0 0 18px;font-size:14.5px;line-height:1.5}
+.askrow{display:flex;gap:9px}
+.askrow .btn{flex:1;padding:10px}
+.btn.danger{border-color:rgba(255,140,140,.7);color:#ff9a9a;background:rgba(255,120,120,.12)}
+.btn.danger:hover{background:rgba(255,120,120,.26);color:#fff}
 
 /* Add a friend, and the panel beside it. */
 .side{border:1px solid var(--line2,rgba(153,221,255,.16));border-radius:13px;
@@ -271,6 +279,14 @@
   </div>
 </div>
 
+<dialog id="askdlg" class="askdlg">
+  <p id="asktxt">Are you sure?</p>
+  <div class="askrow">
+    <button type="button" class="btn ghost" id="askno">No</button>
+    <button type="button" class="btn danger" id="askyes">Yes</button>
+  </div>
+</dialog>
+
 <script>
 (function(){
   var msg=document.getElementById('msg');
@@ -290,6 +306,27 @@
   // rather than trying to keep two copies of the truth in step.
   function reload(o){ if(o.j.ok) setTimeout(function(){ location.reload(); }, 450); }
 
+  // ---- the question ------------------------------------------------------
+  var dlg=document.getElementById('askdlg'), askTxt=document.getElementById('asktxt'),
+      askYes=document.getElementById('askyes'), askNo=document.getElementById('askno'),
+      onYes=null;
+  function ask(text, yesLabel, fn){
+    if(!dlg || !dlg.showModal){ if(confirm(text)) fn(); return; }   // no <dialog>: still asks
+    askTxt.textContent=text;
+    askYes.textContent=yesLabel || 'Yes';
+    onYes=fn;
+    dlg.showModal();
+    askNo.focus();                       // the safe answer is the one under the cursor
+  }
+  if(askNo) askNo.addEventListener('click', function(){ onYes=null; dlg.close(); });
+  if(askYes) askYes.addEventListener('click', function(){
+    var fn=onYes; onYes=null; dlg.close(); if(fn) fn();
+  });
+  // Clicking the dark outside the box is a no, like pressing Escape.
+  if(dlg) dlg.addEventListener('click', function(ev){
+    if(ev.target === dlg){ onYes=null; dlg.close(); }
+  });
+
   document.addEventListener('click', function(ev){
     var b=ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
@@ -300,19 +337,13 @@
     if(act==='decline') post('/friends/respond', {name:name, accept:'0'}, reload);
     if(act==='befriend'){ post('/friends/request', {name:name}, reload); return; }
     if(act==='remove'){
-      // Removing a friend is one click and cannot be undone from here, so the
-      // button asks once. A second click within a few seconds does it; moving
-      // away puts the question back.
-      if(b.dataset.sure !== '1'){
-        b.dataset.sure='1'; b.dataset.was=b.textContent; b.textContent='Sure?';
-        b.classList.add('confirm');
-        clearTimeout(b._t);
-        b._t=setTimeout(function(){ b.dataset.sure=''; b.textContent=b.dataset.was||'Remove';
-                                    b.classList.remove('confirm'); }, 4000);
-        return;
-      }
-      clearTimeout(b._t);
-      post('/friends/remove', {name:name}, reload);
+      // Removing cannot be undone from here, so it is asked as a question with
+      // two answers rather than as a button that acts on the first press.
+      ask(b.textContent.trim() === 'Cancel'
+            ? 'Cancel your friend request to ' + name + '?'
+            : 'Remove ' + name + ' from your friends?',
+          b.textContent.trim() === 'Cancel' ? 'Cancel request' : 'Remove',
+          function(){ post('/friends/remove', {name:name}, reload); });
     }
     if(act==='join'){
       // Exactly what pressing Play does: check in for THAT lobby so the result
