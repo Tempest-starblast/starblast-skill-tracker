@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.18.4"
+APP_VERSION = "9.19.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2337,6 +2337,13 @@ def init_db():
         c.execute("ALTER TABLE players ADD COLUMN reg_ip TEXT")
     if 'norm_name' not in existing_cols:
         c.execute("ALTER TABLE players ADD COLUMN norm_name TEXT")
+    # Opt out of friends seeing which lobby you are in. Off by default: you
+    # chose to accept each of them, and the whole point of a friend is being
+    # findable. 1 = hidden.
+    try:
+        c.execute("ALTER TABLE players ADD COLUMN hide_presence INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     # The survival watcher publishes who is in each lobby; team-mode rosters
     # already live in the raw feed, so this column is survival's equivalent.
     try:
@@ -5571,6 +5578,12 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.19.0", "at": "2026-09-17T04:10:00Z", "changes": [
+        "<b>Fixed: wins were being quietly withheld from players who did nothing wrong.</b> A name is held out of a rating when the watcher sees it on two ships at once, since it then cannot tell which ship is the player. But it counted a name across all three teams, and a player moving between teams is listed in both for a moment while the rosters catch up — which read as two ships. Two ships under one name inside a single team is still refused on sight; across teams it now has to persist before it counts.",
+        "<b>Removing a friend asks first</b> instead of doing it on the first click.",
+        "<b>You can hide which lobby you are in</b> from your friends, on the Social page. Off by default — you accepted each of them.",
+        "<b>The add-a-friend box suggests names as you type</b>, with the arrow keys and Enter to pick one.",
+    ]},
     {"version": "9.18.4", "at": "2026-09-17T03:15:00Z", "changes": [
         "<b>Every friend is their own card now.</b> Their division emblem at full size, their name in that division’s colour, their place on the board, rating and record — and anyone in a match gets a green card with the lobby and a Join button. Cards lift as you move over them.",
         "<b>The division is no longer spelled out beside the emblem</b>, which was saying the same thing twice.",
@@ -11620,9 +11633,11 @@ def people_playing(c, norms):
         chunk = keys[i:i + 400]
         qs = ",".join("?" * len(chunk))
         try:
+            # Anyone who turned presence off is simply not looked for.
             for own, play in c.execute(
                     "SELECT norm_name, COALESCE(NULLIF(game_name, ''), name) "
-                    "FROM players WHERE norm_name IN (%s)" % qs, chunk).fetchall():
+                    "FROM players WHERE norm_name IN (%s) "
+                    "AND COALESCE(hide_presence, 0) = 0" % qs, chunk).fetchall():
                 pn = normalize_name(play or "")
                 if own and pn:
                     want.setdefault(pn, own)
@@ -11801,6 +11816,11 @@ def social_page():
     _gn = c.fetchone()
     play_name = _gn[0] if _gn else me[0]
 
+    c.execute("SELECT COALESCE(hide_presence, 0) FROM players WHERE norm_name = ?",
+              (me[1],))
+    _hp = c.fetchone()
+    hidden = bool(_hp and _hp[0])
+
     c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
               "AND clan != '' LIMIT 1", (current_user(),))
     row = c.fetchone()
@@ -11812,7 +11832,27 @@ def social_page():
     return render_template('social.html', version=APP_VERSION, page='social',
                            signed_in=True, me=me[0], play_name=play_name,
                            friends=fr, incoming=inc, outgoing=out, clan=clan,
-                           onnow=onnow, my_tag=my_tag)
+                           onnow=onnow, my_tag=my_tag, hidden=hidden)
+
+
+@app.route('/friends/presence', methods=['POST'])
+def friends_presence():
+    """Turn off (or back on) friends seeing which lobby you are in."""
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"message": "Sign in first."}), 401
+    body = request.json if request.is_json else request.form
+    hide = 1 if str(body.get("hide") or "").lower() in ("1", "true", "yes") else 0
+    c.execute("UPDATE players SET hide_presence = ? WHERE norm_name = ?", (hide, me[1]))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "hidden": bool(hide),
+                    "message": "Friends can no longer see when you are playing."
+                               if hide else
+                               "Friends can see which lobby you are in again."}), 200
 
 
 @app.route('/friends/request', methods=['POST'])

@@ -64,6 +64,8 @@
 .btn.ghost{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);
   background:none}
 .btn.ghost:hover{color:#ff9a9a;border-color:rgba(255,140,140,.55);background:rgba(255,120,120,.09)}
+/* Asked once, waiting for the second press. */
+.btn.confirm{color:#ff9a9a;border-color:rgba(255,140,140,.75);background:rgba(255,120,120,.16)}
 
 /* Add a friend, and the panel beside it. */
 .side{border:1px solid var(--line2,rgba(153,221,255,.16));border-radius:13px;
@@ -81,6 +83,24 @@
 .empty{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6}
 .clanline{font-size:13px;color:var(--muted,#8aa0b0);line-height:1.7;margin:0}
 .clanline b{color:var(--text);font-size:15px}
+/* Suggestions under the add box. */
+.addwrap{position:relative}
+.sug{position:absolute;z-index:6;left:0;right:0;top:calc(100% + 5px);margin:0;padding:5px;
+  list-style:none;border:1px solid var(--line2,rgba(153,221,255,.3));border-radius:10px;
+  background:rgba(8,16,28,.97);box-shadow:0 10px 26px rgba(0,0,0,.55);max-height:250px;
+  overflow-y:auto}
+.sug li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;
+  cursor:pointer;font-size:13px}
+.sug li:hover,.sug li.on{background:rgba(153,221,255,.13)}
+.sug .sn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-weight:700}
+.sug .se{color:var(--muted,#8aa0b0);font-size:11.5px;font-variant-numeric:tabular-nums;flex:none}
+.sug .sc{color:var(--blue,#99DDFF);font-size:11px;font-weight:700;flex:none}
+/* The privacy switch. */
+.tog{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:var(--text)}
+.tog input{width:16px;height:16px;accent-color:var(--green,#66e6b8);cursor:pointer;flex:none}
+.togsub{margin:7px 0 0;font-size:11.5px;color:var(--muted,#8aa0b0);line-height:1.5}
+
 {% endblock %}
 {% block body %}
 <div class="ptitlerow"><h1 class="ptitle">{{ t('Social') }}</h1>{% set q = 'friends' %}{% set tip = 'How friends and clanmates work' %}{% include "_infobtn.html" %}</div>
@@ -188,12 +208,25 @@
   <div>
     <div class="side" style="margin-bottom:16px">
       <h2>Add a friend</h2>
-      <div class="addrow">
-        <input id="addq" type="text" autocomplete="off" placeholder="Name they play under"
-               aria-label="Add a friend by name">
-        <button type="button" class="btn" id="addbtn">Send</button>
+      <div class="addwrap">
+        <div class="addrow">
+          <input id="addq" type="text" autocomplete="off" placeholder="Name they play under"
+                 aria-label="Add a friend by name" role="combobox" aria-expanded="false"
+                 aria-controls="addsug">
+          <button type="button" class="btn" id="addbtn">Send</button>
+        </div>
+        <ul class="sug" id="addsug" role="listbox" hidden></ul>
       </div>
       <div class="msg" id="msg"></div>
+    </div>
+
+    <div class="side" style="margin-bottom:16px">
+      <h2>Privacy</h2>
+      <label class="tog">
+        <input type="checkbox" id="hidep"{% if hidden %} checked{% endif %}>
+        <span>Hide which lobby I am in</span>
+      </label>
+      <p class="togsub">{% if hidden %}Friends cannot see when you are playing.{% else %}Friends can see the lobby you are in, and join you.{% endif %}</p>
     </div>
 
     <div class="side">
@@ -239,7 +272,21 @@
     var act=b.getAttribute('data-act');
     if(act==='accept')  post('/friends/respond', {name:name, accept:'1'}, reload);
     if(act==='decline') post('/friends/respond', {name:name, accept:'0'}, reload);
-    if(act==='remove')  post('/friends/remove',  {name:name}, reload);
+    if(act==='remove'){
+      // Removing a friend is one click and cannot be undone from here, so the
+      // button asks once. A second click within a few seconds does it; moving
+      // away puts the question back.
+      if(b.dataset.sure !== '1'){
+        b.dataset.sure='1'; b.dataset.was=b.textContent; b.textContent='Sure?';
+        b.classList.add('confirm');
+        clearTimeout(b._t);
+        b._t=setTimeout(function(){ b.dataset.sure=''; b.textContent=b.dataset.was||'Remove';
+                                    b.classList.remove('confirm'); }, 4000);
+        return;
+      }
+      clearTimeout(b._t);
+      post('/friends/remove', {name:name}, reload);
+    }
     if(act==='join'){
       // Exactly what pressing Play does: check in for THAT lobby so the result
       // lands on your account, put your play name on the clipboard so the
@@ -270,14 +317,80 @@
     }
   });
 
-  var add=document.getElementById('addbtn'), q=document.getElementById('addq');
-  function send(){
-    var v=(q.value||'').trim();
+  var add=document.getElementById('addbtn'), q=document.getElementById('addq'),
+      sug=document.getElementById('addsug');
+  function send(v){
+    v=(v||q.value||'').trim();
     if(!v){ say('Type a name first.', true); q.focus(); return; }
+    hide();
     post('/friends/request', {name:v}, function(o){ if(o.j.ok){ q.value=''; reload(o); } });
   }
-  if(add) add.addEventListener('click', send);
-  if(q) q.addEventListener('keydown', function(e){ if(e.key==='Enter') send(); });
+
+  // ---- suggestions, from the same index the leaderboard search uses -------
+  var sel=-1, items=[], tmr=0, lastQ='';
+  function hide(){ if(!sug) return; sug.hidden=true; sug.innerHTML=''; items=[]; sel=-1;
+                   q.setAttribute('aria-expanded','false'); }
+  function pick(i){
+    if(i<0 || i>=items.length) return;
+    send(items[i].name);
+  }
+  function draw(list){
+    if(!sug) return;
+    items=list; sel=-1;
+    if(!list.length){ hide(); return; }
+    sug.innerHTML=list.map(function(p, i){
+      return '<li role="option" data-i="'+i+'">'
+        + '<span class="sn">'+esc(p.display||p.name)+'</span>'
+        + (p.clan ? '<span class="sc">'+esc(p.clan)+'</span>' : '')
+        + '<span class="se">'+Math.round(p.elo||0).toLocaleString()+'</span></li>';
+    }).join('');
+    sug.hidden=false; q.setAttribute('aria-expanded','true');
+  }
+  function esc(x){ var d=document.createElement('div'); d.textContent=(x==null?'':String(x));
+                   return d.innerHTML; }
+  function look(){
+    var v=(q.value||'').trim();
+    if(v.length<2){ hide(); return; }
+    if(v===lastQ) return;
+    lastQ=v;
+    fetch('/api/players/search?q='+encodeURIComponent(v))
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if((q.value||'').trim()===v) draw(j.players||[]); })
+      .catch(hide);
+  }
+  if(q){
+    q.addEventListener('input', function(){ clearTimeout(tmr); tmr=setTimeout(look, 130); });
+    q.addEventListener('blur', function(){ setTimeout(hide, 160); });
+    q.addEventListener('keydown', function(e){
+      if(e.key==='Enter'){ e.preventDefault(); if(sel>=0) pick(sel); else send(); return; }
+      if(sug.hidden) return;
+      if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+        e.preventDefault();
+        sel += (e.key==='ArrowDown' ? 1 : -1);
+        if(sel < -1) sel = items.length-1;
+        if(sel >= items.length) sel = -1;
+        [].forEach.call(sug.children, function(li, i){ li.classList.toggle('on', i===sel); });
+      }
+      if(e.key==='Escape') hide();
+    });
+  }
+  if(sug) sug.addEventListener('mousedown', function(ev){
+    var li=ev.target.closest && ev.target.closest('li[data-i]');
+    if(li){ ev.preventDefault(); pick(+li.getAttribute('data-i')); }
+  });
+  if(add) add.addEventListener('click', function(){ send(); });
+
+  // ---- the privacy switch -------------------------------------------------
+  var hp=document.getElementById('hidep');
+  if(hp) hp.addEventListener('change', function(){
+    var sub=document.querySelector('.togsub');
+    post('/friends/presence', {hide: hp.checked ? '1' : '0'}, function(o){
+      if(!o.j.ok){ hp.checked=!hp.checked; return; }
+      if(sub) sub.textContent = o.j.hidden
+        ? 'Friends cannot see when you are playing.'
+        : 'Friends can see the lobby you are in, and join you.';
+    });
+  });
 })();
 </script>
 {% endif %}
