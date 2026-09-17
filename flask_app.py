@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.19.6"
+APP_VERSION = "9.20.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -86,6 +86,7 @@ MAX_NAMES_PER_ACCOUNT = 1
 # it off while winning, turn it on to void the losses. The rating only means
 # something if the choice is made in advance and lived with.
 PROTECTION_COOLDOWN_HOURS = 24
+DECLINE_COOLDOWN_DAYS = 7     # after a no, the one who was turned down waits
 
 # A claim is unproven by definition, so an unlimited supply of them is just
 # a way to bury the real ones - and every new claim raises an alert.
@@ -5670,6 +5671,12 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.20.0", "at": "2026-09-17T08:30:00Z", "changes": [
+        "<b>Friend requests you have sent now have a place on the page</b> — a “waiting on a reply” panel on the right, each with a Cancel.",
+        "<b>A clanmate you have already asked no longer offers an Add button</b>; it says the request is sent, or that you are already friends.",
+        "<b>Pressing a button now tells you what happened</b> wherever you pressed it, instead of writing the answer into a panel across the page — which is why adding a friend could look as though nothing had occurred.",
+        "<b>A declined request cannot be re-sent for a week.</b> The person who said no can still change their mind and ask at any time; the one who was turned down waits. A no that can be re-asked a minute later is not a no.",
+    ]},
     {"version": "9.19.6", "at": "2026-09-17T07:40:00Z", "changes": [
         "<b>Social says how many of your people are in a match.</b> A green count sits beside Friends and beside your clanmates — the number of them playing right now, so you can tell at a glance whether it is worth joining.",
     ]},
@@ -11949,6 +11956,16 @@ def social_page():
     # Clanmates get their own list: you share a tag with them whether or not
     # you ever pressed a button about it.
     mate_cards = [x for x in (card(n) for n in mates) if x]
+    # What the button on a clanmate's tile should say: nothing to press if you
+    # are already friends, and nothing to press again if you have asked.
+    asked = set()
+    for _a, _b in c.execute("SELECT a, b FROM friends WHERE state = 'pending' "
+                            "AND requester = ?", (me[1],)).fetchall():
+        asked.add(_b if _a == me[1] else _a)
+    friend_norms = set(f["norm"] for f in fr)
+    for p in mate_cards:
+        p["rel"] = ("friend" if p["norm"] in friend_norms
+                    else "asked" if p["norm"] in asked else "none")
     seen_map = last_seen_map([f["norm"] for f in fr] + [m["norm"] for m in mate_cards])
     for p in fr + mate_cards:
         p["playing"] = live.get(p["norm"])
@@ -12050,6 +12067,26 @@ def friends_request():
         conn.close()
         return jsonify({"ok": True, "state": "pending_out",
                         "message": "Already asked."}), 200
+    if st == "declined":
+        # Whoever was turned down waits; whoever did the turning down can
+        # change their mind whenever they like. Otherwise "no" is just a
+        # button you press again a minute later.
+        a_, b_ = friend_pair(me[1], want)
+        prev = c.execute("SELECT requester, acted_at FROM friends WHERE a = ? AND b = ?",
+                         (a_, b_)).fetchone()
+        if prev and prev[0] == me[1]:
+            left = DECLINE_COOLDOWN_DAYS * 86400
+            try:
+                left -= time.time() - calendar.timegm(
+                    time.strptime(str(prev[1])[:19], '%Y-%m-%d %H:%M:%S'))
+            except (ValueError, TypeError):
+                left = 0
+            if left > 0:
+                conn.close()
+                d = max(1, int(left // 86400) + (1 if left % 86400 else 0))
+                return jsonify({"ok": False, "state": "declined",
+                                "message": "%s turned this down. You can ask again in "
+                                           "%d day%s." % (row[0], d, "" if d == 1 else "s")}), 200
     if st == "pending_in":
         # They asked first - answering by asking back is a yes.
         a, b = friend_pair(me[1], want)

@@ -121,6 +121,23 @@
 .tog{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:var(--text)}
 .tog input{width:16px;height:16px;accent-color:var(--green,#66e6b8);cursor:pointer;flex:none}
 .togsub{margin:7px 0 0;font-size:11.5px;color:var(--muted,#8aa0b0);line-height:1.5}
+/* A request you have sent, waiting. */
+.pend{display:flex;align-items:center;gap:9px;padding:7px 0}
+.pend + .pend{border-top:1px solid rgba(255,255,255,.05)}
+.pnm{flex:1;min-width:0;font-weight:700;font-size:13px;color:var(--text);text-decoration:none;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pnm:hover{text-decoration:underline}
+.btn.sm{flex:none;padding:5px 11px;font-size:11.5px}
+.side h2 .n{font-size:12px;color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0;
+  margin-left:6px}
+.relnote{flex:1;text-align:center;font-size:11.5px;font-weight:700;color:var(--muted,#8aa0b0);
+  padding:8px 0}
+/* Said where the button was pressed. */
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
+  max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
+  color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
+.toast.bad{background:#ff9a9a}
+
 
 {% endblock %}
 {% block body %}
@@ -221,7 +238,9 @@
           {{ who(p) }}
           {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
           <div class="acts">
-            <button type="button" class="btn ghost" data-act="befriend">Add friend</button>
+            {% if p.rel == 'friend' %}<span class="relnote">Friend &#10003;</span>
+            {% elif p.rel == 'asked' %}<span class="relnote">Request sent</span>
+            {% else %}<button type="button" class="btn ghost" data-act="befriend">Add friend</button>{% endif %}
           </div>
         </div>
         {% endfor %}
@@ -229,21 +248,6 @@
     </div>
     {% endif %}
 
-    {% if outgoing %}
-    <div class="socsec">
-      <div class="sechead"><h2>Sent</h2><span class="n">{{ outgoing|length }}</span></div>
-      <div class="tiles">
-        {% for p in outgoing %}
-        <div class="tile" data-name="{{ p.name }}">
-          {{ who(p) }}
-          <div class="acts">
-            <button type="button" class="btn ghost" data-act="remove">Cancel</button>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
   </div>
 
   <div>
@@ -260,6 +264,18 @@
       </div>
       <div class="msg" id="msg"></div>
     </div>
+
+    {% if outgoing %}
+    <div class="side" style="margin-bottom:16px">
+      <h2>Waiting on a reply <span class="n">{{ outgoing|length }}</span></h2>
+      {% for p in outgoing %}
+      <div class="pend" data-name="{{ p.name }}">
+        <a class="pnm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
+        <button type="button" class="btn ghost sm" data-act="remove">Cancel</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     <div class="side" style="margin-bottom:16px">
       <h2>Privacy</h2>
@@ -286,6 +302,8 @@
   </div>
 </div>
 
+<div class="toast" id="toast" hidden></div>
+
 <dialog id="askdlg" class="askdlg">
   <p id="asktxt">Are you sure?</p>
   <div class="askrow">
@@ -298,7 +316,18 @@
 (function(){
   var msg=document.getElementById('msg');
   var PLAY_NAME={{ (play_name or '')|tojson }};
-  function say(t, bad){ if(!msg) return; msg.textContent=t||''; msg.classList.toggle('bad', !!bad); }
+  var toast=document.getElementById('toast'), toastT=0;
+  function say(t, bad){
+    if(msg){ msg.textContent=t||''; msg.classList.toggle('bad', !!bad); }
+    // ...and again where the eye already is, because the panel that used to
+    // hold this sits across the page from most of the buttons.
+    if(!toast || !t) return;
+    toast.textContent=t;
+    toast.classList.toggle('bad', !!bad);
+    toast.hidden=false;
+    clearTimeout(toastT);
+    toastT=setTimeout(function(){ toast.hidden=true; }, 4200);
+  }
   function post(url, body, then){
     fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
                 body:JSON.stringify(body)})
@@ -337,7 +366,8 @@
   document.addEventListener('click', function(ev){
     var b=ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
-    var tile=b.closest('.tile'), name=tile && tile.getAttribute('data-name');
+    // A tile, or a row in the waiting list - whatever carries the name.
+    var holder=b.closest('[data-name]'), name=holder && holder.getAttribute('data-name');
     if(!name) return;
     var act=b.getAttribute('data-act');
     if(act==='accept')  post('/friends/respond', {name:name, accept:'1'}, reload);
