@@ -131,3 +131,8 @@ def ship_path(code):
         return SHIP_PATH.get(int(code))
     except (TypeError, ValueError):
         return None
+
+
+def ship_codes():
+    """Every ship code the renderer has a silhouette for."""
+    return sorted(int(k) for k in SHIP_PATH.keys())

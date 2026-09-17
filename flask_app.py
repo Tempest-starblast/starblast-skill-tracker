@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.22.2"
+APP_VERSION = "9.23.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -107,6 +107,118 @@ GEM_WIN_MILESTONES = [
 # half a percent of the board and should be worth more than grinding.
 GEM_DIVISION_AWARD = {1: 100, 2: 250, 3: 500, 4: 1000,
                       5: 2000, 6: 3500, 7: 6000, 8: 10000}
+
+
+# ---- The ship shop ---------------------------------------------------
+# What a ship costs, by tier (the hundreds digit of its code). Dearer as the
+# hull gets bigger; a top-tier hull costs more than a Shadow X-3 rank pays.
+SHIP_TIER_PRICE = {1: 500, 2: 1500, 3: 3000, 4: 6000, 5: 10000, 6: 16000, 7: 25000}
+# Which ship each division hands you on arrival - the RELEASE ladder, where
+# level 7 is the Marauder and the Odyssey has been lifted out to be mythic.
+SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7, 702: 8}
+# Priced by hand rather than by tier.
+SHIP_SPECIAL_PRICE = {703: 30000, 704: 40000, 701: 100000}
+MYTHIC_SHIP = 701                       # the Odyssey
+MYTHIC_COLOR = "#ff8a3d"                # burns orange whatever your rank
+MYTHIC_GLOW = "rgba(255,120,40,.55)"
+
+
+def ship_catalog():
+    """Every ship you could wear, cheapest first within a tier."""
+    out = []
+    for code in sorted(ship_shapes.ship_codes()):
+        tier = code // 100
+        out.append({
+            "code": code, "name": ship_shapes.ship_name(code), "tier": tier,
+            "price": SHIP_SPECIAL_PRICE.get(code, SHIP_TIER_PRICE.get(tier, 0)),
+            "unlock_level": SHIP_RANK_UNLOCK.get(code),
+            "mythic": code == MYTHIC_SHIP,
+            "premium": code in (703, 704),
+        })
+    return out
+
+
+def owned_ships(c, nn):
+    """The set of ship codes this player may wear, and why each is theirs."""
+    own = {}
+    lvl = gem_peak_level(c, nn)
+    for code, need in SHIP_RANK_UNLOCK.items():
+        if lvl >= need:
+            own[code] = "rank"
+    try:
+        for (ref,) in c.execute("SELECT ref FROM gem_ledger WHERE owner_kind = 'player' "
+                                "AND owner = ? AND reason = 'purchase' "
+                                "AND ref LIKE 'ship-%'", (nn,)).fetchall():
+            try:
+                own.setdefault(int(ref[5:]), "bought")
+            except ValueError:
+                pass
+        r = c.execute("SELECT peak_rank FROM players WHERE norm_name = ?", (nn,)).fetchone()
+        if r and r[0] == 1:
+            own.setdefault(MYTHIC_SHIP, "best")
+    except sqlite3.Error:
+        pass
+    return own
+
+
+def gem_charge(c, nn, amount, reason, ref):
+    """Spend, once, and only what is there. Returns 'ok', 'duplicate' or
+    'short'. The ledger row goes first so the unique index settles a double
+    purchase; the debit is conditional so a balance can never go below zero
+    even if two requests race; and a debit that is refused takes its ledger
+    row back out again in the same transaction."""
+    amount = int(amount)
+    if amount <= 0:
+        return "ok"
+    c.execute("INSERT OR IGNORE INTO gem_ledger (owner_kind, owner, amount, reason, ref, at) "
+              "VALUES ('player', ?, ?, ?, ?, ?)", (nn, -amount, reason, ref, _stamp()))
+    if not c.rowcount:
+        return "duplicate"
+    c.execute("UPDATE players SET gems = COALESCE(gems, 0) - ? "
+              "WHERE norm_name = ? AND COALESCE(gems, 0) >= ?", (amount, nn, amount))
+    if not c.rowcount:
+        c.execute("DELETE FROM gem_ledger WHERE owner_kind = 'player' AND owner = ? "
+                  "AND reason = ? AND ref = ?", (nn, reason, ref))
+        return "short"
+    return "ok"
+
+
+_SHIP_CACHE = {"ts": 0.0, "map": {}}
+
+
+def display_ship_map():
+    """norm_name -> equipped ship code, for everyone who has one. Tiny -
+    only players who chose a ship are in it - and cached briefly because the
+    board asks once per page."""
+    now = time.time()
+    if now - _SHIP_CACHE["ts"] < 60:
+        return _SHIP_CACHE["map"]
+    m = {}
+    try:
+        conn = db(timeout=3)
+        for nn, code in conn.execute("SELECT norm_name, display_ship FROM players "
+                                     "WHERE display_ship IS NOT NULL").fetchall():
+            if nn and code:
+                m[nn] = int(code)
+        conn.close()
+    except sqlite3.Error:
+        pass
+    _SHIP_CACHE["ts"], _SHIP_CACHE["map"] = now, m
+    return m
+
+
+def worn_emblem(nn, shipmap, allowed):
+    """(ship code, colour override, is_mythic) for a player - or (None, None,
+    False) meaning draw the division's own. `allowed` is whether the viewer
+    may see any of this; while unreleased that is only the owner."""
+    if not allowed or not nn:
+        return None, None, False
+    code = shipmap.get(nn)
+    if not code:
+        return None, None, False
+    if code == MYTHIC_SHIP:
+        return code, MYTHIC_COLOR, True
+    return code, None, False
 
 
 def gem_achievement_catalog():
@@ -1742,7 +1854,9 @@ def init_db():
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_gem_once "
               "ON gem_ledger(owner_kind, owner, reason, ref)")
     for _gcol in ("ALTER TABLE players ADD COLUMN gems INTEGER DEFAULT 0",
-                  "ALTER TABLE clans ADD COLUMN gems INTEGER DEFAULT 0"):
+                  "ALTER TABLE clans ADD COLUMN gems INTEGER DEFAULT 0",
+                  # The ship worn as your emblem. NULL = your division's own.
+                  "ALTER TABLE players ADD COLUMN display_ship INTEGER"):
         try:
             c.execute(_gcol)
         except sqlite3.OperationalError:
@@ -8217,6 +8331,9 @@ def player_profile(name):
                                   if played < PROVISIONAL_GAMES else 0),
               "owned": bool(owner_sub), "protected": bool(protected),
               "bio": bio or "", "is_me": is_me}
+    (player["emblem"], player["emblem_color"],
+     player["mythic"]) = worn_emblem(normalize_name(stored_name), display_ship_map(),
+                                     gems_visible())
     # Where the viewer stands with this player, so the profile can offer the
     # right button rather than one that will be refused.
     _fs = 'none'
@@ -11828,6 +11945,8 @@ def me():
     if gems_visible() and account_name:
         _nav.append({"t": "a", "href": "/achievements", "id": "achTab",
                      "label": "Achievements", "badge": "NEW", "colour": "#8ef3ff"})
+        _nav.append({"t": "a", "href": "/shop", "id": "shopTab",
+                     "label": "Shop", "badge": "NEW", "colour": "#8ef3ff"})
         try:
             _c5 = db()
             _gems = gem_balance(_c5.cursor(), "player", normalize_name(account_name))
@@ -11939,6 +12058,9 @@ def clan_page(tag):
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "rank": ranks[name],
+            "emblem": worn_emblem(normalize_name(name), _shipmap_c, _ships_ok_c)[0],
+            "emblem_color": worn_emblem(normalize_name(name), _shipmap_c, _ships_ok_c)[1],
+            "mythic": worn_emblem(normalize_name(name), _shipmap_c, _ships_ok_c)[2],
             "division": (_divmap.get(normalize_name(name))
                          if played >= PROVISIONAL_GAMES else None),
             "joined": join_date(joined),
@@ -12478,6 +12600,116 @@ def achievements_page():
                            preview=not GEMS_PUBLIC)
 
 
+@app.route('/shop')
+def shop_page():
+    """Every ship, what it costs, which you own, which you are wearing."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    own, worn, balance, division = {}, None, 0, None
+    if me:
+        own = owned_ships(c, me[1])
+        r = c.execute("SELECT display_ship, COALESCE(wins,0)+COALESCE(losses,0) "
+                      "FROM players WHERE norm_name = ?", (me[1],)).fetchone()
+        worn = r[0] if r else None
+        if r and r[1] >= PROVISIONAL_GAMES:
+            division = division_map().get(me[1])
+        balance = gem_balance(c, "player", me[1])
+    conn.close()
+    by_level = {r["level"]: r for r in ranks.RANKS}
+    tiers = {}
+    for item in ship_catalog():
+        item["own"] = own.get(item["code"])
+        item["worn"] = (worn == item["code"])
+        item["can"] = balance >= item["price"]
+        item["unlock_rank"] = by_level.get(item["unlock_level"]) if item["unlock_level"] else None
+        tiers.setdefault(item["tier"], []).append(item)
+    mythic = [i for i in tiers.get(7, []) if i["mythic"]]
+    tiers[7] = [i for i in tiers.get(7, []) if not i["mythic"]]
+    return render_template('shop.html', version=APP_VERSION, page='shop',
+                           signed_in=bool(me), tiers=[tiers[t] for t in sorted(tiers)],
+                           mythic=mythic, balance=balance, division=division,
+                           worn=worn, preview=not GEMS_PUBLIC,
+                           mythic_color=MYTHIC_COLOR, mythic_glow=MYTHIC_GLOW,
+                           rank_color=(division["color"] if division else "#8b949e"))
+
+
+@app.route('/shop/buy', methods=['POST'])
+def shop_buy():
+    """Buy a ship. Once, and only with gems that are actually there."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    try:
+        code = int(body.get("code"))
+    except (TypeError, ValueError):
+        conn.close()
+        return jsonify({"ok": False, "message": "Which ship?"}), 400
+    item = next((i for i in ship_catalog() if i["code"] == code), None)
+    if not item:
+        conn.close()
+        return jsonify({"ok": False, "message": "No such ship."}), 404
+    if code in owned_ships(c, me[1]):
+        conn.close()
+        return jsonify({"ok": False, "message": "You already have the %s." % item["name"]}), 200
+    got = gem_charge(c, me[1], item["price"], "purchase", "ship-%d" % code)
+    if got == "short":
+        conn.close()
+        return jsonify({"ok": False, "message": "Not enough gems - the %s is %s."
+                        % (item["name"], format(item["price"], ","))}), 200
+    if got == "duplicate":
+        conn.close()
+        return jsonify({"ok": False, "message": "You already have the %s." % item["name"]}), 200
+    conn.commit()
+    balance = gem_balance(c, "player", me[1])
+    conn.close()
+    return jsonify({"ok": True, "message": "The %s is yours." % item["name"],
+                    "balance": balance}), 200
+
+
+@app.route('/shop/equip', methods=['POST'])
+def shop_equip():
+    """Wear a ship you own as your emblem, or none to go back to your rank's."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    raw = body.get("code")
+    if raw in (None, "", 0, "0"):
+        c.execute("UPDATE players SET display_ship = NULL WHERE norm_name = ?", (me[1],))
+        conn.commit()
+        conn.close()
+        _SHIP_CACHE["ts"] = 0.0
+        return jsonify({"ok": True, "message": "Back to your rank's ship.", "code": None}), 200
+    try:
+        code = int(raw)
+    except (TypeError, ValueError):
+        conn.close()
+        return jsonify({"ok": False, "message": "Which ship?"}), 400
+    if code not in owned_ships(c, me[1]):
+        conn.close()
+        return jsonify({"ok": False, "message": "You do not have that ship."}), 200
+    c.execute("UPDATE players SET display_ship = ? WHERE norm_name = ?", (code, me[1]))
+    conn.commit()
+    conn.close()
+    _SHIP_CACHE["ts"] = 0.0
+    return jsonify({"ok": True, "message": "Now flying the %s." % ship_shapes.ship_name(code),
+                    "code": code}), 200
+
+
 @app.route('/social')
 def social_page():
     """Friends, requests, and your clan - the social half of the site."""
@@ -12493,6 +12725,8 @@ def social_page():
     # Their division, so a row can wear the same emblem the leaderboard gives
     # them. Already computed when the board was built; this only looks it up.
     dmap = division_map()
+    _ships_ok = gems_visible()
+    _shipmap = display_ship_map() if _ships_ok else {}
     # And their place on the board. One sorted pass beats a COUNT per person:
     # the profile's "COUNT(*)+1 WHERE elo > ?" is a scan each time, and this
     # page asks for a whole clan at once.
@@ -12513,7 +12747,10 @@ def social_page():
         return {"norm": nn, "name": r[0], "elo": r[1] or 0,
                 "wins": r[2], "losses": r[3], "clan": r[4] or "",
                 "division": dmap.get(nn),
-                "rank": place(r[1]), "rank_of": _total}
+                "rank": place(r[1]), "rank_of": _total,
+                "emblem": worn_emblem(nn, _shipmap, _ships_ok)[0],
+                "emblem_color": worn_emblem(nn, _shipmap, _ships_ok)[1],
+                "mythic": worn_emblem(nn, _shipmap, _ships_ok)[2]}
 
     fr = [x for x in (card(n) for n in friends_of(c, me[1])) if x]
     inc = [x for x in (card(n) for n in friend_requests_in(c, me[1])) if x]
@@ -18645,6 +18882,7 @@ def home_page():
     clan_shown = clan_display(c, clan) if clan else None
 
     balance = gem_balance(c, "player", nn)
+    emblem, emblem_color, mythic = worn_emblem(nn, display_ship_map(), True)
     today = time.strftime('%Y-%m-%d', time.gmtime())
     c.execute("SELECT COALESCE(SUM(amount), 0) FROM gem_ledger WHERE owner_kind = 'player' "
               "AND owner = ? AND amount > 0 AND at >= ?", (nn, today))
@@ -18675,7 +18913,8 @@ def home_page():
         peak_rank=peak_rank, clan=clan, clan_shown=clan_shown, bio=bio,
         placements_left=max(0, PROVISIONAL_GAMES - played) if played < PROVISIONAL_GAMES else 0,
         balance=balance, today_gems=today_gems, have=have, next_up=next_up,
-        total_ach=len(cat), recent=recent, preview=not GEMS_PUBLIC)
+        total_ach=len(cat), recent=recent, preview=not GEMS_PUBLIC,
+        emblem=emblem, emblem_color=emblem_color, mythic=mythic)
 
 
 @app.route('/')
@@ -18732,6 +18971,9 @@ def leaderboard():
     # One canonical skill-rank per player (top-X% of the all-time board),
     # cached, so the same badge shows on every view.
     divmap = division_map()
+    # Chosen emblems, drawn only for a viewer who may see the shop at all.
+    _ships_ok = gems_visible()
+    _shipmap = display_ship_map() if _ships_ok else {}
 
     # Two set lookups shared by every shown row, kept off the per-row path: the
     # styled-tag map, and which names own an account (a green login dot, or the
@@ -18872,6 +19114,7 @@ def leaderboard():
                          else divmap.get(nn)),
             "has_account": nn in _accounts,
         }
+        d["emblem"], d["emblem_color"], d["mythic"] = worn_emblem(nn, _shipmap, _ships_ok)
         if clan:
             d["clan_display"] = disp
         if nn in _mine:

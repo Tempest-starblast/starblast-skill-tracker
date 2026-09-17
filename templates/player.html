@@ -219,7 +219,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
 <div class="pbox{% if d %} flair-{{ d.flair }}{% if d.diamond %} diamond{% endif %}{% elif player.placements_left %} placements{% endif %}"{% if d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
   {% if d and d.diamond %}<div class="sparkles" aria-hidden="true"></div>{% endif %}
   <div class="pbox-top">
-    <div class="pbox-emblem">{% if d %}{{ rank_emblem(d.ship, 88, d.color, d.name)|safe }}{% else %}{{ rank_emblem(101, 74, '#8b949e', 'Fly')|safe }}{% endif %}</div>
+    <div class="pbox-emblem">{% if d %}{{ rank_emblem(player.emblem or d.ship, 88, player.emblem_color or d.color, d.name, 'rank-emblem mythic' if player.mythic else 'rank-emblem')|safe }}{% elif player.emblem %}{{ rank_emblem(player.emblem, 74, player.emblem_color or '#8b949e', 'Unranked', 'rank-emblem mythic' if player.mythic else 'rank-emblem')|safe }}{% else %}{{ rank_emblem(101, 74, '#8b949e', 'Fly')|safe }}{% endif %}</div>
     <div class="pbox-id">
       <h1 class="pname2">{% if player.clan %}<a class="badge" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}{{ player.display }}{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}" title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span>{#
   Add a friend sits in the heading beside Invite, and wears the same chip:

@@ -313,6 +313,9 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px}
 .pchip .pcr{font-size:11px;color:var(--muted);letter-spacing:.4px;white-space:nowrap}
 {%- if gems_on %}
+/* The mythic hull burns whatever the rank - the one emblem colour that is
+   not the rank's own, and it says so by glowing. */
+.rank-emblem.mythic{filter:drop-shadow(0 0 4px rgba(255,120,40,.85)) drop-shadow(0 0 9px rgba(255,90,20,.45))}
 /* The balance, beside the name it belongs to. Behind the switch like the
    markup: a class name in a stylesheet is a trace too. */
 .gchip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;text-decoration:none;

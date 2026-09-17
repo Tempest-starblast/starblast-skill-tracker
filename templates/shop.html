@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Shop - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+/* A hangar, not a price list. Every ship is drawn in YOUR rank colour, since
+   that is how it would look worn - the shop shows the thing you would get. */
+.shophead{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin:0 0 6px}
+.gemcount{display:inline-flex;align-items:center;gap:7px;font-size:15px;font-weight:800;
+  color:#8ef3ff;background:rgba(142,243,255,.10);border:1px solid rgba(142,243,255,.35);
+  border-radius:999px;padding:6px 14px;font-variant-numeric:tabular-nums}
+.gemcount svg{width:13px;height:13px;flex:none}
+.shopsub{font-size:13px;color:var(--muted,#8aa0b0)}
+.shopsub b{color:var(--text)}
+
+.previewbar{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:10px 14px;
+  border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
+  color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
+
+.tier{margin:0 0 22px}
+.sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 11px}
+.sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
+.sechead .n{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+
+.hangar{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
+.ship{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;
+  padding:16px 12px 12px;border-radius:13px;text-align:center;
+  border:1px solid var(--line2,rgba(153,221,255,.14));
+  background:linear-gradient(160deg,rgba(153,221,255,.045),rgba(153,221,255,.012));
+  transition:transform .14s,border-color .14s}
+.ship:hover{transform:translateY(-2px);border-color:rgba(153,221,255,.4)}
+.ship .emb{width:72px;height:72px;display:flex;align-items:center;justify-content:center;
+  filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
+.ship:not(.own) .emb{opacity:.42}
+.ship.worn{border-color:rgba(102,230,184,.6);
+  background:linear-gradient(160deg,rgba(102,230,184,.14),rgba(102,230,184,.02))}
+.ship .nm{font-size:13.5px;font-weight:800;line-height:1.2}
+.ship .why{font-size:11px;color:var(--muted,#8aa0b0);min-height:14px}
+.ship .why.rank{color:var(--dim,#5d7f93)}
+.ship .price{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:800;
+  color:#8ef3ff;font-variant-numeric:tabular-nums}
+.ship .price svg{width:11px;height:11px}
+.ship .price.short{color:var(--dim,#5d7f93)}
+.ship .btn{width:100%;margin-top:2px;font-family:inherit;font-size:12px;font-weight:700;
+  border-radius:8px;cursor:pointer;padding:7px 10px;border:1px solid var(--blue,#66E6B8);
+  color:var(--blue,#66E6B8);background:rgba(102,230,184,.10)}
+.ship .btn:hover{background:rgba(102,230,184,.24);color:#fff}
+.ship .btn[disabled]{opacity:.45;cursor:default}
+.ship .btn.quiet{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);background:none}
+.ship .btn.quiet:hover{color:var(--blue,#99DDFF);border-color:rgba(153,221,255,.5);background:rgba(153,221,255,.08)}
+.ship .wornlbl{font-size:11px;font-weight:800;color:#66E6B8;letter-spacing:.6px;text-transform:uppercase}
+
+/* The mythic. One hull, its own colour, its own section, its own light. */
+.mythic .ship{border-color:rgba(255,138,61,.55);
+  background:linear-gradient(160deg,rgba(255,138,61,.16),rgba(255,138,61,.03));
+  box-shadow:0 0 30px rgba(255,120,40,.18) inset}
+.mythic .ship .emb{opacity:1;animation:myth 3.2s ease-in-out infinite}
+@keyframes myth{0%,100%{filter:drop-shadow(0 0 4px rgba(255,120,40,.7))}50%{filter:drop-shadow(0 0 14px rgba(255,140,50,1))}}
+@media(prefers-reduced-motion:reduce){.mythic .ship .emb{animation:none}}
+.mythic .ship .nm{color:#ff8a3d}
+.mythic .ship .price{color:#ffb27a}
+.mythic .why{max-width:26ch;line-height:1.45}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
+  max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
+  color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
+.toast.bad{background:#ff9a9a}
+{% endblock %}
+{% block body %}
+{% set gem_svg %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
+
+<div class="ptitlerow"><h1 class="ptitle">Shop</h1></div>
+{% if preview %}<div class="previewbar">🔒 Not released &mdash; only you can see the shop.</div>{% endif %}
+
+<div class="shophead">
+  {% if signed_in %}<span class="gemcount">{{ gem_svg|safe }}<span id="bal">{{ '{:,}'.format(balance) }}</span></span>{% endif %}
+  <span class="shopsub">Your emblem&#39;s <b>colour</b> is your rank and cannot be bought. The <b>ship</b> is yours to choose &mdash; every rank you reach hands you its ship, and the rest are for sale.</span>
+</div>
+
+{% macro tile(i) %}
+<div class="ship{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-code="{{ i.code }}" data-name="{{ i.name }}">
+  <span class="emb">{{ rank_emblem(i.code, 72, (mythic_color if i.mythic else rank_color), i.name, 'rank-emblem mythic' if i.mythic else 'rank-emblem')|safe }}</span>
+  <span class="nm">{{ i.name }}</span>
+  {% if i.mythic %}
+    <span class="why">{{ '{:,}'.format(i.price) }} gems &mdash; or yours for having been the best player on the board.</span>
+  {% elif i.own == 'rank' %}<span class="why rank">Yours &mdash; {{ i.unlock_rank.name }} rank</span>
+  {% elif i.own == 'best' %}<span class="why rank">Yours &mdash; best player</span>
+  {% elif i.own == 'bought' %}<span class="why rank">Yours</span>
+  {% elif i.unlock_rank %}<span class="why">Free at {{ i.unlock_rank.name }}</span>
+  {% elif i.premium %}<span class="why">Premium hull</span>
+  {% else %}<span class="why"></span>{% endif %}
+  {% if i.own %}
+    {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
+      <button type="button" class="btn quiet" data-act="unequip">Back to rank&#39;s ship</button>
+    {% else %}<button type="button" class="btn" data-act="equip">Wear it</button>{% endif %}
+  {% else %}
+    <span class="price{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>
+    <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% if mythic %}
+<section class="tier mythic">
+  <div class="sechead"><h2>Mythic</h2></div>
+  <div class="hangar">{% for i in mythic %}{{ tile(i) }}{% endfor %}</div>
+</section>
+{% endif %}
+
+{% for group in tiers|reverse %}
+<section class="tier">
+  <div class="sechead"><h2>Tier {{ group[0].tier }}</h2><span class="n">{{ group|length }}</span></div>
+  <div class="hangar">{% for i in group %}{{ tile(i) }}{% endfor %}</div>
+</section>
+{% endfor %}
+
+<div class="toast" id="toast" hidden></div>
+<script>
+(function(){
+  var toast=document.getElementById('toast'), tt=0;
+  function say(t, bad){
+    if(!toast||!t) return;
+    toast.textContent=t; toast.classList.toggle('bad', !!bad); toast.hidden=false;
+    clearTimeout(tt); tt=setTimeout(function(){ toast.hidden=true; }, 3800);
+  }
+  document.addEventListener('click', function(ev){
+    var b=ev.target.closest && ev.target.closest('[data-act]');
+    if(!b) return;
+    var tile=b.closest('[data-code]'), code=tile && tile.getAttribute('data-code'), act=b.getAttribute('data-act');
+    if(!code) return;
+    var url = act==='buy' ? '/shop/buy' : '/shop/equip';
+    var body = act==='unequip' ? {code:null} : {code:parseInt(code,10)};
+    b.disabled=true;
+    fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        say(j.message||'', !j.ok);
+        // The page is the truth about what is owned and worn, so a change that
+        // landed simply reloads it rather than patching two copies.
+        if(j.ok) setTimeout(function(){ location.reload(); }, 500); else b.disabled=false;
+      })
+      .catch(function(){ say('Could not reach the site.', true); b.disabled=false; });
+  });
+})();
+</script>
+{% endblock %}
