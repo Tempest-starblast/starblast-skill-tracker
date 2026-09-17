@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.20.1"
+APP_VERSION = "9.20.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5679,6 +5679,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.20.2", "at": "2026-09-17T09:30:00Z", "changes": [
+        "<b>Social keeps itself current.</b> Friends and clanmates light up as they join a match and go quiet as they leave, and the counts follow, without reloading the page — so a name you are half way through typing, or a question you have open, stays where it is.",
+    ]},
     {"version": "9.20.1", "at": "2026-09-17T09:00:00Z", "changes": [
         "<b>Profiles load faster.</b> Working out where a player sits on the board was reading every player on the site, on every view; the skill history was being sorted from scratch each time. Both are indexed now.",
     ]},
@@ -12023,6 +12026,36 @@ def social_page():
                            friends=fr, incoming=inc, outgoing=out, clan=clan,
                            onnow=onnow, my_tag=my_tag, hidden=hidden,
                            mates=mate_cards)
+
+
+@app.route('/api/social/live')
+def api_social_live():
+    """Just the parts of the Social page that change: who is in a match, and
+    when each of your people last played. The page patches itself with this
+    rather than reloading, so a half-typed name or an open dialog survives."""
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"signed_in": False, "playing": {}}), 200
+    mine = friends_of(c, me[1])
+    friend_set = set(mine)
+    c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
+              "AND clan != '' LIMIT 1", (current_user(),))
+    row = c.fetchone()
+    if row and row[0]:
+        c.execute("SELECT norm_name FROM players WHERE clan = ? AND norm_name IS NOT NULL",
+                  (row[0],))
+        for (nn,) in c.fetchall():
+            if nn and nn != me[1] and nn not in friend_set:
+                mine.append(nn)
+    live = people_playing(c, mine)
+    conn.close()
+    return jsonify({"signed_in": True,
+                    "playing": live,
+                    "friends_live": sum(1 for n in live if n in friend_set),
+                    "mates_live": sum(1 for n in live if n not in friend_set)}), 200
 
 
 @app.route('/friends/presence', methods=['POST'])

@@ -171,7 +171,7 @@
       <div class="sechead"><h2>Playing now</h2><span class="n">{{ onnow|length }}</span></div>
       <div class="tiles">
         {% for p in onnow %}
-        <div class="tile live" data-name="{{ p.name }}">
+        <div class="tile live" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
           {{ who(p) }}
           <div class="where">
             <span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span>
@@ -210,11 +210,11 @@
 
     <div class="socsec">
       {% set flive = friends | selectattr('playing') | list | length %}
-      <div class="sechead"><h2>Friends</h2><span class="n">{{ friends|length }}</span>{% if flive %}<span class="nlive" title="{{ flive }} of your friends {{ 'is' if flive == 1 else 'are' }} in a match right now"><i></i>{{ flive }}</span>{% endif %}</div>
+      <div class="sechead"><h2>Friends</h2><span class="n">{{ friends|length }}</span><span class="nlive" id="fLive"{% if not flive %} hidden{% endif %}><i></i><b>{{ flive }}</b></span></div>
       {% if friends %}
       <div class="tiles">
         {% for p in friends %}
-        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}">
+        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
           {{ who(p) }}
           {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
           <div class="acts">
@@ -231,10 +231,10 @@
     {% if mates %}
     <div class="socsec">
       {% set mlive = mates | selectattr('playing') | list | length %}
-      <div class="sechead"><h2>{{ my_tag }} clanmates</h2><span class="n">{{ mates|length }}</span>{% if mlive %}<span class="nlive" title="{{ mlive }} of your clanmates {{ 'is' if mlive == 1 else 'are' }} in a match right now"><i></i>{{ mlive }}</span>{% endif %}</div>
+      <div class="sechead"><h2>{{ my_tag }} clanmates</h2><span class="n">{{ mates|length }}</span><span class="nlive" id="mLive"{% if not mlive %} hidden{% endif %}><i></i><b>{{ mlive }}</b></span></div>
       <div class="tiles">
         {% for p in mates %}
-        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}">
+        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
           {{ who(p) }}
           {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
           <div class="acts">
@@ -314,6 +314,8 @@
 
 <script>
 (function(){
+  function esc(x){ var d=document.createElement('div'); d.textContent=(x==null?'':String(x));
+                   return d.innerHTML; }
   var msg=document.getElementById('msg');
   var PLAY_NAME={{ (play_name or '')|tojson }};
   var toast=document.getElementById('toast'), toastT=0;
@@ -412,6 +414,53 @@
     }
   });
 
+  // ---- keep the page current without reloading it ------------------------
+  // Only the parts that actually change are touched: whether each person is in
+  // a match, what it says under their name, and the two counts. Anything the
+  // viewer is in the middle of - a typed name, an open question - is left be.
+  function paintLive(d){
+    var playing = d.playing || {};
+    document.querySelectorAll('.tile[data-norm]').forEach(function(t){
+      var nn = t.getAttribute('data-norm'), p = playing[nn];
+      t.classList.toggle('live', !!p);
+      var where = t.querySelector('.where'), seen = t.querySelector('.seen');
+      if(p){
+        var html = '<span class="modechip ' + p.mode + '">'
+          + (p.mode === 'team' ? 'Team' : 'Survival') + '</span>'
+          + '<span class="lob">' + esc(p.lobby || '') + '</span>';
+        if(where){ if(where.innerHTML !== html) where.innerHTML = html; }
+        else if(seen){
+          var w = document.createElement('div');
+          w.className = 'where'; w.innerHTML = html;
+          seen.parentNode.insertBefore(w, seen);
+        }
+        if(seen && !seen.classList.contains('on')){
+          seen.className = 'seen on'; seen.innerHTML = '<i></i>In a match';
+        }
+      } else {
+        if(where) where.remove();
+        if(seen && seen.classList.contains('on')){
+          seen.className = 'seen'; seen.textContent = 'Just finished';
+        }
+      }
+    });
+    [['fLive', d.friends_live], ['mLive', d.mates_live]].forEach(function(pair){
+      var el = document.getElementById(pair[0]);
+      if(!el) return;
+      var n = pair[1] || 0;
+      el.hidden = !n;
+      var b = el.querySelector('b');
+      if(b) b.textContent = n;
+    });
+  }
+  (function poll(){
+    fetch('/api/social/live', {cache: 'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if(d && d.signed_in) paintLive(d); })
+      .catch(function(){})
+      .then(function(){ setTimeout(poll, 12000); });
+  })();
+
   var add=document.getElementById('addbtn'), q=document.getElementById('addq'),
       sug=document.getElementById('addsug');
   function send(v){
@@ -441,8 +490,7 @@
     }).join('');
     sug.hidden=false; q.setAttribute('aria-expanded','true');
   }
-  function esc(x){ var d=document.createElement('div'); d.textContent=(x==null?'':String(x));
-                   return d.innerHTML; }
+
   function look(){
     var v=(q.value||'').trim();
     if(v.length<2){ hide(); return; }
