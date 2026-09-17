@@ -1,0 +1,4 @@
+# One line: a long random secret. With this file present, POST /dev/preview
+# with the key enters the sandbox account with the unreleased surfaces visible
+# and NO owner powers. Generate: python3 -c "import secrets;print(secrets.token_urlsafe(32))"
+# Delete the file to switch the route off. Never commit the real one.

@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.24.2"
+APP_VERSION = "9.24.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -72,6 +72,20 @@ def _load_owner_subs():
 
 
 OWNER_SUBS = _load_owner_subs()
+
+
+def _load_preview_key():
+    """The preview key, or None. No file, no route: the feature is off."""
+    _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview_key.txt")
+    try:
+        with open(_p, encoding="utf-8") as _f:
+            _k = _f.read().strip()
+        return _k if len(_k) >= 24 else None
+    except OSError:
+        return None
+
+
+PREVIEW_KEY = _load_preview_key()
 # The throwaway account the owner impersonates for testing. Never a
 # real person; its rows are wiped on entry so each test starts blank.
 # ---------------------------------------------------------------- GEMS
@@ -2745,7 +2759,7 @@ def inject_auth():
     the client id and whether somebody is signed in."""
     return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user()),
             "is_owner": current_user() in OWNER_SUBS,
-            "dev_testing": bool(session.get("dev_real_owner")),
+            "dev_testing": bool(session.get("dev_real_owner") or session.get("preview")),
             "dev_mode": session.get("dev_mode") or "new",
             "dev_elo": session.get("dev_elo"),
             # The unreleased surfaces (gems, achievements, the profile home).
@@ -5923,10 +5937,10 @@ def public_entries(entries):
 
 CHANGELOG = [
     {"version": "9.24.2", "at": "2026-09-17T22:10:00Z", "changes": [
-        "<b>Leaderboard rows line up.</b> The clan tag, the rank emblem and the "
-        "name each have their own column now, whether or not a row has a tag or "
-        "an emblem — before, a row without one shifted everything after it "
-        "to the left, so emblems and names zig-zagged down the board.",
+        "<b>Leaderboard rows line up.</b> The clan tag has its own column now, "
+        "with a dash where a player has none, so the rank emblem and the name "
+        "start in the same place on every row — before, a row without a "
+        "tag pulled everything after it to the left and the board zig-zagged.",
     ]},
     {"version": "9.24.0", "at": "2026-09-17T21:30:00Z", "changes": [
         "<b>The seventh rank is now the Marauder.</b> Same rung of the ladder, "
@@ -11631,6 +11645,13 @@ def _wipe_sandbox(c):
     """Everything the sandbox owns. It is never a real person, so this is
     always safe - and it runs on the way in AND on the way out, so a test
     account with a rating never outlives the test that made it."""
+    # Its gems and purchases too, or a later sandbox under the same name
+    # inherits ships it never bought this time round.
+    try:
+        c.execute("DELETE FROM gem_ledger WHERE owner_kind = 'player' AND owner IN "
+                  "(SELECT norm_name FROM players WHERE google_sub = ?)", (SANDBOX_SUB,))
+    except sqlite3.Error:
+        pass
     c.execute("DELETE FROM players WHERE google_sub = ?", (SANDBOX_SUB,))
     c.execute("DELETE FROM claim_requests WHERE google_sub = ?", (SANDBOX_SUB,))
     # Anyone it asked to be friends with, so a real player is not left with a
@@ -11659,6 +11680,74 @@ def _sandbox_free_name(c):
     return "%s%d" % (SANDBOX_NAME, int(time.time()) % 100000)
 
 
+def _enter_sandbox(c, body):
+    """Wipe the sandbox and, in account mode, give it a name, a rating and -
+    optionally - some gems so the shop can be tried. Returns (mode, name)."""
+    mode = 'account' if str(body.get('mode') or 'new') == 'account' else 'new'
+
+    def _num(key, default, lo, hi):
+        try:
+            return max(lo, min(hi, int(body.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    _wipe_sandbox(c)
+    name = None
+    if mode == 'account':
+        elo = _num('elo', SANDBOX_ELO_DEFAULT, SANDBOX_ELO_MIN, SANDBOX_ELO_MAX)
+        games = _num('games', SANDBOX_GAMES_DEFAULT, 0, SANDBOX_GAMES_MAX)
+        gems = _num('gems', 0, 0, 1000000)
+        wins = int(round(games * 0.6))
+        name = _sandbox_free_name(c)
+        c.execute("INSERT INTO players (name, norm_name, elo, wins, losses, "
+                  "google_sub) VALUES (?, ?, ?, ?, ?, ?)",
+                  (name, normalize_name(name), float(elo), wins, games - wins,
+                   SANDBOX_SUB))
+        if gems:
+            # Through the ledger like everything else; wiped with the rest.
+            gem_grant(c, "player", normalize_name(name), gems, "sandbox", "v1")
+        session['dev_elo'] = elo
+    else:
+        session.pop('dev_elo', None)
+    session['dev_mode'] = mode
+    return mode, name
+
+
+@app.route('/dev/preview', methods=['GET', 'POST'])
+def dev_preview():
+    """A preview-key session: the sandbox account with the unreleased
+    surfaces visible, and nothing an owner can do. GET is a bare form so the
+    key travels in a POST body, never a URL. 404 unless a key is configured;
+    a wrong key is also a 404, so the route does not confirm it exists."""
+    if not PREVIEW_KEY:
+        abort(404)
+    if request.method == 'GET':
+        return ('<!doctype html><title>Preview</title><form method="post" '
+                'style="font:15px system-ui;margin:40px">'
+                '<label>Preview key <input name="key" type="password" autofocus></label> '
+                '<label>Rating <input name="elo" type="number" value="1400" style="width:6em"></label> '
+                '<label>Gems <input name="gems" type="number" value="30000" style="width:7em"></label> '
+                '<button>Enter</button></form>'), 200
+    body = request.get_json(silent=True) or request.form or {}
+    given = str(body.get('key') or '')
+    if not given or not hmac.compare_digest(given, PREVIEW_KEY):
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    mode, name = _enter_sandbox(c, {"mode": "account",
+                                    "elo": body.get("elo", SANDBOX_ELO_DEFAULT),
+                                    "games": body.get("games", SANDBOX_GAMES_DEFAULT),
+                                    "gems": body.get("gems", 30000)})
+    conn.commit()
+    conn.close()
+    session.pop('dev_real_owner', None)      # never an owner, whatever was there
+    session['google_sub'] = SANDBOX_SUB
+    session['preview'] = True
+    if request.is_json:
+        return jsonify({"ok": True, "name": name}), 200
+    return redirect('/')
+
+
 @app.route('/dev/actas', methods=['POST'])
 def dev_actas():
     """Owner steps into the sandbox account. Verified against the REAL
@@ -11673,35 +11762,13 @@ def dev_actas():
     if current_user() not in OWNER_SUBS:
         return jsonify({"error": "Not allowed."}), 403
     body = request.get_json(silent=True) or {}
-    mode = 'account' if str(body.get('mode') or 'new') == 'account' else 'new'
-
-    def _num(key, default, lo, hi):
-        try:
-            return max(lo, min(hi, int(body.get(key, default))))
-        except (TypeError, ValueError):
-            return default
-
     conn = db()
     c = conn.cursor()
-    _wipe_sandbox(c)
-    name = None
-    if mode == 'account':
-        elo = _num('elo', SANDBOX_ELO_DEFAULT, SANDBOX_ELO_MIN, SANDBOX_ELO_MAX)
-        games = _num('games', SANDBOX_GAMES_DEFAULT, 0, SANDBOX_GAMES_MAX)
-        # Split so the win rate is plausible rather than a suspicious 50/50.
-        wins = int(round(games * 0.6))
-        name = _sandbox_free_name(c)
-        c.execute("INSERT INTO players (name, norm_name, elo, wins, losses, "
-                  "google_sub) VALUES (?, ?, ?, ?, ?, ?)",
-                  (name, normalize_name(name), float(elo), wins, games - wins,
-                   SANDBOX_SUB))
-        session['dev_elo'] = elo
-    else:
-        session.pop('dev_elo', None)
+    mode, name = _enter_sandbox(c, body)
     conn.commit()
     conn.close()
     session['dev_real_owner'] = current_user()
-    session['dev_mode'] = mode
+    session.pop('preview', None)
     session['google_sub'] = SANDBOX_SUB
     return jsonify({"ok": True, "mode": mode, "name": name}), 200
 
@@ -11713,15 +11780,19 @@ def dev_restore():
     the test account back out, so a row with a rating never outlives the
     test that created it."""
     real = session.pop('dev_real_owner', None)
+    was_preview = bool(session.pop('preview', None))
     session.pop('dev_mode', None)
     session.pop('dev_elo', None)
-    if real:
+    if real or was_preview:
         conn = db()
         c = conn.cursor()
         _wipe_sandbox(c)
         conn.commit()
         conn.close()
+    if real:
         session['google_sub'] = real
+    elif was_preview:
+        session.clear()                      # a preview session has nothing to go back to
     return jsonify({"ok": True}), 200
 
 
@@ -12158,8 +12229,9 @@ def gem_grant(c, kind, owner, amount, reason, ref=""):
 
 
 def gems_visible():
-    """Whether the person looking is allowed to see any of this yet."""
-    return GEMS_PUBLIC or is_site_owner()
+    """Whether the person looking is allowed to see any of this yet: everyone
+    once released; until then the owner, or a preview-key session."""
+    return GEMS_PUBLIC or is_site_owner() or bool(session.get("preview"))
 
 
 def gem_balance(c, kind, owner):
