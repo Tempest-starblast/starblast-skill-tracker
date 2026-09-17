@@ -78,7 +78,11 @@ a.btn{display:inline-flex;align-items:center;justify-content:center;text-decorat
   border-radius:50%;font-size:10px;font-weight:700;cursor:help;line-height:1;flex:none}
 .ci.yes{color:#66E6B8;background:rgba(102,230,184,.14);border:1px solid rgba(102,230,184,.45)}
 .ci.no{color:#f0c04a;background:rgba(240,192,74,.12);border:1px solid rgba(240,192,74,.45)}
-.tagchip{font-size:10.5px;color:var(--muted,#8aa0b0)}
+.tagchip{font-size:10.5px;color:var(--muted,#8aa0b0);white-space:nowrap}
+.divnm{font-weight:700;letter-spacing:.2px;white-space:nowrap}
+.rk{font-variant-numeric:tabular-nums;color:var(--muted,#8aa0b0);white-space:nowrap}
+.wl{font-variant-numeric:tabular-nums;white-space:nowrap}
+
 
 {% endblock %}
 {% block body %}
@@ -104,6 +108,7 @@ a.btn{display:inline-flex;align-items:center;justify-content:center;text-decorat
           <a class="nm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
           <span class="sub">
             <span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span>
+            {% if p.division %}<b class="divnm" style="color:{{ p.division.color }}">{{ p.division.name }}</b><span class="rk">#{{ '{:,}'.format(p.rank) }}</span>{% endif %}
             {{ p.playing.lobby }}{% if p.playing.region %} &middot; {{ p.playing.region }}{% endif %}
             {% if p.playing.checked_in %}<span class="ci yes" role="img" aria-label="Checked in"
               title="Checked in &mdash; this result will be recorded against their account">&#10003;</span>
@@ -129,7 +134,7 @@ a.btn{display:inline-flex;align-items:center;justify-content:center;text-decorat
         {% if p.division %}<span class="femb" title="{{ p.division.name }}">{{ rank_emblem(p.division.ship, 26, p.division.color, p.division.name)|safe }}</span>{% else %}<span class="femb blank"></span>{% endif %}
         <div class="who">
           <a class="nm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
-          <span class="sub">{{ p.elo }} &middot; {{ p.wins }}W {{ p.losses }}L{% if p.clan %} &middot; {{ p.clan }}{% endif %}</span>
+          <span class="sub">{% if p.division %}<b class="divnm" style="color:{{ p.division.color }}">{{ p.division.name }}</b>{% endif %}<span class="rk">#{{ '{:,}'.format(p.rank) }}</span><span>{{ '{:,.0f}'.format(p.elo) }}</span><span class="wl">{{ p.wins }}W {{ p.losses }}L</span>{% if p.clan %}<span class="tagchip">{{ p.clan }}</span>{% endif %}</span>
         </div>
         <div class="acts">
           <button type="button" class="btn sm" data-act="accept">Accept</button>
@@ -152,7 +157,7 @@ a.btn{display:inline-flex;align-items:center;justify-content:center;text-decorat
             <span class="sub"><span class="onnow"><i></i>Playing</span>
               &middot; {{ p.playing.lobby }}{% if p.playing.region %} &middot; {{ p.playing.region }}{% endif %}</span>
             {% else %}
-            <span class="sub">{{ p.elo }} &middot; {{ p.wins }}W {{ p.losses }}L{% if p.clan %} &middot; {{ p.clan }}{% endif %}</span>
+            <span class="sub">{% if p.division %}<b class="divnm" style="color:{{ p.division.color }}">{{ p.division.name }}</b>{% endif %}<span class="rk">#{{ '{:,}'.format(p.rank) }}</span><span>{{ '{:,.0f}'.format(p.elo) }}</span><span class="wl">{{ p.wins }}W {{ p.losses }}L</span>{% if p.clan %}<span class="tagchip">{{ p.clan }}</span>{% endif %}</span>
             {% endif %}
           </div>
           <div class="acts">

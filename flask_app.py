@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, session, redirect
 import re
+import bisect
 import html
 import unicodedata
 from urllib.parse import quote
@@ -25,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.18.2"
+APP_VERSION = "9.18.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5570,6 +5571,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.18.3", "at": "2026-09-17T02:50:00Z", "changes": [
+        "<b>Social rows now carry a rank.</b> Beside each person: their division by name in its own colour, their place on the board, their rating and their record — so a friends list reads like the leaderboard rather than a list of names.",
+    ]},
     {"version": "9.18.2", "at": "2026-09-17T02:20:00Z", "changes": [
         "<b>The <b>?</b> beside a page title sits on the title’s line now</b> rather than hanging below it, on every page that has one.",
         "<b>Social looks like the rest of the site.</b> Everyone carries their division’s ship emblem and their name in that division’s colour, the way the leaderboard shows them; rows light up under the pointer, and anyone in a match glows green.",
@@ -11724,6 +11728,16 @@ def social_page():
     # Their division, so a row can wear the same emblem the leaderboard gives
     # them. Already computed when the board was built; this only looks it up.
     dmap = division_map()
+    # And their place on the board. One sorted pass beats a COUNT per person:
+    # the profile's "COUNT(*)+1 WHERE elo > ?" is a scan each time, and this
+    # page asks for a whole clan at once.
+    c.execute("SELECT elo FROM players")
+    _elos = sorted((r[0] or 0) for r in c.fetchall())
+    _total = len(_elos)
+
+    def place(e):
+        """#N on the all-time board, counting everyone above them."""
+        return _total - bisect.bisect_right(_elos, e or 0) + 1
 
     def card(nn):
         c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
@@ -11733,7 +11747,8 @@ def social_page():
             return None
         return {"norm": nn, "name": r[0], "elo": r[1] or 0,
                 "wins": r[2], "losses": r[3], "clan": r[4] or "",
-                "division": dmap.get(nn)}
+                "division": dmap.get(nn),
+                "rank": place(r[1]), "rank_of": _total}
 
     fr = [x for x in (card(n) for n in friends_of(c, me[1])) if x]
     inc = [x for x in (card(n) for n in friend_requests_in(c, me[1])) if x]
