@@ -146,6 +146,8 @@
 .btn.quiet:hover{color:var(--blue,#99DDFF);border-color:rgba(153,221,255,.5);
   background:rgba(153,221,255,.08)}
 .showrow{display:flex;margin-top:11px}
+/* How the list is ordered, said once in the heading rather than on each tile. */
+.sechead .ord{color:var(--dim,#5d7f93)}
 /* Said where the button was pressed. */
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
   max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
@@ -265,7 +267,8 @@
     {% if clan_recs %}
     <section class="socsec">
       <div class="sechead"><h2>Clans you could join</h2>
-        <span class="n">{{ clan_recs|length + clan_more|length }}</span></div>
+        <span class="n">{{ clan_recs|length + clan_more|length }}</span>
+        {% if clan_order %}<span class="n ord">{{ clan_order }}</span>{% endif %}</div>
       <div class="tiles">
         {% for ct in clan_recs %}{% include "_clantile.html" %}{% endfor %}
       </div>

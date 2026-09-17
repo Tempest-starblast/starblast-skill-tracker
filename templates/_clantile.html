@@ -6,13 +6,13 @@
     <div class="idcol">
       <a class="nm" href="/clan/{{ ct.tag|urlencode }}"
          {% if ct.theme_color %}style="color:{{ ct.theme_color }}"{% endif %}>{{ ct.display }}</a>
-      <span class="pos">{{ ct.note }}</span>
+      {% if ct.note %}<span class="pos">{{ ct.note }}</span>{% endif %}
     </div>
   </div>
   <div class="meta">
     <span title="Average rating of its members">{{ ct.avg_elo }}</span>
     <span>{{ ct.size }} member{{ '' if ct.size == 1 else 's' }}</span>
-    <span>{{ ct.winrate }} won</span>
+    <span>{{ ct.winrate }}</span>
     {% if ct.region_label %}<span class="tag{% if ct.same_region %} here{% endif %}"
       {% if ct.same_region %}title="Where you play too"{% endif %}>{{ ct.region_label }}</span>{% endif %}
   </div>

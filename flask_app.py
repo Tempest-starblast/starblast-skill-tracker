@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.21.0"
+APP_VERSION = "9.21.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -12007,8 +12007,8 @@ def clan_suggestions(c, my_name, my_elo, my_played, my_region):
         "SELECT clan FROM clan_invites WHERE status = 'pending' "
         "AND direction = 'invite' AND name = ?", (my_name,)).fetchall()}
     out = []
-    for tag, size, avg, wins, losses in c.execute(
-            "SELECT clan, COUNT(*), AVG(elo), SUM(COALESCE(wins, 0)), "
+    for tag, size, avg, top, wins, losses in c.execute(
+            "SELECT clan, COUNT(*), AVG(elo), MAX(elo), SUM(COALESCE(wins, 0)), "
             "SUM(COALESCE(losses, 0)) FROM players "
             "WHERE clan IS NOT NULL AND clan != '' GROUP BY clan").fetchall():
         if tag not in curated:
@@ -12018,20 +12018,26 @@ def clan_suggestions(c, my_name, my_elo, my_played, my_region):
         played = (wins or 0) + (losses or 0)
         gap = avg - (my_elo or 0)
         same_region = bool(region and my_region and region == my_region)
+        # Where they would STAND in it - that is the question being asked.
+        # Above the average and above everybody are different offers, so the
+        # strongest member decides the top end rather than the average alone.
         if not my_played:
-            # No rating yet, so there is no gap to speak of. Say the one thing
-            # that is true and useful instead of inventing a comparison.
-            note = "%d member%s" % (size, "" if size == 1 else "s")
+            # No rating yet, so there is no honest comparison to draw. The
+            # heading says how the list is ordered; the tile does not repeat
+            # the member count the line under it already carries.
+            note = ""
         elif abs(gap) <= CLAN_SUGGEST_NEAR:
             note = "About your level"
         elif gap > CLAN_SUGGEST_FAR:
-            note = "Well above your rating"
+            note = "Well above your level"
         elif gap > 0:
             note = "A step up"
+        elif (top or 0) < (my_elo or 0):
+            note = "You would be its highest rated member"
         elif gap < -CLAN_SUGGEST_FAR:
-            note = "Well below your rating"
+            note = "Below your level"
         else:
-            note = "You would be one of the stronger members"
+            note = "You would be one of its stronger members"
         out.append({
             "tag": tag,
             "display": shown.get(tag, tag),
@@ -12197,7 +12203,7 @@ def social_page():
     # Clans to ask, but only for somebody who could actually ask: /clan/apply
     # turns down anyone already in one, so the section would be a row of
     # buttons that always fail.
-    clan_recs, clan_more = [], []
+    clan_recs, clan_more, clan_order = [], [], ""
     if not clan:
         c.execute("SELECT elo, COALESCE(wins, 0) + COALESCE(losses, 0) "
                   "FROM players WHERE norm_name = ?", (me[1],))
@@ -12213,13 +12219,14 @@ def social_page():
                 _my_region = max(_rs, key=lambda r: r["played"])["key"]
         clan_recs, clan_more = clan_suggestions(c, me[0], _my_elo,
                                                 _my_played, _my_region)
+        clan_order = "nearest your rating" if _my_played else "biggest first"
     conn.close()
     return render_template('social.html', version=APP_VERSION, page='social',
                            signed_in=True, me=me[0], play_name=play_name,
                            friends=fr, incoming=inc, outgoing=out, clan=clan,
                            onnow=onnow, my_tag=my_tag, hidden=hidden,
                            mates=mate_cards, clan_recs=clan_recs,
-                           clan_more=clan_more)
+                           clan_more=clan_more, clan_order=clan_order)
 
 
 @app.route('/api/social/live')
