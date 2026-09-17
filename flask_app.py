@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.19.2"
+APP_VERSION = "9.19.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5670,6 +5670,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.19.3", "at": "2026-09-17T06:20:00Z", "changes": [
+        "<b>Your clanmates are on the Social page.</b> Friends first, then everyone who shares your tag, each with a button to add them as a friend.",
+        "<b>And everyone says when they last played.</b> “Last played 4h ago”, or a live green line when they are in a match right now — so a list of names tells you who still plays.",
+    ]},
     {"version": "9.19.2", "at": "2026-09-17T05:40:00Z", "changes": [
         "<b>162 wins taken by mistake have been given back.</b> Over eleven days the impersonation guard held players out of matches they had won, because a player moving between teams was briefly listed in both and read as two ships. Those wins are back on their records and in their match history. Their rating is deliberately untouched: a match is not allowed to create or destroy rating, and the balance for those matches was struck without them — paying them now would either invent points or take them off their team-mates, and neither is a fix.",
     ]},
@@ -11708,6 +11712,27 @@ def friend_requests_in(c, me):
     return [(b if a == me else a) for a, b in c.fetchall()]
 
 
+def ago(when):
+    """'4h ago' for a stored timestamp, or None. Short because it sits under
+    a name, where a date would be read as part of it."""
+    if not when:
+        return None
+    try:
+        # Stored in UTC, so read back as UTC - mktime would read it as local
+        # and be hours out.
+        t = calendar.timegm(time.strptime(str(when)[:19], '%Y-%m-%d %H:%M:%S'))
+    except (ValueError, TypeError):
+        return None
+    s = max(0, time.time() - t)
+    if s < 3600:
+        return "%dm ago" % max(1, int(s // 60))
+    if s < 86400:
+        return "%dh ago" % int(s // 3600)
+    if s < 86400 * 30:
+        return "%dd ago" % int(s // 86400)
+    return "%dmo ago" % max(1, int(s // (86400 * 30)))
+
+
 def people_playing(c, norms):
     """{norm_name: {mode, lobby, region, sid, checked_in}} for whoever of
     `norms` is in a lobby right now, in either mode.
@@ -11889,10 +11914,37 @@ def social_page():
             if nn and nn != me[1] and nn not in friend_norms:
                 mates.append(nn)
 
+    # When each of them last finished a match. One grouped query over an
+    # indexed column beats asking per person, and the page asks about a whole
+    # clan.
+    def last_seen_map(norms):
+        out = {}
+        norms = [n for n in norms if n]
+        for i in range(0, len(norms), 400):
+            chunk = norms[i:i + 400]
+            qs = ",".join("?" * len(chunk))
+            try:
+                for nn, when in c.execute(
+                        "SELECT mp.norm_name, MAX(m.played_at) FROM match_players mp "
+                        "JOIN matches m ON m.id = mp.match_row "
+                        "WHERE mp.norm_name IN (%s) GROUP BY mp.norm_name" % qs,
+                        chunk).fetchall():
+                    if when:
+                        out[nn] = when
+            except sqlite3.Error:
+                pass
+        return out
+
     live = people_playing(c, [f["norm"] for f in fr] + mates)
-    for f in fr:
-        f["playing"] = live.get(f["norm"])
-    # Playing first, then by rating.
+
+    # Clanmates get their own list: you share a tag with them whether or not
+    # you ever pressed a button about it.
+    mate_cards = [x for x in (card(n) for n in mates) if x]
+    seen_map = last_seen_map([f["norm"] for f in fr] + [m["norm"] for m in mate_cards])
+    for p in fr + mate_cards:
+        p["playing"] = live.get(p["norm"])
+        p["last"] = ago(seen_map.get(p["norm"]))
+    mate_cards.sort(key=lambda p: (0 if p.get("playing") else 1, -p["elo"]))
     fr.sort(key=lambda f: (0 if f.get("playing") else 1, -f["elo"]))
 
     # Everyone of yours who is in a lobby right now, friends and clanmates
@@ -11904,6 +11956,7 @@ def social_page():
             continue
         p["playing"] = info
         p["is_friend"] = nn in set(f["norm"] for f in fr)
+        p["last"] = ago(seen_map.get(nn))
         onnow.append(p)
     onnow.sort(key=lambda p: (0 if p["is_friend"] else 1, -p["elo"]))
 
@@ -11931,7 +11984,8 @@ def social_page():
     return render_template('social.html', version=APP_VERSION, page='social',
                            signed_in=True, me=me[0], play_name=play_name,
                            friends=fr, incoming=inc, outgoing=out, clan=clan,
-                           onnow=onnow, my_tag=my_tag, hidden=hidden)
+                           onnow=onnow, my_tag=my_tag, hidden=hidden,
+                           mates=mate_cards)
 
 
 @app.route('/friends/presence', methods=['POST'])

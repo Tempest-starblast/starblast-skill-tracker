@@ -40,6 +40,14 @@
 .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11.5px;
   color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
 .meta .tag{color:var(--blue,#99DDFF);font-weight:700}
+/* When they were last in a match - the quiet line that makes a list of names
+   into people who do or do not still play. */
+.seen{font-size:11px;color:var(--dim,#5d7f93);display:flex;align-items:center;gap:5px}
+.seen.on{color:#66E6B8;font-weight:700}
+.seen.on i{width:6px;height:6px;border-radius:50%;background:#66E6B8;display:inline-block;
+  flex:none;animation:sp 1.9s infinite}
+@keyframes sp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 6px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
+
 
 /* Where they are, when they are somewhere. */
 .where{display:flex;flex-wrap:wrap;align-items:center;gap:5px 7px;font-size:11.5px;
@@ -123,6 +131,7 @@
   <span class="pos">#{{ '{:,}'.format(p.rank) }}</span>
 </div></div>
 <div class="meta"><span>{{ '{:,.0f}'.format(p.elo) }}</span><span>{{ p.wins }}W {{ p.losses }}L</span>{% if p.clan %}<span class="tag">{{ p.clan }}</span>{% endif %}</div>
+{% if p.playing %}<div class="seen on"><i></i>In a match</div>{% elif p.last %}<div class="seen">Last played {{ p.last }}</div>{% else %}<div class="seen">No matches yet</div>{% endif %}
 {%- endmacro %}
 
 <div class="socgrid">
@@ -187,6 +196,23 @@
       <p class="empty">No friends yet. Add someone by the name they play under.</p>
       {% endif %}
     </div>
+
+    {% if mates %}
+    <div class="socsec">
+      <div class="sechead"><h2>{{ my_tag }} clanmates</h2><span class="n">{{ mates|length }}</span></div>
+      <div class="tiles">
+        {% for p in mates %}
+        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}">
+          {{ who(p) }}
+          {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
+          <div class="acts">
+            <button type="button" class="btn ghost" data-act="befriend">Add friend</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
     {% if outgoing %}
     <div class="socsec">
@@ -272,6 +298,7 @@
     var act=b.getAttribute('data-act');
     if(act==='accept')  post('/friends/respond', {name:name, accept:'1'}, reload);
     if(act==='decline') post('/friends/respond', {name:name, accept:'0'}, reload);
+    if(act==='befriend'){ post('/friends/request', {name:name}, reload); return; }
     if(act==='remove'){
       // Removing a friend is one click and cannot be undone from here, so the
       // button asks once. A second click within a few seconds does it; moving
