@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, render_template, session, redirect
+from flask import (Flask, request, jsonify, render_template, session, redirect,
+                   abort)
 import re
 import bisect
 import html
@@ -26,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.21.3"
+APP_VERSION = "9.22.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -73,6 +74,57 @@ def _load_owner_subs():
 OWNER_SUBS = _load_owner_subs()
 # The throwaway account the owner impersonates for testing. Never a
 # real person; its rows are wiped on entry so each test starts blank.
+# ---------------------------------------------------------------- GEMS
+# Not launched. While this is False, gems exist and accrue but ONLY the site
+# owner can see any of it - the pages, the balances, the achievements. Flip it
+# to True to open it to everybody; nothing else has to change.
+GEMS_PUBLIC = False
+# What a rated result pays. A loss pays something on purpose: a night that
+# goes badly should still move you forward, or the cheapest way to protect a
+# balance becomes not playing the matches you might lose.
+GEM_WIN = 100
+GEM_LOSS = 10
+# A clan earns from its members playing, and so does whoever runs it. Both are
+# per member win, so a big clan earns more because more of it is playing.
+GEM_CLAN_WIN = 10
+GEM_LEADER_WIN = 10
+# Once a day, on your first win, so somebody with one match in them is not
+# simply left behind by somebody with twenty.
+GEM_DAILY_FIRST_WIN = 250
+
+# One-off milestones. The key is what the ledger stores, so these are append
+# only - changing a key hands the achievement out again.
+GEM_WIN_MILESTONES = [
+    ("first-win", "First blood", "Win a tracked match.", 1, 100),
+    ("wins-10", "Getting somewhere", "Win 10 matches.", 10, 250),
+    ("wins-50", "Regular", "Win 50 matches.", 50, 1000),
+    ("wins-100", "Veteran", "Win 100 matches.", 100, 2500),
+    ("wins-250", "Fixture", "Win 250 matches.", 250, 5000),
+]
+# Reaching a division. Paid on the PEAK, so falling back and climbing again
+# does not pay twice, and a high division pays for the ones underneath it -
+# you went through them to get there. Steep on purpose: the top division is
+# half a percent of the board and should be worth more than grinding.
+GEM_DIVISION_AWARD = {1: 100, 2: 250, 3: 500, 4: 1000,
+                      5: 2000, 6: 3500, 7: 6000, 8: 10000}
+
+
+def gem_achievement_catalog():
+    """Every achievement there is, in the order a page should show them."""
+    out = []
+    for r in sorted(ranks.RANKS, key=lambda x: x["level"]):
+        out.append({
+            "key": "div-%s" % r["key"], "group": "Ranks", "name": r["name"],
+            "desc": "Reach the %s division \u2014 %s of the board."
+                    % (r["name"], (r.get("band") or "").replace("Top ", "the top ")),
+            "gems": GEM_DIVISION_AWARD.get(r["level"], 100), "rank": r,
+        })
+    for key, name, desc, _need, amount in GEM_WIN_MILESTONES:
+        out.append({"key": key, "group": "Milestones", "name": name,
+                    "desc": desc, "gems": amount, "rank": None})
+    return out
+
+
 SANDBOX_SUB = "test:sandbox"
 # The sandbox can be given a rating so the signed-in site renders at a chosen
 # standard (see /dev/actas). That makes it look exactly like a player to any
@@ -1668,6 +1720,33 @@ def init_db():
                     PRIMARY KEY (a, b)
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b, state)")
+
+    # Every gem that exists, and why. A balance is a cache of this and
+    # nothing else. `owner` is a norm_name for a player or a tag for a clan;
+    # amount is positive earned, negative spent.
+    c.execute('''CREATE TABLE IF NOT EXISTS gem_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner_kind TEXT NOT NULL,
+                    owner TEXT NOT NULL,
+                    amount INTEGER NOT NULL,
+                    reason TEXT NOT NULL,
+                    ref TEXT NOT NULL DEFAULT '',
+                    at TEXT NOT NULL
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_gem_owner "
+              "ON gem_ledger(owner_kind, owner, id)")
+    # THE safety rail: one payment per (owner, reason, reference). A match
+    # reported twice, an achievement re-checked on every page view, or a
+    # backfill run a second time all collapse to the row that is already
+    # there, so nothing can be paid out twice.
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_gem_once "
+              "ON gem_ledger(owner_kind, owner, reason, ref)")
+    for _gcol in ("ALTER TABLE players ADD COLUMN gems INTEGER DEFAULT 0",
+                  "ALTER TABLE clans ADD COLUMN gems INTEGER DEFAULT 0"):
+        try:
+            c.execute(_gcol)
+        except sqlite3.OperationalError:
+            pass
     c.execute("CREATE INDEX IF NOT EXISTS idx_friends_a ON friends(a, state)")
 
     c.execute('''CREATE TABLE IF NOT EXISTS map_pins (
@@ -4931,6 +5010,21 @@ def game_end():
                                or _ships_by_name.get(pname),
                                _deaths_by_name.get(played_as)
                                or _deaths_by_name.get(pname)))
+
+    # ---- Gems -----------------------------------------------------------
+    # Paid from `applied`, the same list the rating was just written from, and
+    # inside the same transaction. A player the roster rules left out is not
+    # in it and is not paid, so gems inherit every gate that protects the
+    # rating rather than needing a second set of their own.
+    try:
+        if applied and _match_id:
+            _paid = award_match_gems(c, applied, _match_id)
+            if _paid:
+                print("[game_end] sys=%s gems paid to %d players (%d total)"
+                      % (sys_id, len(_paid), sum(g for _n, g in _paid)), flush=True)
+    except sqlite3.Error as _ge:
+        print("[game_end] sys=%s gem award failed: %s" % (sys_id, str(_ge)[:80]),
+              flush=True)
 
     # ---- Replay snapshot ------------------------------------------------
     # The live feed has been accumulating this match's trajectory (score/
@@ -8696,6 +8790,12 @@ def _record_peaks(entries):
             c.executemany("UPDATE players SET peak_div = ?, "
                           "peak_div_at = datetime('now') WHERE norm_name = ?",
                           div_up)
+            # A new career-best division is an achievement, and achievements
+            # pay. Done here rather than when the board is drawn: this is the
+            # one place that knows the peak actually MOVED.
+            for _dkey, _nn in div_up:
+                gem_check_division_achievements(
+                    c, _nn, ranks.RANK_BY_KEY.get(_dkey, {}).get("level", 0))
         conn.commit()
         conn.close()
     except sqlite3.Error:
@@ -11873,6 +11973,160 @@ def _stamp():
     return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
 
 
+def gem_grant(c, kind, owner, amount, reason, ref=""):
+    """Pay (or charge) an owner, once. Returns the amount that actually moved.
+
+    The ledger row is written first and the balance follows it, both inside
+    whatever transaction the caller is already in. If the row is a duplicate -
+    same owner, same reason, same reference - the unique index swallows it and
+    nothing moves, which is what makes every caller safe to re-run.
+
+    Does NOT commit: a gem must land in the same transaction as the thing that
+    earned it, or a crash between the two invents or loses money.
+    """
+    if not owner or not amount:
+        return 0
+    try:
+        c.execute("INSERT OR IGNORE INTO gem_ledger "
+                  "(owner_kind, owner, amount, reason, ref, at) "
+                  "VALUES (?, ?, ?, ?, ?, ?)",
+                  (kind, owner, int(amount), reason, str(ref or ""), _stamp()))
+        if not c.rowcount:
+            return 0                      # already paid for this exact thing
+        if kind == "clan":
+            c.execute("UPDATE clans SET gems = COALESCE(gems, 0) + ? WHERE tag = ?",
+                      (int(amount), owner))
+        else:
+            c.execute("UPDATE players SET gems = COALESCE(gems, 0) + ? "
+                      "WHERE norm_name = ?", (int(amount), owner))
+        return int(amount)
+    except sqlite3.Error:
+        return 0
+
+
+def gems_visible():
+    """Whether the person looking is allowed to see any of this yet."""
+    return GEMS_PUBLIC or is_site_owner()
+
+
+def gem_balance(c, kind, owner):
+    """What an owner has now, from the cached column."""
+    if not owner:
+        return 0
+    try:
+        if kind == "clan":
+            r = c.execute("SELECT COALESCE(gems, 0) FROM clans WHERE tag = ?",
+                          (owner,)).fetchone()
+        else:
+            r = c.execute("SELECT COALESCE(gems, 0) FROM players WHERE norm_name = ?",
+                          (owner,)).fetchone()
+        return int(r[0]) if r else 0
+    except sqlite3.Error:
+        return 0
+
+
+def gem_clan_leader(c, tag):
+    """The norm_name of whoever runs a clan, or None. Only the leader - a
+    co-leader helps run the clan, they do not collect on it."""
+    if not tag:
+        return None
+    try:
+        r = c.execute("SELECT p.norm_name FROM clan_admins a "
+                      "JOIN players p ON p.google_sub = a.google_sub "
+                      "WHERE a.clan = ? AND COALESCE(a.role, 'leader') = 'leader' "
+                      "AND p.norm_name IS NOT NULL LIMIT 1", (tag,)).fetchone()
+        return r[0] if r else None
+    except sqlite3.Error:
+        return None
+
+
+def gem_check_win_achievements(c, nn, wins):
+    """Pay any win milestone this player has now passed. Safe to call as often
+    as you like - the ledger refuses the second payment."""
+    paid = []
+    for key, name, _desc, need, amount in GEM_WIN_MILESTONES:
+        if (wins or 0) >= need and gem_grant(c, "player", nn, amount, "achievement", key):
+            paid.append((key, name, amount))
+    return paid
+
+
+def gem_check_division_achievements(c, nn, peak_level):
+    """Pay every division up to and including the highest this player has
+    reached. Reaching a high one pays for the ones below it as well - they
+    were passed through on the way, and a ladder that only ever pays the top
+    rung punishes anybody who climbed quickly."""
+    paid = []
+    if not peak_level:
+        return paid
+    for r in ranks.RANKS:
+        if r["level"] > peak_level:
+            continue
+        amount = GEM_DIVISION_AWARD.get(r["level"], 100)
+        if gem_grant(c, "player", nn, amount, "achievement", "div-%s" % r["key"]):
+            paid.append(("div-%s" % r["key"], r["name"], amount))
+    return paid
+
+
+def gem_peak_level(c, nn):
+    """The level of the highest division this player has ever held."""
+    try:
+        r = c.execute("SELECT peak_div FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    except sqlite3.Error:
+        return 0
+    if not r or not r[0]:
+        return 0
+    return ranks.RANK_BY_KEY.get(r[0], {}).get("level", 0)
+
+
+def award_match_gems(c, applied, match_id):
+    """Gems for one rated result.
+
+    Reads `applied` - the list the rating itself was just written from - so a
+    player who was not rated is not paid. Every gate that protects the rating
+    protects the gems by construction, and there is no second rulebook.
+
+    Returns [(name, gems)] for the ones who earned something, for the log.
+    """
+    if not applied or not match_id:
+        return []
+    today = time.strftime('%Y-%m-%d', time.gmtime())
+    out = []
+    for player, won, _delta in applied:
+        nn = normalize_name(player)
+        if not nn:
+            continue
+        got = gem_grant(c, "player", nn, GEM_WIN if won else GEM_LOSS,
+                        "win" if won else "loss", match_id)
+        if not won:
+            if got:
+                out.append((player, got))
+            continue
+        # First win of the day, and the milestones it may have just passed.
+        got += gem_grant(c, "player", nn, GEM_DAILY_FIRST_WIN, "daily-win", today)
+        row = c.execute("SELECT COALESCE(wins, 0), clan FROM players "
+                        "WHERE norm_name = ?", (nn,)).fetchone()
+        if row:
+            for _k, _n, amount in gem_check_win_achievements(c, nn, row[0]):
+                got += amount
+            for _k, _n, amount in gem_check_division_achievements(
+                    c, nn, gem_peak_level(c, nn)):
+                got += amount
+            tag = row[1]
+            if tag:
+                # The clan earns from the win, and so does whoever runs it.
+                # Keyed per member so a clan with several winners in one match
+                # is paid for each of them, once.
+                gem_grant(c, "clan", tag, GEM_CLAN_WIN, "member-win",
+                          "%s#%s" % (match_id, nn))
+                boss = gem_clan_leader(c, tag)
+                if boss:
+                    gem_grant(c, "player", boss, GEM_LEADER_WIN, "member-win",
+                              "%s#%s" % (match_id, nn))
+        if got:
+            out.append((player, got))
+    return out
+
+
 def my_player(c):
     """(name, norm_name) of the signed-in account's player row, or None."""
     sub_id = current_user()
@@ -12161,6 +12415,51 @@ def clan_suggestions(c, my_name, my_elo, my_played, my_region):
     # say: there is nothing to recommend when the decision is already yours.
     out.sort(key=lambda r: 0 if r["invited"] else 1)
     return out[:CLAN_SUGGEST_SHOW], out[CLAN_SUGGEST_SHOW:]
+
+
+@app.route('/achievements')
+def achievements_page():
+    """Every achievement there is, what it pays, and which you have.
+
+    Earned is read straight off the ledger rather than a second table: an
+    achievement IS its payment, so there is nothing that can disagree.
+    """
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    earned = {}
+    if me:
+        for ref, at in c.execute(
+                "SELECT ref, at FROM gem_ledger WHERE owner_kind = 'player' "
+                "AND owner = ? AND reason = 'achievement'", (me[1],)).fetchall():
+            earned[ref] = at
+    cat = gem_achievement_catalog()
+    groups = []
+    for gname in ("Ranks", "Milestones"):
+        items = []
+        for a in cat:
+            if a["group"] != gname:
+                continue
+            items.append(dict(a, got=a["key"] in earned,
+                              at=(earned.get(a["key"]) or "")[:10]))
+        if items:
+            groups.append({"name": gname, "items": items,
+                           "got": sum(1 for i in items if i["got"]),
+                           "total": len(items)})
+    have = sum(g["got"] for g in groups)
+    total = sum(g["total"] for g in groups)
+    earned_gems = sum(a["gems"] for a in cat if a["key"] in earned)
+    possible = sum(a["gems"] for a in cat)
+    balance = gem_balance(c, 'player', me[1]) if me else 0
+    conn.close()
+    return render_template('achievements.html', version=APP_VERSION,
+                           page='achievements', groups=groups,
+                           signed_in=bool(me), me=(me[0] if me else None),
+                           have=have, total=total, earned_gems=earned_gems,
+                           possible=possible, balance=balance,
+                           preview=not GEMS_PUBLIC)
 
 
 @app.route('/social')
