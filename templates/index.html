@@ -111,6 +111,13 @@ tbody tr{scroll-margin-top:84px}
   color:#f0c04a;border:1px solid rgba(240,192,74,.35)}
 .remb{display:inline-block;margin-right:6px;line-height:0;vertical-align:middle;
   filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+/* Tag, emblem, name: three columns, each a slot that is always there. A row
+   with no tag or no emblem keeps the empty slot, so nothing else moves. */
+.who{display:inline-flex;align-items:center;gap:6px;max-width:100%;vertical-align:middle}
+.who .bslot{flex:none;min-width:4.4em;display:inline-flex;align-items:center}
+.who .bslot .badge{margin:0}
+.who .remb{flex:none;width:16px;height:16px;margin:0;display:inline-flex;align-items:center;
+  justify-content:center}
 .remb svg{vertical-align:middle}
 tfoot tr.youfoot td{position:sticky;bottom:0;z-index:6;
   background:#12241d;border-top:1px solid rgba(102,230,184,.55);
@@ -362,7 +369,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% for p in leaderboard %}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}"{% if p.mine %} class="mine"{% endif %}>
   <td class="rank">{{ p.rank }}</td>
-  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}{% if p.division %}<span class="remb" title="{{ p.division.name }} {{ t('rank') }}">{{ rank_emblem(p.emblem or p.division.ship, 16, p.emblem_color or p.division.color, p.division.name, 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}</span>{% endif %}<a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.protected %}<span class="lockm" title="Protected - only matches this player checked into are counted">{{ lock_icon()|safe }}</span>{% elif p.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}</td>
+  <td><span class="who"><span class="bslot">{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}</span><span class="remb"{% if p.division %} title="{{ p.division.name }} {{ t('rank') }}"{% endif %}>{% if p.division %}{{ rank_emblem(p.emblem or p.division.ship, 16, p.emblem_color or p.division.color, p.division.name, 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}{% endif %}</span><a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.protected %}<span class="lockm" title="Protected - only matches this player checked into are counted">{{ lock_icon()|safe }}</span>{% elif p.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}</span></td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
     href="/?{% if mode == 'survival' %}mode=survival&amp;{% endif %}period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
@@ -384,7 +391,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% for p in me_rows %}
 <tr class="youfoot">
   <td class="rank">{{ p.rank }}</td>
-  <td>{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}<a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a><span class="youtag">you</span>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}</td>
+  <td><span class="who"><span class="bslot">{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% endif %}</span><span class="remb"></span><a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a><span class="youtag">you</span>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}</span></td>
   {% if region == 'all' %}<td class="mid">{% if p.region_label %}{{ p.region_label }}{% else %}-{% endif %}</td>{% endif %}
   <td class="mid">{{ p.record }}</td>
   <td class="mid">{{ p.winrate }}</td>

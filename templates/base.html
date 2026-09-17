@@ -315,7 +315,12 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 {%- if gems_on %}
 /* The mythic hull burns whatever the rank - the one emblem colour that is
    not the rank's own, and it says so by glowing. */
-.rank-emblem.mythic{filter:drop-shadow(0 0 4px rgba(255,120,40,.85)) drop-shadow(0 0 9px rgba(255,90,20,.45))}
+.rank-emblem.mythic{animation:mythglow 2.4s ease-in-out infinite}
+@keyframes mythglow{
+  0%,100%{filter:drop-shadow(0 0 3px rgba(255,46,77,.95)) drop-shadow(0 0 9px rgba(255,46,77,.55)) drop-shadow(0 0 18px rgba(255,20,60,.25))}
+  50%{filter:drop-shadow(0 0 5px rgba(255,140,170,1)) drop-shadow(0 0 14px rgba(255,46,77,.85)) drop-shadow(0 0 28px rgba(255,20,60,.5)) brightness(1.25)}}
+@media(prefers-reduced-motion:reduce){.rank-emblem.mythic{animation:none;
+  filter:drop-shadow(0 0 4px rgba(255,46,77,.95)) drop-shadow(0 0 12px rgba(255,46,77,.6))}}
 /* The balance, beside the name it belongs to. Behind the switch like the
    markup: a class name in a stylesheet is a trace too. */
 .gchip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;text-decoration:none;

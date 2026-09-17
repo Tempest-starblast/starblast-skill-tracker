@@ -109,7 +109,7 @@
 <div class="previewbar">🔒 Not released &mdash; this front page is only shown to you.</div>
 {% endif %}
 
-<div class="profcard"{% if mythic %} style="--rk:{{ '#ff8a3d' }};--rkglow:rgba(255,120,40,.35)"{% elif d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
+<div class="profcard"{% if mythic %} style="--rk:{{ emblem_color }};--rkglow:rgba(255,46,77,.38)"{% elif d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
   <div class="idcard">
     <div class="idemb">{{ rank_emblem(emblem or (d.ship if d else 101), 100, emblem_color or (d.color if d else '#8b949e'), (d.name if d else 'Fly'), 'rank-emblem mythic' if mythic else 'rank-emblem')|safe }}</div>
     <div class="idtext">

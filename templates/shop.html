@@ -49,14 +49,20 @@
 .ship .wornlbl{font-size:11px;font-weight:800;color:#66E6B8;letter-spacing:.6px;text-transform:uppercase}
 
 /* The mythic. One hull, its own colour, its own section, its own light. */
-.mythic .ship{border-color:rgba(255,138,61,.55);
-  background:linear-gradient(160deg,rgba(255,138,61,.16),rgba(255,138,61,.03));
-  box-shadow:0 0 30px rgba(255,120,40,.18) inset}
-.mythic .ship .emb{opacity:1;animation:myth 3.2s ease-in-out infinite}
-@keyframes myth{0%,100%{filter:drop-shadow(0 0 4px rgba(255,120,40,.7))}50%{filter:drop-shadow(0 0 14px rgba(255,140,50,1))}}
-@media(prefers-reduced-motion:reduce){.mythic .ship .emb{animation:none}}
-.mythic .ship .nm{color:#ff8a3d}
-.mythic .ship .price{color:#ffb27a}
+.mythic .ship{border-color:rgba(255,46,77,.6);
+  background:linear-gradient(160deg,rgba(255,46,77,.18),rgba(255,46,77,.03));
+  box-shadow:0 0 34px rgba(255,46,77,.22) inset}
+/* The emblem itself carries the glow (.rank-emblem.mythic, base.html); the
+   tile adds a slow sheen sweep so the whole card reads as the rare thing. */
+.mythic .ship{position:relative;overflow:hidden}
+.mythic .ship::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg,transparent 40%,rgba(255,180,200,.22) 50%,transparent 60%);
+  transform:translateX(-130%);animation:mythsheen 3.6s ease-in-out infinite}
+@keyframes mythsheen{0%{transform:translateX(-130%)}60%,100%{transform:translateX(130%)}}
+.mythic .ship .emb{opacity:1}
+@media(prefers-reduced-motion:reduce){.mythic .ship::before{animation:none}}
+.mythic .ship .nm{color:#ff2e4d}
+.mythic .ship .price{color:#ff9fb3}
 .mythic .why{max-width:26ch;line-height:1.45}
 
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;

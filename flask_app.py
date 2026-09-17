@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.24.1"
+APP_VERSION = "9.24.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -119,8 +119,8 @@ SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7, 702:
 # Priced by hand rather than by tier.
 SHIP_SPECIAL_PRICE = {703: 30000, 704: 40000, 701: 100000}
 MYTHIC_SHIP = 701                       # the Odyssey
-MYTHIC_COLOR = "#ff8a3d"                # burns orange whatever your rank
-MYTHIC_GLOW = "rgba(255,120,40,.55)"
+MYTHIC_COLOR = "#ff2e4d"                # crimson, whatever your rank - and apart from Marauder orange
+MYTHIC_GLOW = "rgba(255,46,77,.6)"
 
 
 def ship_catalog():
@@ -5922,6 +5922,12 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.24.2", "at": "2026-09-17T22:10:00Z", "changes": [
+        "<b>Leaderboard rows line up.</b> The clan tag, the rank emblem and the "
+        "name each have their own column now, whether or not a row has a tag or "
+        "an emblem — before, a row without one shifted everything after it "
+        "to the left, so emblems and names zig-zagged down the board.",
+    ]},
     {"version": "9.24.0", "at": "2026-09-17T21:30:00Z", "changes": [
         "<b>The seventh rank is now the Marauder.</b> Same rung of the ladder, "
         "same top-3% band, same colour \u2014 the name and the hull on the emblem "
