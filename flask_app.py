@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.21.1"
+APP_VERSION = "9.21.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -74,6 +74,12 @@ OWNER_SUBS = _load_owner_subs()
 # The throwaway account the owner impersonates for testing. Never a
 # real person; its rows are wiped on entry so each test starts blank.
 SANDBOX_SUB = "test:sandbox"
+# The sandbox can be given a rating so the signed-in site renders at a chosen
+# standard (see /dev/actas). That makes it look exactly like a player to any
+# query that counts them, so every such query carries this and leaves it out:
+# the board, the search index, a clan's roster and a clan's averages. Written
+# once, here, so the list of places is greppable rather than remembered.
+NOT_SANDBOX = "COALESCE(google_sub, '') != '%s'" % SANDBOX_SUB
 
 # One name per Google account. A network was never a person - everyone
 # behind one home, school or mobile connection shared a single address, so
@@ -2547,6 +2553,8 @@ def inject_auth():
     return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user()),
             "is_owner": current_user() in OWNER_SUBS,
             "dev_testing": bool(session.get("dev_real_owner")),
+            "dev_mode": session.get("dev_mode") or "new",
+            "dev_elo": session.get("dev_elo"),
             "rank_emblem": ranks.emblem_svg,
             "ship_name": ship_shapes.ship_name,
             # A green padlock for a protected rating (accounts get a green check).
@@ -7562,7 +7570,7 @@ def player_search_index():
         disp = clan_display_map(cur)
         for name, elo, wins, losses, clan in cur.execute(
                 "SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan "
-                "FROM players WHERE name IS NOT NULL"):
+                "FROM players WHERE name IS NOT NULL AND " + NOT_SANDBOX):
             shown = disp.get(clan) if clan else None
             rows.append({
                 "name": name,
@@ -8283,7 +8291,7 @@ def board_rows(c, period="all", region="all"):
     """
     if period == "all" and region == "all":
         c.execute("SELECT name, elo, wins, losses, clan, COALESCE(strict_mode, 0) "
-                  "FROM players")
+                  "FROM players WHERE " + NOT_SANDBOX)
         return [(name, elo, wins or 0, losses or 0, clan, bool(prot))
                 for name, elo, wins, losses, clan, prot in c.fetchall()]
 
@@ -11363,32 +11371,110 @@ def set_account_name():
     return jsonify({"message": msg}), 200
 
 
-@app.route('/dev/actas', methods=['POST'])
-def dev_actas():
-    """Owner steps into the blank sandbox account. Verified against the
-    REAL current user, and the real id is stashed so /dev/restore can
-    only ever hand it back."""
-    if current_user() not in OWNER_SUBS:
-        return jsonify({"error": "Not allowed."}), 403
-    conn = db()
-    c = conn.cursor()
-    # Fresh slate: the sandbox is never a real person, so wiping its
-    # rows is safe and makes every test start as a nameless newcomer.
+# A sandbox account is given a plausible rating so that the parts of the site
+# which read one have something to read. These bound what can be asked for:
+# far enough apart to see the site at both ends, not so far as to be nonsense.
+SANDBOX_ELO_MIN, SANDBOX_ELO_MAX = 100, 4000
+SANDBOX_ELO_DEFAULT = 1400
+SANDBOX_GAMES_MAX = 999
+SANDBOX_GAMES_DEFAULT = 20
+SANDBOX_NAME = "SANDBOX"
+
+
+def _wipe_sandbox(c):
+    """Everything the sandbox owns. It is never a real person, so this is
+    always safe - and it runs on the way in AND on the way out, so a test
+    account with a rating never outlives the test that made it."""
     c.execute("DELETE FROM players WHERE google_sub = ?", (SANDBOX_SUB,))
     c.execute("DELETE FROM claim_requests WHERE google_sub = ?", (SANDBOX_SUB,))
+    # Anyone it asked to be friends with, so a real player is not left with a
+    # request from an account that no longer exists.
+    for tb, col in (("friends", "a"), ("friends", "b")):
+        try:
+            c.execute("DELETE FROM %s WHERE %s IN (SELECT norm_name FROM players "
+                      "WHERE google_sub = ?)" % (tb, col), (SANDBOX_SUB,))
+        except sqlite3.Error:
+            pass
+    try:
+        c.execute("DELETE FROM friends WHERE requester LIKE ?", (SANDBOX_NAME + '%',))
+    except sqlite3.Error:
+        pass
+
+
+def _sandbox_free_name(c):
+    """A name for the sandbox that no real player already holds. The row has
+    to satisfy the same unique index every player does, and the test must not
+    fail because somebody out there is called SANDBOX."""
+    for n in range(0, 50):
+        want = SANDBOX_NAME if n == 0 else "%s%d" % (SANDBOX_NAME, n)
+        if not c.execute("SELECT 1 FROM players WHERE norm_name = ? LIMIT 1",
+                         (normalize_name(want),)).fetchone():
+            return want
+    return "%s%d" % (SANDBOX_NAME, int(time.time()) % 100000)
+
+
+@app.route('/dev/actas', methods=['POST'])
+def dev_actas():
+    """Owner steps into the sandbox account. Verified against the REAL
+    current user, and the real id is stashed so /dev/restore can only ever
+    hand it back.
+
+    mode 'new' (the default) is a nameless newcomer - the site as somebody
+    arriving for the first time sees it. mode 'account' is a settled player:
+    a name and a rating you pick, so the surfaces that only exist once you
+    have a record can be looked at, and looked at at a chosen standard.
+    """
+    if current_user() not in OWNER_SUBS:
+        return jsonify({"error": "Not allowed."}), 403
+    body = request.get_json(silent=True) or {}
+    mode = 'account' if str(body.get('mode') or 'new') == 'account' else 'new'
+
+    def _num(key, default, lo, hi):
+        try:
+            return max(lo, min(hi, int(body.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    conn = db()
+    c = conn.cursor()
+    _wipe_sandbox(c)
+    name = None
+    if mode == 'account':
+        elo = _num('elo', SANDBOX_ELO_DEFAULT, SANDBOX_ELO_MIN, SANDBOX_ELO_MAX)
+        games = _num('games', SANDBOX_GAMES_DEFAULT, 0, SANDBOX_GAMES_MAX)
+        # Split so the win rate is plausible rather than a suspicious 50/50.
+        wins = int(round(games * 0.6))
+        name = _sandbox_free_name(c)
+        c.execute("INSERT INTO players (name, norm_name, elo, wins, losses, "
+                  "google_sub) VALUES (?, ?, ?, ?, ?, ?)",
+                  (name, normalize_name(name), float(elo), wins, games - wins,
+                   SANDBOX_SUB))
+        session['dev_elo'] = elo
+    else:
+        session.pop('dev_elo', None)
     conn.commit()
     conn.close()
     session['dev_real_owner'] = current_user()
+    session['dev_mode'] = mode
     session['google_sub'] = SANDBOX_SUB
-    return jsonify({"ok": True}), 200
+    return jsonify({"ok": True, "mode": mode, "name": name}), 200
 
 
 @app.route('/dev/restore', methods=['POST'])
 def dev_restore():
     """Return to the real owner account. Safe by construction: it only
-    restores the id a prior owner-verified /dev/actas stashed."""
+    restores the id a prior owner-verified /dev/actas stashed - and it takes
+    the test account back out, so a row with a rating never outlives the
+    test that created it."""
     real = session.pop('dev_real_owner', None)
+    session.pop('dev_mode', None)
+    session.pop('dev_elo', None)
     if real:
+        conn = db()
+        c = conn.cursor()
+        _wipe_sandbox(c)
+        conn.commit()
+        conn.close()
         session['google_sub'] = real
     return jsonify({"ok": True}), 200
 
@@ -11671,7 +11757,8 @@ def clan_page(tag):
     conn = db()
     c = conn.cursor()
     c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at, "
-              "COALESCE(strict_mode, 0) FROM players WHERE clan = ?", (known,))
+              "COALESCE(strict_mode, 0) FROM players WHERE clan = ? AND "
+              + NOT_SANDBOX, (known,))
     rows = c.fetchall()
     c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
               (known,))
@@ -12010,7 +12097,8 @@ def clan_suggestions(c, my_name, my_elo, my_played, my_region):
     for tag, size, avg, top, wins, losses in c.execute(
             "SELECT clan, COUNT(*), AVG(elo), MAX(elo), SUM(COALESCE(wins, 0)), "
             "SUM(COALESCE(losses, 0)) FROM players "
-            "WHERE clan IS NOT NULL AND clan != '' GROUP BY clan").fetchall():
+            "WHERE clan IS NOT NULL AND clan != '' AND " + NOT_SANDBOX +
+            " GROUP BY clan").fetchall():
         if tag not in curated:
             continue
         avg = avg or 0.0
@@ -17406,7 +17494,7 @@ def clans_page():
     rows = []
     for tag in sorted(all_clan_tags(c)):
         c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) "
-                  "FROM players WHERE clan = ?", (tag,))
+                  "FROM players WHERE clan = ? AND " + NOT_SANDBOX, (tag,))
         got = c.fetchall()
         elos = [r[0] for r in got]
         wins = sum(r[1] for r in got)

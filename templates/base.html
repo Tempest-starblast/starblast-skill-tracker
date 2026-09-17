@@ -462,7 +462,9 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 
 {% if dev_testing %}
 <div class="devbar">
-  🧪 You are testing as a blank sandbox player — not your real account.
+  🧪 {% if dev_mode == 'account' %}You are testing as a signed-in player{% if dev_elo %}
+      rated {{ '{:,}'.format(dev_elo) }}{% endif %}{% else %}You are testing as a blank
+      sandbox player{% endif %} — not your real account.
   <button onclick="devRestore()">Back to my account</button>
 </div>
 <script>

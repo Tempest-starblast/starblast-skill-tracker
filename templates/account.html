@@ -305,18 +305,41 @@ async function forgotClaim(){
 {% if is_owner %}
 <div class="card" style="border-color:rgba(216,160,42,.5)">
   <h2 style="color:var(--amber,#d8a02a)">Owner tools</h2>
-  <p class="desc">Step into a blank sandbox account to see the site as a brand-new
-     player would &mdash; try setting a taken name, claiming, the lot. A banner at the
-     top brings you straight back to your own account. Nothing you do as the sandbox
-     touches your real account.</p>
-  <button class="primary" onclick="devActAs()">Test as a new player</button>
+  <p class="desc">Step into a sandbox account to see the site as somebody else does. A
+     banner at the top brings you straight back. Nothing you do as the sandbox touches
+     your real account, and the test account is deleted when you come back.</p>
+  <p class="desc"><b>A new player</b> arrives with no name and no rating &mdash; the
+     newcomer&#39;s half of the site: setting a name, finding it taken, claiming.</p>
+  <button class="primary" onclick="devActAs('new')">Test as a new player</button>
+  <p class="desc" style="margin-top:14px"><b>A signed-in player</b> has a name and a
+     rating, so everything an established account sees is there &mdash; Social, friends,
+     the clan suggestions, your division and rank. The rating is what most of those read,
+     so it is yours to choose. Its match history is empty: no matches were played.</p>
+  <div class="row" style="align-items:center;gap:8px">
+    <label for="devElo" style="font-size:13px">Rating</label>
+    <input id="devElo" type="number" value="1400" min="100" max="4000" step="50"
+           style="width:110px">
+    <label for="devGames" style="font-size:13px">Games</label>
+    <input id="devGames" type="number" value="20" min="0" max="999" step="5"
+           style="width:90px">
+    <button class="primary" onclick="devActAs('account')">Test as this player</button>
+  </div>
   <p class="msg" id="devMsg"></p>
   <p class="desc" style="margin-top:10px"><a href="/dev/status">Response times</a> &middot; <a href="/dev/moves">Moved results</a> &middot; <a href="/dev/merges">Merge requests</a></p>
 </div>
 <script>
-async function devActAs(){
+async function devActAs(mode){
+  // The rating and the game count only mean anything for the settled account,
+  // so the newcomer mode sends neither and the server keeps its own defaults.
+  const body = {mode: mode || 'new'};
+  if(body.mode === 'account'){
+    body.elo = parseInt(document.getElementById('devElo').value, 10) || 1400;
+    body.games = parseInt(document.getElementById('devGames').value, 10);
+    if(isNaN(body.games)) body.games = 20;
+  }
   try{
-    const r = await fetch('/dev/actas', {method:'POST'});
+    const r = await fetch('/dev/actas', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     if(r.ok){ location.href = '/account'; }
     else { document.getElementById('devMsg').textContent = 'Could not switch.'; }
   }catch(e){ document.getElementById('devMsg').textContent = 'Server error.'; }
