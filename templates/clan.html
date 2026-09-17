@@ -208,8 +208,15 @@ async function refresh(){
   }catch(e){}
 }
 async function applyToClan(){
+  const extra = {};
+  {% if gems_on %}
+  // What you would like from their treasury on joining. 0 is fine; cancel = no application.
+  const g = window.prompt('Ask for a joining bonus, in gems? 0 for none.', '0');
+  if (g === null) return;
+  extra.gems = Math.max(0, parseInt(g, 10) || 0);
+  {% endif %}
   try{
-    const [r, d] = await post('/clan/apply', {clan: TAG, name: MY_NAME});
+    const [r, d] = await post('/clan/apply', Object.assign({clan: TAG, name: MY_NAME}, extra));
     say('applyMsg', r.ok, d.message);
   }catch(e){ say('applyMsg', false, 'Server connection error.'); }
 }

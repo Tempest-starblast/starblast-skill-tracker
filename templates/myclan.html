@@ -139,13 +139,15 @@
 <div class="card">
   <h2>Waiting to join</h2>
   <p class="desc">Anyone can ask to join from the clan's public page. Accepting puts them
-     on the roster straight away.</p>
+     on the roster straight away.{% if gems_on %} An ask is paid from the treasury
+     (<b style="color:#8ef3ff">{{ '{:,}'.format(clan.treasury or 0) }}</b> gems) when you accept.{% endif %}</p>
   {% for a in clan.applications %}
   <div class="mcrow">
     <div>
       <a class="pname" href="/player/{{ a.name|urlencode }}">{{ a.name }}</a>
       <div class="cmeta">Rank #{{ a.rank }} &middot; skill {{ a.elo }} &middot;
-        {{ a.wins }}-{{ a.losses }} &middot; {{ a.winrate }}</div>
+        {{ a.wins }}-{{ a.losses }} &middot; {{ a.winrate }}{% if gems_on and a.gems %} &middot;
+        <b style="color:#8ef3ff">asks {{ '{:,}'.format(a.gems) }} gems</b>{% endif %}</div>
     </div>
     <div style="white-space:nowrap">
       <button class="primary" onclick="decideApp({{ a.id }}, true)">{{ t('Accept') }}</button>
@@ -215,10 +217,15 @@
   <div class="row" style="margin-top:12px">
     <input type="text" id="memberName" maxlength="32" autocomplete="off"
            placeholder="Player name">
+    {% if gems_on %}<input type="number" id="memberGems" min="0" step="50" value="0"
+           style="width:9em" title="Joining bonus, paid from the treasury when they accept"
+           aria-label="Joining bonus in gems">{% endif %}
     <button class="primary" onclick="addMember()">{{ t('Add') }}</button>
   </div>
   <p class="desc">Someone with an account is invited and has to accept. Someone without
      one joins straight away if your tag is already in their name.</p>
+  {% if gems_on %}<p class="desc">Treasury: <b style="color:#8ef3ff">{{ '{:,}'.format(clan.treasury or 0) }}</b> gems.
+     The number beside the name is a joining bonus, paid from it the moment they accept.</p>{% endif %}
   <p class="msg" id="memberMsg"></p>
   {% endif %}
 </div>
@@ -440,7 +447,10 @@ async function addMember(){
   const who = document.getElementById('memberName').value.trim();
   if (!who) return say('memberMsg', false, 'Enter a player name.');
   try{
-    const [r, d] = await post('/clan/add', {clan: TAG, name: who});
+    const body = {clan: TAG, name: who};
+    const gEl = document.getElementById('memberGems');
+    if (gEl) body.gems = parseInt(gEl.value, 10) || 0;
+    const [r, d] = await post('/clan/add', body);
     say('memberMsg', r.ok, d.message);
     if (r.ok) reloadSoon();
   }catch(e){ say('memberMsg', false, 'Server connection error.'); }

@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.24.4"
+APP_VERSION = "9.24.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -197,6 +197,59 @@ def gem_charge(c, nn, amount, reason, ref):
                   "AND reason = ? AND ref = ?", (nn, reason, ref))
         return "short"
     return "ok"
+
+
+# The most a single joining bonus or ask may be.
+GEM_BONUS_MAX = 1000000
+
+
+def gem_clan_charge(c, tag, amount, reason, ref):
+    """Spend from a treasury, once, and only what is there - the clan-side
+    twin of gem_charge. Returns 'ok', 'duplicate' or 'short'."""
+    amount = int(amount)
+    if amount <= 0:
+        return "ok"
+    c.execute("INSERT OR IGNORE INTO gem_ledger (owner_kind, owner, amount, reason, ref, at) "
+              "VALUES ('clan', ?, ?, ?, ?, ?)", (tag, -amount, reason, ref, _stamp()))
+    if not c.rowcount:
+        return "duplicate"
+    c.execute("UPDATE clans SET gems = COALESCE(gems, 0) - ? "
+              "WHERE tag = ? AND COALESCE(gems, 0) >= ?", (amount, tag, amount))
+    if not c.rowcount:
+        c.execute("DELETE FROM gem_ledger WHERE owner_kind = 'clan' AND owner = ? "
+                  "AND reason = ? AND ref = ?", (tag, reason, ref))
+        return "short"
+    return "ok"
+
+
+def gem_pay_join_bonus(c, invite_id, clan, name):
+    """Move an invite's bonus, or an application's ask, from the treasury to
+    the player as part of the join. Returns (status, amount): 'ok' - paid,
+    or nothing was owed - or 'short', meaning the treasury cannot cover it
+    and the join must not go through. Keyed on the invite id on both sides,
+    so a join processed twice pays once and never twice."""
+    try:
+        r = c.execute("SELECT COALESCE(gems, 0) FROM clan_invites WHERE id = ?",
+                      (invite_id,)).fetchone()
+    except sqlite3.Error:
+        return "ok", 0
+    amount = int(r[0]) if r and r[0] else 0
+    if amount <= 0:
+        return "ok", 0
+    ref = "invite-%d" % int(invite_id)
+    got = gem_clan_charge(c, clan, amount, "salary", ref)
+    if got == "short":
+        return "short", amount
+    gem_grant(c, "player", normalize_name(name), amount, "salary", ref)
+    return "ok", amount
+
+
+def _gem_amount(data, key="gems"):
+    """A non-negative whole number of gems out of a request, or 0."""
+    try:
+        return max(0, min(GEM_BONUS_MAX, int(data.get(key) or 0)))
+    except (TypeError, ValueError):
+        return 0
 
 
 _SHIP_CACHE = {"ts": 0.0, "map": {}}
@@ -1848,6 +1901,12 @@ def init_db():
                     PRIMARY KEY (a, b)
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b, state)")
+    # A joining bonus (on an invite) or an ask (on an application), in gems,
+    # paid from the clan's treasury the moment the join happens.
+    try:
+        c.execute("ALTER TABLE clan_invites ADD COLUMN gems INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
     # Every gem that exists, and why. A balance is a cache of this and
     # nothing else. `owner` is a norm_name for a player or a tag for a clan;
@@ -11868,11 +11927,11 @@ def notice_invites(c, sub_id):
     so they count on the badge until actually answered."""
     if not sub_id:
         return []
-    c.execute("SELECT i.id, i.clan, i.name FROM clan_invites i "
+    c.execute("SELECT i.id, i.clan, i.name, COALESCE(i.gems, 0) FROM clan_invites i "
               "JOIN players p ON p.name = i.name "
               "WHERE i.status = 'pending' AND i.direction = 'invite' "
               "AND p.google_sub = ? ORDER BY i.id", (sub_id,))
-    return [{"id": r[0], "clan": r[1], "name": r[2]} for r in c.fetchall()]
+    return [{"id": r[0], "clan": r[1], "name": r[2], "gems": r[3] or 0} for r in c.fetchall()]
 
 
 def notice_updates(c, sub_id):
@@ -13408,9 +13467,23 @@ def clan_add():
             conn.close()
             return jsonify({"message": f"'{stored_name}' already has an invitation "
                                        f"from {known} waiting."}), 400
-        c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, direction) "
-                  "VALUES (?, ?, ?, ?, 'pending', 'invite')",
-                  (known, stored_name, sub_id, time.strftime('%Y-%m-%d %H:%M:%S')))
+        # A joining bonus rides on the invite and is paid from the treasury
+        # when they accept. Only an officer may put treasury money on the
+        # table, and only money the treasury has right now.
+        _bonus = _gem_amount(data)
+        if _bonus:
+            if not may_manage(c, sub_id, known):
+                conn.close()
+                return jsonify({"message": "Only the leader or a co-leader can offer a "
+                                           "joining bonus."}), 403
+            _have = gem_balance(c, "clan", known)
+            if _bonus > _have:
+                conn.close()
+                return jsonify({"message": f"{known}'s treasury has {_have:,} gems - it "
+                                           f"cannot promise {_bonus:,}."}), 400
+        c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, "
+                  "direction, gems) VALUES (?, ?, ?, ?, 'pending', 'invite', ?)",
+                  (known, stored_name, sub_id, time.strftime('%Y-%m-%d %H:%M:%S'), _bonus))
         conn.commit()
         conn.close()
         return jsonify({"message": f"Invitation sent to '{stored_name}'. They will see it "
@@ -13513,14 +13586,25 @@ def clan_invite_respond():
         conn.close()
         return jsonify({"message": "That invitation is not yours."}), 403
 
+    _paid = 0
     if accept:
+        # The bonus moves in the same transaction as the join. If the treasury
+        # cannot keep the promise, nothing happens and the invite stays open.
+        _st, _paid = gem_pay_join_bonus(c, invite_id, clan, stored_name)
+        if _st == "short":
+            conn.rollback()
+            conn.close()
+            return jsonify({"message": f"{clan} promised a {_paid:,}-gem joining bonus but its "
+                                       f"treasury cannot cover it right now. Nothing has changed "
+                                       f"- ask them to top it up, or to invite you again for less."}), 400
         c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, stored_name))
     c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
               ('approved' if accept else 'declined', invite_id))
     conn.commit()
     conn.close()
-    return jsonify({"message": f"You joined {clan}." if accept
-                    else f"Invitation from {clan} declined."}), 200
+    return jsonify({"message": (f"You joined {clan}."
+                                + (f" {_paid:,} gems from its treasury are yours." if _paid else ""))
+                    if accept else f"Invitation from {clan} declined."}), 200
 
 
 @app.route('/clan/invite/cancel', methods=['POST'])
@@ -14458,13 +14542,14 @@ def bot_clan_apps_undelivered():
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
     c = conn.cursor()
-    c.execute("SELECT id, clan, name FROM clan_invites "
+    c.execute("SELECT id, clan, name, COALESCE(gems, 0) FROM clan_invites "
               "WHERE direction = 'application' AND status = 'pending' "
               "AND COALESCE(notified, 0) = 0 ORDER BY created_at LIMIT 25")
     pending = c.fetchall()
     out = []
-    for app_id, clan, name in pending:
+    for app_id, clan, name, ask in pending:
         row = applicant_stats(c, name)
+        row["gems"] = ask or 0
         # Only leaders who signed in through Discord can be sent a DM.
         c.execute("SELECT google_sub FROM clan_admins WHERE clan = ?", (clan,))
         leaders = [r[0][8:] for r in c.fetchall()
@@ -17247,12 +17332,14 @@ def clan_apply():
         conn.close()
         return jsonify({"message": f"'{stored_name}' already has something pending with {known}."}), 400
 
-    c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, direction) "
-              "VALUES (?, ?, ?, ?, 'pending', 'application')",
-              (known, stored_name, current_user(), time.strftime('%Y-%m-%d %H:%M:%S')))
+    _ask = _gem_amount(data)
+    c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, "
+              "direction, gems) VALUES (?, ?, ?, ?, 'pending', 'application', ?)",
+              (known, stored_name, current_user(), time.strftime('%Y-%m-%d %H:%M:%S'), _ask))
     conn.commit()
     conn.close()
-    return jsonify({"message": f"Applied to {known}. Their admin has to accept it."}), 200
+    return jsonify({"message": f"Applied to {known}. Their admin has to accept it."
+                               + (f" You asked for {_ask:,} gems on joining." if _ask else "")}), 200
 
 
 @app.route('/clan/application/respond', methods=['POST'])
@@ -17601,14 +17688,14 @@ def applicant_stats(c, name):
 
 def clan_applications(c, tag):
     """Everyone waiting on this clan, with the numbers a leader wants."""
-    c.execute("SELECT id, name, created_at FROM clan_invites "
+    c.execute("SELECT id, name, created_at, COALESCE(gems, 0) FROM clan_invites "
               "WHERE clan = ? AND direction = 'application' AND status = 'pending' "
               "ORDER BY created_at", (tag,))
     out = []
-    for app_id, name, created in c.fetchall():
+    for app_id, name, created, ask in c.fetchall():
         row = applicant_stats(c, name)
         row.update({"id": app_id, "clan": tag, "created_at": created,
-                    "joined": join_date(created)})
+                    "joined": join_date(created), "gems": ask or 0})
         out.append(row)
     return out
 
@@ -17632,21 +17719,34 @@ def perform_clan_app_decide(c, sub_id, app_id, accept, trusted=False):
     if not trusted and not may_manage(c, sub_id, clan):
         return 403, {"ok": False,
                      "message": "Only the leader or a co-leader can decide who joins."}
-    c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
-              ('approved' if accept else 'declined', app_id))
     if not accept:
+        c.execute("UPDATE clan_invites SET status = 'declined' WHERE id = ?", (app_id,))
         return 200, {"ok": True, "accepted": False, "clan": clan, "name": name,
                      "message": f"Application from '{name}' declined."}
     c.execute("SELECT clan FROM players WHERE name = ?", (name,))
     already = (c.fetchone() or [None])[0]
     if already:
+        c.execute("UPDATE clan_invites SET status = 'approved' WHERE id = ?", (app_id,))
         return 200, {"ok": True, "accepted": False, "clan": clan, "name": name,
                      "message": f"'{name}' joined {already} in the meantime, "
                                 f"so nothing changed."}
+    # The ask is paid as part of the join, from the treasury as it stands
+    # NOW. If it cannot be covered the application stays open and the person
+    # deciding is told the two numbers, so they can top up or ask for less.
+    _st, _paid = gem_pay_join_bonus(c, app_id, clan, name)
+    if _st == "short":
+        return 400, {"ok": False, "clan": clan, "name": name,
+                     "message": f"'{name}' asked for {_paid:,} gems on joining and "
+                                f"{clan}'s treasury has {gem_balance(c, 'clan', clan):,}. "
+                                f"Top it up first, or ask them to apply again for less."}
+    c.execute("UPDATE clan_invites SET status = 'approved' WHERE id = ?", (app_id,))
     c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, name))
+    _msg = (f"'{name}' joined {clan}, and now shows as "
+            f"'{clan_tagged_name(name, clan)}' on the leaderboard.")
+    if _paid:
+        _msg += f" {_paid:,} gems went to them from the treasury."
     return 200, {"ok": True, "accepted": True, "clan": clan, "name": name,
-                 "message": f"'{name}' joined {clan}, and now shows as "
-                            f"'{clan_tagged_name(name, clan)}' on the leaderboard."}
+                 "message": _msg, "paid": _paid}
 
 
 def perform_clan_role(c, sub_id, raw_tag, name, role, trusted=False):
@@ -18117,6 +18217,7 @@ def my_clan_page():
         "theme": clan_theme, "theme_color": CLAN_THEMES.get(clan_theme, ""),
         "role_colors": role_colors, "role_color_keys": role_color_keys,
         "applications": clan_applications(c, tag),
+        "treasury": gem_balance(c, "clan", tag),
         "invited": [{"id": r[0], "name": r[1]} for r in c.execute(
             "SELECT id, name FROM clan_invites WHERE clan = ? "
             "AND status = 'pending' AND direction = 'invite' "

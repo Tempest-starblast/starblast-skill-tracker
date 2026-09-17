@@ -408,9 +408,15 @@
   // this reads the status rather than going through post().
   var MY_NAME={{ (me or '')|tojson }};
   function applyTo(tag, btn){
+    var extra={};
+    {% if gems_on %}
+    var g=window.prompt('Ask for a joining bonus, in gems? 0 for none.', '0');
+    if(g===null) return;
+    extra.gems=Math.max(0, parseInt(g,10)||0);
+    {% endif %}
     btn.disabled=true;
     fetch('/clan/apply', {method:'POST', headers:{'Content-Type':'application/json'},
-                          body:JSON.stringify({clan:tag, name:MY_NAME})})
+                          body:JSON.stringify(Object.assign({clan:tag, name:MY_NAME}, extra))})
       .then(function(r){ return r.json().then(function(j){ return {s:r.status, j:j}; }); })
       .then(function(o){
         say(o.j.message || '', o.s !== 200);

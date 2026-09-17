@@ -408,7 +408,8 @@ async function loadInbox(){
     });
     inv.forEach(function(v){
       const row = el('div', 'clanrow');
-      row.appendChild(el('div', 'ctag', v.clan + ' invited ' + v.name));
+      row.appendChild(el('div', 'ctag', v.clan + ' invited ' + v.name{% if gems_on %}
+        + (v.gems ? ' \u00b7 ' + v.gems.toLocaleString() + ' gems joining bonus' : ''){% endif %}));
       const yes = el('button', 'primary', 'Accept');
       yes.onclick = function(){ answerInvite(v.id, true); };
       const no = el('button', 'ghost', 'Decline');

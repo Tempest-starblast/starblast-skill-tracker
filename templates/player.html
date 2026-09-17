@@ -645,9 +645,16 @@ function invSay(res, d){
 async function sendInvite(tag){
   if (!window.confirm('Invite ' + PN + ' to ' + tag + '? '
       + 'They get the invitation on their account page and decide.')) return;
+  const extra = {};
+  {% if gems_on %}
+  // A joining bonus, from the treasury, paid when they accept. Cancel = no invite.
+  const g = window.prompt('Joining bonus from the treasury, in gems? 0 for none.', '0');
+  if (g === null) return;
+  extra.gems = Math.max(0, parseInt(g, 10) || 0);
+  {% endif %}
   try{
     const res = await fetch('/clan/add',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({clan: tag, name: PN})});
+      body:JSON.stringify(Object.assign({clan: tag, name: PN}, extra))});
     invSay(res, await res.json());
     if (res.ok) renderChips();
   }catch(e){ invSay({ok:false}, {message:'Server connection error.'}); }
