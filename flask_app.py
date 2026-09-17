@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.20.2"
+APP_VERSION = "9.20.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5679,6 +5679,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.20.3", "at": "2026-09-17T10:00:00Z", "changes": [
+        "<b>No more slow load every few minutes.</b> The leaderboard is worked out once and kept for five minutes; whoever arrived the moment it expired rebuilt it for everyone and waited about two and a half seconds doing so. That rebuild now happens on a timer instead, so it never lands on a person. Pages settle around a fifth of a second.",
+    ]},
     {"version": "9.20.2", "at": "2026-09-17T09:30:00Z", "changes": [
         "<b>Social keeps itself current.</b> Friends and clanmates light up as they join a match and go quiet as they leave, and the counts follow, without reloading the page — so a name you are half way through typing, or a question you have open, stays where it is.",
     ]},
