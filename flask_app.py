@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.26.0"
+APP_VERSION = "9.26.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1479,9 +1479,10 @@ def _tag_cache(c):
       styles  {clan: [(id, shown), ...]}  the default first
       worn    {account name: shown}       members wearing a pick of their own
       members {clan: {bare key: (sub, account name)}}
-              every member of the clan by their name WITHOUT the tag, in
-              every styling the clan has; a bare key two members share is
-              left out, because it would be nobody's.
+              every member of the clan - an account or a row its leader
+              added - by their name WITHOUT the tag, in every styling the
+              clan has; a bare key two members share is left out, because
+              it would be nobody's.
     """
     now = time.time()
     if now - _TAG_CACHE["ts"] < 60:
@@ -1503,8 +1504,7 @@ def _tag_cache(c):
             worn[name] = shown
         for sub, name, game, clan in c.execute(
                 "SELECT google_sub, name, game_name, clan FROM players "
-                "WHERE clan IS NOT NULL AND clan != '' AND google_sub IS NOT NULL "
-                "AND google_sub != '' AND " + NOT_SANDBOX).fetchall():
+                "WHERE clan IS NOT NULL AND clan != '' AND " + NOT_SANDBOX).fetchall():
             shows = [s for _i, s in styles.get(clan, [])] or [default.get(clan) or clan]
             keys = set()
             for raw in (name, game):
@@ -6143,6 +6143,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.26.1", "at": "2026-09-18T02:10:00Z", "changes": [
+        "A member a leader added to the clan without an account of their own is "
+        "matched by the clan tag too - it is the clan roster that counts, not "
+        "the sign-in.",
+    ]},
     {"version": "9.26.0", "at": "2026-09-18T01:30:00Z", "changes": [
         "<b>Your clan tag, however it is written, is yours.</b> A match under "
         "your clan\u2019s tag and your name now counts for your account whatever "
