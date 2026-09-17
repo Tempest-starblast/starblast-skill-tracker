@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.21.2"
+APP_VERSION = "9.21.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5710,6 +5710,16 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.21.3", "at": "2026-09-17T19:15:00Z", "changes": [
+        "<b>When both losing sides led at some point, the \u201cflipped\u201d "
+        "excuse now goes to whichever actually led longest.</b> A long match "
+        "can see one side well ahead early and the other well ahead later, and "
+        "both can meet the test. Until now the tie was settled by team number "
+        "\u2014 which could have handed the excuse to a side that led for four "
+        "minutes over one that led for fifty. It is settled by the scoreboard "
+        "now. Matches with a single qualifying side, which is almost all of "
+        "them, are unaffected.",
+    ]},
     {"version": "9.21.0", "at": "2026-09-17T18:00:00Z", "changes": [
         "<b>Social now suggests clans you could join.</b> If you are not in one, "
         "the clans whose members play at about your standard are put in front of "
