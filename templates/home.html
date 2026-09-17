@@ -25,8 +25,15 @@
 .idrank{margin:8px 0 0;font-size:13.5px;color:var(--muted,#8aa0b0)}
 .idrank b{color:var(--rk,var(--text));font-size:16px;letter-spacing:.4px}
 .idline{margin:10px 0 0;font-size:13px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
-.idline span+span::before{content:"\\00b7";margin:0 8px;color:var(--dim,#5d7f93)}
-.idbio{margin:12px 0 0;font-size:13.5px;line-height:1.55;color:#cfe3ee;max-width:60ch}
+.idline span+span::before{content:"·";margin:0 8px;color:var(--dim,#5d7f93)}
+/* The bio keeps the paragraphs it was written with, and shows three lines
+   until asked for the rest - this page is glanced at, the profile is read. */
+.idbio{margin:12px 0 0;font-size:13.5px;line-height:1.55;color:#cfe3ee;max-width:62ch;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.idbio.clamped{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.biomore{margin:6px 0 0;background:none;border:none;padding:0;cursor:pointer;
+  color:var(--blue,#99DDFF);font:inherit;font-size:12.5px;font-weight:700}
+.biomore:hover{text-decoration:underline}
 
 /* The balance. It is the thing this page is for, so it gets its own card. */
 .gemcard{display:flex;flex-direction:column;justify-content:center;gap:6px;padding:22px 24px;
@@ -103,7 +110,9 @@
         {%- else %}#{{ '{:,}'.format(rank) }} of {{ '{:,}'.format(rank_of) }}{% endif %}
       </p>
       <p class="idline"><span>{{ '{:,.0f}'.format(elo) }} skill</span><span>{{ wins }}&ndash;{{ losses }}</span>{% if winrate %}<span>{{ winrate }} won</span>{% endif %}{% if peak_division and (not d or peak_division.level > d.level) %}<span>best {{ peak_division.name }}</span>{% endif %}</p>
-      {% if bio %}<p class="idbio">{{ bio }}</p>{% endif %}
+      {% if bio %}<p class="idbio clamped" id="idbio">{{ bio }}</p>
+      <button type="button" class="biomore" id="biomore" hidden aria-expanded="false"
+              aria-controls="idbio">Show more</button>{% endif %}
     </div>
   </div>
 
@@ -155,4 +164,18 @@
     <a href="/account"><b>Your account</b><span>Names, protection, settings</span></a>
   </div>
 </section>
+<script>
+(function(){
+  // The Show more only exists when there is more: measure the clamped box and
+  // hide the button if everything already fits in three lines.
+  var b=document.getElementById('idbio'), m=document.getElementById('biomore');
+  if(!b || !m) return;
+  if(b.scrollHeight > b.clientHeight + 2) m.hidden=false;
+  m.addEventListener('click', function(){
+    var open=b.classList.toggle('clamped');   // returns true when clamped again
+    m.textContent = open ? 'Show more' : 'Show less';
+    m.setAttribute('aria-expanded', String(!open));
+  });
+})();
+</script>
 {% endblock %}
