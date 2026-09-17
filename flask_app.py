@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.20.3"
+APP_VERSION = "9.20.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4322,7 +4322,8 @@ def game_end():
             return acct
 
         for _key in ('winning_team', 'losing_team_1', 'losing_team_2',
-                     'all_players', 'half_elo', 'ambiguous'):
+                     'all_players', 'half_elo', 'ambiguous',
+                     'dominance_exempt'):
             _val = data.get(_key)
             if isinstance(_val, list):
                 data[_key] = [_to_account(str(x)) for x in _val]
@@ -4337,6 +4338,28 @@ def game_end():
         _pr = data.get('presence')
         if isinstance(_pr, dict):
             data['presence'] = {_to_account(str(k)): v for k, v in _pr.items()}
+        # Peak score decides whether a winner is eligible at all, and ships
+        # and deaths are shown on the profile - all three are keyed by the
+        # in-game name, so they have to follow the roster onto the account or
+        # they simply miss for anyone playing under another name. Two names
+        # can land on one account, so the peak is the higher of the two.
+        # ship_scores is NOT here: it is keyed by ship id, and rewriting it
+        # would break the check-in binding.
+        _pk = data.get('peak_scores')
+        if isinstance(_pk, dict):
+            _byacct = {}
+            for _k, _v in _pk.items():
+                _a = _to_account(str(_k))
+                try:
+                    if _a not in _byacct or float(_v) > float(_byacct[_a]):
+                        _byacct[_a] = _v
+                except (TypeError, ValueError):
+                    _byacct.setdefault(_a, _v)
+            data['peak_scores'] = _byacct
+        for _dk in ('ships', 'deaths'):
+            _dv = data.get(_dk)
+            if isinstance(_dv, dict):
+                data[_dk] = {_to_account(str(_k)): _v for _k, _v in _dv.items()}
         data['played_as_map'] = _played_as
         # The result has landed - stop showing this lobby as "Scoring" on /play.
         if _sys is not None:
@@ -5679,6 +5702,22 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.20.4", "at": "2026-09-17T16:10:00Z", "changes": [
+        "<b>Fixed: on a flipped match, a player using a name other than their "
+        "account name was the only one on their team still charged for the "
+        "loss.</b> Every name in a result is turned into an account name as it "
+        "arrives, so a game played under any nickname reaches the right record "
+        "\u2014 but the list of players the flip excused was still written in "
+        "the in-game names, so it no longer matched the team it belonged to. "
+        "One player fell through, and because a losing side\u2019s total is "
+        "shared out between whoever is actually rated, that one player carried "
+        "the whole team\u2019s loss.",
+        "<b>Also fixed, from the same cause:</b> eligibility is judged on the "
+        "highest score you reached rather than the one you finished on, and "
+        "the ship and deaths shown on your profile come from the match \u2014 "
+        "all three were being looked up under the in-game name and quietly "
+        "missing for anyone playing under another one.",
+    ]},
     {"version": "9.20.3", "at": "2026-09-17T10:00:00Z", "changes": [
         "<b>No more slow load every few minutes.</b> The leaderboard is worked out once and kept for five minutes; whoever arrived the moment it expired rebuilt it for everyone and waited about two and a half seconds doing so. That rebuild now happens on a timer instead, so it never lands on a person. Pages settle around a fifth of a second.",
     ]},
