@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.23.0"
+APP_VERSION = "9.24.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -113,8 +113,8 @@ GEM_DIVISION_AWARD = {1: 100, 2: 250, 3: 500, 4: 1000,
 # What a ship costs, by tier (the hundreds digit of its code). Dearer as the
 # hull gets bigger; a top-tier hull costs more than a Shadow X-3 rank pays.
 SHIP_TIER_PRICE = {1: 500, 2: 1500, 3: 3000, 4: 6000, 5: 10000, 6: 16000, 7: 25000}
-# Which ship each division hands you on arrival - the RELEASE ladder, where
-# level 7 is the Marauder and the Odyssey has been lifted out to be mythic.
+# Which ship each division hands you on arrival. Level 7 is the Marauder,
+# matching ranks.py; the Odyssey is nobody's rank ship - it is the mythic.
 SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7, 702: 8}
 # Priced by hand rather than by tier.
 SHIP_SPECIAL_PRICE = {703: 30000, 704: 40000, 701: 100000}
@@ -2408,9 +2408,9 @@ def init_db():
                 )''')
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_recredit_once "
               "ON recredits(match_row, norm_name)")
-    # The current scheduled Odyssey-only custom lobby (single row, id=1). The
+    # The current scheduled Marauder-only custom lobby (single row, id=1). The
     # droplet host reports the fresh join link here every re-host; the /customgame
-    # page shows it ONLY to verified Odyssey-rank players.
+    # page shows it ONLY to verified Marauder-rank players.
     c.execute('''CREATE TABLE IF NOT EXISTS custom_game (
                     id INTEGER PRIMARY KEY,
                     link TEXT, sid INTEGER, region TEXT,
@@ -5922,6 +5922,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.24.0", "at": "2026-09-17T21:30:00Z", "changes": [
+        "<b>The seventh rank is now the Marauder.</b> Same rung of the ladder, "
+        "same top-3% band, same colour \u2014 the name and the hull on the emblem "
+        "have changed, on the leaderboard, on profiles, on clan pages and on "
+        "Info. Everyone who was Odyssey is Marauder, with nothing else moved.",
+        "The custom lobby named for that rank follows it: it is the <b>Marauder "
+        "lobby</b> now, with the same gate and the same players. On Discord the "
+        "rank role is renamed in place, so nobody loses it.",
+    ]},
     {"version": "9.21.3", "at": "2026-09-17T19:15:00Z", "changes": [
         "<b>When both losing sides led at some point, the \u201cflipped\u201d "
         "excuse now goes to whichever actually led longest.</b> A long match "
@@ -11932,7 +11941,7 @@ def me():
     _nav = []
     if _custom_now or _owner_now:
         _nav.append({"t": "a", "href": "/customgame", "id": "customTab",
-                     "label": "Odyssey lobby", "badge": "NEW", "colour": "#ff7b53"})
+                     "label": "Marauder lobby", "badge": "NEW", "colour": "#ff7b53"})
     if _owner_now:
         _nav.append({"t": "a", "href": "/mymaps", "id": "mapsTab",
                      "label": "My Maps", "badge": "NEW", "colour": "#ff7b53"})

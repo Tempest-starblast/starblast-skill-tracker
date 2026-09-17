@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Odyssey custom lobby - Starblast Skill Leaderboard{% endblock %}
-{% block meta_description %}An Odyssey-rank-only custom team lobby, opened on demand. Verified Odyssey players get the join link.{% endblock %}
+{% block title %}Marauder custom lobby - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}A Marauder-rank-only custom team lobby, opened on demand. Verified Marauder players get the join link.{% endblock %}
 {% block css %}
 .cgwrap{max-width:60ch}
 .cgnote{color:var(--muted);font-size:13.5px;line-height:1.65;margin:-4px 0 18px}
@@ -74,8 +74,8 @@
 {% endblock %}
 {% block body %}
 <div class="cgwrap">
-<h1 class="ptitle">Odyssey custom lobby</h1>
-<p class="cgnote">A custom team-mode lobby for top players, opened by the <b>host on demand</b>. The join link shows here for every <b>Odyssey</b> player (rank Odyssey or above) the moment one goes live. The host sets who can join: <b>Odyssey only</b> &mdash; and anyone the lobby doesn&rsquo;t recognise as Odyssey is removed automatically &mdash; or <b>anyone</b> with the link. Left at its defaults it&rsquo;s the standard rated game; change the settings, draw a map or import a mod and it&rsquo;s an unrated custom game.</p>
+<h1 class="ptitle">Marauder custom lobby</h1>
+<p class="cgnote">A custom team-mode lobby for top players, opened by the <b>host on demand</b>. The join link shows here for every <b>Marauder</b> player (rank Marauder or above) the moment one goes live. The host sets who can join: <b>Marauder only</b> &mdash; and anyone the lobby doesn&rsquo;t recognise as Odyssey is removed automatically &mdash; or <b>anyone</b> with the link. Left at its defaults it&rsquo;s the standard rated game; change the settings, draw a map or import a mod and it&rsquo;s an unrated custom game.</p>
 
 <div class="cgcard">
 {% if not signed_in %}
@@ -83,12 +83,12 @@
   <p style="margin:0;font-size:14px">Sign in at the top of the page to see whether you qualify for the lobby.</p>
 {% elif not allowed %}
   <h2>Not yet</h2>
-  <div class="cggate">This lobby is <b>Odyssey-rank only</b>, and you don&rsquo;t qualify right now.</div>
+  <div class="cggate">This lobby is <b>Marauder-rank only</b>, and you don&rsquo;t qualify right now.</div>
   <ul class="cgreq">
     <li>Your account must own a <b>verified name</b> (claim it on <a href="/play" style="color:var(--blue,#66e6b8)">Play</a>).</li>
-    <li>That name must be an <b>established Odyssey</b> rank or above (top&nbsp;3% of the team board, past the provisional games).</li>
+    <li>That name must be an <b>established Marauder</b> rank or above (top&nbsp;3% of the team board, past the provisional games).</li>
   </ul>
-  <p class="cgreq">Climb into Odyssey and you&rsquo;ll be able to see and join the lobby here whenever the host opens one.</p>
+  <p class="cgreq">Climb into Marauder and you&rsquo;ll be able to see and join the lobby here whenever the host opens one.</p>
 {% else %}
   <div id="cgstatus" data-link="{{ link or '' }}" data-region="{{ region or '' }}" data-canhost="{{ '1' if can_host else '' }}">
     <h2>Loading&hellip;</h2>
@@ -128,7 +128,7 @@
     box.innerHTML = '<h2>You’re in — join now</h2>'
       + '<a class="cglink" href="'+esc(l)+'" target="_blank" rel="noopener">▶ Join the lobby</a>'
       + '<div class="cgmeta">'+(region?('<b>'+esc(region.charAt(0).toUpperCase()+region.slice(1))+'</b> · '):'')
-      + 'live now. If the host set it to Odyssey-only, keep your verified Odyssey name on — anyone the lobby doesn’t recognise is removed automatically.</div>'
+      + 'live now. If the host set it to Marauder-only, keep your verified Marauder name on — anyone the lobby doesn’t recognise is removed automatically.</div>'
       + '<div class="cghint">Opens Starblast in a new tab — it takes a few seconds to load the arena. An empty lobby closes after ~3&nbsp;minutes, so hop in.</div>'
       + (canHost ? '<button class="cgstop" id="cgstop" type="button">Stop lobby</button>' : '');
     var sb = document.getElementById('cgstop');
@@ -184,7 +184,7 @@
     if(s.kind==='str') return '<label>'+label+'<input id="o_'+k+'" type="text" maxlength="'+(s.max||24)+'" value="'+esc(s['default']||'')+'"></label>';
     return sl('o_'+k,label,s.min,s.max,step||1,s['default']); }
   function buildOptionsForm(){
-    var h=sel('o_join_gate','Who can join',[['odyssey','Odyssey only'],['open','Anyone']],'odyssey');
+    var h=sel('o_join_gate','Who can join',[['odyssey','Marauder only'],['open','Anyone']],'odyssey');
     h+='<div class="full cgsec">Basics</div>';
     CG_BASIC.forEach(function(f){ h+=optField(f[0],f[1],f[2],f[3]); });
     h+='<div class="full cgadvrow"><button type="button" class="cgadvbtn" data-advtoggle data-on="Show advanced settings ▾" data-off="Hide advanced settings ▴">Show advanced settings ▾</button>'
@@ -490,7 +490,7 @@
       + '<p class="note">Unchanged = <b>rated</b>. Anything changed = <b>unrated</b>, still recorded.</p>';
     box.innerHTML = '<h2>Open a lobby</h2>'
       + (errMsg ? '<div class="cgerr">'+esc(errMsg)+'</div>' : '')
-      + '<p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Open one — the join link appears here for you and every Odyssey player. You can stop it anytime from the lobby screen, and it also closes on its own once everyone leaves.</p>'
+      + '<p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Open one — the join link appears here for you and every Marauder player. You can stop it anytime from the lobby screen, and it also closes on its own once everyone leaves.</p>'
       + '<details class="cgcustom"'+((errMsg || lastConfig) ? ' open' : '')+'><summary>Custom settings</summary><div class="cgform">'+form+'</div></details>'
       + '<button class="primary" id="cgopen" type="button">Open lobby</button>'
       + '<div class="cgmsg" id="cgmsg"></div>';
@@ -498,11 +498,11 @@
     MapEd.init({readOnly:true}); loadMapPicker(); bindMod();
     restoreConfig();
   }
-  function renderWait(){          // Odyssey players who aren't the host
+  function renderWait(){          // Marauder players who aren't the host
     if(shown === 'wait'){ return; }
     shown = 'wait'; stopAnim(); startPoll(3000);
     box.innerHTML = '<h2>No lobby open</h2>'
-      + '<p style="margin:0;font-size:14px;color:var(--muted)">There&rsquo;s no Odyssey lobby running right now. The <b>host</b> opens these — keep this page open and the <b>Join</b> button appears here the moment one goes live.</p>';
+      + '<p style="margin:0;font-size:14px;color:var(--muted)">There&rsquo;s no Marauder lobby running right now. The <b>host</b> opens these — keep this page open and the <b>Join</b> button appears here the moment one goes live.</p>';
   }
   function renderIdle(){ if(canHost){ renderOpen(); } else { renderWait(); } }
   // Host only: an open was rejected (e.g. a mod that isn't team mode). Show it ON

@@ -17,7 +17,10 @@ RANKS = [
     {"level": 8, "key": "shadowx3", "name": "Shadow X-3",       "ship": 702,
      "cut": 0.005, "band": "Top 0.5%", "flair": 8, "diamond": True,
      "color": "#8ef3ff", "glow": "rgba(150,230,255,.55)"},
-    {"level": 7, "key": "odyssey",  "name": "Odyssey",          "ship": 701,
+    # key stays "odyssey" (opaque id: peak_div records, the div-odyssey
+    # achievement and shop refs depend on it); the division is shown as the
+    # Marauder with the Marauder hull (603). The Odyssey itself is set aside.
+    {"level": 7, "key": "odyssey",  "name": "Marauder",         "ship": 603,
      "cut": 0.03, "band": "Top 3%", "flair": 7,
      "color": "#ff7b53", "glow": "rgba(255,123,83,.48)"},
     {"level": 6, "key": "advanced", "name": "Advanced-Fighter", "ship": 601,
