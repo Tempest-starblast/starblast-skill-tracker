@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.18.3"
+APP_VERSION = "9.18.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5571,6 +5571,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.18.4", "at": "2026-09-17T03:15:00Z", "changes": [
+        "<b>Every friend is their own card now.</b> Their division emblem at full size, their name in that division’s colour, their place on the board, rating and record — and anyone in a match gets a green card with the lobby and a Join button. Cards lift as you move over them.",
+        "<b>The division is no longer spelled out beside the emblem</b>, which was saying the same thing twice.",
+    ]},
     {"version": "9.18.3", "at": "2026-09-17T02:50:00Z", "changes": [
         "<b>Social rows now carry a rank.</b> Beside each person: their division by name in its own colour, their place on the board, their rating and their record — so a friends list reads like the leaderboard rather than a list of names.",
     ]},

@@ -1,207 +1,214 @@
 {% extends "base.html" %}
 {% block title %}Social - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-.sochead{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin:0 0 4px}
-.socsub{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6;margin:0 0 18px;max-width:64ch}
-.socgrid{display:grid;gap:14px;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:start}
-@media(max-width:900px){ .socgrid{grid-template-columns:1fr} }
-.soccard{border:1px solid var(--line2,rgba(153,221,255,.18));border-radius:12px;
-  background:rgba(153,221,255,.035);padding:15px 16px}
-.soccard h2{margin:0 0 12px;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;
-  color:#cfeefc}
-.soccard h2 .n{color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0;margin-left:6px}
+/* Each person is a tile, not a line in a list: a friend is something you look
+   at and press, and the division emblem wants room to be seen. */
+.socgrid{display:grid;gap:16px;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
+  align-items:start}
+@media(max-width:920px){ .socgrid{grid-template-columns:1fr} }
+.socsec{margin-bottom:18px}
+.sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 10px}
+.sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
+.sechead .n{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
 
-/* Add a friend */
+.tiles{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(224px,1fr))}
+
+.tile{position:relative;display:flex;flex-direction:column;gap:10px;padding:13px 13px 12px;
+  border:1px solid var(--line2,rgba(153,221,255,.16));border-radius:13px;
+  background:linear-gradient(160deg,rgba(153,221,255,.055),rgba(153,221,255,.015));
+  transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}
+.tile:hover{transform:translateY(-2px);border-color:rgba(153,221,255,.4);
+  box-shadow:0 8px 22px rgba(0,0,0,.4)}
+/* Someone actually in a match is the point of the page. */
+.tile.live{border-color:rgba(102,230,184,.45);
+  background:linear-gradient(160deg,rgba(102,230,184,.12),rgba(102,230,184,.02))}
+.tile.live:hover{border-color:rgba(102,230,184,.75);box-shadow:0 8px 24px rgba(0,0,0,.45)}
+
+.tiletop{display:flex;align-items:center;gap:10px;min-width:0}
+.emb{flex:none;width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.55))}
+.emb.blank{opacity:.16}
+.emb svg{display:block}
+.idcol{min-width:0;flex:1}
+.nm{display:block;font-weight:800;font-size:14px;letter-spacing:.2px;text-decoration:none;
+  color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+.nm:hover{text-decoration:underline}
+/* The emblem already says which division they are in; the number says where
+   in the board. Spelling the division out as well was saying it twice. */
+.pos{display:block;font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;
+  margin-top:1px}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11.5px;
+  color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.meta .tag{color:var(--blue,#99DDFF);font-weight:700}
+
+/* Where they are, when they are somewhere. */
+.where{display:flex;flex-wrap:wrap;align-items:center;gap:5px 7px;font-size:11.5px;
+  color:var(--text)}
+.modechip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:800;
+  letter-spacing:.7px;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:none}
+.modechip.team{color:#07130d;background:#66E6B8}
+.modechip.survival{color:#141005;background:#f0c04a}
+.lob{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ci{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+  border-radius:50%;font-size:10px;font-weight:700;cursor:help;line-height:1;flex:none}
+.ci.yes{color:#66E6B8;background:rgba(102,230,184,.16);border:1px solid rgba(102,230,184,.5)}
+.ci.no{color:#f0c04a;background:rgba(240,192,74,.13);border:1px solid rgba(240,192,74,.5)}
+
+.acts{display:flex;gap:7px;margin-top:auto}
+.btn{flex:1;font-family:inherit;font-size:12px;font-weight:700;border-radius:8px;cursor:pointer;
+  padding:8px 10px;text-align:center;white-space:nowrap;border:1px solid var(--blue,#66E6B8);
+  color:var(--blue,#66E6B8);background:rgba(102,230,184,.10);text-decoration:none;
+  display:inline-flex;align-items:center;justify-content:center}
+.btn:hover{background:rgba(102,230,184,.24);color:#fff}
+.btn[disabled]{opacity:.5;cursor:default}
+.btn.ghost{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);
+  background:none}
+.btn.ghost:hover{color:#ff9a9a;border-color:rgba(255,140,140,.55);background:rgba(255,120,120,.09)}
+
+/* Add a friend, and the panel beside it. */
+.side{border:1px solid var(--line2,rgba(153,221,255,.16));border-radius:13px;
+  background:rgba(153,221,255,.03);padding:15px 16px}
+.side h2{margin:0 0 11px;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;
+  color:#cfeefc}
 .addrow{display:flex;gap:8px}
-.addsep{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.055)}
-.addrow input{flex:1;min-width:0;font-family:inherit;font-size:14px;color:var(--text);
+.addrow input{flex:1;min-width:0;font-family:inherit;font-size:13.5px;color:var(--text);
   background:rgba(153,221,255,.05);border:1px solid var(--line2,rgba(153,221,255,.28));
   border-radius:9px;padding:9px 12px}
 .addrow input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
-.btn{font-family:inherit;font-size:13px;font-weight:700;border-radius:9px;cursor:pointer;
-  padding:9px 14px;white-space:nowrap;border:1px solid var(--blue,#66E6B8);
-  color:var(--blue,#66E6B8);background:rgba(102,230,184,.10)}
-.btn:hover{background:rgba(102,230,184,.22);color:#fff}
-a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
-.btn.sm{padding:5px 10px;font-size:12px}
-.btn.ghost{border-color:var(--line2,rgba(153,221,255,.28));color:var(--muted,#8aa0b0);
-  background:none}
-.btn.ghost:hover{color:#ff9a9a;border-color:rgba(255,140,140,.5);background:rgba(255,120,120,.08)}
+.addrow .btn{flex:none}
 .msg{font-size:12.5px;color:var(--muted,#8aa0b0);margin-top:9px;min-height:1.2em}
 .msg.bad{color:#ff9a9a}
-
-/* A person */
-/* A person. The rule goes BETWEEN rows - :last-child cannot do that here,
-   because the add-a-friend box is the last child, so the bottom row kept a
-   line under it that belonged to nothing. */
-.prow2{display:flex;align-items:center;gap:12px;padding:9px 10px;min-height:52px;
-  border-radius:10px;margin:0 -10px;transition:background .13s ease,box-shadow .13s ease}
-.prow2:hover{background:rgba(153,221,255,.055);box-shadow:inset 3px 0 0 var(--blue,#99DDFF)}
-/* Their division's ship, the same emblem the leaderboard gives them. */
-.femb{flex:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center;
-  filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
-.femb.blank{opacity:.18}
-.femb svg{display:block}
-.prow2 + .prow2{border-top:1px solid rgba(255,255,255,.05)}
-.prow2 .who{min-width:0;flex:1}
-.prow2 .nm{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;display:block;color:var(--text);text-decoration:none;
-  line-height:1.35}
-.prow2 .nm:hover{color:var(--blue)}
-/* The second line is a row of small things, not a sentence: laying it out as
-   one keeps the chips on the same middle line as the words beside them. */
-.prow2 .sub{display:flex;align-items:center;flex-wrap:wrap;gap:4px 7px;margin-top:2px;
-  font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;
-  line-height:1.35}
-.prow2 .acts{display:flex;gap:8px;flex:none;align-items:center}
-/* Every action button the same width, so they stack into a column down the
-   right edge instead of each ending wherever its word does. */
-.prow2 .acts .btn{min-width:92px;text-align:center;justify-content:center}
-
-/* Playing right now */
-.onnow{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
-  color:#66E6B8;letter-spacing:.3px}
-.onnow i{width:7px;height:7px;border-radius:50%;background:#66E6B8;display:inline-block;
-  flex:none;animation:sp 2s infinite}
-/* Somebody in a match is the most interesting row on the page; let it glow. */
-.soccard .prow2.live{background:linear-gradient(90deg,rgba(102,230,184,.09),rgba(102,230,184,0) 62%)}
-.soccard .prow2.live:hover{box-shadow:inset 3px 0 0 var(--green,#66E6B8)}
-@keyframes sp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 6px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
 .empty{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6}
-.clanline{font-size:13px;color:var(--muted,#8aa0b0);line-height:1.8}
-.clanline b{color:var(--text)}
-.modechip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;
-  letter-spacing:.7px;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:none}
-.modechip.team{color:#0b1016;background:#66E6B8}
-.modechip.survival{color:#0b1016;background:#f0c04a}
-.ci{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
-  border-radius:50%;font-size:10px;font-weight:700;cursor:help;line-height:1;flex:none}
-.ci.yes{color:#66E6B8;background:rgba(102,230,184,.14);border:1px solid rgba(102,230,184,.45)}
-.ci.no{color:#f0c04a;background:rgba(240,192,74,.12);border:1px solid rgba(240,192,74,.45)}
-.tagchip{font-size:10.5px;color:var(--muted,#8aa0b0);white-space:nowrap}
-.divnm{font-weight:700;letter-spacing:.2px;white-space:nowrap}
-.rk{font-variant-numeric:tabular-nums;color:var(--muted,#8aa0b0);white-space:nowrap}
-.wl{font-variant-numeric:tabular-nums;white-space:nowrap}
-
-
+.clanline{font-size:13px;color:var(--muted,#8aa0b0);line-height:1.7;margin:0}
+.clanline b{color:var(--text);font-size:15px}
 {% endblock %}
 {% block body %}
 <div class="ptitlerow"><h1 class="ptitle">{{ t('Social') }}</h1>{% set q = 'friends' %}{% set tip = 'How friends and clanmates work' %}{% include "_infobtn.html" %}</div>
 
 {% if not signed_in %}
-<div class="soccard">
+<div class="side">
   <h2>Friends</h2>
   <p class="empty">Sign in to add friends and see who is playing &mdash; the button is in
     the header, or <a href="/auth/discord?next=/social">sign in with Discord</a>.</p>
 </div>
 {% else %}
 
+{% macro emblem(p) -%}
+{% if p.division %}<span class="emb" title="{{ p.division.name }}">{{ rank_emblem(p.division.ship, 34, p.division.color, p.division.name)|safe }}</span>{% else %}<span class="emb blank"></span>{% endif %}
+{%- endmacro %}
+
+{% macro who(p) -%}
+<div class="tiletop">{{ emblem(p) }}<div class="idcol">
+  <a class="nm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
+  <span class="pos">#{{ '{:,}'.format(p.rank) }}</span>
+</div></div>
+<div class="meta"><span>{{ '{:,.0f}'.format(p.elo) }}</span><span>{{ p.wins }}W {{ p.losses }}L</span>{% if p.clan %}<span class="tag">{{ p.clan }}</span>{% endif %}</div>
+{%- endmacro %}
+
 <div class="socgrid">
   <div>
     {% if onnow %}
-    <div class="soccard" style="margin-bottom:14px">
-      <h2>Playing now <span class="n">{{ onnow|length }}</span></h2>
-      {% for p in onnow %}
-      <div class="prow2" data-name="{{ p.name }}">
-        {% if p.division %}<span class="femb" title="{{ p.division.name }}">{{ rank_emblem(p.division.ship, 26, p.division.color, p.division.name)|safe }}</span>{% else %}<span class="femb blank"></span>{% endif %}
-        <div class="who">
-          <a class="nm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
-          <span class="sub">
+    <div class="socsec">
+      <div class="sechead"><h2>Playing now</h2><span class="n">{{ onnow|length }}</span></div>
+      <div class="tiles">
+        {% for p in onnow %}
+        <div class="tile live" data-name="{{ p.name }}">
+          {{ who(p) }}
+          <div class="where">
             <span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span>
-            {% if p.division %}<b class="divnm" style="color:{{ p.division.color }}">{{ p.division.name }}</b><span class="rk">#{{ '{:,}'.format(p.rank) }}</span>{% endif %}
-            {{ p.playing.lobby }}{% if p.playing.region %} &middot; {{ p.playing.region }}{% endif %}
+            <span class="lob">{{ p.playing.lobby }}</span>
             {% if p.playing.checked_in %}<span class="ci yes" role="img" aria-label="Checked in"
               title="Checked in &mdash; this result will be recorded against their account">&#10003;</span>
             {% else %}<span class="ci no" role="img" aria-label="Not checked in"
               title="Not checked in &mdash; the result will land on whatever name the game reports, not on their account. They can still check in from Play before the match ends.">!</span>{% endif %}
-            {% if not p.is_friend and p.clan %}<span class="tagchip">&middot; {{ p.clan }}</span>{% endif %}
-          </span>
+          </div>
+          <div class="acts">
+            {% if p.playing.sid %}<button type="button" class="btn" data-act="join"
+              data-sid="{{ p.playing.sid }}">Join</button>{% endif %}
+          </div>
         </div>
-        <div class="acts">
-          {% if p.playing.sid %}<button type="button" class="btn sm" data-act="join"
-            data-sid="{{ p.playing.sid }}">Join</button>{% endif %}
-        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
     </div>
     {% endif %}
 
     {% if incoming %}
-    <div class="soccard" style="margin-bottom:14px">
-      <h2>Friend requests <span class="n">{{ incoming|length }}</span></h2>
-      {% for p in incoming %}
-      <div class="prow2" data-name="{{ p.name }}">
-        {% if p.division %}<span class="femb" title="{{ p.division.name }}">{{ rank_emblem(p.division.ship, 26, p.division.color, p.division.name)|safe }}</span>{% else %}<span class="femb blank"></span>{% endif %}
-        <div class="who">
-          <a class="nm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
-          <span class="sub">{% if p.division %}<b class="divnm" style="color:{{ p.division.color }}">{{ p.division.name }}</b>{% endif %}<span class="rk">#{{ '{:,}'.format(p.rank) }}</span><span>{{ '{:,.0f}'.format(p.elo) }}</span><span class="wl">{{ p.wins }}W {{ p.losses }}L</span>{% if p.clan %}<span class="tagchip">{{ p.clan }}</span>{% endif %}</span>
+    <div class="socsec">
+      <div class="sechead"><h2>Friend requests</h2><span class="n">{{ incoming|length }}</span></div>
+      <div class="tiles">
+        {% for p in incoming %}
+        <div class="tile" data-name="{{ p.name }}">
+          {{ who(p) }}
+          <div class="acts">
+            <button type="button" class="btn" data-act="accept">Accept</button>
+            <button type="button" class="btn ghost" data-act="decline">Decline</button>
+          </div>
         </div>
-        <div class="acts">
-          <button type="button" class="btn sm" data-act="accept">Accept</button>
-          <button type="button" class="btn sm ghost" data-act="decline">Decline</button>
-        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
     </div>
     {% endif %}
 
-    <div class="soccard">
-      <h2>Friends <span class="n">{{ friends|length }}</span></h2>
+    <div class="socsec">
+      <div class="sechead"><h2>Friends</h2><span class="n">{{ friends|length }}</span></div>
       {% if friends %}
+      <div class="tiles">
         {% for p in friends %}
-        <div class="prow2{% if p.playing %} live{% endif %}" data-name="{{ p.name }}">
-          {% if p.division %}<span class="femb" title="{{ p.division.name }}">{{ rank_emblem(p.division.ship, 26, p.division.color, p.division.name)|safe }}</span>{% else %}<span class="femb blank"></span>{% endif %}
-          <div class="who">
-            <a class="nm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
-            {% if p.playing %}
-            <span class="sub"><span class="onnow"><i></i>Playing</span>
-              &middot; {{ p.playing.lobby }}{% if p.playing.region %} &middot; {{ p.playing.region }}{% endif %}</span>
-            {% else %}
-            <span class="sub">{% if p.division %}<b class="divnm" style="color:{{ p.division.color }}">{{ p.division.name }}</b>{% endif %}<span class="rk">#{{ '{:,}'.format(p.rank) }}</span><span>{{ '{:,.0f}'.format(p.elo) }}</span><span class="wl">{{ p.wins }}W {{ p.losses }}L</span>{% if p.clan %}<span class="tagchip">{{ p.clan }}</span>{% endif %}</span>
-            {% endif %}
-          </div>
+        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}">
+          {{ who(p) }}
+          {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
           <div class="acts">
-            <button type="button" class="btn sm ghost" data-act="remove">Remove</button>
+            <button type="button" class="btn ghost" data-act="remove">Remove</button>
           </div>
         </div>
         {% endfor %}
+      </div>
       {% else %}
-        <p class="empty">No friends yet. Add someone by the name they play under.</p>
-      {% endif %}
-      <div class="addrow addsep">
-        <input id="addq" type="text" autocomplete="off" placeholder="Add a friend by name"
-               aria-label="Add a friend by name">
-        <button type="button" class="btn" id="addbtn">Send request</button>
-      </div>
-      <div class="msg" id="msg"></div>
-      {% if outgoing %}
-      <div style="margin-top:14px">
-        <h2 style="margin-bottom:8px">Sent <span class="n">{{ outgoing|length }}</span></h2>
-        {% for p in outgoing %}
-        <div class="prow2{% if p.playing %} live{% endif %}" data-name="{{ p.name }}">
-          {% if p.division %}<span class="femb" title="{{ p.division.name }}">{{ rank_emblem(p.division.ship, 26, p.division.color, p.division.name)|safe }}</span>{% else %}<span class="femb blank"></span>{% endif %}
-          <div class="who"><a class="nm" href="/player/{{ p.name|urlencode }}">{{ p.name }}</a>
-            <span class="sub">waiting for an answer</span></div>
-          <div class="acts"><button type="button" class="btn sm ghost" data-act="remove">Cancel</button></div>
-        </div>
-        {% endfor %}
-      </div>
+      <p class="empty">No friends yet. Add someone by the name they play under.</p>
       {% endif %}
     </div>
+
+    {% if outgoing %}
+    <div class="socsec">
+      <div class="sechead"><h2>Sent</h2><span class="n">{{ outgoing|length }}</span></div>
+      <div class="tiles">
+        {% for p in outgoing %}
+        <div class="tile" data-name="{{ p.name }}">
+          {{ who(p) }}
+          <div class="acts">
+            <button type="button" class="btn ghost" data-act="remove">Cancel</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </div>
 
-  <div class="soccard">
-    <h2>Your clan</h2>
-    {% if clan %}
-      <p class="clanline"><b>{{ clan.tag }}</b><br>{{ clan.members }} member{{ '' if clan.members == 1 else 's' }}</p>
-      <div class="acts" style="margin-top:14px;display:flex;gap:8px">
-        <a class="btn sm" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
-        <a class="btn sm ghost" href="/myclan">Manage</a>
+  <div>
+    <div class="side" style="margin-bottom:16px">
+      <h2>Add a friend</h2>
+      <div class="addrow">
+        <input id="addq" type="text" autocomplete="off" placeholder="Name they play under"
+               aria-label="Add a friend by name">
+        <button type="button" class="btn" id="addbtn">Send</button>
       </div>
-    {% else %}
-      <p class="empty">You are not in a clan.</p>
-      <div style="margin-top:14px"><a class="btn sm" href="/clans">Browse clans</a></div>
-    {% endif %}
+      <div class="msg" id="msg"></div>
+    </div>
+
+    <div class="side">
+      <h2>Your clan</h2>
+      {% if clan %}
+        <p class="clanline"><b>{{ clan.tag }}</b><br>{{ clan.members }} member{{ '' if clan.members == 1 else 's' }}</p>
+        <div class="acts" style="margin-top:13px">
+          <a class="btn" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
+          <a class="btn ghost" href="/myclan">Manage</a>
+        </div>
+      {% else %}
+        <p class="empty">You are not in a clan.</p>
+        <div class="acts" style="margin-top:13px"><a class="btn" href="/clans">Browse clans</a></div>
+      {% endif %}
+    </div>
   </div>
 </div>
 
@@ -227,7 +234,7 @@ a.btn{display:inline-flex;align-items:center;justify-content:center;text-decorat
   document.addEventListener('click', function(ev){
     var b=ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
-    var row=b.closest('.prow2'), name=row && row.getAttribute('data-name');
+    var tile=b.closest('.tile'), name=tile && tile.getAttribute('data-name');
     if(!name) return;
     var act=b.getAttribute('data-act');
     if(act==='accept')  post('/friends/respond', {name:name, accept:'1'}, reload);
