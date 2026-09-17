@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.24.3"
+APP_VERSION = "9.24.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -98,9 +98,11 @@ GEMS_PUBLIC = False
 # balance becomes not playing the matches you might lose.
 GEM_WIN = 100
 GEM_LOSS = 10
-# A clan earns from its members playing, and so does whoever runs it. Both are
-# per member win, so a big clan earns more because more of it is playing.
-GEM_CLAN_WIN = 10
+# A clan earns from its members playing, and so do the people who run it:
+# the leader and every co-leader, each. Both are per member win, so a big
+# clan earns more because more of it is playing. A moderator is not paid -
+# they remove members, they do not run the clan.
+GEM_CLAN_WIN = 50
 GEM_LEADER_WIN = 10
 # Once a day, on your first win, so somebody with one match in them is not
 # simply left behind by somebody with twenty.
@@ -12250,19 +12252,34 @@ def gem_balance(c, kind, owner):
         return 0
 
 
-def gem_clan_leader(c, tag):
-    """The norm_name of whoever runs a clan, or None. Only the leader - a
-    co-leader helps run the clan, they do not collect on it."""
+def gem_clan_officers(c, tag):
+    """norm_names of everyone who runs a clan and is paid on it: the leader
+    and each co-leader. Not moderators. Only officers with a player row -
+    gems have nowhere else to land."""
     if not tag:
-        return None
+        return []
     try:
-        r = c.execute("SELECT p.norm_name FROM clan_admins a "
-                      "JOIN players p ON p.google_sub = a.google_sub "
-                      "WHERE a.clan = ? AND COALESCE(a.role, 'leader') = 'leader' "
-                      "AND p.norm_name IS NOT NULL LIMIT 1", (tag,)).fetchone()
-        return r[0] if r else None
+        return [r[0] for r in c.execute(
+            "SELECT DISTINCT p.norm_name FROM clan_admins a "
+            "JOIN players p ON p.google_sub = a.google_sub "
+            "WHERE a.clan = ? AND COALESCE(a.role, 'leader') IN ('leader', 'coleader') "
+            "AND p.norm_name IS NOT NULL", (tag,)).fetchall()]
     except sqlite3.Error:
-        return None
+        return []
+
+
+def gem_clan_leader(c, tag):
+    """Kept for the one-off scripts that call it: the leader alone."""
+    for nn in gem_clan_officers(c, tag):
+        try:
+            r = c.execute("SELECT 1 FROM clan_admins a JOIN players p ON p.google_sub = a.google_sub "
+                          "WHERE a.clan = ? AND p.norm_name = ? AND COALESCE(a.role, 'leader') = 'leader' "
+                          "LIMIT 1", (tag, nn)).fetchone()
+        except sqlite3.Error:
+            r = None
+        if r:
+            return nn
+    return None
 
 
 def gem_check_win_achievements(c, nn, wins):
@@ -12338,14 +12355,13 @@ def award_match_gems(c, applied, match_id):
                 got += amount
             tag = row[1]
             if tag:
-                # The clan earns from the win, and so does whoever runs it.
-                # Keyed per member so a clan with several winners in one match
-                # is paid for each of them, once.
+                # The clan earns from the win, and so does every officer who
+                # runs it. Keyed per member so a clan with several winners in
+                # one match is paid for each of them, once per officer.
                 gem_grant(c, "clan", tag, GEM_CLAN_WIN, "member-win",
                           "%s#%s" % (match_id, nn))
-                boss = gem_clan_leader(c, tag)
-                if boss:
-                    gem_grant(c, "player", boss, GEM_LEADER_WIN, "member-win",
+                for officer in gem_clan_officers(c, tag):
+                    gem_grant(c, "player", officer, GEM_LEADER_WIN, "member-win",
                               "%s#%s" % (match_id, nn))
         if got:
             out.append((player, got))
