@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.22.0"
+APP_VERSION = "9.22.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2634,6 +2634,10 @@ def inject_auth():
             "dev_testing": bool(session.get("dev_real_owner")),
             "dev_mode": session.get("dev_mode") or "new",
             "dev_elo": session.get("dev_elo"),
+            # The unreleased surfaces (gems, achievements, the profile home).
+            # False for everyone but the owner until GEMS_PUBLIC flips, and
+            # the templates render exactly as before when it is False.
+            "gems_on": gems_visible(),
             "rank_emblem": ranks.emblem_svg,
             "ship_name": ship_shapes.ship_name,
             # A green padlock for a protected rating (accounts get a green check).
@@ -11818,10 +11822,22 @@ def me():
         _nav.append({"t": "s", "id": "ownerSec", "label": "Owner"})
         _nav.append({"t": "a", "href": "/flood", "id": "floodTab", "label": "Flood review"})
         _nav.append({"t": "a", "href": "/dev/merges", "id": "mergesTab", "label": "Merge requests"})
+    # Unreleased: the gem economy. Sent only while it is visible to this
+    # account, so a visitor's page never learns the entry exists.
+    _gems = None
+    if gems_visible() and account_name:
+        _nav.append({"t": "a", "href": "/achievements", "id": "achTab",
+                     "label": "Achievements", "badge": "NEW", "colour": "#8ef3ff"})
+        try:
+            _c5 = db()
+            _gems = gem_balance(_c5.cursor(), "player", normalize_name(account_name))
+            _c5.close()
+        except sqlite3.Error:
+            _gems = None
     # The flood toast links to the review page; only the owner is told it exists.
     _flood_link = {"href": "/flood", "label": "Flood review"} if _owner_now else None
     return jsonify({"logged_in": True, "account_name": account_name, "clan": my_clan, "names": names, "checkin": checkin, "stats": stats, "admin_of": admin_of, "notices": notices,
-                    "nav": _nav, "flood_link": _flood_link,
+                    "nav": _nav, "flood_link": _flood_link, "gems": _gems,
                     # Reveals the owner-only live win-probability tab in the menu.
                     "is_owner": is_site_owner(),
                     # Reveals the "Odyssey lobby" tab: any established Odyssey
@@ -18597,8 +18613,81 @@ def watched_totals():
     return team, surv
 
 
+def home_page():
+    """Your own front page: who you are, what you have, where to go.
+
+    Deliberately not a stat sheet. The record is one line; what leads is the
+    emblem, the name, the balance, the achievements in hand and the next one
+    to reach. Returns None when there is nobody to show it to, and the caller
+    falls through to the board.
+    """
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return None
+    name, nn = me
+    c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0), clan, bio, "
+              "peak_rank, peak_div FROM players WHERE norm_name = ?", (nn,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return None
+    elo, wins, losses, clan, bio, peak_rank, peak_div_key = row
+    played = wins + losses
+    c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
+    rank = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM players")
+    rank_of = c.fetchone()[0]
+    division = division_map().get(nn) if played >= PROVISIONAL_GAMES else None
+    peak_division = ranks.RANK_BY_KEY.get(peak_div_key) if peak_div_key else None
+    clan_shown = clan_display(c, clan) if clan else None
+
+    balance = gem_balance(c, "player", nn)
+    today = time.strftime('%Y-%m-%d', time.gmtime())
+    c.execute("SELECT COALESCE(SUM(amount), 0) FROM gem_ledger WHERE owner_kind = 'player' "
+              "AND owner = ? AND amount > 0 AND at >= ?", (nn, today))
+    today_gems = c.fetchone()[0]
+
+    earned = {}
+    for ref, at in c.execute("SELECT ref, at FROM gem_ledger WHERE owner_kind = 'player' "
+                             "AND owner = ? AND reason = 'achievement'", (nn,)).fetchall():
+        earned[ref] = (at or "")[:10]
+    cat = gem_achievement_catalog()
+    have = [dict(a, at=earned[a["key"]]) for a in cat if a["key"] in earned]
+    # Ranks first in the catalogue, lowest first, so the first one you do not
+    # have is the next rung - or, past the ladder, the next milestone.
+    next_up = next((a for a in cat if a["key"] not in earned), None)
+
+    c.execute("SELECT m.played_at, mp.won, mp.delta, m.id FROM match_players mp "
+              "JOIN matches m ON m.id = mp.match_row WHERE mp.norm_name = ? "
+              "AND m.played_at > COALESCE((SELECT wiped_before FROM players "
+              "WHERE norm_name = mp.norm_name), '') ORDER BY m.id DESC LIMIT 10", (nn,))
+    recent = [{"at": (r[0] or "")[:16], "won": bool(r[1]),
+               "delta": round(r[2] or 0, 1), "mid": r[3]} for r in c.fetchall()]
+    conn.close()
+    return render_template(
+        'home.html', version=APP_VERSION, page='home', name=name,
+        elo=elo, wins=wins, losses=losses, played=played,
+        winrate=("%d%%" % round(100.0 * wins / played)) if played else None,
+        rank=rank, rank_of=rank_of, division=division, peak_division=peak_division,
+        peak_rank=peak_rank, clan=clan, clan_shown=clan_shown, bio=bio,
+        placements_left=max(0, PROVISIONAL_GAMES - played) if played < PROVISIONAL_GAMES else 0,
+        balance=balance, today_gems=today_gems, have=have, next_up=next_up,
+        total_ach=len(cat), recent=recent, preview=not GEMS_PUBLIC)
+
+
 @app.route('/')
+@app.route('/leaderboard')
 def leaderboard():
+    # Bare "/" is your own page while the preview is on for you. Anything
+    # with a query string is the board - every link the board makes to
+    # itself carries one - and so is /leaderboard, always.
+    if request.path == '/' and not request.args and gems_visible():
+        _home = home_page()
+        if _home is not None:
+            return _home
     period = request.args.get('period', 'all')
     region = request.args.get('region', ALL_REGIONS)
     if period not in PERIOD_KEYS:

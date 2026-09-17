@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Home - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+/* A profile, not a stat sheet: the emblem and the name lead, the numbers
+   follow in one line, and the things you can DO sit where a table used to. */
+.hero{display:grid;gap:18px;grid-template-columns:minmax(0,1.6fr) minmax(240px,1fr);
+  align-items:stretch;margin:0 0 18px}
+@media(max-width:820px){ .hero{grid-template-columns:1fr} }
+
+.idcard{position:relative;overflow:hidden;display:flex;gap:20px;align-items:center;
+  padding:22px 24px;border-radius:16px;border:1px solid var(--rk,rgba(153,221,255,.22));
+  background:linear-gradient(150deg,rgba(153,221,255,.07),rgba(2,6,12,.2));
+  box-shadow:0 0 0 1px rgba(0,0,0,.2), 0 18px 50px rgba(0,0,0,.45)}
+.idcard::after{content:"";position:absolute;inset:-40% -20% auto auto;width:60%;height:180%;
+  background:radial-gradient(closest-side,var(--rkglow,rgba(153,221,255,.18)),transparent 70%);
+  pointer-events:none}
+.idemb{flex:none;width:104px;height:104px;display:flex;align-items:center;justify-content:center;
+  filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
+.idtext{min-width:0;position:relative;z-index:1}
+.idname{margin:0;font-size:30px;line-height:1.1;font-weight:900;letter-spacing:.3px;
+  color:var(--text);overflow-wrap:anywhere}
+.idname .badge{display:inline-block;margin-right:8px;padding:2px 8px;border-radius:6px;
+  font-size:13px;font-weight:800;letter-spacing:.5px;vertical-align:middle;
+  color:var(--blue,#99DDFF);border:1px solid rgba(153,221,255,.4);text-decoration:none}
+.idrank{margin:8px 0 0;font-size:13.5px;color:var(--muted,#8aa0b0)}
+.idrank b{color:var(--rk,var(--text));font-size:16px;letter-spacing:.4px}
+.idline{margin:10px 0 0;font-size:13px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.idline span+span::before{content:"\\00b7";margin:0 8px;color:var(--dim,#5d7f93)}
+.idbio{margin:12px 0 0;font-size:13.5px;line-height:1.55;color:#cfe3ee;max-width:60ch}
+
+/* The balance. It is the thing this page is for, so it gets its own card. */
+.gemcard{display:flex;flex-direction:column;justify-content:center;gap:6px;padding:22px 24px;
+  border-radius:16px;border:1px solid rgba(142,243,255,.35);
+  background:linear-gradient(150deg,rgba(142,243,255,.13),rgba(142,243,255,.02));
+  text-decoration:none;color:inherit;transition:border-color .14s,transform .14s}
+.gemcard:hover{border-color:rgba(142,243,255,.7);transform:translateY(-2px)}
+.gemlbl{font-size:11.5px;letter-spacing:1.3px;text-transform:uppercase;color:#9fd9e6}
+.gemnum{display:flex;align-items:center;gap:10px;font-size:38px;font-weight:900;
+  color:#8ef3ff;font-variant-numeric:tabular-nums;line-height:1}
+.gemnum svg{width:28px;height:28px;flex:none;filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))}
+.gemsub{font-size:12.5px;color:var(--muted,#8aa0b0)}
+.gemsub b{color:#66E6B8}
+
+.sec{margin:0 0 18px}
+.sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 10px}
+.sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
+.sechead .n{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.sechead a.more{margin-left:auto;font-size:12px;color:var(--blue,#99DDFF);text-decoration:none}
+.sechead a.more:hover{text-decoration:underline}
+
+/* Achievements as a row of emblems: what you have in colour, the next one
+   named, nothing else - the page for the whole list is one click away. */
+.achrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.achpip{display:inline-flex;align-items:center;gap:7px;padding:6px 11px 6px 7px;border-radius:999px;
+  border:1px solid rgba(142,243,255,.3);background:rgba(142,243,255,.07);font-size:12px;
+  font-weight:700;color:#dff6ff;text-decoration:none}
+.achpip .emb{width:22px;height:22px;display:flex;align-items:center;justify-content:center}
+.achpip .emb svg{display:block}
+.achnext{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;
+  border:1px dashed rgba(153,221,255,.35);font-size:12px;color:var(--muted,#8aa0b0)}
+.achnext b{color:#8ef3ff;font-variant-numeric:tabular-nums}
+
+/* Recent form: a strip of results you can read at a glance and open. */
+.form{display:flex;flex-wrap:wrap;gap:6px}
+.form a{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:800;text-decoration:none;font-variant-numeric:tabular-nums}
+.form a.w{background:rgba(102,230,184,.18);color:#66E6B8;border:1px solid rgba(102,230,184,.45)}
+.form a.l{background:rgba(255,86,112,.14);color:#ff9a9a;border:1px solid rgba(255,86,112,.4)}
+.form a:hover{transform:translateY(-2px)}
+
+/* Where to go: tiles, because a place you can press should look pressable. */
+.go{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+.go a{display:flex;flex-direction:column;gap:4px;padding:14px 15px;border-radius:13px;
+  border:1px solid var(--line2,rgba(153,221,255,.16));text-decoration:none;color:inherit;
+  background:linear-gradient(160deg,rgba(153,221,255,.055),rgba(153,221,255,.015));
+  transition:transform .14s,border-color .14s}
+.go a:hover{transform:translateY(-2px);border-color:rgba(153,221,255,.45)}
+.go b{font-size:14px;color:var(--text)}
+.go span{font-size:11.5px;color:var(--muted,#8aa0b0)}
+.go a.play b{color:#66E6B8}
+
+.previewbar{display:flex;align-items:center;gap:10px;margin:0 0 16px;padding:10px 14px;
+  border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
+  color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
+.empty{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6}
+{% endblock %}
+{% block body %}
+{% set gem_svg %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
+{% set d = division %}
+
+{% if preview %}
+<div class="previewbar">🔒 Not released &mdash; this front page is only shown to you.</div>
+{% endif %}
+
+<div class="hero">
+  <div class="idcard"{% if d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
+    <div class="idemb">{% if d %}{{ rank_emblem(d.ship, 100, d.color, d.name)|safe }}{% else %}{{ rank_emblem(101, 84, '#8b949e', 'Fly')|safe }}{% endif %}</div>
+    <div class="idtext">
+      <h1 class="idname">{% if clan %}<a class="badge" href="/clan/{{ clan|urlencode }}">{{ clan_shown or clan }}</a>{% endif %}{{ name }}</h1>
+      <p class="idrank">
+        {%- if d %}<b style="color:{{ d.color }}">{{ d.name }}</b> &middot; {{ d.band }} &middot; #{{ '{:,}'.format(rank) }} of {{ '{:,}'.format(rank_of) }}
+        {%- elif placements_left %}<b>In placements</b> &middot; {{ placements_left }} more to earn a rank
+        {%- else %}#{{ '{:,}'.format(rank) }} of {{ '{:,}'.format(rank_of) }}{% endif %}
+      </p>
+      <p class="idline"><span>{{ '{:,.0f}'.format(elo) }} skill</span><span>{{ wins }}&ndash;{{ losses }}</span>{% if winrate %}<span>{{ winrate }} won</span>{% endif %}{% if peak_division and (not d or peak_division.level > d.level) %}<span>best {{ peak_division.name }}</span>{% endif %}</p>
+      {% if bio %}<p class="idbio">{{ bio }}</p>{% endif %}
+    </div>
+  </div>
+
+  <a class="gemcard" href="/achievements">
+    <span class="gemlbl">Gems</span>
+    <span class="gemnum">{{ gem_svg|safe }}{{ '{:,}'.format(balance) }}</span>
+    <span class="gemsub">{% if today_gems %}<b>+{{ '{:,}'.format(today_gems) }}</b> today &middot; {% endif %}{{ have|length }} of {{ total_ach }} achievements</span>
+  </a>
+</div>
+
+<section class="sec">
+  <div class="sechead"><h2>Achievements</h2><span class="n">{{ have|length }}/{{ total_ach }}</span>
+    <a class="more" href="/achievements">See all</a></div>
+  <div class="achrow">
+    {% for a in have %}
+    <a class="achpip" href="/achievements" title="{{ a.name }} &middot; {{ '{:,}'.format(a.gems) }} gems{% if a.at %} &middot; {{ a.at }}{% endif %}">
+      <span class="emb">{% if a.rank %}{{ rank_emblem(a.rank.ship, 22, a.rank.color, a.rank.name)|safe }}{% else %}{{ gem_svg|safe }}{% endif %}</span>{{ a.name }}
+    </a>
+    {% endfor %}
+    {% if next_up %}
+    <span class="achnext">Next: {{ next_up.name }} &middot; <b>+{{ '{:,}'.format(next_up.gems) }}</b></span>
+    {% endif %}
+    {% if not have and not next_up %}<p class="empty">Nothing yet.</p>{% endif %}
+  </div>
+</section>
+
+<section class="sec">
+  <div class="sechead"><h2>Recent form</h2><span class="n">last {{ recent|length }}</span>
+    <a class="more" href="/player/{{ name|urlencode }}">Full profile</a></div>
+  {% if recent %}
+  <div class="form">
+    {% for r in recent %}
+    <a class="{{ 'w' if r.won else 'l' }}" href="/replay/{{ r.mid }}"
+       title="{{ 'Win' if r.won else 'Loss' }} &middot; {{ '%+.1f'|format(r.delta) }} &middot; {{ r.at }}">{{ 'W' if r.won else 'L' }}</a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No tracked matches yet &mdash; press Play, join a lobby, and the first one lands here.</p>
+  {% endif %}
+</section>
+
+<section class="sec">
+  <div class="sechead"><h2>Where to</h2></div>
+  <div class="go">
+    <a class="play" href="/play"><b>Play</b><span>Check in and open the game</span></a>
+    <a href="/social"><b>Social</b><span>Friends, clanmates, who is on</span></a>
+    <a href="/leaderboard"><b>Leaderboard</b><span>Everyone, ranked</span></a>
+    <a href="/achievements"><b>Achievements</b><span>Every rank and milestone</span></a>
+    <a href="/account"><b>Your account</b><span>Names, protection, settings</span></a>
+  </div>
+</section>
+{% endblock %}

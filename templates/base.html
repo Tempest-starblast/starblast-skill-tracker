@@ -312,6 +312,15 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .pchip .pcn{font-size:12.5px;font-weight:700;color:#eaf8ff;letter-spacing:.5px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px}
 .pchip .pcr{font-size:11px;color:var(--muted);letter-spacing:.4px;white-space:nowrap}
+{%- if gems_on %}
+/* The balance, beside the name it belongs to. Behind the switch like the
+   markup: a class name in a stylesheet is a trace too. */
+.gchip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;text-decoration:none;
+  border-radius:3px;border:1px solid rgba(142,243,255,.35);background:rgba(142,243,255,.08);
+  color:#8ef3ff;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;flex-shrink:0}
+.gchip:hover{background:rgba(142,243,255,.16);border-color:rgba(142,243,255,.6)}
+.gchip svg{width:13px;height:13px;flex:none}
+{%- endif %}
 /* The red counter: invitations waiting plus decisions not yet seen. */
 .pbadge{min-width:18px;height:18px;border-radius:9px;background:var(--red,#ff5670);
   color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;
@@ -520,6 +529,13 @@ async function devRestore(){
           <span class="pbadge" id="pchipBadge" style="display:none"></span>
         </a>
         {%- endif %}
+        {%- if gems_on %}
+        <a class="gchip" id="gchip" href="/achievements" style="display:none" aria-label="Your gems"
+           title="Your gems">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>
+          <span id="gchipN"></span>
+        </a>
+        {%- endif %}
         <button id="authOutBtn" onclick="sbSignOut()">Sign out</button>
       </div>
     </div>
@@ -530,7 +546,12 @@ async function devRestore(){
    viewport on its own - and so the title and the tabs are visually
    separate things (owner's call). On phones it pins to the bottom. #}
 <nav class="tabs" id="mainTabs">
+  {%- if gems_on %}
+  <a href="/"            class="{% if page=='home' %}on{% endif %}">Home</a>
+  <a href="/leaderboard" class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
+  {%- else %}
   <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
+  {%- endif %}
   <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
   <a href="/replays"   class="{% if page=='replays'     %}on{% endif %}">{{ t('Replays') }}</a>
   {# TrueSkill tab retired 8.7.0 - the trial ratings are abandoned; the raw
@@ -742,6 +763,14 @@ window.addEventListener('DOMContentLoaded', async function(){
         document.getElementById('pchipRank').textContent = '#' + d.stats.rank
           + ' \u00b7 ' + d.stats.wins + '-' + d.stats.losses;
       }
+      {%- if gems_on %}
+      // The balance, from the same call. Only rendered while the preview is
+      // on for this account - a visitor's page has neither the chip nor this.
+      if(d.gems != null && document.getElementById('gchip')){
+        document.getElementById('gchipN').textContent = d.gems.toLocaleString();
+        document.getElementById('gchip').style.display = '';
+      }
+      {%- endif %}
       // Invitations waiting plus decisions not yet seen. Both live on
       // the account page, which is where the counter points.
       if(d.notices && d.notices.total){
