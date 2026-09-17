@@ -132,6 +132,20 @@
   margin-left:6px}
 .relnote{flex:1;text-align:center;font-size:11.5px;font-weight:700;color:var(--muted,#8aa0b0);
   padding:8px 0}
+
+/* A clan you could join. The tag is the thing being recognised, so it is set
+   larger than a player name and wears the clan's own colour. */
+.clantile .nm{font-size:16px}
+/* The region chip goes green when it is the one you actually play in - the
+   reason that clan is high in the list, said where the reason applies. */
+.meta .tag.here{color:#66E6B8}
+/* Opening the rest is a plain action, not a destructive one: .btn.ghost turns
+   red on hover because everything else wearing it removes something. */
+.btn.quiet{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);
+  background:none;flex:none;padding:8px 16px}
+.btn.quiet:hover{color:var(--blue,#99DDFF);border-color:rgba(153,221,255,.5);
+  background:rgba(153,221,255,.08)}
+.showrow{display:flex;margin-top:11px}
 /* Said where the button was pressed. */
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
   max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
@@ -246,6 +260,27 @@
         {% endfor %}
       </div>
     </div>
+    {% endif %}
+
+    {% if clan_recs %}
+    <section class="socsec">
+      <div class="sechead"><h2>Clans you could join</h2>
+        <span class="n">{{ clan_recs|length + clan_more|length }}</span></div>
+      <div class="tiles">
+        {% for ct in clan_recs %}{% include "_clantile.html" %}{% endfor %}
+      </div>
+      {% if clan_more %}
+      <div class="tiles" id="moreclans" style="margin-top:11px" hidden>
+        {% for ct in clan_more %}{% include "_clantile.html" %}{% endfor %}
+      </div>
+      <div class="showrow">
+        <button type="button" class="btn quiet" id="showall" aria-expanded="false"
+                aria-controls="moreclans"
+                data-more="Show all {{ clan_recs|length + clan_more|length }} clans"
+        >Show all {{ clan_recs|length + clan_more|length }} clans</button>
+      </div>
+      {% endif %}
+    </section>
     {% endif %}
 
   </div>
@@ -365,9 +400,49 @@
     if(ev.target === dlg){ onYes=null; dlg.close(); }
   });
 
+  // ---- asking a clan to take you -----------------------------------------
+  // /clan/apply answers with a message and an HTTP status, not an ok flag, so
+  // this reads the status rather than going through post().
+  var MY_NAME={{ (me or '')|tojson }};
+  function applyTo(tag, btn){
+    btn.disabled=true;
+    fetch('/clan/apply', {method:'POST', headers:{'Content-Type':'application/json'},
+                          body:JSON.stringify({clan:tag, name:MY_NAME})})
+      .then(function(r){ return r.json().then(function(j){ return {s:r.status, j:j}; }); })
+      .then(function(o){
+        say(o.j.message || '', o.s !== 200);
+        if(o.s === 200){
+          // The button has done the only thing it can do, so it stops being a
+          // button rather than sitting there inviting a second application.
+          var acts=btn.parentNode;
+          if(acts){ acts.innerHTML='';
+            var sp=document.createElement('span');
+            sp.className='relnote';
+            sp.textContent='Applied \u2014 waiting';
+            acts.appendChild(sp); }
+        } else { btn.disabled=false; }
+      })
+      .catch(function(){ say('Could not reach the site.', true); btn.disabled=false; });
+  }
+
+  // ---- the rest of the clans ---------------------------------------------
+  var showall=document.getElementById('showall'), more=document.getElementById('moreclans');
+  if(showall && more) showall.addEventListener('click', function(){
+    var opening = more.hidden;
+    more.hidden = !opening;
+    showall.textContent = opening ? 'Show fewer' : showall.getAttribute('data-more');
+    showall.setAttribute('aria-expanded', String(opening));
+  });
+
   document.addEventListener('click', function(ev){
     var b=ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
+    // A clan tile carries a tag where a person carries a name.
+    if(b.getAttribute('data-act')==='apply'){
+      var ch=b.closest('[data-tag]');
+      if(ch) applyTo(ch.getAttribute('data-tag'), b);
+      return;
+    }
     // A tile, or a row in the waiting list - whatever carries the name.
     var holder=b.closest('[data-name]'), name=holder && holder.getAttribute('data-name');
     if(!name) return;

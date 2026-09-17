@@ -83,7 +83,9 @@ CARDS = [
  ("Clans",
   '<p>A clan is a group of players who share a tag. Its page shows the roster ranked by'
   ' skill, the combined record, and where the clan plays.</p>'
-  '<p><b>Joining one.</b> Open the clan&#39;s page and press <b>Apply to join</b>, or use'
+  '<p><b>Joining one.</b> <a href="/social">Social</a> suggests the clans whose members'
+  ' play at about your standard, and will show you every clan that takes applications.'
+  ' You can also open a clan&#39;s page and press <b>Apply to join</b>, or use'
   ' an invite link its leader gives you. Either way the leader decides. If your in-game'
   ' name already carries the clan&#39;s tag when the clan is created, you are added'
   ' automatically.</p>'

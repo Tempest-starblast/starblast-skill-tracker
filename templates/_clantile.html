@@ -1,0 +1,28 @@
+{# One clan you could ask to join. Same tile as a person, different facts:
+   what standard it plays at, how big it is, where it plays - and how that
+   compares with you, said in words rather than left for you to work out. #}
+<div class="tile clantile" data-tag="{{ ct.tag }}">
+  <div class="tiletop">
+    <div class="idcol">
+      <a class="nm" href="/clan/{{ ct.tag|urlencode }}"
+         {% if ct.theme_color %}style="color:{{ ct.theme_color }}"{% endif %}>{{ ct.display }}</a>
+      <span class="pos">{{ ct.note }}</span>
+    </div>
+  </div>
+  <div class="meta">
+    <span title="Average rating of its members">{{ ct.avg_elo }}</span>
+    <span>{{ ct.size }} member{{ '' if ct.size == 1 else 's' }}</span>
+    <span>{{ ct.winrate }} won</span>
+    {% if ct.region_label %}<span class="tag{% if ct.same_region %} here{% endif %}"
+      {% if ct.same_region %}title="Where you play too"{% endif %}>{{ ct.region_label }}</span>{% endif %}
+  </div>
+  <div class="acts">
+    {% if ct.invited %}
+      <a class="btn" href="/clan/{{ ct.tag|urlencode }}">They invited you</a>
+    {% elif ct.applied %}
+      <span class="relnote">Applied &mdash; waiting</span>
+    {% else %}
+      <button type="button" class="btn" data-act="apply">Apply</button>
+    {% endif %}
+  </div>
+</div>

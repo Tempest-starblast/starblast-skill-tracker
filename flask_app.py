@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.20.5"
+APP_VERSION = "9.21.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5702,6 +5702,21 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.21.0", "at": "2026-09-17T18:00:00Z", "changes": [
+        "<b>Social now suggests clans you could join.</b> If you are not in one, "
+        "the clans whose members play at about your standard are put in front of "
+        "you, nearest first, with a <b>Show all clans</b> button for the rest. "
+        "Each one says what it is: its members\u2019 average rating, how many "
+        "there are, how often they win, and where they play \u2014 with the "
+        "region marked when it is the one you play in, which is also what lifts "
+        "it up the list.",
+        "<b>Apply without leaving the page.</b> The leader still decides, and a "
+        "clan that has already invited you goes to the front \u2014 there is "
+        "nothing to recommend when the decision is already yours.",
+        "Only clans that have a leader to read an application are listed. The "
+        "rest still take members from the tag in your name, so there is nothing "
+        "to apply for.",
+    ]},
     {"version": "9.20.5", "at": "2026-09-17T17:00:00Z", "changes": [
         "<b>93 matches from late August have been given back.</b> For a stretch "
         "between 25 August and 5 September the part of the tracker that "
@@ -11951,6 +11966,99 @@ def friends_playing(norms):
     return out
 
 
+# How many clans are put in front of you without being asked for. Enough to
+# choose between, few enough to read - the rest are one button away.
+CLAN_SUGGEST_SHOW = 3
+# Rating gaps, in points. Inside NEAR is "about your level"; past FAR it is a
+# different standard of play and saying so is more use than a polite hedge.
+CLAN_SUGGEST_NEAR = 60
+CLAN_SUGGEST_FAR = 250
+# What playing where you play is worth, expressed in rating points so it can
+# be weighed against the gap directly. A clan a little further from your
+# rating that plays your region beats a closer one you would never meet.
+CLAN_REGION_PULL = 120
+
+
+def clan_suggestions(c, my_name, my_elo, my_played, my_region):
+    """(the few to show, the rest) - clans you could ask to join, nearest your
+    own standard first.
+
+    Only clans with an admin are here. The rest have nobody to read an
+    application: they still pick members up from the tag in a name, so there
+    would be nothing to apply for.
+
+    The order is how far a clan's average rating sits from yours, pulled a
+    little towards one that plays where you play. Both halves of that are
+    printed on the tile - a recommendation whose reason you cannot see is
+    just a list in a surprising order.
+    """
+    curated = curated_clans(c)
+    if not curated:
+        return [], []
+    shown = clan_display_map(c)
+    meta = {r[0]: (r[1] or "", r[2] or "")
+            for r in c.execute("SELECT tag, region, theme FROM clans").fetchall()}
+    # Anything already open between you and a clan, so a tile never offers a
+    # button for something that has already happened.
+    pending = {r[0] for r in c.execute(
+        "SELECT clan FROM clan_invites WHERE status = 'pending' "
+        "AND direction = 'application' AND name = ?", (my_name,)).fetchall()}
+    invited = {r[0] for r in c.execute(
+        "SELECT clan FROM clan_invites WHERE status = 'pending' "
+        "AND direction = 'invite' AND name = ?", (my_name,)).fetchall()}
+    out = []
+    for tag, size, avg, wins, losses in c.execute(
+            "SELECT clan, COUNT(*), AVG(elo), SUM(COALESCE(wins, 0)), "
+            "SUM(COALESCE(losses, 0)) FROM players "
+            "WHERE clan IS NOT NULL AND clan != '' GROUP BY clan").fetchall():
+        if tag not in curated:
+            continue
+        avg = avg or 0.0
+        region, theme = meta.get(tag, ("", ""))
+        played = (wins or 0) + (losses or 0)
+        gap = avg - (my_elo or 0)
+        same_region = bool(region and my_region and region == my_region)
+        if not my_played:
+            # No rating yet, so there is no gap to speak of. Say the one thing
+            # that is true and useful instead of inventing a comparison.
+            note = "%d member%s" % (size, "" if size == 1 else "s")
+        elif abs(gap) <= CLAN_SUGGEST_NEAR:
+            note = "About your level"
+        elif gap > CLAN_SUGGEST_FAR:
+            note = "Well above your rating"
+        elif gap > 0:
+            note = "A step up"
+        elif gap < -CLAN_SUGGEST_FAR:
+            note = "Well below your rating"
+        else:
+            note = "You would be one of the stronger members"
+        out.append({
+            "tag": tag,
+            "display": shown.get(tag, tag),
+            "theme_color": CLAN_THEMES.get(theme, ""),
+            "region": region,
+            "region_label": REGION_LABELS.get(region, ""),
+            "same_region": same_region,
+            "size": size,
+            "avg": avg,
+            "avg_elo": "{:,.0f}".format(avg),
+            "winrate": ("%d%% won" % round(100.0 * (wins or 0) / played)) if played else "no matches yet",
+            "note": note,
+            "applied": tag in pending,
+            "invited": tag in invited,
+        })
+    if my_played:
+        out.sort(key=lambda r: (abs(r["avg"] - (my_elo or 0))
+                                - (CLAN_REGION_PULL if r["same_region"] else 0),
+                                -r["size"], r["tag"]))
+    else:
+        out.sort(key=lambda r: (-r["size"], r["tag"]))
+    # A clan that has already asked for you goes first whatever the ratings
+    # say: there is nothing to recommend when the decision is already yours.
+    out.sort(key=lambda r: 0 if r["invited"] else 1)
+    return out[:CLAN_SUGGEST_SHOW], out[CLAN_SUGGEST_SHOW:]
+
+
 @app.route('/social')
 def social_page():
     """Friends, requests, and your clan - the social half of the site."""
@@ -12085,12 +12193,33 @@ def social_page():
     if row and row[0]:
         c.execute("SELECT COUNT(*) FROM players WHERE clan = ?", (row[0],))
         clan = {"tag": row[0], "members": (c.fetchone() or [0])[0]}
+
+    # Clans to ask, but only for somebody who could actually ask: /clan/apply
+    # turns down anyone already in one, so the section would be a row of
+    # buttons that always fail.
+    clan_recs, clan_more = [], []
+    if not clan:
+        c.execute("SELECT elo, COALESCE(wins, 0) + COALESCE(losses, 0) "
+                  "FROM players WHERE norm_name = ?", (me[1],))
+        _mine = c.fetchone()
+        _my_elo = (_mine[0] if _mine else 0) or 0
+        _my_played = (_mine[1] if _mine else 0) or 0
+        # Where they actually play, not where they say they do - the region
+        # most of their matches happened in.
+        _my_region = ""
+        if _my_played:
+            _rs = [r for r in region_split(c, me[0]) if r["played"]]
+            if _rs:
+                _my_region = max(_rs, key=lambda r: r["played"])["key"]
+        clan_recs, clan_more = clan_suggestions(c, me[0], _my_elo,
+                                                _my_played, _my_region)
     conn.close()
     return render_template('social.html', version=APP_VERSION, page='social',
                            signed_in=True, me=me[0], play_name=play_name,
                            friends=fr, incoming=inc, outgoing=out, clan=clan,
                            onnow=onnow, my_tag=my_tag, hidden=hidden,
-                           mates=mate_cards)
+                           mates=mate_cards, clan_recs=clan_recs,
+                           clan_more=clan_more)
 
 
 @app.route('/api/social/live')
