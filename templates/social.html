@@ -10,6 +10,11 @@
 .sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 10px}
 .sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
 .sechead .n{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+/* How many of them are in a match, beside how many there are. */
+.nlive{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;
+  color:#07130d;background:#66E6B8;border-radius:999px;padding:2px 8px;cursor:help;
+  font-variant-numeric:tabular-nums;align-self:center}
+.nlive i{width:5px;height:5px;border-radius:50%;background:#07130d;display:inline-block;flex:none}
 
 .tiles{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(224px,1fr))}
 
@@ -187,7 +192,8 @@
     {% endif %}
 
     <div class="socsec">
-      <div class="sechead"><h2>Friends</h2><span class="n">{{ friends|length }}</span></div>
+      {% set flive = friends | selectattr('playing') | list | length %}
+      <div class="sechead"><h2>Friends</h2><span class="n">{{ friends|length }}</span>{% if flive %}<span class="nlive" title="{{ flive }} of your friends {{ 'is' if flive == 1 else 'are' }} in a match right now"><i></i>{{ flive }}</span>{% endif %}</div>
       {% if friends %}
       <div class="tiles">
         {% for p in friends %}
@@ -207,7 +213,8 @@
 
     {% if mates %}
     <div class="socsec">
-      <div class="sechead"><h2>{{ my_tag }} clanmates</h2><span class="n">{{ mates|length }}</span></div>
+      {% set mlive = mates | selectattr('playing') | list | length %}
+      <div class="sechead"><h2>{{ my_tag }} clanmates</h2><span class="n">{{ mates|length }}</span>{% if mlive %}<span class="nlive" title="{{ mlive }} of your clanmates {{ 'is' if mlive == 1 else 'are' }} in a match right now"><i></i>{{ mlive }}</span>{% endif %}</div>
       <div class="tiles">
         {% for p in mates %}
         <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}">
