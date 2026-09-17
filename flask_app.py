@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.20.0"
+APP_VERSION = "9.20.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1947,6 +1947,14 @@ def init_db():
     # visit; with it the row fetch walks the newest matches and stops at ten.
     c.execute("CREATE INDEX IF NOT EXISTS idx_matches_played ON matches(played_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_row ON match_players(match_row)")
+    # A profile asks "how many are above me?" on every view, and that was a
+    # full scan of the players table. Ranking by rating is the single most
+    # common thing this site does with that column.
+    c.execute("CREATE INDEX IF NOT EXISTS idx_players_elo ON players(elo)")
+    # The trueskill history is read newest-first for one player; without the
+    # date in the index that is a sort of everything the player has ever done.
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tsmp_norm_at "
+              "ON trueskill_match_players(norm_name, at)")
 
     # Which changelog versions the Discord #site-updates feed has posted.
     # Born marking every EXISTING version announced EXCEPT the newest, so the
@@ -5671,6 +5679,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.20.1", "at": "2026-09-17T09:00:00Z", "changes": [
+        "<b>Profiles load faster.</b> Working out where a player sits on the board was reading every player on the site, on every view; the skill history was being sorted from scratch each time. Both are indexed now.",
+    ]},
     {"version": "9.20.0", "at": "2026-09-17T08:30:00Z", "changes": [
         "<b>Friend requests you have sent now have a place on the page</b> — a “waiting on a reply” panel on the right, each with a Cancel.",
         "<b>A clanmate you have already asked no longer offers an Add button</b>; it says the request is sent, or that you are already friends.",
