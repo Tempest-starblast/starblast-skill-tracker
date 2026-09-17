@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.19.1"
+APP_VERSION = "9.19.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2185,6 +2185,21 @@ def init_db():
                     decided_note TEXT
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_merge_status ON merge_requests(status, id)")
+
+    # Wins handed back after the cross-team impersonation false positive
+    # (9.19.2). One row per credit, so the whole correction can be undone
+    # from this table alone.
+    c.execute('''CREATE TABLE IF NOT EXISTS recredits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_row INTEGER NOT NULL,
+                    match_id TEXT,
+                    norm_name TEXT NOT NULL,
+                    name TEXT,
+                    at TEXT,
+                    undone_at TEXT
+                )''')
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_recredit_once "
+              "ON recredits(match_row, norm_name)")
     # The current scheduled Odyssey-only custom lobby (single row, id=1). The
     # droplet host reports the fresh join link here every re-host; the /customgame
     # page shows it ONLY to verified Odyssey-rank players.
@@ -4109,6 +4124,76 @@ def repair_surrogates(obj):
     return obj
 
 
+@app.route('/api/wins_recredit', methods=['POST'])
+def api_wins_recredit():
+    """Restore a win that the impersonation guard took by mistake.
+
+    Takes {"rows": [{"match_id": .., "name": ..}, ..], "dry_run": bool}.
+
+    The WIN only. A match may not create or destroy rating (7.0.0): the
+    damping that balances the winners' gain against the losers' loss
+    already ran without these players, so paying them now would mint points
+    from nothing, and paying them out of their team-mates' gain would take
+    rating from people who did nothing wrong. The row is written with a
+    zero delta - their record gains the win and the match appears in their
+    history, and no rating moves.
+
+    Idempotent: a player already recorded in that match is left alone, and
+    `recredits` has a unique index so a second run credits nobody twice.
+    """
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    body = request.json or {}
+    rows = body.get('rows') or []
+    dry = bool(body.get('dry_run'))
+    if not isinstance(rows, list):
+        return jsonify({"error": "rows must be a list"}), 400
+    conn = db()
+    c = conn.cursor()
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    done, already, no_match, no_player, sample = 0, 0, 0, 0, []
+    for r in rows[:1000]:
+        if not isinstance(r, dict):
+            continue
+        mid = str(r.get('match_id') or '')
+        raw = str(r.get('name') or '')
+        nn = normalize_name(raw)
+        if not mid or not nn:
+            continue
+        m = c.execute("SELECT id FROM matches WHERE match_id = ? LIMIT 1", (mid,)).fetchone()
+        if not m:
+            no_match += 1
+            continue
+        mrow = m[0]
+        p = c.execute("SELECT name FROM players WHERE norm_name = ? LIMIT 1", (nn,)).fetchone()
+        if not p:
+            no_player += 1
+            continue
+        seen = c.execute("SELECT 1 FROM match_players WHERE match_row = ? AND norm_name = ? "
+                         "LIMIT 1", (mrow, nn)).fetchone()
+        if seen:
+            already += 1
+            continue
+        done += 1
+        if len(sample) < 8:
+            sample.append({"match_row": mrow, "name": p[0]})
+        if dry:
+            continue
+        c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, "
+                  "score, played_as, team, ship, deaths) "
+                  "VALUES (?, ?, ?, 1, 0, 0, 0, ?, 'win', NULL, NULL)",
+                  (mrow, p[0], nn, raw))
+        c.execute("UPDATE players SET wins = COALESCE(wins, 0) + 1 WHERE norm_name = ?", (nn,))
+        c.execute("INSERT OR IGNORE INTO recredits (match_row, match_id, norm_name, name, at) "
+                  "VALUES (?, ?, ?, ?, ?)", (mrow, mid, nn, p[0], now))
+    if not dry:
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "dry_run": dry, "credited": done,
+                    "already_had_it": already, "match_not_found": no_match,
+                    "player_not_found": no_player, "sample": sample}), 200
+
+
 @app.route('/api/score_backfill', methods=['POST'])
 def api_score_backfill():
     """Raise stored match scores to the peak each player actually reached.
@@ -5585,6 +5670,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.19.2", "at": "2026-09-17T05:40:00Z", "changes": [
+        "<b>162 wins taken by mistake have been given back.</b> Over eleven days the impersonation guard held players out of matches they had won, because a player moving between teams was briefly listed in both and read as two ships. Those wins are back on their records and in their match history. Their rating is deliberately untouched: a match is not allowed to create or destroy rating, and the balance for those matches was struck without them — paying them now would either invent points or take them off their team-mates, and neither is a fix.",
+    ]},
     {"version": "9.19.1", "at": "2026-09-17T05:00:00Z", "changes": [
         "<b>A name merge has no time limit, and now says so.</b> A record of any age, with any number of games, can be merged — it is read by a person, which is what the proof is for. The automatic “played under a different name” fix still only reaches back two days, because nobody approves that one; when it turns you down it now points you at the merge form instead of stopping there.",
         "<b>Two people asking for the same name are handled properly.</b> Both requests are kept and shown together, each side is told it is contested, and approving one closes the others rather than leaving them waiting on a question that has been answered.",
