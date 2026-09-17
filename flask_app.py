@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.20.4"
+APP_VERSION = "9.20.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5702,6 +5702,29 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.20.5", "at": "2026-09-17T17:00:00Z", "changes": [
+        "<b>93 matches from late August have been given back.</b> For a stretch "
+        "between 25 August and 5 September the part of the tracker that "
+        "RECORDED a match and the part that SCORED it were separate, and the "
+        "recorder covered more lobbies than the scorer did \u2014 so a number "
+        "of matches were watched from start to finish and then produced "
+        "nothing at all for anyone in them. Where the recording settles the "
+        "result beyond argument (every station but one destroyed while the "
+        "match was still running) the match is now on the record, and 1,039 "
+        "players have the win or the loss they played for. They are in your "
+        "history and they have a replay, the same as any other match.",
+        "<b>No rating moved, and that is deliberate.</b> A match is not allowed "
+        "to create or destroy rating: the winners\u2019 gain is balanced "
+        "against the losers\u2019 loss at the moment it is played. That "
+        "balance cannot be struck three weeks late against ratings that have "
+        "moved on since without disturbing every match that came after. So "
+        "the result is restored and the number beside it is not \u2014 the "
+        "same way results were given back when the impersonation check turned "
+        "out to be wrong.",
+        "<b>Matches whose winner the recording cannot settle were left alone.</b> "
+        "A guess that swaps a winner for a loser is worse than a gap, so "
+        "nothing was written unless the stations show the result outright.",
+    ]},
     {"version": "9.20.4", "at": "2026-09-17T16:10:00Z", "changes": [
         "<b>Fixed: on a flipped match, a player using a name other than their "
         "account name was the only one on their team still charged for the "
