@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.19.0"
+APP_VERSION = "9.19.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5118,21 +5118,25 @@ def claim_missed_result(c, sub_id, raw_name):
     if row and row[2] > FORGOT_MAX_RECORD_GAMES:
         return 400, {"ok": False,
                      "message": "'%s' has a record of its own by now, so its games "
-                                "can't be moved this way." % row[0]}
+                                "can't be moved automatically. Ask for a merge instead "
+                                "(/merge) - attach a screenshot and it is reviewed by "
+                                "hand, however old the record is." % row[0]}
     names = {name} | ({row[0]} if row else set())
     for nm in names:
         if c.execute("SELECT 1 FROM name_bindings WHERE in_game_name = ? AND sub != ? "
                      "LIMIT 1", (nm, sub_id)).fetchone():
             return 400, {"ok": False,
                          "message": "Another account has checked in under that name, "
-                                    "so its games can't be moved to yours."}
+                                    "so its games can't be moved to yours. If it is "
+                                    "genuinely you, use Report."}
     now_t = time.time()
     now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now_t))
     day_ago = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now_t - 86400))
     n_today = c.execute("SELECT COUNT(DISTINCT at) FROM credit_moves WHERE sub = ? "
                         "AND at > ? AND undone_at IS NULL", (sub_id, day_ago)).fetchone()[0]
     if n_today >= FORGOT_PER_DAY:
-        return 429, {"ok": False, "message": "One of these a day - try again tomorrow."}
+        return 429, {"ok": False, "message": "One of these a day - try again tomorrow, "
+                     "or ask for a merge (/merge): reviewed by hand, no daily limit."}
     since = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now_t - FORGOT_WINDOW_HOURS * 3600))
     checkins = c.execute("SELECT sys_id, created_at FROM checkins WHERE sub = ? "
                          "AND COALESCE(bound, 0) = 0 AND created_at > ? "
@@ -5140,8 +5144,10 @@ def claim_missed_result(c, sub_id, raw_name):
     if not checkins:
         return 404, {"ok": False,
                      "message": "No Play check-in from you in the last %d hours. Only a "
-                                "game you opened from the Play page here can be moved."
-                                % FORGOT_WINDOW_HOURS}
+                                "game you opened from the Play page here can be moved "
+                                "automatically. For anything older, ask for a merge "
+                                "(/merge): attach proof and it is reviewed by hand, with "
+                                "no time limit." % FORGOT_WINDOW_HOURS}
     taken = {(r[0], r[1]) for r in c.execute("SELECT sys_id, ship_id FROM name_bindings").fetchall()}
     moved, done = [], set()
     for sys_id, created_at in checkins:
@@ -5328,7 +5334,8 @@ def decide_missed(c, sub_id, raw_name, take):
     n_today = c.execute("SELECT COUNT(DISTINCT at) FROM credit_moves WHERE sub = ? AND at > ? "
                         "AND undone_at IS NULL", (sub_id, day_ago)).fetchone()[0]
     if n_today >= FORGOT_PER_DAY:
-        return 429, {"ok": False, "message": "One of these a day - try again tomorrow."}
+        return 429, {"ok": False, "message": "One of these a day - try again tomorrow, "
+                     "or ask for a merge (/merge): reviewed by hand, no daily limit."}
     moved = []
     for g in b["games"]:
         mid = g["match"]
@@ -5578,6 +5585,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.19.1", "at": "2026-09-17T05:00:00Z", "changes": [
+        "<b>A name merge has no time limit, and now says so.</b> A record of any age, with any number of games, can be merged — it is read by a person, which is what the proof is for. The automatic “played under a different name” fix still only reaches back two days, because nobody approves that one; when it turns you down it now points you at the merge form instead of stopping there.",
+        "<b>Two people asking for the same name are handled properly.</b> Both requests are kept and shown together, each side is told it is contested, and approving one closes the others rather than leaving them waiting on a question that has been answered.",
+    ]},
     {"version": "9.19.0", "at": "2026-09-17T04:10:00Z", "changes": [
         "<b>Fixed: wins were being quietly withheld from players who did nothing wrong.</b> A name is held out of a rating when the watcher sees it on two ships at once, since it then cannot tell which ship is the player. But it counted a name across all three teams, and a player moving between teams is listed in both for a moment while the rosters catch up — which read as two ships. Two ships under one name inside a single team is still refused on sight; across teams it now has to persist before it counts.",
         "<b>Removing a friend asks first</b> instead of doing it on the first click.",
@@ -15782,6 +15793,12 @@ def merge_request_submit():
         conn.close()
         return jsonify({"ok": False, "message": "You already have merge requests waiting - "
                        "let those be reviewed first."}), 429
+    # Somebody else already wants this same name. Both are stored - only one
+    # can be right and that is a judgement, not something to decide by who
+    # filed first - but both sides are told, and the review shows them together.
+    rival = c.execute("SELECT COUNT(*) FROM merge_requests WHERE from_norm = ? "
+                      "AND status = 'pending' AND google_sub != ?",
+                      (from_norm, sub_id)).fetchone()[0]
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     c.execute("INSERT INTO merge_requests (google_sub, from_name, from_norm, to_name, to_norm, "
               "reason, proof, proof_mime, status, created_at) VALUES (?,?,?,?,?,?,?,?, 'pending', ?)",
@@ -15796,6 +15813,11 @@ def merge_request_submit():
         pass
     conn.commit()
     conn.close()
+    if rival:
+        return jsonify({"ok": True, "contested": True,
+                        "message": "Request submitted. Somebody else has also asked for "
+                                   "'%s', so both are being looked at together - the proof "
+                                   "is what decides it." % from_name}), 200
     return jsonify({"ok": True, "message": "Request submitted. It's reviewed by hand - the "
                    "result will show here."}), 200
 
@@ -15830,9 +15852,21 @@ def dev_merges():
                        "FROM players WHERE norm_name = ?", (fnorm,)).fetchone()
         tr = c.execute("SELECT COALESCE(wins,0), COALESCE(losses,0), ROUND(COALESCE(elo,1000),1) "
                        "FROM players WHERE norm_name = ?", (tnorm,)).fetchone()
-        rows.append({"id": rid, "sub": sub, "from_name": fn, "to_name": tn,
-                     "reason": reason, "mime": mime, "status": status,
+        rows.append({"id": rid, "sub": sub, "from_name": fn, "from_norm": fnorm,
+                     "to_name": tn, "reason": reason, "mime": mime, "status": status,
                      "when": (created or '')[:16], "from_rec": fr, "to_rec": tr})
+    # Two accounts after the same name is the case worth seeing at a glance:
+    # approving one has to mean refusing the other, so they are marked and the
+    # pending ones are brought together at the top.
+    _pend = {}
+    for r in rows:
+        if r["status"] == "pending":
+            _pend[r["from_norm"]] = _pend.get(r["from_norm"], 0) + 1
+    for r in rows:
+        r["rivals"] = _pend.get(r["from_norm"], 0) if r["status"] == "pending" else 0
+    rows.sort(key=lambda r: (0 if r["status"] == "pending" else 1,
+                             0 if r.get("rivals", 0) > 1 else 1,
+                             r["from_norm"], -r["id"]))
     conn.close()
     return render_template('dev_merges.html', page='merge', version=APP_VERSION, rows=rows)
 
@@ -15860,6 +15894,14 @@ def dev_merges_decide(rid):
         c.execute("UPDATE merge_requests SET status = 'approved', decided_at = ?, "
                   "decided_note = ? WHERE id = ?",
                   (now, note or ("moved %d matches" % summary["matches_moved"]), rid))
+        # The name has gone somewhere; anyone else still waiting on it cannot
+        # also have it. Closing them here means nobody is left pending on a
+        # question that has already been answered.
+        c.execute("UPDATE merge_requests SET status = 'rejected', decided_at = ?, "
+                  "decided_note = ? WHERE from_norm = ? AND status = 'pending' "
+                  "AND id != ?",
+                  (now, "another account's request for this name was approved",
+                   from_norm, rid))
     else:
         c.execute("UPDATE merge_requests SET status = 'rejected', decided_at = ?, "
                   "decided_note = ? WHERE id = ?", (now, note, rid))

@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Merge requests - review{% endblock %}
 {% block css %}
+/* Two accounts after one name: approving either settles both, so it has to
+   be impossible to miss. */
+.dm.contested{border-color:rgba(240,192,74,.6);box-shadow:inset 3px 0 0 #f0c04a}
+.contest{margin-left:9px;font-size:11px;font-weight:700;letter-spacing:.4px;color:#f0c04a;
+  background:rgba(240,192,74,.13);border:1px solid rgba(240,192,74,.45);border-radius:5px;
+  padding:1px 7px;white-space:nowrap}
+
 .dmwrap{display:flex;flex-direction:column;gap:14px}
 .dm{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;backdrop-filter:var(--blur)}
 .dm.pending{border-color:rgba(240,192,74,.45)}
@@ -23,8 +30,8 @@
 <h1 class="ptitle">Merge requests</h1>
 <div class="dmwrap">
 {% for r in rows %}
-  <div class="dm {{ r.status }}">
-    <h3>{{ r.from_name }} &rarr; {{ r.to_name }} <span class="st">&middot; {{ r.status }}</span></h3>
+  <div class="dm {{ r.status }}{% if r.rivals and r.rivals > 1 %} contested{% endif %}">
+    <h3>{{ r.from_name }} &rarr; {{ r.to_name }} <span class="st">&middot; {{ r.status }}</span>{% if r.rivals and r.rivals > 1 %}<span class="contest" title="{{ r.rivals }} accounts have asked for this same name - approving one rejects the others">&#9888; contested &times;{{ r.rivals }}</span>{% endif %}</h3>
     <div class="rec"><b>{{ r.from_name }}</b> (to move): {% if r.from_rec %}{{ r.from_rec[0] }}W&nbsp;{{ r.from_rec[1] }}L &middot; {{ r.from_rec[2] }}{% else %}not on the board{% endif %}</div>
     <div class="rec"><b>{{ r.to_name }}</b> (target): {% if r.to_rec %}{{ r.to_rec[0] }}W&nbsp;{{ r.to_rec[1] }}L &middot; {{ r.to_rec[2] }}{% else %}not on the board{% endif %}</div>
     <div class="rec">requested {{ r.when }} &middot; acct {{ r.sub[:22] }}</div>
