@@ -1,6 +1,6 @@
 {# A small "?" beside a page title. It opens the Info page already searched
    for this page's topic, so an explanation lives in exactly one place and a
-   page only has to point at it. Set `q` (the search) and `tip` (the hover)
-   before including. #}
-<a class="infobtn" href="/info?q={{ q|urlencode }}" title="{{ tip }}"
-   aria-label="{{ tip }}">?</a>
+   page only has to point at it. Set `info_q` (the search) and `info_tip` (the hover) before
+   including - NOT `q`, which pages use for their own search boxes. #}
+<a class="infobtn" href="/info?q={{ info_q|urlencode }}" title="{{ info_tip }}"
+   aria-label="{{ info_tip }}">?</a>

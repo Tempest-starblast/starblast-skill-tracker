@@ -201,7 +201,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {%- endmacro %}
 <div class="bhead">
 <div class="bheadtext">
-<div class="ptitlerow"><h1 class="ptitle">{{ t('Leaderboard') }}</h1>{% set q = 'ranks' %}{% set tip = 'How the rating and the ranks work' %}{% include "_infobtn.html" %}</div>
+<div class="ptitlerow"><h1 class="ptitle">{{ t('Leaderboard') }}</h1>{% set info_q = 'ranks' %}{% set info_tip = 'How the rating and the ranks work' %}{% include "_infobtn.html" %}</div>
 {% set active = "players" %}
 {% include "_lbtabs.html" %}
 <div class="modebar" role="tablist" aria-label="Board mode">

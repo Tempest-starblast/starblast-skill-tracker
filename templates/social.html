@@ -119,7 +119,7 @@
 
 {% endblock %}
 {% block body %}
-<div class="ptitlerow"><h1 class="ptitle">{{ t('Social') }}</h1>{% set q = 'friends' %}{% set tip = 'How friends and clanmates work' %}{% include "_infobtn.html" %}</div>
+<div class="ptitlerow"><h1 class="ptitle">{{ t('Social') }}</h1>{% set info_q = 'friends' %}{% set info_tip = 'How friends and clanmates work' %}{% include "_infobtn.html" %}</div>
 
 {% if not signed_in %}
 <div class="side">

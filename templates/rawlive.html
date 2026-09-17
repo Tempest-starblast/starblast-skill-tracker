@@ -98,7 +98,7 @@ body.mini .radarmap{width:100%;height:auto;margin:0;border:none;border-radius:0}
 </style>
 
 <div class="rl-head">
-  <div class="ptitlerow"><h1 style="margin:0">Live matches</h1>{% set q = 'live matches' %}{% set tip = 'How the live view works' %}{% include "_infobtn.html" %}</div>
+  <div class="ptitlerow"><h1 style="margin:0">Live matches</h1>{% set info_q = 'live matches' %}{% set info_tip = 'How the live view works' %}{% include "_infobtn.html" %}</div>
   {# The delay is not an explanation, it is a fact about what you are looking
      at right now - it stays, as a chip beside the status. #}
   {% if not is_owner %}<div class="rl-sub">About two minutes behind, without player names.</div>{% endif %}

@@ -26,7 +26,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.19.4"
+APP_VERSION = "9.19.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5670,6 +5670,9 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.19.5", "at": "2026-09-17T07:10:00Z", "changes": [
+        "<b>Fixed: the leaderboard search filled itself in with “ranks”.</b> The new <b>?</b> beside a page title passed its Info topic in a variable called <i>q</i> — the same name the leaderboard uses for its own search box — so the board opened already searching for a word nobody typed, and switching region came up empty until you pressed Clear. The button uses its own names now.",
+    ]},
     {"version": "9.19.4", "at": "2026-09-17T06:50:00Z", "changes": [
         "<b>Removing a friend now asks in a box with Yes and No.</b> It named the person and waited for a second press before; now it is a proper question, with No focused, Escape and clicking outside both meaning no.",
     ]},
