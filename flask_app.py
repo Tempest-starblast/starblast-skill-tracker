@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.37.0"
+APP_VERSION = "9.37.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -339,6 +339,7 @@ COSMETICS = [
     ("b-plasma", "banner", "Plasma", 5000, "Magenta, cyan and violet, swirling."),
     ("b-bloodmoon", "banner", "Blood moon", 5000, "A red moon in the corner."),
     ("b-goldleaf", "banner", "Gold leaf", 8000, "Gold, hammered flat."),
+    ("b-immortal", "banner", "Immortal", 0, "Gold on black. One thousand wins.", "wins-1000"),
     # name styles
     ("n-neon", "name", "Neon", 1000, "Your name in cyan light."),
     ("n-ice", "name", "Ice", 1500, "Pale blue, cold glow."),
@@ -358,13 +359,16 @@ COSMETICS = [
     ("f-emerald", "frame", "Emerald", 2000, "Green light round the edge."),
     ("f-circuit", "frame", "Circuit", 2500, "Dashed, like a trace on a board."),
     ("f-gold", "frame", "Gold ring", 4000, "Gold, thin, bright."),
+    ("f-diamond", "frame", "Diamond", 0, "White light. Shadow X-3 only.", "div-shadowx3"),
     # emblem effects
     ("x-halo", "fx", "Halo", 2000, "A soft white light behind your ship."),
     ("x-spark", "fx", "Spark", 3000, "Sparks around the hull."),
     ("x-flame", "fx", "Flame", 3500, "It burns."),
     ("x-pulse", "fx", "Pulse", 4000, "The ship breathes."),
     ("x-orbit", "fx", "Orbit", 6000, "A ring that never stops turning."),
-    # titles
+    ("x-crown", "fx", "Crown", 0, "Golden light. One hundred survival wins.", "surv-100"),
+    # titles you can buy
+    ("t-rookie", "title", "Rookie", 100, "Everyone starts somewhere."),
     ("t-pilot", "title", "Pilot", 300, "A word under your name."),
     ("t-nomad", "title", "Nomad", 500, "No clan needed."),
     ("t-ace", "title", "Ace", 800, "For the ones who win."),
@@ -375,12 +379,46 @@ COSMETICS = [
     ("t-menace", "title", "Menace", 1000, "A problem for everyone else."),
     ("t-sentinel", "title", "Sentinel", 1000, "Holds the line."),
     ("t-warlord", "title", "Warlord", 1500, "Runs the fight."),
+    ("t-grinder", "title", "Grinder", 2000, "Match after match."),
+    ("t-sharpshooter", "title", "Sharpshooter", 2500, "Every shot counts."),
     ("t-champion", "title", "Champion", 3000, "The one to beat."),
+    ("t-reaper", "title", "Reaper", 4000, "Nothing gets away."),
     ("t-legend", "title", "Legend", 5000, "Talked about."),
+    ("t-kingpin", "title", "Kingpin", 6000, "Runs the server."),
     ("t-overlord", "title", "Overlord", 8000, "Above it all."),
+    ("t-baller", "title", "Baller", 25000, "Gems to spare."),
+    ("t-highroller", "title", "High roller", 50000, "Bets big."),
+    ("t-mogul", "title", "Mogul", 100000, "A fortune in gems."),
+    ("t-tycoon", "title", "Tycoon", 250000, "Owns the sector."),
+    ("t-millionaire", "title", "Millionaire", 1000000, "One million gems, gone."),
+    ("t-billionaire", "title", "Billionaire", 1000000000, "Nobody will ever own this. Prove us wrong."),
+    # titles you can only earn
+    ("t-centurion", "title", "Centurion", 0, "One hundred wins.", "wins-100"),
+    ("t-mainstay", "title", "Mainstay", 0, "250 wins.", "wins-250"),
+    ("t-institution", "title", "Institution", 0, "500 wins.", "wins-500"),
+    ("t-immortal", "title", "Immortal", 0, "One thousand wins.", "wins-1000"),
+    ("t-survivor", "title", "Survivor", 0, "Ten survival wins.", "surv-10"),
+    ("t-apex", "title", "Apex", 0, "Fifty survival wins.", "surv-50"),
+    ("t-untouchable", "title", "Untouchable", 0, "One hundred survival wins.", "surv-100"),
+    ("t-marauder", "title", "Marauder", 0, "Reached the Marauder division.", "div-odyssey"),
+    ("t-elite", "title", "Elite", 0, "Reached Shadow X-3 - the top half percent.", "div-shadowx3"),
+    ("t-highscore", "title", "High score", 0, "100,000 points in one match.", "score-100k"),
+    ("t-phoenix", "title", "Phoenix", 0, "Died 500 times and kept coming back.", "deaths-500"),
+    ("t-oldguard", "title", "Old guard", 0, "One thousand matches played.", "games-1000"),
+    ("t-devoted", "title", "Devoted", 0, "A win on a hundred different days.", "days-100"),
+    ("t-globetrotter", "title", "Globetrotter", 0, "Played in every region.", "regions-3"),
+    ("t-admiral", "title", "Admiral", 0, "Owns every ship.", "hull-all"),
+    ("t-completionist", "title", "Completionist", 0, "Owns every look.", "cos-all"),
+    ("t-whale", "title", "Whale", 0, "Spent 100,000 gems.", "spent-100k"),
+    ("t-selfmade", "title", "Self-made", 0, "Earned a million gems.", "earned-1m"),
+    ("t-popular", "title", "Popular", 0, "Twenty friends.", "friends-20"),
+    ("t-commander", "title", "Commander", 0, "Leads or co-leads a clan.", "clan-officer"),
 ]
+# A sixth field names the achievement that hands the look out: those are not
+# for sale, and the shop says which deed earns them.
 COSMETIC_BY_ID = {c[0]: {"id": c[0], "slot": c[1], "name": c[2], "price": c[3],
-                         "desc": c[4], "cls": "cos-" + c[0]} for c in COSMETICS}
+                         "desc": c[4], "via": (c[5] if len(c) > 5 else None),
+                         "cls": "cos-" + c[0]} for c in COSMETICS}
 
 
 def cosmetic_catalog():
@@ -389,17 +427,32 @@ def cosmetic_catalog():
 
 
 def owned_cosmetics(c, nn):
-    """The ids this player has bought - a purchase is a ledger row."""
+    """The ids this player owns - bought (a purchase row) or handed out by
+    an achievement (an 'unlock' row worth nothing)."""
     out = set()
     try:
         for (ref,) in c.execute("SELECT ref FROM gem_ledger WHERE owner_kind = 'player' "
-                                "AND owner = ? AND reason = 'purchase' "
+                                "AND owner = ? AND reason IN ('purchase', 'unlock') "
                                 "AND ref LIKE 'cos-%'", (nn,)).fetchall():
             if ref[4:] in COSMETIC_BY_ID:
                 out.add(ref[4:])
     except sqlite3.Error:
         pass
     return out
+
+
+def cosmetic_unlock(c, nn, item_id):
+    """Hand a look to a player for nothing - the reward side of an
+    achievement. A zero-gem ledger row, unique like everything else, so a
+    claim processed twice unlocks once. Returns True when it was new."""
+    if item_id not in COSMETIC_BY_ID or not nn:
+        return False
+    try:
+        c.execute("INSERT OR IGNORE INTO gem_ledger (owner_kind, owner, amount, reason, ref, at) "
+                  "VALUES ('player', ?, 0, 'unlock', ?, ?)", (nn, "cos-%s" % item_id, _stamp()))
+        return bool(c.rowcount)
+    except sqlite3.Error:
+        return False
 
 
 def _worn_cosmetics(raw):
@@ -449,7 +502,8 @@ def cosmetic_view(nn, allowed):
     for slot, item_id in (cosmetic_map().get(nn) or {}).items():
         ci = COSMETIC_BY_ID.get(item_id)
         if ci:
-            out[slot] = {"id": ci["id"], "name": ci["name"], "cls": ci["cls"], "text": ci["name"]}
+            out[slot] = {"id": ci["id"], "name": ci["name"], "cls": ci["cls"], "text": ci["name"],
+                         "earned": bool(ci["via"])}
     return out
 
 
@@ -458,14 +512,18 @@ def cosmetic_view(nn, allowed):
 # date - so the set changes at midnight UTC and nothing has to be stored.
 FEATURED_COUNT = 4
 FEATURED_OFF = (25, 30, 40, 50)
+# Never on sale: looks an achievement hands out, and the absurdly priced titles.
+FEATURED_MAX_PRICE = 500000
 
 
 def featured_today(day=None):
     """{(kind, key): {kind, key, name, off, was, price}} for the day (UTC),
     plus the day itself. Kind is 'ship' (key = code) or 'cos' (key = id)."""
     day = day or time.strftime('%Y-%m-%d', time.gmtime())
-    pool = [("ship", i["code"], i["price"], i["name"]) for i in ship_catalog()]
-    pool += [("cos", i["id"], i["price"], i["name"]) for i in cosmetic_catalog()]
+    pool = [("ship", i["code"], i["price"], i["name"]) for i in ship_catalog()
+            if i["price"] < FEATURED_MAX_PRICE]
+    pool += [("cos", i["id"], i["price"], i["name"]) for i in cosmetic_catalog()
+             if not i["via"] and 0 < i["price"] < FEATURED_MAX_PRICE]
     rng = random.Random("featured:%s" % day)
     out = {}
     for kind, key, price, name in rng.sample(pool, min(FEATURED_COUNT, len(pool))):
@@ -490,8 +548,20 @@ def shop_price(kind, key, price):
 # The catalogue is what there is; ach_status() is where one player stands
 # on each - done or not, how far along, claimed or waiting. Keys are
 # append-only: the ledger stores them, and a renamed key pays out again.
-ACH_GROUPS = ["Ranks", "Milestones", "Survival", "Hangar", "Wardrobe", "Wealth", "Clan"]
+ACH_GROUPS = ["Ranks", "Milestones", "Survival", "Combat", "Hangar", "Wardrobe", "Wealth", "Social", "Clan"]
 _ACH_TIER_GEMS = {2: 500, 3: 1000, 4: 2500, 5: 5000, 6: 10000, 7: 20000}
+# What an achievement hands out besides gems: looks that cannot be bought.
+# Keyed by achievement key; the catalogue reads it for every entry.
+ACH_UNLOCKS = {
+    "wins-100": ("t-centurion",), "wins-250": ("t-mainstay",), "wins-500": ("t-institution",),
+    "wins-1000": ("t-immortal", "b-immortal"),
+    "surv-10": ("t-survivor",), "surv-50": ("t-apex",), "surv-100": ("t-untouchable", "x-crown"),
+    "div-odyssey": ("t-marauder",), "div-shadowx3": ("t-elite", "f-diamond"),
+    "score-100k": ("t-highscore",), "deaths-500": ("t-phoenix",),
+    "games-1000": ("t-oldguard",), "days-100": ("t-devoted",), "regions-3": ("t-globetrotter",),
+    "hull-all": ("t-admiral",), "cos-all": ("t-completionist",), "spent-100k": ("t-whale",),
+    "earned-1m": ("t-selfmade",), "friends-20": ("t-popular",), "clan-officer": ("t-commander",),
+}
 
 
 def _tier_codes(t):
@@ -508,10 +578,24 @@ def _ach_extra():
 
     add("wins-500", "Milestones", "Institution", "Win 500 matches.", 10000, "gem", lambda f: (f["wins"], 500))
     add("wins-1000", "Milestones", "Immortal", "Win 1,000 matches.", 25000, "gem", lambda f: (f["wins"], 1000))
+    add("games-100", "Milestones", "Committed", "Play 100 rated matches.", 500, "gem", lambda f: (f["games"], 100))
+    add("games-500", "Milestones", "Lifer", "Play 500 rated matches.", 2500, "gem", lambda f: (f["games"], 500))
+    add("games-1000", "Milestones", "Old guard", "Play 1,000 rated matches.", 8000, "gem", lambda f: (f["games"], 1000))
+    add("days-7", "Milestones", "A week of wins", "Win on 7 different days.", 300, "star", lambda f: (f["days"], 7))
+    add("days-30", "Milestones", "A month of wins", "Win on 30 different days.", 1500, "star", lambda f: (f["days"], 30))
+    add("days-100", "Milestones", "Devoted", "Win on 100 different days.", 6000, "star", lambda f: (f["days"], 100))
+    add("regions-3", "Milestones", "Globetrotter", "Play a rated match in every region.", 1000, "star", lambda f: (f["regions"], 3))
     add("surv-1", "Survival", "Last one standing", "Win a survival round.", 250, "trophy", lambda f: (f["surv"], 1))
     add("surv-10", "Survival", "Survivor", "Win 10 survival rounds.", 1000, "trophy", lambda f: (f["surv"], 10))
     add("surv-50", "Survival", "Apex", "Win 50 survival rounds.", 5000, "trophy", lambda f: (f["surv"], 50))
     add("surv-100", "Survival", "Untouchable", "Win 100 survival rounds.", 12000, "trophy", lambda f: (f["surv"], 100))
+    add("score-25k", "Combat", "Big game", "Score 25,000 in one rated match.", 500, "gem", lambda f: (f["best"], 25000))
+    add("score-50k", "Combat", "Huge game", "Score 50,000 in one rated match.", 1500, "gem", lambda f: (f["best"], 50000))
+    add("score-100k", "Combat", "High score", "Score 100,000 in one rated match.", 5000, "gem", lambda f: (f["best"], 100000))
+    add("total-1m", "Combat", "A million points", "Score 1,000,000 across all your rated matches.", 2500, "gem", lambda f: (f["total"], 1000000))
+    add("total-10m", "Combat", "Ten million", "Score 10,000,000 across all your rated matches.", 15000, "gem", lambda f: (f["total"], 10000000))
+    add("deaths-100", "Combat", "Respawner", "Die 100 times in rated matches.", 300, "gem", lambda f: (f["deaths"], 100))
+    add("deaths-500", "Combat", "Phoenix", "Die 500 times and keep coming back.", 2000, "gem", lambda f: (f["deaths"], 500))
     add("hull-first", "Hangar", "First hull", "Buy a ship from the shop.", 250, "ship:201", lambda f: (f["bought"], 1))
     add("hulls-5", "Hangar", "Small fleet", "Own 5 ships, bought or earned.", 500, "ship:302", lambda f: (len(f["ships"]), 5))
     add("hulls-10", "Hangar", "Squadron", "Own 10 ships.", 1500, "ship:403", lambda f: (len(f["ships"]), 10))
@@ -524,15 +608,22 @@ def _ach_extra():
             "ship:%d" % codes[-1], lambda f, cs=frozenset(codes): (len(f["ships"] & cs), len(cs)))
     add("hull-all", "Hangar", "Full hangar", "Own every ship there is.", 50000, "ship:701",
         lambda f: (len(f["ships"]), len(ship_shapes.ship_codes())))
-    nban = sum(1 for c in COSMETICS if c[1] == "banner")
-    add("cos-first", "Wardrobe", "Dressed up", "Buy a banner, name style, frame, effect or title.", 250, "star", lambda f: (len(f["cos"]), 1))
+    nban = sum(1 for c in COSMETICS if c[1] == "banner" and len(c) <= 5)
+    nbuy = sum(1 for c in COSMETICS if len(c) <= 5)
+    add("cos-first", "Wardrobe", "Dressed up", "Buy a banner, name style, frame, effect or title.", 250, "star", lambda f: (f["bought_cos"], 1))
     add("cos-outfit", "Wardrobe", "Full outfit", "Wear something in every slot at once.", 1500, "star", lambda f: (f["worn"], len(COSMETIC_SLOTS)))
     add("cos-10", "Wardrobe", "Collector", "Own 10 looks from the shop.", 3000, "star", lambda f: (len(f["cos"]), 10))
-    add("cos-banners", "Wardrobe", "Every banner", "Own all %d banners." % nban, 8000, "star",
-        lambda f: (sum(1 for i in f["cos"] if i.startswith("b-")), nban))
-    add("cos-all", "Wardrobe", "Everything", "Own every look in the shop.", 40000, "star", lambda f: (len(f["cos"]), len(COSMETICS)))
+    add("cos-banners", "Wardrobe", "Every banner", "Own all %d banners the shop sells." % nban, 8000, "star",
+        lambda f: (sum(1 for i in f["cos"] if i.startswith("b-") and not COSMETIC_BY_ID[i]["via"]), nban))
+    add("cos-all", "Wardrobe", "Everything", "Own every look the shop sells.", 40000, "star",
+        lambda f: (sum(1 for i in f["cos"] if not COSMETIC_BY_ID[i]["via"]), nbuy))
     add("spent-10k", "Wealth", "Big spender", "Spend 10,000 gems in the shop.", 1000, "gem", lambda f: (f["spent"], 10000))
     add("spent-100k", "Wealth", "Whale", "Spend 100,000 gems in the shop.", 10000, "gem", lambda f: (f["spent"], 100000))
+    add("earned-100k", "Wealth", "Well paid", "Earn 100,000 gems, all told.", 2000, "gem", lambda f: (f["earned"], 100000))
+    add("earned-1m", "Wealth", "Self-made", "Earn 1,000,000 gems, all told.", 25000, "gem", lambda f: (f["earned"], 1000000))
+    add("earned-10m", "Wealth", "Dynasty", "Earn 10,000,000 gems, all told.", 100000, "gem", lambda f: (f["earned"], 10000000))
+    add("friends-5", "Social", "Friendly", "Have 5 friends on the site.", 300, "star", lambda f: (f["friends"], 5))
+    add("friends-20", "Social", "Popular", "Have 20 friends on the site.", 1500, "star", lambda f: (f["friends"], 20))
     add("clan-member", "Clan", "Signed up", "Be in a clan.", 200, "clan", lambda f: (1 if f["clan"] else 0, 1))
     add("clan-officer", "Clan", "Officer", "Lead or co-lead a clan.", 500, "clan", lambda f: (1 if f["officer"] else 0, 1))
     return out
@@ -557,6 +648,8 @@ def gem_achievement_catalog():
     for key, group, name, desc, gems, icon, _need in _ACH_EXTRA:
         out.append({"key": key, "group": group, "name": name, "desc": desc,
                     "gems": gems, "rank": None, "icon": icon})
+    for a in out:
+        a["unlocks"] = list(ACH_UNLOCKS.get(a["key"], ()))
     order = {g: i for i, g in enumerate(ACH_GROUPS)}
     out.sort(key=lambda a: order.get(a["group"], 99))
     return out
@@ -578,20 +671,25 @@ def _ach_need(key, f):
 
 def _ach_facts(c, nn):
     """Everything the rules look at, read once."""
-    f = {"peak": gem_peak_level(c, nn), "wins": 0, "surv": 0, "ships": set(), "bought": 0,
-         "cos": set(), "worn": 0, "spent": 0, "clan": False, "officer": False}
+    f = {"peak": gem_peak_level(c, nn), "wins": 0, "games": 0, "surv": 0, "ships": set(),
+         "bought": 0, "cos": set(), "bought_cos": 0, "worn": 0, "spent": 0, "earned": 0,
+         "best": 0, "total": 0, "deaths": 0, "days": 0, "regions": 0, "friends": 0,
+         "clan": False, "officer": False}
     try:
-        r = c.execute("SELECT COALESCE(wins, 0), clan, google_sub, cosmetics FROM players "
-                      "WHERE norm_name = ?", (nn,)).fetchone()
+        r = c.execute("SELECT COALESCE(wins, 0), COALESCE(losses, 0), clan, google_sub, cosmetics, name "
+                      "FROM players WHERE norm_name = ?", (nn,)).fetchone()
         if r:
             f["wins"] = int(r[0] or 0)
-            f["clan"] = bool(r[1])
-            f["worn"] = len(_worn_cosmetics(r[3]))
-            if r[2]:
+            f["games"] = int(r[0] or 0) + int(r[1] or 0)
+            f["clan"] = bool(r[2])
+            f["worn"] = len(_worn_cosmetics(r[4]))
+            if r[3]:
                 a = c.execute("SELECT 1 FROM clan_admins WHERE google_sub = ? "
                               "AND COALESCE(role, 'leader') IN ('leader', 'coleader') LIMIT 1",
-                              (r[2],)).fetchone()
+                              (r[3],)).fetchone()
                 f["officer"] = bool(a)
+            if r[5]:
+                f["regions"] = sum(1 for x in region_split(c, r[5]) if x.get("played"))
         sv = c.execute("SELECT COALESCE(wins, 0) FROM survival_players WHERE norm_name = ?",
                        (nn,)).fetchone()
         f["surv"] = int(sv[0]) if sv else 0
@@ -599,9 +697,18 @@ def _ach_facts(c, nn):
         f["ships"] = set(own)
         f["bought"] = sum(1 for v in own.values() if v == "bought")
         f["cos"] = owned_cosmetics(c, nn)
-        sp = c.execute("SELECT COALESCE(-SUM(amount), 0) FROM gem_ledger WHERE owner_kind = 'player' "
-                       "AND owner = ? AND reason = 'purchase' AND amount < 0", (nn,)).fetchone()
-        f["spent"] = int(sp[0] or 0)
+        f["bought_cos"] = sum(1 for i in f["cos"] if not COSMETIC_BY_ID[i]["via"])
+        sp = c.execute("SELECT COALESCE(-SUM(CASE WHEN amount < 0 AND reason = 'purchase' THEN amount ELSE 0 END), 0), "
+                       "COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0), "
+                       "SUM(CASE WHEN reason = 'daily-win' THEN 1 ELSE 0 END) "
+                       "FROM gem_ledger WHERE owner_kind = 'player' AND owner = ?", (nn,)).fetchone()
+        f["spent"], f["earned"], f["days"] = int(sp[0] or 0), int(sp[1] or 0), int(sp[2] or 0)
+        # Score and deaths come from the rated matches themselves, back past
+        # any wipe: what you did happened, whatever the record shows.
+        sc = c.execute("SELECT COALESCE(MAX(score), 0), COALESCE(SUM(score), 0), COALESCE(SUM(deaths), 0) "
+                       "FROM match_players WHERE norm_name = ?", (nn,)).fetchone()
+        f["best"], f["total"], f["deaths"] = int(sc[0] or 0), int(sc[1] or 0), int(sc[2] or 0)
+        f["friends"] = len(friends_of(c, nn))
     except sqlite3.Error:
         pass
     return f
@@ -626,6 +733,7 @@ def ach_status(c, nn):
         d = dict(a, have=have, need=need, unlocked=have >= need,
                  claimed=a["key"] in claimed, at=(claimed.get(a["key"]) or "")[:10])
         d["ready"] = d["unlocked"] and not d["claimed"]
+        d["unlock_items"] = [COSMETIC_BY_ID[i] for i in a.get("unlocks", ()) if i in COSMETIC_BY_ID]
         out.append(d)
     return out
 
@@ -13740,23 +13848,30 @@ def achievements_claim():
             return jsonify({"ok": False, "message": "Not yet - %s of %s."
                             % (format(a["have"], ","), format(a["need"], ","))}), 200
         targets = [a]
-    paid, total = [], 0
+    paid, total, unlocked = [], 0, []
     for a in targets:
         got = gem_grant(c, "player", me[1], a["gems"], "achievement", a["key"])
         if got:
             paid.append(a["name"])
             total += got
+            # The looks come with the gems, in the same transaction.
+            for item_id in a.get("unlocks", ()):
+                if cosmetic_unlock(c, me[1], item_id):
+                    unlocked.append(COSMETIC_BY_ID[item_id]["name"])
     conn.commit()
     balance = gem_balance(c, "player", me[1])
     conn.close()
+    _COS_CACHE["ts"] = 0.0
     if not paid:
         return jsonify({"ok": False, "message": "Already claimed.", "balance": balance}), 200
     if len(paid) == 1:
         msg = "%s claimed: +%s gems." % (paid[0], format(total, ","))
     else:
         msg = "%d achievements claimed: +%s gems." % (len(paid), format(total, ","))
+    if unlocked:
+        msg += " Unlocked: %s - wear it from the shop." % ", ".join(unlocked)
     return jsonify({"ok": True, "message": msg, "claimed": paid, "gems": total,
-                    "balance": balance}), 200
+                    "unlocked": unlocked, "balance": balance}), 200
 
 
 AGENT_NOTE_MAX = 120
@@ -14019,12 +14134,14 @@ def shop_page():
             featured.append({"kind": "ship", "item": item, "o": sale_order[("ship", item["code"])]})
     mythic = [i for i in tiers.get(7, []) if i["mythic"]]
     tiers[7] = [i for i in tiers.get(7, []) if not i["mythic"]]
+    ach_names = {a["key"]: a["name"] for a in gem_achievement_catalog()}
     cos_sections = []
     for slot, label in COSMETIC_SLOTS:
         items = []
         for ci in cosmetic_catalog():
             if ci["slot"] != slot:
                 continue
+            ci["via_name"] = ach_names.get(ci["via"]) if ci["via"] else None
             ci["own"] = ci["id"] in owned_cos
             ci["worn"] = worn_cos.get(slot) == ci["id"]
             ci["sale"] = sale_map.get(("cos", ci["id"]))
@@ -14070,6 +14187,11 @@ def shop_buy():
         if ci["id"] in owned_cosmetics(c, me[1]):
             conn.close()
             return jsonify({"ok": False, "message": "You already have %s." % ci["name"]}), 200
+        if ci["via"]:
+            conn.close()
+            _an = next((a["name"] for a in gem_achievement_catalog() if a["key"] == ci["via"]), ci["via"])
+            return jsonify({"ok": False, "message": "%s is not for sale - it comes with the "
+                            "%s achievement." % (ci["name"], _an)}), 200
         pay, _sale = shop_price("cos", ci["id"], ci["price"])
         got = gem_charge(c, me[1], pay, "purchase", "cos-%s" % ci["id"])
         name = ci["name"]

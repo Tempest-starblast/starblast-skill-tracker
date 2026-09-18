@@ -31,6 +31,9 @@
 .ship .nm{font-size:13.5px;font-weight:800;line-height:1.2}
 .ship .why{font-size:11px;color:var(--muted,#8aa0b0);min-height:14px;line-height:1.4}
 .ship .why.rank{color:var(--dim,#5d7f93)}
+.ship .why.earnedby{color:#8ef3ff}
+.ship .why.earnedby a{color:inherit;font-weight:700;text-decoration:none}
+.ship .why.earnedby a:hover{text-decoration:underline}
 .ship .price{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:800;
   color:#8ef3ff;font-variant-numeric:tabular-nums;flex-wrap:wrap;justify-content:center}
 .ship .price svg{width:11px;height:11px}
@@ -139,14 +142,17 @@
   <span class="cprev{% if i.slot == 'banner' %} cosb {{ i.cls }}{% elif i.slot == 'frame' %} cosf {{ i.cls }}{% endif %}">
     {%- if i.slot == 'name' %}<span class="cosn {{ i.cls }}">{{ me_name or 'Your name' }}</span>
     {%- elif i.slot == 'fx' %}<span class="cosx {{ i.cls }}">{{ rank_emblem(prev_ship, 40, rank_color, i.name)|safe }}</span>
-    {%- elif i.slot == 'title' %}<span class="cost">{{ i.name }}</span>{% endif -%}
+    {%- elif i.slot == 'title' %}<span class="cost{% if i.via %} earned{% endif %}">{{ i.name }}</span>{% endif -%}
   </span>
   <span class="nm">{{ i.name }}</span>
-  <span class="why">{{ i.desc }}</span>
+  <span class="why{% if i.via %} earnedby{% endif %}">{% if i.via %}Earned: <a href="/achievements">{{ i.via_name }}</a>{% else %}{{ i.desc }}{% endif %}</span>
   {% if i.own %}
     {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
       <button type="button" class="btn quiet" data-act="unequip">Take it off</button>
     {% else %}<button type="button" class="btn" data-act="equip">Wear it</button>{% endif %}
+  {% elif i.via %}
+    <span class="price short">Not for sale</span>
+    <button type="button" class="btn quiet" disabled>Earn it</button>
   {% else %}
     {{ price_of(i) }}
     <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>

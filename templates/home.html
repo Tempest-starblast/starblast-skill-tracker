@@ -115,7 +115,7 @@
   <div class="idcard">
     <div class="idemb{% if cos.fx %} cosx {{ cos.fx.cls }}{% endif %}">{{ rank_emblem(emblem or (d.ship if d else 101), 100, emblem_color or (d.color if d else '#8b949e'), (d.name if d else 'Fly'), 'rank-emblem mythic' if mythic else 'rank-emblem')|safe }}</div>
     <div class="idtext">
-      <h1 class="idname">{% if clan %}<a class="badge" href="/clan/{{ clan|urlencode }}">{{ clan_shown or clan }}</a>{% endif %}<span class="{% if cos.name %}cosn {{ cos.name.cls }}{% endif %}">{{ name }}</span>{% if cos.title %} <span class="cost">{{ cos.title.text }}</span>{% endif %}</h1>
+      <h1 class="idname">{% if clan %}<a class="badge" href="/clan/{{ clan|urlencode }}">{{ clan_shown or clan }}</a>{% endif %}<span class="{% if cos.name %}cosn {{ cos.name.cls }}{% endif %}">{{ name }}</span>{% if cos.title %} <span class="cost{% if cos.title.earned %} earned{% endif %}">{{ cos.title.text }}</span>{% endif %}</h1>
       <p class="idrank">
         {%- if d %}<b style="color:{{ d.color }}">{{ d.name }}</b> &middot; {{ d.band }} &middot; #{{ '{:,}'.format(rank) }} of {{ '{:,}'.format(rank_of) }}
         {%- elif placements_left %}<b>In placements</b> &middot; {{ placements_left }} more to earn a rank

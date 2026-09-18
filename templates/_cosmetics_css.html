@@ -27,6 +27,8 @@
 .cosb.cosb.cos-b-bloodmoon{background:radial-gradient(circle at 82% 18%,rgba(255,46,77,.65),transparent 34%),
   linear-gradient(160deg,#1a0409,#05070b)}
 .cosb.cosb.cos-b-goldleaf{background:linear-gradient(135deg,#3a2a05,#8a6a12 40%,#3a2a05 70%,#5a4308)}
+.cosb.cosb.cos-b-immortal{background:radial-gradient(circle at 50% -30%,rgba(246,215,122,.6),transparent 58%),
+  repeating-linear-gradient(135deg,transparent 0 30px,rgba(246,215,122,.05) 30px 32px),linear-gradient(160deg,#171105,#05070b)}
 
 /* ---- frames: the card's edge ---- */
 .cosf.cosf.cos-f-frost{border-color:#eaf6ff;box-shadow:inset 0 0 0 2px rgba(0,0,0,.55),inset 0 0 0 3px rgba(234,246,255,.8),0 18px 50px rgba(0,0,0,.45)}
@@ -36,6 +38,7 @@
 .cosf.cosf.cos-f-emerald{border-color:#66e6b8;box-shadow:0 0 0 1px rgba(102,230,184,.55),0 0 26px rgba(102,230,184,.4),0 18px 50px rgba(0,0,0,.45)}
 .cosf.cosf.cos-f-circuit{border:1px dashed rgba(153,221,255,.75);box-shadow:inset 0 0 0 3px rgba(0,0,0,.5),inset 0 0 0 4px rgba(153,221,255,.35),0 18px 50px rgba(0,0,0,.45)}
 .cosf.cosf.cos-f-gold{border-color:#f6d77a;box-shadow:inset 0 0 0 1px rgba(246,215,122,.5),0 0 24px rgba(246,215,122,.35),0 18px 50px rgba(0,0,0,.45)}
+.cosf.cosf.cos-f-diamond{border-color:#eaf6ff;box-shadow:0 0 0 1px rgba(234,246,255,.7),0 0 34px rgba(180,240,255,.6),inset 0 0 40px rgba(180,240,255,.12),0 18px 50px rgba(0,0,0,.45)}
 
 /* ---- name styles: just the name ---- */
 .cosn{display:inline}
@@ -72,7 +75,9 @@
 .cosx.cos-x-spark::before{top:8%;left:14%}
 .cosx.cos-x-spark::after{bottom:10%;right:12%;animation-delay:.8s}
 @keyframes cosspark{0%,100%{opacity:0;transform:scale(.4)}50%{opacity:1;transform:scale(1)}}
-@media(prefers-reduced-motion:reduce){.cosn.cos-n-rainbow,.cosx.cos-x-pulse svg,.cosx.cos-x-flame svg,.cosx.cos-x-orbit::after,.cosx.cos-x-spark::before,.cosx.cos-x-spark::after{animation:none}}
+.cosx.cos-x-crown svg{animation:coscrown 3s ease-in-out infinite}
+@keyframes coscrown{0%,100%{filter:drop-shadow(0 0 5px rgba(246,215,122,.95)) drop-shadow(0 0 16px rgba(246,215,122,.55))}50%{filter:drop-shadow(0 0 9px rgba(255,240,180,1)) drop-shadow(0 0 26px rgba(246,215,122,.8))}}
+@media(prefers-reduced-motion:reduce){.cosn.cos-n-rainbow,.cosx.cos-x-pulse svg,.cosx.cos-x-flame svg,.cosx.cos-x-orbit::after,.cosx.cos-x-spark::before,.cosx.cos-x-spark::after,.cosx.cos-x-crown svg{animation:none}}
 
 /* ---- titles: a chip under the name ---- */
 /* The title chip sits in the name row; the row centres its items (see the
@@ -80,3 +85,5 @@
 .cost{display:inline-flex;align-items:center;margin:0;padding:0 10px;height:20px;border-radius:999px;font-size:11px;
   font-weight:800;line-height:1;letter-spacing:1.4px;text-transform:uppercase;color:#f6d77a;
   border:1px solid rgba(246,215,122,.55);background:rgba(246,215,122,.10);vertical-align:middle;white-space:nowrap}
+/* A title an achievement handed out reads cyan, so it is never mistaken for a bought one. */
+.cost.earned{color:#8ef3ff;border-color:rgba(142,243,255,.55);background:rgba(142,243,255,.10)}
