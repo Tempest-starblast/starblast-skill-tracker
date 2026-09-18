@@ -74,29 +74,6 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 .noclan a:hover{border-color:rgba(153,221,255,.45)}
 .noclan b{font-size:14px;color:var(--text)}
 .noclan span{font-size:11.5px;color:var(--muted)}
-{% if gems_on %}
-.cshopbal{float:right;font-size:12px;font-weight:800;color:#f6d77a;letter-spacing:.3px;text-transform:none}
-.cshopbal .gem{width:12px;height:12px;vertical-align:-1px;margin-right:4px}
-.cshop{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));margin:0 0 6px}
-.citem{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 10px 10px;border-radius:12px;text-align:center;
-  border:1px solid var(--line2,rgba(153,221,255,.14));background:linear-gradient(160deg,rgba(153,221,255,.045),rgba(153,221,255,.012))}
-.citem.worn{border-color:rgba(102,230,184,.6);background:linear-gradient(160deg,rgba(102,230,184,.14),rgba(102,230,184,.02))}
-.citem .cprev{width:100%;height:52px;border-radius:9px;border:1px solid rgba(153,221,255,.2);background:rgba(0,0,0,.3);
-  display:flex;align-items:center;justify-content:center;overflow:hidden;box-sizing:border-box}
-.citem .chtag.mini{min-width:0;height:auto;padding:4px 12px;font-size:16px;border-radius:9px;margin:0;display:inline-flex;align-items:center;
-  border:1px solid rgba(255,255,255,.24);background:color-mix(in srgb,var(--ct,#3aa0d8) 58%,#000 12%);color:#fff;font-weight:900}
-.citem .cnm{font-size:13px;font-weight:800;line-height:1.2}
-.citem .cwhy{font-size:11px;color:var(--muted,#8aa0b0);line-height:1.4}
-.citem .cstate{font-size:11px;font-weight:800;color:#66E6B8;letter-spacing:.4px}
-.citem .cprice{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:800;color:#f6d77a;font-variant-numeric:tabular-nums}
-.citem .cprice.short{color:var(--dim,#5d7f93)}
-.citem .cprice .gem{width:11px;height:11px}
-.citem .cbtn{width:100%;font-family:inherit;font-size:12px;font-weight:700;border-radius:8px;cursor:pointer;padding:6px 10px;
-  border:1px solid var(--green,#66E6B8);color:var(--green,#66E6B8);background:rgba(102,230,184,.10)}
-.citem .cbtn:hover{background:rgba(102,230,184,.24);color:#fff}
-.citem .cbtn[disabled]{opacity:.45;cursor:default}
-.citem .cbtn.quiet{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);background:none}
-{% endif %}
 {% endblock %}
 {% block body %}
 
@@ -135,7 +112,6 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   <a href="#appearance" data-panel="appearance">Appearance</a>
   <a href="#roles" data-panel="roles">{{ t('Roles') }}</a>
   <a href="#settings" data-panel="settings">{{ t('Settings') }}</a>
-  {% if gems_on and clan.shop %}<a href="#shop" data-panel="shop" class="own">Shop</a>{% endif %}
   {% endif %}
   <a href="#you" data-panel="you">You</a>
 </nav>
@@ -400,6 +376,8 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
      {{ '{:,}'.format(clan.paid_week['salary']) }} signing bonuses,
      {{ '{:,}'.format(clan.paid_week['hire']) }} hires,
      {{ '{:,}'.format(clan.paid_week['purchase']) }} purchases.</p>
+  <p class="desc" style="margin-top:8px">Looks, an emblem and perks for {{ clan.display }} are bought in the
+     <a href="/shop#clan">Shop</a>, under its Clan tab, from this treasury.</p>
   <p class="msg" id="payMsg"></p>
 </div>
 {% endif %}
@@ -431,65 +409,6 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   <p class="msg" id="deleteMsg"></p>
 </div>
 {% endif %}
-</section>
-{% endif %}
-
-{% if gems_on and clan.shop %}
-{# ------------------------------------------------------------------- shop #}
-<section class="panel" data-panel="shop" hidden>
-{% set gem_svg %}<svg class="gem" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
-<div class="card">
-  <h2>Clan shop <span class="cshopbal">{{ gem_svg|safe }}{{ '{:,}'.format(clan.shop.balance) }} in the treasury</span></h2>
-  <p class="desc">Bought with the treasury, by the leader or a co-leader. A look dresses {{ clan.display }}&#39;s band
-     &mdash; and a <b>tag</b> look changes the badge every member wears on their own pages. Perks run for a week;
-     a co-leader slot is for good. The treasury never overdraws.</p>
-  <div class="sub">Perks</div>
-  <div class="cshop">
-    {% for i in clan.shop.perks %}
-    <div class="citem{% if i.until or (i.slots and i.kind == 'slot') %} own{% endif %}" data-item="{{ i.id }}">
-      <span class="cnm">{{ i.name }}</span>
-      <span class="cwhy">{{ i.desc }}</span>
-      {% if i.kind == 'perk' and i.until %}<span class="cstate">Running until {{ i.until }}</span>{% endif %}
-      {% if i.kind == 'slot' %}<span class="cstate">{{ i.slots }} of {{ 2 }} bought &middot; {{ coleader_cap }} co-leaders allowed</span>{% endif %}
-      {% if i.maxed %}<button type="button" class="cbtn quiet" disabled>Maxed</button>
-      {% else %}<span class="cprice{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>
-      <button type="button" class="cbtn" data-act="buy"{% if not i.can %} disabled{% endif %}>{% if i.until %}Extend a week{% else %}Buy{% endif %}</button>{% endif %}
-    </div>
-    {% endfor %}
-  </div>
-  {% for slot, label in [('banner', 'Band backgrounds'), ('frame', 'Band frames'), ('tag', 'Tag looks - on every member')] %}
-  <div class="sub">{{ label }}</div>
-  <div class="cshop">
-    {% for i in clan.shop.looks if i.slot == slot %}
-    <div class="citem{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-item="{{ i.id }}" data-slot="{{ i.slot }}">
-      <span class="cprev{% if slot == 'banner' %} cosb {{ i.cls }}{% elif slot == 'frame' %} cosf {{ i.cls }}{% endif %}">{% if slot == 'tag' %}<span class="chtag mini {{ i.cls }}">{{ clan.display }}</span>{% endif %}</span>
-      <span class="cnm">{{ i.name }}</span>
-      <span class="cwhy">{{ i.desc }}</span>
-      {% if i.own %}
-        {% if i.worn %}<span class="cstate">&#10003; Wearing</span><button type="button" class="cbtn quiet" data-act="unequip">Take it off</button>
-        {% else %}<button type="button" class="cbtn" data-act="equip">Put it on</button>{% endif %}
-      {% else %}<span class="cprice{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>
-      <button type="button" class="cbtn" data-act="buy"{% if not i.can %} disabled{% endif %}>Buy</button>{% endif %}
-    </div>
-    {% endfor %}
-  </div>
-  {% endfor %}
-  <div class="sub">Clan emblem &mdash; a ship beside the tag</div>
-  <div class="cshop">
-    {% for i in clan.shop.emblems %}
-    <div class="citem{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-item="{{ i.id }}" data-slot="emblem">
-      <span class="cprev">{{ rank_emblem(i.code, 40, i.color, i.name)|safe }}</span>
-      <span class="cnm">{{ i.name }}</span>
-      {% if i.own %}
-        {% if i.worn %}<span class="cstate">&#10003; Wearing</span><button type="button" class="cbtn quiet" data-act="unequip">Take it off</button>
-        {% else %}<button type="button" class="cbtn" data-act="equip">Put it on</button>{% endif %}
-      {% else %}<span class="cprice{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>
-      <button type="button" class="cbtn" data-act="buy"{% if not i.can %} disabled{% endif %}>Buy</button>{% endif %}
-    </div>
-    {% endfor %}
-  </div>
-  <p class="msg" id="shopMsg"></p>
-</div>
 </section>
 {% endif %}
 
@@ -682,20 +601,6 @@ async function saveRegion(){
     if (d.ok) reloadSoon();
   }catch(e){ say('regionMsg', false, 'Server connection error.'); }
 }
-document.addEventListener('click', async function(ev){
-  var b = ev.target.closest && ev.target.closest('.citem [data-act]');
-  if (!b) return;
-  var tile = b.closest('.citem'), item = tile.getAttribute('data-item'), slot = tile.getAttribute('data-slot'),
-      act = b.getAttribute('data-act');
-  var url = act === 'buy' ? '/clan/shop/buy' : '/clan/shop/equip';
-  var body = act === 'unequip' ? {clan: TAG, slot: slot, item: null} : {clan: TAG, item: item};
-  b.disabled = true;
-  try{
-    const [r, d] = await post(url, body);
-    say('shopMsg', d.ok, d.message);
-    if (d.ok) reloadSoon(); else b.disabled = false;
-  }catch(e){ say('shopMsg', false, 'Server connection error.'); b.disabled = false; }
-});
 async function savePay(){
   try{
     const [r, d] = await post('/clan/pay', {clan: TAG,

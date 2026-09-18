@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.38.0"
+APP_VERSION = "9.38.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -9413,6 +9413,24 @@ def player_profile(name):
                                      gems_visible())
     player["cos"] = cosmetic_view(normalize_name(stored_name), gems_visible())
     player["cv"] = clan_view(clan, gems_visible()) if clan else {}
+    # The clan and the role in it, as a stat - the heading's badge says the
+    # clan, this says what they are there. And what they have SPENT, never
+    # what they have: a balance is nobody's business, a spend is a boast.
+    player["clan_role_label"], player["spent"] = "", None
+    try:
+        _cc = db()
+        _cx = _cc.cursor()
+        if clan:
+            _role = clan_role(_cx, owner_sub, clan) if owner_sub else ""
+            player["clan_role_label"] = role_label_for(_role, clan_custom_labels(_cx, clan)) if _role else "Member"
+        if gems_visible():
+            _sp = _cx.execute("SELECT COALESCE(-SUM(amount), 0) FROM gem_ledger WHERE owner_kind = 'player' "
+                              "AND owner = ? AND reason = 'purchase' AND amount < 0",
+                              (normalize_name(stored_name),)).fetchone()
+            player["spent"] = int(_sp[0] or 0) if _sp else 0
+        _cc.close()
+    except sqlite3.Error:
+        pass
     # Where the viewer stands with this player, so the profile can offer the
     # right button rather than one that will be refused.
     _fs = 'none'
@@ -13536,7 +13554,7 @@ CLAN_ITEMS = [
     # id, kind, slot, name, price, desc, css class
     ("cb-dark", "look", "banner", "Dark", 1500, "Lights off.", "cos-b-dark"),
     ("cb-starfield", "look", "banner", "Starfield", 3000, "Deep space, a few stars.", "cos-b-starfield"),
-    ("cb-grid", "look", "banner", "Grid", 4000, "Radar lines across the band.", "cos-b-grid"),
+    ("cb-grid", "look", "banner", "Grid", 4000, "Radar lines across the page header.", "cos-b-grid"),
     ("cb-laser", "look", "banner", "Laser", 4000, "Pink beams across the dark.", "cos-b-laser"),
     ("cb-nebula", "look", "banner", "Nebula", 6000, "Violet and rose cloud.", "cos-b-nebula"),
     ("cb-aurora", "look", "banner", "Aurora", 7500, "Green and blue light, folded.", "cos-b-aurora"),
@@ -13564,7 +13582,7 @@ CLAN_ITEMS = [
 ]
 CLAN_ITEM_BY_ID = {i[0]: {"id": i[0], "kind": i[1], "slot": i[2], "name": i[3], "price": i[4],
                           "desc": i[5], "cls": i[6]} for i in CLAN_ITEMS}
-CLAN_LOOK_SLOTS = [("banner", "Band"), ("frame", "Frame"), ("tag", "Tag")]
+CLAN_LOOK_SLOTS = [("banner", "Page header"), ("frame", "Frame"), ("tag", "Tag")]
 
 
 def clan_item(item_id):
@@ -14444,6 +14462,20 @@ def shop_page():
         worn_cos = _worn_cosmetics(r[2]) if r else {}
         owned_cos = owned_cosmetics(c, me[1])
         balance = gem_balance(c, "player", me[1])
+    # The clan's shop, for whoever runs one: bought from the treasury, on
+    # the same page as everything else so there is one place to spend.
+    clan_shop, clan_tag, clan_disp, clan_theme_color, clan_cap = None, None, None, "", CLAN_COLEADER_MAX
+    sub_id = current_user()
+    if sub_id:
+        for t in clan_admin_tags(c, sub_id):
+            if may_manage(c, sub_id, t):
+                clan_tag = t
+                clan_shop = clan_shop_state(c, t)
+                clan_disp = clan_display(c, t)
+                clan_cap = clan_coleader_cap(c, t)
+                _th = c.execute("SELECT theme FROM clans WHERE tag = ?", (t,)).fetchone()
+                clan_theme_color = CLAN_THEMES.get((_th[0] if _th else "") or "", "")
+                break
     conn.close()
     sale_map, _day = featured_today()
     sale_order = {k: i for i, k in enumerate(sale_map)}
@@ -14490,7 +14522,10 @@ def shop_page():
                            rank_color=rank_color,
                            prev_ship=worn or (division["ship"] if division else 101),
                            cos_sections=cos_sections, featured=featured,
-                           resets_in=featured_resets_in())
+                           resets_in=featured_resets_in(),
+                           clan_shop=clan_shop, clan_tag=clan_tag, clan_display=clan_disp,
+                           clan_theme_color=clan_theme_color, coleader_cap=clan_cap,
+                           slots_max=CLAN_COLEADER_SLOTS_MAX)
 
 
 @app.route('/shop/buy', methods=['POST'])
@@ -19887,7 +19922,13 @@ def clan_shop_buy():
         until = c.execute("SELECT until FROM clan_perks WHERE clan = ? AND perk = ?", (known, item["id"])).fetchone()[0]
         msg = "%s runs until %s." % (item["name"], until[:10])
     else:
-        msg = "%s is %s's. Put it on from the shop." % (item["name"], known)
+        # Bought is worn: nobody buys a look to leave it in a drawer, and a
+        # "put it on" step after paying reads as nothing having happened.
+        r = c.execute("SELECT cosmetics FROM clans WHERE tag = ?", (known,)).fetchone()
+        worn = _clan_worn(r[0] if r else None)
+        worn[item["slot"]] = item["id"]
+        c.execute("UPDATE clans SET cosmetics = ? WHERE tag = ?", (json.dumps(worn), known))
+        msg = "%s is %s's and it is on now - see the clan page." % (item["name"], known)
     conn.commit()
     balance = gem_balance(c, "clan", known)
     conn.close()
@@ -20317,8 +20358,6 @@ def my_clan_page():
         "member_rate": clan_pay_rates(c, tag)[0], "mod_rate": clan_pay_rates(c, tag)[1],
         "paid_week": clan_paid_week(c, tag),
         "cv": clan_view(tag, True),
-        "shop": clan_shop_state(c, tag) if clan_rank(role) >= clan_rank('coleader') else None,
-        "coleader_cap": clan_coleader_cap(c, tag),
         "invited": [{"id": r[0], "name": r[1]} for r in c.execute(
             "SELECT id, name FROM clan_invites WHERE clan = ? "
             "AND status = 'pending' AND direction = 'invite' "

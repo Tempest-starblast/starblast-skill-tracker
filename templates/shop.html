@@ -29,7 +29,14 @@
 .ship.worn{border-color:rgba(102,230,184,.6);
   background:linear-gradient(160deg,rgba(102,230,184,.14),rgba(102,230,184,.02))}
 .ship .nm{font-size:13.5px;font-weight:800;line-height:1.2}
-.ship .why{font-size:11px;color:var(--muted,#8aa0b0);min-height:14px;line-height:1.4}
+.ship .why{font-size:11px;color:var(--muted,#8aa0b0);min-height:14px;line-height:1.4;flex:1}
+/* Tiles in a row share a height; price and button sit on one bottom line. */
+.ship .buy{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:8px;width:100%}
+/* The clan tab: the tag look is previewed on the clan's own tag box. */
+.cprev .chtag{display:inline-flex;align-items:center;margin:0;padding:4px 12px;font-size:16px;font-weight:900;
+  border-radius:9px;color:#fff;border:1px solid rgba(255,255,255,.24);
+  background:color-mix(in srgb,var(--ct,#3aa0d8) 58%,#000 12%);line-height:1}
+.ship .wornlbl.until{color:#f6d77a}
 .ship .why.rank{color:var(--dim,#5d7f93)}
 .ship .why.earnedby{color:#8ef3ff}
 .ship .why.earnedby a{color:inherit;font-weight:700;text-decoration:none}
@@ -125,6 +132,7 @@
   {% elif i.unlock_rank %}<span class="why">Free at {{ i.unlock_rank.name }}</span>
   {% elif i.premium %}<span class="why">Premium hull</span>
   {% else %}<span class="why"></span>{% endif %}
+  <span class="buy">
   {% if i.own %}
     {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
       <button type="button" class="btn quiet" data-act="unequip">Back to rank&#39;s ship</button>
@@ -133,6 +141,7 @@
     {{ price_of(i) }}
     <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
   {% endif %}
+  </span>
 </div>
 {% endmacro %}
 
@@ -146,6 +155,7 @@
   </span>
   <span class="nm">{{ i.name }}</span>
   <span class="why{% if i.via %} earnedby{% endif %}">{% if i.via %}Earned: <a href="/achievements">{{ i.via_name }}</a>{% else %}{{ i.desc }}{% endif %}</span>
+  <span class="buy">
   {% if i.own %}
     {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
       <button type="button" class="btn quiet" data-act="unequip">Take it off</button>
@@ -157,6 +167,7 @@
     {{ price_of(i) }}
     <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
   {% endif %}
+  </span>
 </div>
 {% endmacro %}
 
@@ -170,6 +181,7 @@
 <nav class="subtabs" id="subtabs" aria-label="Sections" data-default="ships">
   <a href="#ships" data-panel="ships">Ships<span class="n">{{ nships }}</span></a>
   {% for s in cos_sections %}<a href="#{{ s.slot }}" data-panel="{{ s.slot }}">{{ s.label }}<span class="n">{{ s['items']|length }}</span></a>{% endfor %}
+  {% if clan_shop %}<a href="#clan" data-panel="clan" class="own">{{ clan_display }} clan</a>{% endif %}
 </nav>
 
 <section class="panel" data-panel="ships" hidden>
@@ -195,9 +207,57 @@
 </section>
 {% endfor %}
 
+{% if clan_shop %}
+{% macro cltile(i, kind) %}
+<div class="ship cos{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-citem="{{ i.id }}" data-slot="{{ i.slot }}" data-name="{{ i.name }}">
+  {% if kind == 'look' %}<span class="cprev{% if i.slot == 'banner' %} cosb {{ i.cls }}{% elif i.slot == 'frame' %} cosf {{ i.cls }}{% endif %}">{% if i.slot == 'tag' %}<span class="chtag {{ i.cls }}">{{ clan_display }}</span>{% endif %}</span>
+  {% elif kind == 'emblem' %}<span class="cprev">{{ rank_emblem(i.code, 40, i.color, i.name)|safe }}</span>{% endif %}
+  <span class="nm">{{ i.name }}</span>
+  <span class="why">{% if kind != 'emblem' %}{{ i.desc }}{% endif %}</span>
+  <span class="buy">
+  {% if kind == 'perk' %}
+    {% if i.kind == 'perk' and i.until %}<span class="wornlbl until">Until {{ i.until }}</span>{% endif %}
+    {% if i.kind == 'slot' %}<span class="wornlbl until">{{ i.slots }} of {{ slots_max }} bought &middot; {{ coleader_cap }} allowed</span>{% endif %}
+    {% if i.maxed %}<button type="button" class="btn quiet" disabled>Maxed</button>
+    {% else %}<span class="price{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>
+    <button type="button" class="btn" data-act="buy"{% if not i.can %} disabled{% endif %}>{% if i.until %}Extend a week{% else %}Buy{% endif %}</button>{% endif %}
+  {% elif i.own %}
+    {% if i.worn %}<span class="wornlbl">&#10003; On now</span>
+      <button type="button" class="btn quiet" data-act="unequip">Take it off</button>
+    {% else %}<button type="button" class="btn" data-act="equip">Put it on</button>{% endif %}
+  {% else %}
+    <span class="price{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>
+    <button type="button" class="btn" data-act="buy"{% if not i.can %} disabled{% endif %}>Buy</button>
+  {% endif %}
+  </span>
+</div>
+{% endmacro %}
+<section class="panel" data-panel="clan" hidden{% if clan_theme_color %} style="--ct:{{ clan_theme_color }}"{% endif %}>
+<p class="secnote">For <b>{{ clan_display }}</b>, paid from its treasury &mdash; <b>{{ '{:,}'.format(clan_shop.balance) }}</b> gems &mdash;
+  by the leader or a co-leader. A look goes on the moment it is bought and dresses the header of the clan page;
+  a <b>tag</b> look changes the badge every member wears on their own pages. Perks run for a week and can be
+  extended; a co-leader slot is for good. The treasury never overdraws.</p>
+<section class="tier">
+  <div class="sechead"><h2>Perks</h2><span class="n">{{ clan_shop.perks|length }}</span></div>
+  <div class="hangar">{% for i in clan_shop.perks %}{{ cltile(i, 'perk') }}{% endfor %}</div>
+</section>
+{% for slot, label in [('banner', 'Clan page backgrounds'), ('frame', 'Clan page frames'), ('tag', 'Tag looks - on every member')] %}
+<section class="tier">
+  <div class="sechead"><h2>{{ label }}</h2><span class="n">{{ clan_shop.looks|selectattr('slot', 'equalto', slot)|list|length }}</span></div>
+  <div class="hangar">{% for i in clan_shop.looks if i.slot == slot %}{{ cltile(i, 'look') }}{% endfor %}</div>
+</section>
+{% endfor %}
+<section class="tier">
+  <div class="sechead"><h2>Clan emblem &mdash; a ship beside the tag</h2><span class="n">{{ clan_shop.emblems|length }}</span></div>
+  <div class="hangar">{% for i in clan_shop.emblems %}{{ cltile(i, 'emblem') }}{% endfor %}</div>
+</section>
+</section>
+{% endif %}
+
 <div class="toast" id="toast" hidden></div>
 <script>
 (function(){
+  var CLAN = {{ (clan_tag or '')|tojson }};
   var toast=document.getElementById('toast'), tt=0;
   function say(t, bad){
     if(!toast||!t) return;
@@ -207,11 +267,13 @@
   document.addEventListener('click', function(ev){
     var b=ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
-    var tile=b.closest('[data-code],[data-item]'); if(!tile) return;
-    var code=tile.getAttribute('data-code'), item=tile.getAttribute('data-item'),
+    var tile=b.closest('[data-code],[data-item],[data-citem]'); if(!tile) return;
+    var code=tile.getAttribute('data-code'), item=tile.getAttribute('data-item'), citem=tile.getAttribute('data-citem'),
         slot=tile.getAttribute('data-slot'), act=b.getAttribute('data-act');
     var url = act==='buy' ? '/shop/buy' : '/shop/equip', body;
-    if(item){ body = act==='unequip' ? {slot:slot, item:null} : {item:item}; }
+    if(citem){ url = act==='buy' ? '/clan/shop/buy' : '/clan/shop/equip';
+               body = act==='unequip' ? {clan:CLAN, slot:slot, item:null} : {clan:CLAN, item:citem}; }
+    else if(item){ body = act==='unequip' ? {slot:slot, item:null} : {item:item}; }
     else { body = act==='unequip' ? {code:null} : {code:parseInt(code,10)}; }
     b.disabled=true;
     fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
