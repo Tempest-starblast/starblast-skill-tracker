@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.38.2"
+APP_VERSION = "9.39.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6826,6 +6826,17 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.39.0", "at": "2026-09-19T09:00:00Z", "changes": [
+        "<b>Fixed: merging a name could wipe the record it was meant to save.</b> "
+        "When the name being merged into was not itself on the board, every "
+        "result was moved to a name nothing pointed at and the old row was "
+        "deleted - so the account lost its name and its whole record and "
+        "started again at 1000. A merge now refuses instead of half-running, "
+        "keeps the account attached to the record, and carries survival rounds "
+        "and everything else keyed to the old name along with the matches. "
+        "<b>The two records this cost have been put back.</b> If yours still "
+        "looks wrong, say so on Discord.",
+    ]},
     {"version": "9.38.2", "at": "2026-09-19T07:00:00Z", "changes": [
         "<b>Fixed on phones: the tab bar was cut off.</b> Everything past the "
         "fourth or fifth tab ran off the side of the screen, including the "
@@ -18794,10 +18805,41 @@ def customgame_page():
 
 def perform_name_merge(c, from_norm, to_norm):
     """Fold the record played under from_norm INTO to_norm: reassign its rated
-    matches (so its wins/losses AND its replays become to_norm's), recompute
-    to_norm's aggregate, and remove the now-empty from_norm row. The on-screen
-    name in each match is kept as it was actually flown - only the identity the
-    result counts for changes. Caller owns the commit. Returns a summary."""
+    matches (so its wins/losses AND its replays become to_norm's) and every
+    other row keyed to that identity, recompute to_norm's aggregate, and remove
+    the now-empty from_norm row. The on-screen name in each match is kept as it
+    was actually flown - only the identity the result counts for changes.
+    Caller owns the commit.
+
+    Returns a summary carrying "ok". It refuses rather than half-runs, because
+    the two ways this went wrong both destroyed a record (17 Sep, two players):
+
+      - the name being merged INTO had no row on the board, so every result was
+        moved to a key nothing points at and the aggregate update wrote
+        nowhere;
+      - the row being removed carried somebody's ACCOUNT, so that account was
+        left with no name at all and had to start again from nothing.
+
+    The account is carried across with the record instead of being dropped, and
+    a merge between two different accounts is refused - that is one person
+    taking another's record.
+    """
+    from_row = c.execute("SELECT name, google_sub FROM players WHERE norm_name = ?",
+                         (from_norm,)).fetchone()
+    to_row = c.execute("SELECT name, google_sub FROM players WHERE norm_name = ?",
+                       (to_norm,)).fetchone()
+    if not to_row:
+        return {"ok": False, "matches_moved": 0,
+                "error": "Nothing on the board is called '%s', so there is no record to "
+                         "merge into - that name has to exist first." % to_norm}
+    if not from_row:
+        return {"ok": False, "matches_moved": 0,
+                "error": "Nothing on the board is called '%s'." % from_norm}
+    from_sub, to_sub = from_row[1], to_row[1]
+    if from_sub and to_sub and from_sub != to_sub:
+        return {"ok": False, "matches_moved": 0,
+                "error": "Those two names belong to different accounts. Merging would "
+                         "hand one account's record to another."}
     moved = c.execute("SELECT COUNT(*) FROM match_players WHERE norm_name = ?",
                       (from_norm,)).fetchone()[0]
     # Never double-count a match both names were in (same person, rare): drop the
@@ -18805,13 +18847,17 @@ def perform_name_merge(c, from_norm, to_norm):
     c.execute("DELETE FROM match_players WHERE norm_name = ? AND match_row IN "
               "(SELECT match_row FROM match_players WHERE norm_name = ?)",
               (from_norm, to_norm))
-    c.execute("UPDATE match_players SET norm_name = ? WHERE norm_name = ?",
-              (to_norm, from_norm))
-    try:
-        c.execute("UPDATE held_results SET norm_name = ? WHERE norm_name = ?",
-                  (to_norm, from_norm))
-    except sqlite3.Error:
-        pass
+    # Everything keyed to the old identity moves, the same set a rename carries,
+    # so survival rounds, held results and the rest are not left behind.
+    for _t in RENAME_KEYED_TABLES:
+        try:
+            c.execute("UPDATE %s SET norm_name = ? WHERE norm_name = ?" % _t,
+                      (to_norm, from_norm))
+        except sqlite3.Error:
+            pass
+    _fold_survival_row(c, from_norm, to_norm, to_row[0])
+    _fold_trueskill_row(c, from_norm, to_norm, to_row[0])
+    _move_gem_ledger(c, from_norm, to_norm)
     # to_norm's rating is exactly STARTING_ELO + the sum of its deltas (the board
     # invariant), recomputed over the now-combined match set.
     row = c.execute(
@@ -18823,8 +18869,16 @@ def perform_name_merge(c, from_norm, to_norm):
     new_elo = round(STARTING_ELO + sumdelta, 2)
     c.execute("UPDATE players SET wins = ?, losses = ?, elo = ? WHERE norm_name = ?",
               (wins, losses, new_elo, to_norm))
+    if from_sub and not to_sub:
+        # The old row held the account: it goes with the record, or the person
+        # signs in tomorrow to find they have no name.
+        c.execute("UPDATE players SET google_sub = ? WHERE norm_name = ?",
+                  (from_sub, to_norm))
     c.execute("DELETE FROM players WHERE norm_name = ?", (from_norm,))
-    return {"matches_moved": moved, "wins": wins, "losses": losses, "elo": new_elo}
+    _PLAY_CACHE["ts"] = 0.0
+    tag_cache_reset()
+    return {"ok": True, "matches_moved": moved, "wins": wins, "losses": losses,
+            "elo": new_elo, "carried_account": bool(from_sub and not to_sub)}
 
 
 @app.route('/merge')
@@ -18999,6 +19053,14 @@ def dev_merges_decide(rid):
     now = time.strftime('%Y-%m-%d %H:%M:%S')
     if action == 'approve':
         summary = perform_name_merge(c, from_norm, to_norm)
+        if not summary.get("ok"):
+            # Say why and leave it pending, rather than marking a request done
+            # when nothing was moved.
+            c.execute("UPDATE merge_requests SET decided_note = ? WHERE id = ?",
+                      (summary.get("error", "could not be merged"), rid))
+            conn.commit()
+            conn.close()
+            return redirect('/dev/merges')
         c.execute("UPDATE merge_requests SET status = 'approved', decided_at = ?, "
                   "decided_note = ? WHERE id = ?",
                   (now, note or ("moved %d matches" % summary["matches_moved"]), rid))
