@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.27.1"
+APP_VERSION = "9.27.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1656,6 +1656,28 @@ def _fold_trueskill_row(c, old_key, new_key, new_name):
         pass
 
 
+def _move_gem_ledger(c, old_key, new_key):
+    """The gem ledger is keyed by the player's norm too (gem_grant takes
+    it), and it is what the achievements page, the hangar and the
+    once-only guard read - the balance on the row is only a cache. Moved
+    as a whole; if a grant already exists under the new key (the once-only
+    index says so) the old copy is dropped, since it was paid once."""
+    try:
+        c.execute("UPDATE gem_ledger SET owner = ? WHERE owner_kind = 'player' AND owner = ?",
+                  (new_key, old_key))
+        return
+    except sqlite3.IntegrityError:
+        pass
+    except sqlite3.Error:
+        return
+    for (rid,) in c.execute("SELECT id FROM gem_ledger WHERE owner_kind = 'player' "
+                            "AND owner = ?", (old_key,)).fetchall():
+        try:
+            c.execute("UPDATE gem_ledger SET owner = ? WHERE id = ?", (new_key, rid))
+        except sqlite3.IntegrityError:
+            c.execute("DELETE FROM gem_ledger WHERE id = ?", (rid,))
+
+
 def rekey_identity(c, old_name, new_name):
     """Rename one players row and carry everything keyed to it. The name
     each match was flown under (match_players.name) is kept as it was."""
@@ -1671,6 +1693,7 @@ def rekey_identity(c, old_name, new_name):
                 pass
         _fold_survival_row(c, old_key, new_key, new_name)
         _fold_trueskill_row(c, old_key, new_key, new_name)
+        _move_gem_ledger(c, old_key, new_key)
     try:
         c.execute("UPDATE clan_invites SET name = ? WHERE name = ? AND status = 'pending'",
                   (new_name, old_name))
