@@ -2,22 +2,21 @@
 {% block title %}Survival - Starblast Skill Leaderboard{% endblock %}
 {% block meta_description %}Recent Starblast survival rounds — who outlasted the field to be the last ship standing, and who has the most wins.{% endblock %}
 {% block css %}
-.svnote{color:var(--muted);font-size:13px;margin:-4px 0 18px;max-width:60ch}
 .svwrap{display:grid;grid-template-columns:1fr;gap:16px}
-@media(min-width:820px){.svwrap{grid-template-columns:250px 1fr;align-items:start}}
-.svcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 16px;backdrop-filter:var(--blur)}
-.svcard h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:700}
+@media(min-width:820px){.svwrap{grid-template-columns:260px 1fr;align-items:start}}
+.svcard{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px 16px;backdrop-filter:var(--blur)}
+.svcard h2{font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc;margin:0 0 10px;font-weight:700}
 .svtop{display:flex;flex-direction:column}
-.svtoprow{display:grid;grid-template-columns:18px 1fr auto;gap:9px;align-items:center;padding:5px 0;font-size:13.5px;border-top:1px solid var(--line)}
+.svtoprow{display:grid;grid-template-columns:22px 1fr auto;gap:9px;align-items:center;padding:7px 0;font-size:13.5px;border-top:1px solid var(--line)}
 .svtoprow:first-child{border-top:none}
 .svtoprow .r{color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
-.svtoprow a{color:var(--text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.svtoprow a{color:var(--text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
 .svtoprow a:hover{color:var(--blue)}
-.svtoprow .w{color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums}
+.svtoprow .w{color:var(--amber);font-weight:800;font-variant-numeric:tabular-nums}
 .svround{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:11px 2px;border-top:1px solid var(--line)}
 .svround:first-of-type{border-top:none}
-.svtrophy{font-size:17px;line-height:1}
-.svwin a{font-weight:700;color:var(--text);text-decoration:none}
+.svtrophy{font-size:19px;line-height:1}
+.svwin a{font-weight:800;color:var(--text);text-decoration:none;font-size:14.5px}
 .svwin a:hover{color:var(--blue)}
 .svsub{color:var(--muted);font-size:12px;margin-top:2px}
 .svsub a{color:var(--muted);text-decoration:none}
@@ -25,15 +24,26 @@
 .svfield{color:var(--green);font-weight:700}
 .svmeta{text-align:right;color:var(--dim);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.5}
 .svempty{color:var(--muted);padding:26px 0;text-align:center;font-size:13px}
-.svnote a{color:var(--blue);text-decoration:none}
-.svnote a:hover{text-decoration:underline}
 a.svtrophy{text-decoration:none}
-.svreplay{color:var(--blue);text-decoration:none;font-weight:600;white-space:nowrap}
-.svreplay:hover{text-decoration:underline}
+.svreplay{display:inline-block;margin-top:5px;color:#9adcff;text-decoration:none;font-weight:700;white-space:nowrap;
+  font-size:12px;padding:3px 10px;border:1px solid rgba(154,220,255,.35);border-radius:999px}
+.svreplay:hover{background:rgba(154,220,255,.12)}
 {% endblock %}
 {% block body %}
-<h1 class="ptitle">Survival</h1>
-<p class="svnote">Last ship standing. A passive observer follows each round into its elimination phase and records who outlasted the field. The full placement rating is on the <a href="/?mode=survival">leaderboard (Survival)</a>; this page is the round-by-round results.</p>
+<div class="pagehead" style="--ct:#f0c04a">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Survival</p>
+    <h1 class="phname">Last ship standing</h1>
+    <p class="phsub">A passive observer follows each round into its elimination phase and records who
+      outlasted the field. Rounds count for your account like team matches do. The full placement
+      rating is on the <a href="/?mode=survival">survival board</a>.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>Recent rounds</span><b>{{ rounds|length }}</b></div>
+    {% if top %}<div class="phnum"><span>Most wins</span><b class="gold-ish" style="color:#f6d77a">{{ top[0].wins }}</b></div>{% endif %}
+  </div>
+</div>
+
 <div class="svwrap">
   <div class="svcard">
     <h2>Most wins</h2>
@@ -52,7 +62,8 @@ a.svtrophy{text-decoration:none}
       <a class="svtrophy" href="/survival/replay?key={{ r.key|urlencode }}" title="Watch the elimination replay">&#127942;</a>
       <div>
         <div class="svwin"><a href="/player/{{ r.winner|urlencode }}">{{ r.winner }}</a></div>
-        <div class="svsub">last of {{ r.field }}{% if r.runner_up %} &middot; runner-up <a href="/player/{{ r.runner_up|urlencode }}">{{ r.runner_up }}</a>{% endif %} &middot; <a class="svreplay" href="/survival/replay?key={{ r.key|urlencode }}">&#9654; replay</a></div>
+        <div class="svsub">last of <span class="svfield">{{ r.field }}</span>{% if r.runner_up %} &middot; runner-up <a href="/player/{{ r.runner_up|urlencode }}">{{ r.runner_up }}</a>{% endif %}</div>
+        <a class="svreplay" href="/survival/replay?key={{ r.key|urlencode }}">&#9654; Replay</a>
       </div>
       <div class="svmeta">{{ r.region }}<br><time class="lt" datetime="{{ r.when_utc }}">{{ r.when }}</time> &middot; {{ r.dur_min }}m</div>
     </div>

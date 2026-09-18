@@ -17,8 +17,20 @@
 .dayhead:first-of-type{margin-top:6px}
 {% endblock %}
 {% block body %}
-<h1 class="ptitle">Changelog</h1>
-<p class="psub">Every change made to the leaderboard, grouped under the day it went out, newest first. Times are Eastern (US); releases before 10 August have no recorded time.</p>
+{% set nrel = groups|map(attribute='entries')|map('length')|sum %}
+<div class="pagehead" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Changelog</p>
+    <h1 class="phname">Every change, newest first</h1>
+    <p class="phsub">Grouped under the day it went out. Times are Eastern (US); releases before
+      10 August have no recorded time.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>Now</span><b class="green">v{{ version }}</b></div>
+    <div class="phnum"><span>Releases</span><b>{{ nrel }}</b></div>
+    <div class="phnum"><span>Days</span><b>{{ groups|length }}</b></div>
+  </div>
+</div>
 
 {% for g in groups %}
 <h2 class="dayhead">{{ g.day }}</h2>
@@ -33,10 +45,6 @@
 <div class="card"><p class="empty">Nothing logged yet.</p></div>
 {% endfor %}
 <script>
-// Everything released since this reader's last visit gets a NEW tag; the
-// visit itself then counts as caught-up, which is what clears the red dot
-// on the menu. First-time readers have no "last visit", so nothing is
-// tagged - the base script has already recorded where they started.
 (function(){
   var CUR = {{ version|tojson }};
   function newer(a, b){
@@ -66,10 +74,6 @@
 })();
 </script>
 <script>
-// Deliberately fixed to Eastern, not the reader's zone: a release time is
-// a shared fact. The abbreviation comes from the browser, so it reads EDT
-// through the summer and EST through the winter - which is what Eastern
-// actually is on that date, rather than being wrong for half the year.
 (function () {
   var fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York', month: 'short', day: 'numeric',

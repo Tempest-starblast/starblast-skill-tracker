@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.33.1"
+APP_VERSION = "9.34.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6368,6 +6368,16 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.34.0", "at": "2026-09-18T18:30:00Z", "changes": [
+        "<b>Replays, Survival, Info and the changelog</b> get the same header "
+        "band as the rest of the site. Replays: Team mode and Survival as two "
+        "tabs under the band, the match count and page up top, the filters in "
+        "one row. Survival: the last-ship-standing rule in a line, most wins "
+        "and recent rounds side by side. Info: the search box lives in the "
+        "band. Changelog: the current version, release and day counts up top. "
+        "Every page of the site now opens the same way: what it is, the numbers "
+        "that matter, then the content.",
+    ]},
     {"version": "9.33.0", "at": "2026-09-18T17:00:00Z", "changes": [
         "<b>Social, Play and the clans list</b> follow the same pattern as the "
         "account and clan pages now. Social: a band with who is on, then tabs - "

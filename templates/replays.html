@@ -2,49 +2,59 @@
 {% block title %}{{ t('Replays') }} - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
 .rpfilters{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
-.rpfilters input[type=date],.rpfilters input[type=number]{background:rgba(0,0,0,.3);
-  border:1px solid var(--line);border-radius:3px;color:inherit;padding:8px 10px;
+.rpfilters input[type=date],.rpfilters input[type=number],.rpfilters input[type=text]{background:rgba(0,0,0,.3);
+  border:1px solid var(--line);border-radius:9px;color:inherit;padding:9px 11px;
   font:inherit;font-size:13.5px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
 .rpfilters input[type=number]{width:130px}
+.rpfilters .lbl{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin-right:2px}
 .rprow td a{color:inherit;text-decoration:none;display:block}
 .rprow:hover td{background:rgba(153,221,255,.05)}
-.rpgo{color:#9adcff;white-space:nowrap}
+.rpgo{color:#9adcff;white-space:nowrap;font-weight:700}
 .pager{display:flex;gap:12px;align-items:center;justify-content:center;margin-top:14px;font-size:13.5px}
-.pager a{color:#9adcff;text-decoration:none;padding:5px 13px;border:1px solid var(--line);
-  border-radius:3px;background:rgba(0,0,0,.25)}
+.pager a{color:#9adcff;text-decoration:none;padding:6px 14px;border:1px solid var(--line);
+  border-radius:9px;background:rgba(0,0,0,.25)}
 .pager .off{opacity:.35;pointer-events:none}
-.rpmodebar{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:-4px 0 14px}
-.rpmodebar a{padding:7px 16px;color:var(--muted);text-decoration:none;font-size:13.5px;font-weight:600}
-.rpmodebar a+a{border-left:1px solid var(--line)}
-.rpmodebar a.on{background:var(--blue,#66e6b8);color:#0b0e13}
+.nrtag{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;
+  border-radius:4px;background:rgba(255,199,87,.14);color:var(--amber,#ffc757);margin-left:6px;vertical-align:1px}
+.pheye .infobtn{margin-left:8px;vertical-align:middle}
 {% endblock %}
 {% block body %}
 {% set survival = (mode == 'survival') %}
 {% set mq = '&mode=survival' if survival else '' %}
-<div class="ptitlerow"><h1 class="ptitle">{{ t('Replays') }}</h1>{% set info_q = 'replays' %}{% set info_tip = 'How replays work' %}{% include "_infobtn.html" %}</div>
-<div class="rpmodebar">
+{% set info_q = 'replays' %}{% set info_tip = 'How replays work' %}
+<div class="pagehead" style="--ct:#9adcff">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">{{ t('Replays') }}{% include "_infobtn.html" %}</p>
+    <h1 class="phname">{% if survival %}Every survival round, replayed{% else %}Every match, replayable{% endif %}</h1>
+    <p class="phsub">{% if survival %}Each recorded round as an elimination timeline: the field shrinking, and
+      who outlasted everyone.{% else %}Score and win chance over the whole match, every ship on the radar, and the
+      roster as it was. Open one and scrub through it.{% endif %}</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>{% if survival %}Rounds{% else %}Matches{% endif %}</span><b class="blue">{{ '{:,}'.format(total) }}</b></div>
+    <div class="phnum"><span>{{ t('Page') }}</span><b>{{ pg }}<span style="font-size:13px;color:#b9d6e4;letter-spacing:0;text-transform:none"> / {{ pages }}</span></b></div>
+  </div>
+</div>
+
+<nav class="subtabs" aria-label="Mode">
   <a href="/replays" class="{% if not survival %}on{% endif %}">Team mode</a>
   <a href="/replays?mode=survival" class="{% if survival %}on{% endif %}">Survival</a>
-</div>
-{% if survival %}
-<p style="color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5;margin:-6px 0 16px;max-width:64ch">Every recorded <b>survival</b> round &mdash; replayed as an elimination timeline, the field shrinking to the last ship standing.</p>
-{% else %}
-<p style="color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5;margin:-6px 0 16px;max-width:64ch">Every tracked <b>team&nbsp;mode</b> match, replayable &mdash; score and win chance over the whole game.</p>
-{% endif %}
+</nav>
 
 <div class="card">
   <form class="rpfilters" method="get" action="/replays">
     <input type="hidden" name="mode" value="{{ mode }}">
-    <input type="date" name="date" value="{{ date }}">
+    <span class="lbl">Find</span>
+    <input type="date" name="date" value="{{ date }}" aria-label="Date">
     <input type="number" name="sys" placeholder="{% if survival %}Lobby #{% else %}Server #{% endif %}" min="0" value="{{ sysq }}">
     {% if not survival %}<input type="text" name="q" placeholder="Server name" maxlength="40" value="{{ q or '' }}">{% endif %}
     <button class="primary" type="submit">{{ t('Search all') }}</button>
     {% if date or sysq or q %}<a href="/replays{{ '?mode=survival' if survival else '' }}" class="ghost" style="text-decoration:none;
-       padding:8px 14px;border:1px solid var(--line);border-radius:3px">{{ t('Clear') }}</a>{% endif %}
+       padding:8px 14px;border:1px solid var(--line);border-radius:9px">{{ t('Clear') }}</a>{% endif %}
   </form>
 </div>
 
-<div class="card">
+<div class="card" style="padding:0;overflow:hidden">
   {% if rows %}
   <div class="tablewrap">
   <table>
@@ -58,16 +68,16 @@
         <td>&#127942; {{ r.winner }} <span style="color:var(--muted,#8aa0b0)">last of {{ r.field }}</span></td>
         <td>{{ r.region }}</td>
         <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>
-        <td class="rpgo">&#9654; replay</td>
+        <td class="rpgo">&#9654; Replay</td>
       </tr>
       {% elif r.kind == 'nr' %}
       <tr class="rprow" onclick="location.href='/replay/r/{{ r.key|urlencode }}'" style="cursor:pointer">
         <td><time class="rel" datetime="{{ r.at_utc }}">{{ r.at }}</time></td>
         <td>{{ r.name }} <span style="color:var(--muted,#8aa0b0)">#{{ r.sys }}</span>
-          <span title="{{ r.reason }}" style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(255,199,87,.14);color:var(--amber,#ffc757);margin-left:6px;vertical-align:1px">no result</span></td>
+          <span class="nrtag" title="{{ r.reason }}">not rated</span></td>
         <td>{{ r.region }}</td>
         <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>
-        <td class="rpgo">&#9654; replay</td>
+        <td class="rpgo">&#9654; Replay</td>
       </tr>
       {% else %}
       <tr class="rprow" onclick="location.href='/replay/{{ r.id }}'" style="cursor:pointer">
@@ -75,14 +85,14 @@
         <td>{{ r.name }} <span style="color:var(--muted,#8aa0b0)">#{{ r.sys }}</span></td>
         <td>{{ r.region }}</td>
         <td class="num" style="color:var(--muted,#8aa0b0)">{{ r.mins }} min</td>
-        <td class="rpgo">&#9654; replay</td>
+        <td class="rpgo">&#9654; Replay</td>
       </tr>
       {% endif %}
     {% endfor %}
     </tbody>
   </table>
   </div>
-  <div class="pager">
+  <div class="pager" style="padding:0 0 14px">
     <a class="{% if pg <= 1 %}off{% endif %}"
        href="/replays?page={{ pg - 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">&larr;</a>
     <span>{{ t('Page') }} {{ pg }} / {{ pages }}</span>
@@ -90,7 +100,7 @@
        href="/replays?page={{ pg + 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">&rarr;</a>
   </div>
   {% else %}
-  <p class="empty">No {% if survival %}survival rounds{% else %}replays{% endif %} match that search.</p>
+  <p class="empty" style="padding:26px 22px">No {% if survival %}survival rounds{% else %}replays{% endif %} match that search.</p>
   {% endif %}
 </div>
 {% endblock %}

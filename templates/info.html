@@ -14,7 +14,6 @@
 .qa{font-size:14px;color:var(--muted);line-height:1.7}
 .qa b{display:block;color:var(--text);margin-top:12px}
 .qa b:first-child{margin-top:0}
-/* The rank ladder, built from ranks.py so the thresholds cannot go stale. */
 .rk-wrap{overflow-x:auto}
 .rk-tbl{border-collapse:collapse;width:100%;max-width:420px;font-size:14px}
 .rk-tbl td{padding:7px 4px;border-bottom:1px solid var(--line)}
@@ -23,29 +22,39 @@
 .rk-em svg{width:20px;height:20px;display:block}
 .rk-nm{font-weight:700;white-space:nowrap}
 .rk-bd{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
-/* Search across the cards. */
-.isearch{position:relative;margin:0 0 16px;max-width:420px}
+/* The search is the band's one action: the page is long, and the box is how
+   you get to the paragraph you came for. */
+.isearch{position:relative;margin:0;width:min(420px,100%)}
 .isearch input{width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;
-  color:var(--text);background:rgba(153,221,255,.05);border:1px solid var(--line2,rgba(153,221,255,.28));
-  border-radius:9px;padding:10px 34px 10px 12px}
+  color:var(--text);background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.22);
+  border-radius:11px;padding:11px 36px 11px 14px}
+.isearch input::placeholder{color:#b9d6e4}
 .isearch input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
 .isearch .iclear{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;
-  background:none;color:var(--muted);font-size:17px;line-height:1;cursor:pointer;padding:4px 6px}
+  background:none;color:#cfe3ee;font-size:17px;line-height:1;cursor:pointer;padding:4px 6px}
 .isearch .iclear[hidden]{display:none}
 .info mark{background:rgba(255,199,87,.28);color:var(--text);border-radius:3px;padding:0 1px}
 .info .card.nohit{display:none}
 .inomatch{color:var(--muted);font-size:14px}
+.pagehead .phnums{align-content:center}
+@media(max-width:760px){.isearch{margin-top:6px}}
 {% endblock %}
 {% block body %}
 {# Every word on this page comes from info_text_<lang>.py. The bodies are
    our own HTML, never a player's, which is what makes |safe safe here. #}
-<h1 class="ptitle">{{ info.title }}</h1>
-<p class="psub">{{ info.sub }}</p>
-
-<div class="isearch">
-  <input id="iq" type="search" autocomplete="off" spellcheck="false"
-         placeholder="{{ info.search }}" aria-label="{{ info.search }}">
-  <button type="button" class="iclear" id="iclear" aria-label="Clear" hidden>&times;</button>
+<div class="pagehead" style="--ct:#3aa0d8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">{{ info.title }}</p>
+    <h1 class="phname">{{ info.sub }}</h1>
+    <p class="phsub">{{ info.cards|length }} short cards. Search, or scroll.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="isearch">
+      <input id="iq" type="search" autocomplete="off" spellcheck="false"
+             placeholder="{{ info.search }}" aria-label="{{ info.search }}">
+      <button type="button" class="iclear" id="iclear" aria-label="Clear" hidden>&times;</button>
+    </div>
+  </div>
 </div>
 
 <div class="info">
@@ -61,10 +70,6 @@
 <p class="foot">{{ info.foot }}</p>
 
 <script>
-// Filter the cards as you type, and mark the hits. Only TEXT NODES are ever
-// wrapped, and every card keeps the markup it was built with so clearing the
-// box puts the page back exactly as it was - a search must not be able to
-// damage the thing it is searching.
 (function(){
   var box=document.getElementById('iq'), clr=document.getElementById('iclear'),
       none=document.getElementById('inomatch'), wrap=document.querySelector('.info'),
@@ -92,27 +97,22 @@
     clr.hidden=!q;
     var shown=0, head=[], body=[], rest=[];
     cards.forEach(function(c){
-      c.innerHTML=c._html;                      // always start from the original
+      c.innerHTML=c._html;
       var hit=!q || c._text.indexOf(q)>=0;
       c.classList.toggle('nohit', !hit);
       if(!hit){ rest.push(c); return; }
       shown++;
       if(!q) return;
       mark(c, q);
-      // A card whose HEADING matches is the one you were looking for; a card
-      // that only mentions the word somewhere in its prose is a lesser match.
       var h=c.querySelector('h2'), hn=h ? (h.textContent||'').toLowerCase() : '';
       (hn.indexOf(q)>=0 ? head : body).push(c);
     });
-    // Re-lay the cards: heading matches, then mentions, then the rest. With an
-    // empty box `cards` is already the order the page was built in.
     (q ? head.concat(body, rest) : cards).forEach(function(c){ wrap.appendChild(c); });
     none.hidden = !q || shown>0;
   }
   box.addEventListener('input', run);
   clr.addEventListener('click', function(){ box.value=''; box.focus(); run(); });
   box.addEventListener('keydown', function(e){ if(e.key==='Escape'){ box.value=''; run(); } });
-  // Deep-link: /info?q=clan lands with the search already applied.
   var pre=new URLSearchParams(location.search).get('q');
   if(pre){ box.value=pre; run(); }
 })();
