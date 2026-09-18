@@ -27,9 +27,15 @@
 .cmempty{color:var(--muted);font-size:14px}
 {% endblock %}
 {% block body %}
+<div class="pagehead" style="--ct:#ff7b53">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Custom games</p>
+    <h1 class="phname">Played for fun, kept on record</h1>
+    <p class="phsub">Games from the <a href="/customgame">Marauder custom lobby</a> that weren&rsquo;t the standard rated game &mdash; custom settings, a custom map or an imported mod. They don&rsquo;t touch the leaderboard, but who played, the team they were on, their score and how long they played are all kept here.</p>
+  </div></div>
+  <div class="phnums"><div class="phnum"><span>Games</span><b>{{ matches|length }}</b></div></div>
+</div>
 <div class="cgl">
-<h1 class="ptitle">Custom games</h1>
-<p class="cglnote">Games from the <a href="/customgame" style="color:var(--green,#66e6b8)">Marauder custom lobby</a> that weren&rsquo;t the standard rated game &mdash; custom settings, a custom map or an imported mod. They don&rsquo;t touch the leaderboard, but who played, the team they were on, their score and how long they played are all kept here.</p>
 {% for m in matches %}
 <div class="cm" id="m{{ m.id }}">
   <div class="cmhead">

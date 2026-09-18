@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.36.0"
+APP_VERSION = "9.37.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6692,6 +6692,18 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.37.0", "at": "2026-09-19T02:30:00Z", "changes": [
+        "<b>One header everywhere.</b> The leaderboard, match and survival "
+        "replays, Compare, Live matches, Custom games, Report and Merge a name "
+        "now open with the same band as the rest of the site: what the page "
+        "is, the numbers that matter, then the content. The board's Team / "
+        "Survival switch is a tab row under it.",
+        "<b>Phones:</b> the leaderboard's podium and the clans table no longer "
+        "push the page wider than the screen; the pinned mini replay sits "
+        "above the tab bar instead of on it. The name row on your account "
+        "and profile keeps its badge and name on one centre line.",
+        "The replay search boxes sit in one row.",
+    ]},
     {"version": "9.36.0", "at": "2026-09-19T00:30:00Z", "changes": [
         "<b>Replays can be searched by player.</b> Type a name into the new box "
         "on the Replays page and only the matches that player was in come back; "

@@ -46,6 +46,7 @@
 <div class="card">
   <h2>{{ t('Every clan') }}</h2>
   {% if clans %}
+  <div class="tablewrap">
   <table class="board">
   <thead><tr>
     <th class="rank">#</th><th>{{ t('Clan') }}</th>
@@ -70,6 +71,7 @@
   {% endfor %}
   </tbody>
   </table>
+  </div>
   <p class="desc">Ranked by the average skill of everyone in the clan, so a clan
      climbs by having good players rather than many. Adding a weak player lowers
      the average &mdash; that is the trade.</p>

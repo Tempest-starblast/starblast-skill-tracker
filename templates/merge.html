@@ -24,8 +24,13 @@
 .mgok a{color:var(--blue,#66e6b8)}
 {% endblock %}
 {% block body %}
-<h1 class="ptitle">Merge a name</h1>
-<p class="mgnote">Played some games before you set your play name, so your record landed under a different name? Ask to fold that name into your account &mdash; its wins, losses and replays become yours, and the old name is retired. Reviewed by hand with proof, because moving a whole record isn&rsquo;t something we let happen automatically.</p>
+<div class="pagehead" style="--ct:#3aa0d8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Merge a name</p>
+    <h1 class="phname">Fold an old name into your account</h1>
+    <p class="phsub">Played some games before you set your play name, so your record landed under a different name? Ask to fold that name into your account &mdash; its wins, losses and replays become yours, and the old name is retired. Reviewed by hand with proof, because moving a whole record isn&rsquo;t something we let happen automatically.</p>
+  </div></div>
+</div>
 
 {% if not signed_in %}
 <div class="mgcard"><p style="margin:0;font-size:14px">Sign in first (top of the page) &mdash; a merge attaches a record to <b>your</b> account, so we need to know whose it is.</p></div>

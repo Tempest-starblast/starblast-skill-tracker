@@ -60,14 +60,20 @@
 {% block body %}
 {% set gem_svg %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
 
-<div class="ptitlerow"><h1 class="ptitle">Free agents</h1></div>
 {% if preview %}<div class="previewbar">🔒 Not released &mdash; only you can see this page.</div>{% endif %}
-
-<div class="agenthead">
-  <span class="agentsub">Players without a clan who have put themselves up for hire, at a price of
-    their own choosing and for a term they name. A clan&#39;s leader or co-leader pays it out of the
-    <b>treasury</b>, the player joins on the spot, and stays for the length of the <b>contract</b> &mdash;
-    they cannot leave before it is up. When it ends they simply stay on until they choose to go.</span>
+<div class="pagehead" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Free agents</p>
+    <h1 class="phname">Players for hire</h1>
+    <p class="phsub">Players without a clan who have put themselves up for hire, at a price of their own
+      choosing and for a term they name. A clan&#39;s leader or co-leader pays it out of the <b>treasury</b>,
+      the player joins on the spot, and stays for the length of the <b>contract</b> &mdash; they cannot leave
+      before it is up. When it ends they simply stay on until they choose to go.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>Listed</span><b class="green">{{ agents|length }}</b></div>
+    {% for t in hire_as %}<div class="phnum"><span>{{ t }} treasury</span><b>{{ '{:,}'.format(treasuries[t]) }}</b></div>{% endfor %}
+  </div>
 </div>
 
 {% if signed_in %}

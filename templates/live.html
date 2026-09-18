@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 <style>
-.lv-head{max-width:1100px;margin:0 auto 14px}
-.lv-head h1{font-size:20px;letter-spacing:.4px;margin:0 0 4px}
+.lv-head{margin:0 0 16px}
 .lv-sub{color:var(--dim,#8aa0b0);font-size:13px;line-height:1.5}
 .lv-status{font-size:12px;color:var(--dim,#8aa0b0);margin-top:6px}
 .lv-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#66E6B8;
@@ -86,11 +85,14 @@
 .lv-empty{max-width:1100px;margin:40px auto;text-align:center;color:var(--dim,#8aa0b0);font-size:14px}
 </style>
 
-<div class="lv-head">
-  <h1 id="lvTitle">Live matches</h1>
-  <div class="lv-sub" id="lvSub">Every match the tracker is watching right now &mdash; scores, players, and station health, live.</div>
-  <div class="lv-status"><span class="lv-dot"></span><span id="lvStatus">Connecting…</span></div>
-  <div class="lv-status" id="lvModel" style="margin-top:3px;opacity:.85"></div>
+<div class="pagehead lv-head" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Live</p>
+    <h1 class="phname" id="lvTitle">Live matches</h1>
+    <p class="phsub" id="lvSub">Every match the tracker is watching right now &mdash; scores, players, and station health, live.</p>
+    <div class="lv-status"><span class="lv-dot"></span><span id="lvStatus">Connecting…</span></div>
+    <div class="lv-status" id="lvModel" style="margin-top:3px;opacity:.85"></div>
+  </div></div>
 </div>
 
 <div id="lvFlood" style="display:none;max-width:1100px;margin:0 auto 14px;

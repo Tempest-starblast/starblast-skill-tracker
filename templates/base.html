@@ -365,8 +365,11 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.16);box-shadow:0 8px 22px rgba(0,0,0,.4)}
 .phtext{min-width:0}
 .pheye{margin:0 0 4px;font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#b9d6e4;font-weight:700}
-.phname{margin:0;font-size:28px;line-height:1.1;font-weight:900;color:#f2fbff;overflow-wrap:anywhere}
-.phname .badge{vertical-align:middle;margin-right:8px;font-size:14px}
+.pheye .infobtn{margin-left:8px;vertical-align:middle}
+.pagehead .btick{width:min(420px,100%);margin:0}
+.phname{margin:0;font-size:28px;line-height:1.1;font-weight:900;color:#f2fbff;overflow-wrap:anywhere;
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.phname .badge{vertical-align:middle;margin-right:0;font-size:14px}
 .phsub{margin:6px 0 0;font-size:13px;color:#cfe3ee;line-height:1.5}
 .phsub a{color:#dff4ff;font-weight:700;text-decoration:none}
 .phsub a:hover{text-decoration:underline}
@@ -725,7 +728,8 @@ async function devRestore(){
   border-radius:50%;background:rgba(3,8,16,.72);color:#dff4ff;font-size:15px;line-height:20px;
   cursor:pointer;padding:0}
 #sbMiniX:hover{background:rgba(255,86,112,.85);color:#fff}
-@media (max-width:560px){ #sbMini{width:190px;height:128px;right:10px;bottom:10px} }
+/* On a phone the tab bar is at the bottom; the mini player sits above it. */
+@media (max-width:560px){ #sbMini{width:190px;height:128px;right:10px;bottom:74px} }
 </style>
 <script>
 (function(){

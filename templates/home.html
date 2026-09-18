@@ -21,9 +21,11 @@
 .idemb{flex:none;width:104px;height:104px;margin-top:2px;display:flex;align-items:center;justify-content:center;
   filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
 .idtext{min-width:0;position:relative;z-index:1}
+/* The name row is a centred flex row: badge, name and title chip all sit on
+   one visual centre line instead of hanging off the text baseline. */
 .idname{margin:0;font-size:30px;line-height:1.1;font-weight:900;letter-spacing:.3px;
-  color:var(--text);overflow-wrap:anywhere}
-.idname .badge{display:inline-block;margin-right:8px;padding:2px 8px;border-radius:6px;
+  color:var(--text);overflow-wrap:anywhere;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.idname .badge{display:inline-block;margin-right:0;padding:2px 8px;border-radius:6px;
   font-size:13px;font-weight:800;letter-spacing:.5px;vertical-align:middle;
   color:var(--blue,#99DDFF);border:1px solid rgba(153,221,255,.4);text-decoration:none}
 .idrank{margin:8px 0 0;font-size:13.5px;color:var(--muted,#8aa0b0)}
