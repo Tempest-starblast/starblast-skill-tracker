@@ -1,15 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Achievements - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-/* An achievement is a thing you either have or have not done, so the two
-   states have to read differently at a glance - not a checkbox on an
-   otherwise identical row. Earned ones light up; the rest stay quiet. */
-.achhead{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin:0 0 18px}
-.gemcount{display:inline-flex;align-items:center;gap:7px;font-size:15px;font-weight:800;
-  color:#8ef3ff;background:rgba(142,243,255,.10);border:1px solid rgba(142,243,255,.35);
-  border-radius:999px;padding:6px 14px;font-variant-numeric:tabular-nums}
-.gemcount .gem{width:13px;height:13px;flex:none}
-.achprog{font-size:13px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+/* Three states, three looks: not yet (quiet, with how far along you are),
+   ready (lit, with a Claim button - the gems wait for the press), and
+   claimed (lit, dated). */
+.previewbar{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:10px 14px;
+  border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
+  color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
+.gem{width:13px;height:13px;flex:none}
 
 .achsec{margin-bottom:22px}
 .sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 11px}
@@ -20,44 +18,59 @@
 .ach{display:flex;gap:12px;align-items:flex-start;padding:13px;border-radius:13px;
   border:1px solid var(--line2,rgba(153,221,255,.14));
   background:linear-gradient(160deg,rgba(153,221,255,.04),rgba(153,221,255,.012))}
-/* Earned: the emblem is in colour, the card is lit, the amount is paid. */
 .ach.got{border-color:rgba(142,243,255,.4);
   background:linear-gradient(160deg,rgba(142,243,255,.11),rgba(142,243,255,.02))}
+.ach.ready{border-color:rgba(102,230,184,.7);
+  background:linear-gradient(160deg,rgba(102,230,184,.16),rgba(102,230,184,.03));
+  box-shadow:0 0 0 1px rgba(102,230,184,.25),0 8px 26px rgba(102,230,184,.12)}
 .ach .emb{flex:none;width:38px;height:38px;display:flex;align-items:center;
-  justify-content:center;filter:drop-shadow(0 2px 3px rgba(0,0,0,.55))}
-.ach:not(.got) .emb{opacity:.3;filter:grayscale(1)}
+  justify-content:center;filter:drop-shadow(0 2px 3px rgba(0,0,0,.55));font-size:24px;line-height:1}
+.ach:not(.got):not(.ready) .emb{opacity:.3;filter:grayscale(1)}
 .ach .body{min-width:0;flex:1}
 .ach .nm{display:block;font-weight:800;font-size:14px;line-height:1.3}
-.ach .ds{display:block;font-size:11.5px;color:var(--muted,#8aa0b0);line-height:1.5;
-  margin-top:3px}
+.ach .ds{display:block;font-size:11.5px;color:var(--muted,#8aa0b0);line-height:1.5;margin-top:3px}
 .ach .pay{display:inline-flex;align-items:center;gap:5px;margin-top:7px;font-size:11.5px;
   font-weight:800;font-variant-numeric:tabular-nums;color:var(--dim,#5d7f93)}
-.ach.got .pay{color:#8ef3ff}
-.ach .pay .gem{width:11px;height:11px;flex:none}
+.ach.got .pay,.ach.ready .pay{color:#8ef3ff}
 .ach .when{font-size:11px;color:var(--dim,#5d7f93);margin-left:6px;font-weight:400}
-
-.previewbar{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:10px 14px;
-  border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
-  color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
+.prog{margin-top:8px;height:5px;border-radius:3px;background:rgba(153,221,255,.12);overflow:hidden}
+.prog i{display:block;height:100%;background:rgba(153,221,255,.55);border-radius:3px}
+.progt{font-size:11px;color:var(--dim,#5d7f93);margin-top:4px;font-variant-numeric:tabular-nums}
+.claim{margin-top:9px;width:100%;font-family:inherit;font-size:12.5px;font-weight:800;border-radius:9px;
+  cursor:pointer;padding:8px 10px;border:1px solid var(--green,#66E6B8);color:#04121f;background:var(--green,#66E6B8)}
+.claim:hover{filter:brightness(1.08)}
+.claim[disabled]{opacity:.5;cursor:default}
+.phcta.claimall{border:0;cursor:pointer;font-family:inherit}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
+  max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
+  color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
+.toast.bad{background:#ff9a9a}
 {% endblock %}
 {% block body %}
 {% set gem_svg %}<svg class="gem" viewBox="0 0 24 24" aria-hidden="true"><path
   d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path
   d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
 
-<div class="ptitlerow"><h1 class="ptitle">Achievements</h1></div>
+{% if preview %}<div class="previewbar">🔒 Not released &mdash; only you can see this page.</div>{% endif %}
 
-{% if preview %}
-<div class="previewbar">🔒 Not released &mdash; only you can see this page.</div>
-{% endif %}
-
-<div class="achhead">
+<div class="pagehead" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Achievements</p>
+    <h1 class="phname">{% if signed_in %}{{ have }} of {{ total }} claimed{% else %}{{ total }} things to do{% endif %}</h1>
+    <p class="phsub">Do the thing, then press <b>Claim</b> &mdash; the gems land when you collect them, not before.
+      {% if not signed_in %}Sign in to see which you have.{% endif %}</p>
+  </div></div>
   {% if signed_in %}
-  <span class="gemcount">{{ gem_svg|safe }}{{ '{:,}'.format(balance) }}</span>
-  <span class="achprog">{{ have }} of {{ total }} earned &middot;
-    {{ '{:,}'.format(earned_gems) }} of {{ '{:,}'.format(possible) }} gems from achievements</span>
-  {% else %}
-  <span class="achprog">Sign in to see which of these you have.</span>
+  <div class="phnums">
+    <div class="phnum"><span>Gems</span><b class="blue">{{ '{:,}'.format(balance) }}</b></div>
+    <div class="phnum"><span>Ready to claim</span><b class="green">{{ ready|length }}</b></div>
+    <div class="phnum"><span>From achievements</span><b>{{ '{:,}'.format(earned_gems) }}<span style="font-size:13px;color:#b9d6e4;letter-spacing:0;text-transform:none"> / {{ '{:,}'.format(possible) }}</span></b></div>
+  </div>
+  {% if ready %}
+  <div class="phlinks">
+    <button type="button" class="phcta claimall" id="claimAll" data-claim="*">Claim all {{ ready|length }} &middot; +{{ '{:,}'.format(ready_gems) }}</button>
+  </div>
+  {% endif %}
   {% endif %}
 </div>
 
@@ -67,20 +80,56 @@
     {% if signed_in %}<span class="n">{{ g.got }}/{{ g.total }}</span>{% endif %}</div>
   <div class="achgrid">
     {% for a in g['items'] %}
-    <div class="ach{% if a.got %} got{% endif %}">
+    <div class="ach{% if a.claimed %} got{% elif a.ready %} ready{% endif %}" data-key="{{ a.key }}">
       <span class="emb">
-        {% if a.rank %}{{ rank_emblem(a.rank.ship, 38, a.rank.color, a.rank.name)|safe }}
-        {% else %}{{ gem_svg|safe }}{% endif %}
+        {%- if a.rank %}{{ rank_emblem(a.rank.ship, 38, a.rank.color, a.rank.name)|safe }}
+        {%- elif a.icon and a.icon.startswith('ship:') %}{{ rank_emblem(a.icon[5:]|int, 38, '#8ef3ff', a.name)|safe }}
+        {%- elif a.icon == 'trophy' %}&#127942;
+        {%- elif a.icon == 'clan' %}&#9873;
+        {%- elif a.icon == 'star' %}&#10024;
+        {%- else %}{{ gem_svg|safe }}{% endif -%}
       </span>
       <span class="body">
-        <span class="nm"{% if a.rank and a.got %} style="color:{{ a.rank.color }}"{% endif %}>{{ a.name }}</span>
+        <span class="nm"{% if a.rank and a.claimed %} style="color:{{ a.rank.color }}"{% endif %}>{{ a.name }}</span>
         <span class="ds">{{ a.desc }}</span>
         <span class="pay">{{ gem_svg|safe }}{{ '{:,}'.format(a.gems) }}
-          {%- if a.got and a.at %}<span class="when">earned {{ a.at }}</span>{% endif %}</span>
+          {%- if a.claimed and a.at %}<span class="when">claimed {{ a.at }}</span>{% endif %}</span>
+        {% if signed_in and a.ready %}
+        <button type="button" class="claim" data-claim="{{ a.key }}">Claim +{{ '{:,}'.format(a.gems) }}</button>
+        {% elif signed_in and not a.claimed and a.need > 1 %}
+        <span class="prog"><i style="width:{{ (100 * a.have / a.need)|round|int }}%"></i></span>
+        <span class="progt">{{ '{:,}'.format(a.have) }} / {{ '{:,}'.format(a.need) }}</span>
+        {% endif %}
       </span>
     </div>
     {% endfor %}
   </div>
 </section>
 {% endfor %}
+
+<div class="toast" id="toast" hidden></div>
+<script>
+(function(){
+  var toast=document.getElementById('toast'), tt=0;
+  function say(t, bad){
+    if(!toast||!t) return;
+    toast.textContent=t; toast.classList.toggle('bad', !!bad); toast.hidden=false;
+    clearTimeout(tt); tt=setTimeout(function(){ toast.hidden=true; }, 3800);
+  }
+  document.addEventListener('click', function(ev){
+    var b=ev.target.closest && ev.target.closest('[data-claim]');
+    if(!b) return;
+    var key=b.getAttribute('data-claim');
+    var body = key==='*' ? {all:true} : {key:key};
+    b.disabled=true;
+    fetch('/achievements/claim', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        say(j.message||'', !j.ok);
+        if(j.ok) setTimeout(function(){ location.reload(); }, 700); else b.disabled=false;
+      })
+      .catch(function(){ say('Could not reach the site.', true); b.disabled=false; });
+  });
+})();
+</script>
 {% endblock %}

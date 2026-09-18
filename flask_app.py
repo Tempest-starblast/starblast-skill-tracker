@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.35.0"
+APP_VERSION = "9.36.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -310,19 +310,323 @@ def worn_emblem(nn, shipmap, allowed):
     return code, None, False
 
 
+# ---- Cosmetics --------------------------------------------------------
+# Banners, name styles, frames, emblem effects and titles: things to wear
+# that are not a hull. Each id is a CSS class in _cosmetics_css.html (as
+# cos-<id>), written by us and never by a player, so it is safe in markup.
+# The id is what the ledger stores (ref 'cos-<id>'): append-only, like an
+# achievement key - renaming one hands it out again.
+COSMETIC_SLOTS = [("banner", "Banners"), ("name", "Name styles"),
+                  ("frame", "Frames"), ("fx", "Emblem effects"), ("title", "Titles")]
+COSMETIC_NOTES = {
+    "banner": "The background of your card - on your home page, your profile and your account.",
+    "name": "How your name is written wherever your card shows it. The badge beside it stays as it is.",
+    "frame": "The edge of your card.",
+    "fx": "Something happening around the ship you wear.",
+    "title": "A word under your name. One at a time.",
+}
+COSMETICS = [
+    # banners
+    ("b-dark", "banner", "Dark", 500, "Lights off."),
+    ("b-starfield", "banner", "Starfield", 1000, "Deep space, a few stars."),
+    ("b-grid", "banner", "Grid", 1500, "Radar lines across the card."),
+    ("b-deepsea", "banner", "Deep sea", 1500, "Blue, all the way down."),
+    ("b-laser", "banner", "Laser", 1500, "Pink beams across the dark."),
+    ("b-ember", "banner", "Ember", 2000, "A glow from underneath."),
+    ("b-nebula", "banner", "Nebula", 2000, "Violet and rose cloud."),
+    ("b-aurora", "banner", "Aurora", 2500, "Green and blue light, folded."),
+    ("b-void", "banner", "Void", 3000, "Black, with something purple below."),
+    ("b-plasma", "banner", "Plasma", 5000, "Magenta, cyan and violet, swirling."),
+    ("b-bloodmoon", "banner", "Blood moon", 5000, "A red moon in the corner."),
+    ("b-goldleaf", "banner", "Gold leaf", 8000, "Gold, hammered flat."),
+    # name styles
+    ("n-neon", "name", "Neon", 1000, "Your name in cyan light."),
+    ("n-ice", "name", "Ice", 1500, "Pale blue, cold glow."),
+    ("n-toxic", "name", "Toxic", 1500, "Acid green."),
+    ("n-violet", "name", "Violet", 1500, "Purple glow."),
+    ("n-shadow", "name", "Shadow", 2000, "Dark letters with a light edge."),
+    ("n-blood", "name", "Blood", 2500, "Crimson."),
+    ("n-fire", "name", "Fire", 2500, "Yellow into red."),
+    ("n-chrome", "name", "Chrome", 3000, "Brushed metal."),
+    ("n-gold", "name", "Gold", 5000, "Gold, with a shine."),
+    ("n-rainbow", "name", "Rainbow", 10000, "Every colour, moving."),
+    # frames
+    ("f-frost", "frame", "Frost", 1500, "A white double ring."),
+    ("f-hazard", "frame", "Hazard", 1500, "Amber warning ring."),
+    ("f-neon", "frame", "Neon edge", 2000, "Cyan light round the edge."),
+    ("f-crimson", "frame", "Crimson", 2000, "Red light round the edge."),
+    ("f-emerald", "frame", "Emerald", 2000, "Green light round the edge."),
+    ("f-circuit", "frame", "Circuit", 2500, "Dashed, like a trace on a board."),
+    ("f-gold", "frame", "Gold ring", 4000, "Gold, thin, bright."),
+    # emblem effects
+    ("x-halo", "fx", "Halo", 2000, "A soft white light behind your ship."),
+    ("x-spark", "fx", "Spark", 3000, "Sparks around the hull."),
+    ("x-flame", "fx", "Flame", 3500, "It burns."),
+    ("x-pulse", "fx", "Pulse", 4000, "The ship breathes."),
+    ("x-orbit", "fx", "Orbit", 6000, "A ring that never stops turning."),
+    # titles
+    ("t-pilot", "title", "Pilot", 300, "A word under your name."),
+    ("t-nomad", "title", "Nomad", 500, "No clan needed."),
+    ("t-ace", "title", "Ace", 800, "For the ones who win."),
+    ("t-hunter", "title", "Hunter", 800, "Always looking for the next one."),
+    ("t-ghost", "title", "Ghost", 800, "Never seen coming."),
+    ("t-veteran", "title", "Veteran", 800, "Been here a while."),
+    ("t-outlaw", "title", "Outlaw", 1000, "Plays by different rules."),
+    ("t-menace", "title", "Menace", 1000, "A problem for everyone else."),
+    ("t-sentinel", "title", "Sentinel", 1000, "Holds the line."),
+    ("t-warlord", "title", "Warlord", 1500, "Runs the fight."),
+    ("t-champion", "title", "Champion", 3000, "The one to beat."),
+    ("t-legend", "title", "Legend", 5000, "Talked about."),
+    ("t-overlord", "title", "Overlord", 8000, "Above it all."),
+]
+COSMETIC_BY_ID = {c[0]: {"id": c[0], "slot": c[1], "name": c[2], "price": c[3],
+                         "desc": c[4], "cls": "cos-" + c[0]} for c in COSMETICS}
+
+
+def cosmetic_catalog():
+    """Every cosmetic, in shop order, as fresh dicts a route may annotate."""
+    return [dict(COSMETIC_BY_ID[c[0]]) for c in COSMETICS]
+
+
+def owned_cosmetics(c, nn):
+    """The ids this player has bought - a purchase is a ledger row."""
+    out = set()
+    try:
+        for (ref,) in c.execute("SELECT ref FROM gem_ledger WHERE owner_kind = 'player' "
+                                "AND owner = ? AND reason = 'purchase' "
+                                "AND ref LIKE 'cos-%'", (nn,)).fetchall():
+            if ref[4:] in COSMETIC_BY_ID:
+                out.add(ref[4:])
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def _worn_cosmetics(raw):
+    """slot -> id out of the players.cosmetics column, dropping anything
+    that is not a real item in its own slot."""
+    try:
+        d = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        d = {}
+    if not isinstance(d, dict):
+        return {}
+    return {k: v for k, v in d.items()
+            if isinstance(v, str) and v in COSMETIC_BY_ID and COSMETIC_BY_ID[v]["slot"] == k}
+
+
+_COS_CACHE = {"ts": 0.0, "map": {}}
+
+
+def cosmetic_map():
+    """norm_name -> {slot: id} for everyone wearing anything. Small, and
+    cached briefly because a page may ask for several players."""
+    now = time.time()
+    if now - _COS_CACHE["ts"] < 60:
+        return _COS_CACHE["map"]
+    m = {}
+    try:
+        conn = db(timeout=3)
+        for nn, raw in conn.execute("SELECT norm_name, cosmetics FROM players "
+                                    "WHERE cosmetics IS NOT NULL AND cosmetics != ''").fetchall():
+            worn = _worn_cosmetics(raw)
+            if nn and worn:
+                m[nn] = worn
+        conn.close()
+    except sqlite3.Error:
+        pass
+    _COS_CACHE["ts"], _COS_CACHE["map"] = now, m
+    return m
+
+
+def cosmetic_view(nn, allowed):
+    """What a page should draw on this player's card: {slot: {id, name, cls,
+    text}}. Empty unless the VIEWER may see the shop - while unreleased the
+    owner's own choices are invisible to everybody else."""
+    if not allowed or not nn:
+        return {}
+    out = {}
+    for slot, item_id in (cosmetic_map().get(nn) or {}).items():
+        ci = COSMETIC_BY_ID.get(item_id)
+        if ci:
+            out[slot] = {"id": ci["id"], "name": ci["name"], "cls": ci["cls"], "text": ci["name"]}
+    return out
+
+
+# ---- Featured: today's sale ------------------------------------------
+# A few things at a discount, the same few for everyone, chosen from the
+# date - so the set changes at midnight UTC and nothing has to be stored.
+FEATURED_COUNT = 4
+FEATURED_OFF = (25, 30, 40, 50)
+
+
+def featured_today(day=None):
+    """{(kind, key): {kind, key, name, off, was, price}} for the day (UTC),
+    plus the day itself. Kind is 'ship' (key = code) or 'cos' (key = id)."""
+    day = day or time.strftime('%Y-%m-%d', time.gmtime())
+    pool = [("ship", i["code"], i["price"], i["name"]) for i in ship_catalog()]
+    pool += [("cos", i["id"], i["price"], i["name"]) for i in cosmetic_catalog()]
+    rng = random.Random("featured:%s" % day)
+    out = {}
+    for kind, key, price, name in rng.sample(pool, min(FEATURED_COUNT, len(pool))):
+        off = rng.choice(FEATURED_OFF)
+        out[(kind, key)] = {"kind": kind, "key": key, "name": name, "off": off, "was": price,
+                            "price": max(10, int(round(price * (100 - off) / 1000.0)) * 10)}
+    return out, day
+
+
+def featured_resets_in():
+    """Seconds until the sale flips (midnight UTC)."""
+    return int(86400 - (time.time() % 86400))
+
+
+def shop_price(kind, key, price):
+    """(what it costs today, the sale entry or None)."""
+    sale = featured_today()[0].get((kind, key))
+    return (sale["price"] if sale else price), sale
+
+
+# ---- Achievements: unlocked by what you did, paid when you claim ------
+# The catalogue is what there is; ach_status() is where one player stands
+# on each - done or not, how far along, claimed or waiting. Keys are
+# append-only: the ledger stores them, and a renamed key pays out again.
+ACH_GROUPS = ["Ranks", "Milestones", "Survival", "Hangar", "Wardrobe", "Wealth", "Clan"]
+_ACH_TIER_GEMS = {2: 500, 3: 1000, 4: 2500, 5: 5000, 6: 10000, 7: 20000}
+
+
+def _tier_codes(t):
+    return sorted(code for code in ship_shapes.ship_codes() if code // 100 == t)
+
+
+def _ach_extra():
+    """The achievements beyond ranks and win counts, with the rule for each:
+    (key, group, name, desc, gems, icon, need) where need(facts) -> (have, need)."""
+    out = []
+
+    def add(key, group, name, desc, gems, icon, need):
+        out.append((key, group, name, desc, gems, icon, need))
+
+    add("wins-500", "Milestones", "Institution", "Win 500 matches.", 10000, "gem", lambda f: (f["wins"], 500))
+    add("wins-1000", "Milestones", "Immortal", "Win 1,000 matches.", 25000, "gem", lambda f: (f["wins"], 1000))
+    add("surv-1", "Survival", "Last one standing", "Win a survival round.", 250, "trophy", lambda f: (f["surv"], 1))
+    add("surv-10", "Survival", "Survivor", "Win 10 survival rounds.", 1000, "trophy", lambda f: (f["surv"], 10))
+    add("surv-50", "Survival", "Apex", "Win 50 survival rounds.", 5000, "trophy", lambda f: (f["surv"], 50))
+    add("surv-100", "Survival", "Untouchable", "Win 100 survival rounds.", 12000, "trophy", lambda f: (f["surv"], 100))
+    add("hull-first", "Hangar", "First hull", "Buy a ship from the shop.", 250, "ship:201", lambda f: (f["bought"], 1))
+    add("hulls-5", "Hangar", "Small fleet", "Own 5 ships, bought or earned.", 500, "ship:302", lambda f: (len(f["ships"]), 5))
+    add("hulls-10", "Hangar", "Squadron", "Own 10 ships.", 1500, "ship:403", lambda f: (len(f["ships"]), 10))
+    add("hulls-20", "Hangar", "Armada", "Own 20 ships.", 5000, "ship:504", lambda f: (len(f["ships"]), 20))
+    for t in range(2, 8):
+        codes = _tier_codes(t)
+        names = ", ".join(ship_shapes.ship_name(x) for x in codes)
+        add("tier-%d" % t, "Hangar", "Tier %d complete" % t,
+            "Own every tier-%d hull: %s." % (t, names), _ACH_TIER_GEMS[t],
+            "ship:%d" % codes[-1], lambda f, cs=frozenset(codes): (len(f["ships"] & cs), len(cs)))
+    add("hull-all", "Hangar", "Full hangar", "Own every ship there is.", 50000, "ship:701",
+        lambda f: (len(f["ships"]), len(ship_shapes.ship_codes())))
+    nban = sum(1 for c in COSMETICS if c[1] == "banner")
+    add("cos-first", "Wardrobe", "Dressed up", "Buy a banner, name style, frame, effect or title.", 250, "star", lambda f: (len(f["cos"]), 1))
+    add("cos-outfit", "Wardrobe", "Full outfit", "Wear something in every slot at once.", 1500, "star", lambda f: (f["worn"], len(COSMETIC_SLOTS)))
+    add("cos-10", "Wardrobe", "Collector", "Own 10 looks from the shop.", 3000, "star", lambda f: (len(f["cos"]), 10))
+    add("cos-banners", "Wardrobe", "Every banner", "Own all %d banners." % nban, 8000, "star",
+        lambda f: (sum(1 for i in f["cos"] if i.startswith("b-")), nban))
+    add("cos-all", "Wardrobe", "Everything", "Own every look in the shop.", 40000, "star", lambda f: (len(f["cos"]), len(COSMETICS)))
+    add("spent-10k", "Wealth", "Big spender", "Spend 10,000 gems in the shop.", 1000, "gem", lambda f: (f["spent"], 10000))
+    add("spent-100k", "Wealth", "Whale", "Spend 100,000 gems in the shop.", 10000, "gem", lambda f: (f["spent"], 100000))
+    add("clan-member", "Clan", "Signed up", "Be in a clan.", 200, "clan", lambda f: (1 if f["clan"] else 0, 1))
+    add("clan-officer", "Clan", "Officer", "Lead or co-lead a clan.", 500, "clan", lambda f: (1 if f["officer"] else 0, 1))
+    return out
+
+
+_ACH_EXTRA = _ach_extra()
+
+
 def gem_achievement_catalog():
-    """Every achievement there is, in the order a page should show them."""
+    """Every achievement there is, grouped and in the order a page shows them."""
     out = []
     for r in sorted(ranks.RANKS, key=lambda x: x["level"]):
         out.append({
             "key": "div-%s" % r["key"], "group": "Ranks", "name": r["name"],
             "desc": "Reach the %s division \u2014 %s of the board."
                     % (r["name"], (r.get("band") or "").replace("Top ", "the top ")),
-            "gems": GEM_DIVISION_AWARD.get(r["level"], 100), "rank": r,
+            "gems": GEM_DIVISION_AWARD.get(r["level"], 100), "rank": r, "icon": "rank",
         })
     for key, name, desc, _need, amount in GEM_WIN_MILESTONES:
         out.append({"key": key, "group": "Milestones", "name": name,
-                    "desc": desc, "gems": amount, "rank": None})
+                    "desc": desc, "gems": amount, "rank": None, "icon": "gem"})
+    for key, group, name, desc, gems, icon, _need in _ACH_EXTRA:
+        out.append({"key": key, "group": group, "name": name, "desc": desc,
+                    "gems": gems, "rank": None, "icon": icon})
+    order = {g: i for i, g in enumerate(ACH_GROUPS)}
+    out.sort(key=lambda a: order.get(a["group"], 99))
+    return out
+
+
+def _ach_need(key, f):
+    """(have, need) for one achievement against a player's facts."""
+    if key.startswith("div-"):
+        r = ranks.RANK_BY_KEY.get(key[4:])
+        return (f["peak"], r["level"]) if r else (0, 1)
+    for k, _n, _d, need, _a in GEM_WIN_MILESTONES:
+        if k == key:
+            return (f["wins"], need)
+    for row in _ACH_EXTRA:
+        if row[0] == key:
+            return row[6](f)
+    return (0, 1)
+
+
+def _ach_facts(c, nn):
+    """Everything the rules look at, read once."""
+    f = {"peak": gem_peak_level(c, nn), "wins": 0, "surv": 0, "ships": set(), "bought": 0,
+         "cos": set(), "worn": 0, "spent": 0, "clan": False, "officer": False}
+    try:
+        r = c.execute("SELECT COALESCE(wins, 0), clan, google_sub, cosmetics FROM players "
+                      "WHERE norm_name = ?", (nn,)).fetchone()
+        if r:
+            f["wins"] = int(r[0] or 0)
+            f["clan"] = bool(r[1])
+            f["worn"] = len(_worn_cosmetics(r[3]))
+            if r[2]:
+                a = c.execute("SELECT 1 FROM clan_admins WHERE google_sub = ? "
+                              "AND COALESCE(role, 'leader') IN ('leader', 'coleader') LIMIT 1",
+                              (r[2],)).fetchone()
+                f["officer"] = bool(a)
+        sv = c.execute("SELECT COALESCE(wins, 0) FROM survival_players WHERE norm_name = ?",
+                       (nn,)).fetchone()
+        f["surv"] = int(sv[0]) if sv else 0
+        own = owned_ships(c, nn)
+        f["ships"] = set(own)
+        f["bought"] = sum(1 for v in own.values() if v == "bought")
+        f["cos"] = owned_cosmetics(c, nn)
+        sp = c.execute("SELECT COALESCE(-SUM(amount), 0) FROM gem_ledger WHERE owner_kind = 'player' "
+                       "AND owner = ? AND reason = 'purchase' AND amount < 0", (nn,)).fetchone()
+        f["spent"] = int(sp[0] or 0)
+    except sqlite3.Error:
+        pass
+    return f
+
+
+def ach_status(c, nn):
+    """The catalogue with this player's standing on each: have/need,
+    unlocked (done), claimed (paid - a ledger row), ready (done, unpaid)."""
+    f = _ach_facts(c, nn)
+    claimed = {}
+    try:
+        for ref, at in c.execute("SELECT ref, at FROM gem_ledger WHERE owner_kind = 'player' "
+                                 "AND owner = ? AND reason = 'achievement'", (nn,)).fetchall():
+            claimed[ref] = at
+    except sqlite3.Error:
+        pass
+    out = []
+    for a in gem_achievement_catalog():
+        have, need = _ach_need(a["key"], f)
+        need = max(1, int(need))
+        have = max(0, min(int(have), need))
+        d = dict(a, have=have, need=need, unlocked=have >= need,
+                 claimed=a["key"] in claimed, at=(claimed.get(a["key"]) or "")[:10])
+        d["ready"] = d["unlocked"] and not d["claimed"]
+        out.append(d)
     return out
 
 
@@ -2296,13 +2600,22 @@ def init_db():
                     note TEXT,
                     listed_at TEXT NOT NULL
                 )''')
+    # How long a hire stays (days): the listing names the term, the join
+    # writes it onto the player as contract_clan / contract_until.
+    try:
+        c.execute("ALTER TABLE free_agents ADD COLUMN days INTEGER NOT NULL DEFAULT 30")
+    except sqlite3.Error:
+        pass
     for _gcol in ("ALTER TABLE players ADD COLUMN gems INTEGER DEFAULT 0",
                   "ALTER TABLE clans ADD COLUMN gems INTEGER DEFAULT 0",
                   # The ship worn as your emblem. NULL = your division's own.
                   "ALTER TABLE players ADD COLUMN display_ship INTEGER",
                   # The styling of the clan tag this member wears. NULL = the
                   # clan's default.
-                  "ALTER TABLE players ADD COLUMN tag_style INTEGER"):
+                  "ALTER TABLE players ADD COLUMN tag_style INTEGER",
+                  "ALTER TABLE players ADD COLUMN cosmetics TEXT",
+                  "ALTER TABLE players ADD COLUMN contract_clan TEXT",
+                  "ALTER TABLE players ADD COLUMN contract_until TEXT"):
         try:
             c.execute(_gcol)
         except sqlite3.OperationalError:
@@ -4053,7 +4366,7 @@ _REPLAY_COUNT_CACHE = {}     # (mode, date, sysq) -> (total, ts)
 _REPLAY_COUNT_TTL = 300      # the archive count moves only as matches end
 
 
-def _survival_replays_page(pg, date, sysq):
+def _survival_replays_page(pg, date, sysq, who=''):
     """The Survival side of the /replays archive: recorded survival rounds,
     newest first, each linking to its elimination-timeline replay. Same shape
     of page (search by date + lobby number, ten a page) as the team archive."""
@@ -4064,10 +4377,13 @@ def _survival_replays_page(pg, date, sysq):
     if sysq:
         where.append("key LIKE ?")           # key = "<sid>|<ended_at>"
         args.append(sysq + '|%')
+    if who:
+        where.append("winner LIKE ?")        # the rounds they won
+        args.append('%' + who + '%')
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     conn = db()
     c = conn.cursor()
-    _ckey = ('survival', date, sysq)
+    _ckey = ('survival', date, sysq, who)
     _now = time.time()
     _chit = _REPLAY_COUNT_CACHE.get(_ckey)
     if _chit and _now - _chit[1] < _REPLAY_COUNT_TTL:
@@ -4107,7 +4423,7 @@ def _survival_replays_page(pg, date, sysq):
     conn.close()
     return render_template('replays.html', version=APP_VERSION, page='replays',
                            rows=rows, total=total, pg=pg, pages=pages,
-                           date=date, sysq=sysq, mode='survival')
+                           date=date, sysq=sysq, who=who, mode='survival')
 
 
 @app.route('/replays')
@@ -4121,6 +4437,7 @@ def replays_index():
     date = str(request.args.get('date') or '').strip()[:10]
     sysq = str(request.args.get('sys') or '').strip()[:12]
     q = str(request.args.get('q') or '').strip()[:40]        # server name
+    who = str(request.args.get('who') or '').strip()[:40]    # a player in it
     # Team mode is the archive; Survival (the same page over recorded rounds)
     # is one toggle away, mirroring the leaderboard's mode switch.
     mode = request.args.get('mode', 'team')
@@ -4131,7 +4448,7 @@ def replays_index():
     if not sysq.isdigit():
         sysq = ''
     if mode == 'survival':
-        return _survival_replays_page(pg, date, sysq)
+        return _survival_replays_page(pg, date, sysq, who)
     where, args = [], []
     if re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
         where.append("m.played_at LIKE ?")
@@ -4146,6 +4463,11 @@ def replays_index():
     if q:
         where.append("m.lobby_name LIKE ?")
         args.append('%' + q + '%')
+    if who:
+        # The roster is keyed by the account name a result was credited to,
+        # so a search finds the match under the name it counted for.
+        where.append("m.id IN (SELECT mp.match_row FROM match_players mp WHERE mp.norm_name = ?)")
+        args.append(normalize_name(who))
     # The same filters over the no-result replays, which live in the replay
     # database with their own name/date/lobby.
     nr_where, nr_args = ["tr.no_result = 1"], []
@@ -4155,6 +4477,8 @@ def replays_index():
         nr_where.append("tr.sys_id = ?"); nr_args.append(int(sysq))
     if q:
         nr_where.append("tr.name LIKE ?"); nr_args.append('%' + q + '%')
+    if who:
+        nr_where.append("0")             # no-result replays have no credited roster
     nr_cond = " WHERE " + " AND ".join(nr_where)
     conn = db()
     try:
@@ -4180,7 +4504,7 @@ def replays_index():
     # ends, but computing it means running the replayable-EXISTS across every
     # match ever (the row fetch below is cheap - it stops at 10). So cache it
     # briefly per filter; paging and revisits then skip the full scan entirely.
-    _ckey = ('team', date, sysq, q)
+    _ckey = ('team', date, sysq, q, who)
     _now = time.time()
     _chit = _REPLAY_COUNT_CACHE.get(_ckey)
     if _chit and _now - _chit[1] < _REPLAY_COUNT_TTL:
@@ -4237,7 +4561,7 @@ def replays_index():
     conn.close()
     return render_template('replays.html', version=APP_VERSION, page='replays',
                            rows=rows, total=total, pg=pg, pages=pages,
-                           date=date, sysq=sysq, q=q, mode='team')
+                           date=date, sysq=sysq, q=q, who=who, mode='team')
 
 
 def _live_ship_codes(d):
@@ -6368,6 +6692,13 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.36.0", "at": "2026-09-19T00:30:00Z", "changes": [
+        "<b>Replays can be searched by player.</b> Type a name into the new box "
+        "on the Replays page and only the matches that player was in come back; "
+        "in Survival, the rounds they won.",
+        "<b>Merge a name</b> now also sits under Names on your account page, "
+        "next to the other name tools, so you do not have to go looking for it.",
+    ]},
     {"version": "9.35.0", "at": "2026-09-18T20:30:00Z", "changes": [
         "<b>Fewer tabs.</b> Survival is no longer its own tab: the survival "
         "board is the Survival mode on the Leaderboard, the round replays are "
@@ -8930,6 +9261,7 @@ def player_profile(name):
     (player["emblem"], player["emblem_color"],
      player["mythic"]) = worn_emblem(normalize_name(stored_name), display_ship_map(),
                                      gems_visible())
+    player["cos"] = cosmetic_view(normalize_name(stored_name), gems_visible())
     # Where the viewer stands with this player, so the profile can offer the
     # right button rather than one that will be refused.
     _fs = 'none'
@@ -9507,12 +9839,9 @@ def _record_peaks(entries):
             c.executemany("UPDATE players SET peak_div = ?, "
                           "peak_div_at = datetime('now') WHERE norm_name = ?",
                           div_up)
-            # A new career-best division is an achievement, and achievements
-            # pay. Done here rather than when the board is drawn: this is the
-            # one place that knows the peak actually MOVED.
-            for _dkey, _nn in div_up:
-                gem_check_division_achievements(
-                    c, _nn, ranks.RANK_BY_KEY.get(_dkey, {}).get("level", 0))
+            # A new career-best division unlocks a rank achievement. Nothing
+            # is paid here: the player claims it on the achievements page,
+            # which reads the peak straight off the row.
         conn.commit()
         conn.close()
     except sqlite3.Error:
@@ -12732,8 +13061,8 @@ def clan_page(tag):
     conn = db()
     c = conn.cursor()
     c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at, "
-              "COALESCE(strict_mode, 0) FROM players WHERE clan = ? AND "
-              + NOT_SANDBOX, (known,))
+              "COALESCE(strict_mode, 0), contract_clan, contract_until "
+              "FROM players WHERE clan = ? AND " + NOT_SANDBOX, (known,))
     rows = c.fetchall()
     c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
               (known,))
@@ -12772,7 +13101,7 @@ def clan_page(tag):
 
     members = []
     total_wins = total_losses = total_elo = 0
-    for name, elo, wins, losses, owner_sub, joined, protected in rows:
+    for name, elo, wins, losses, owner_sub, joined, protected, _cclan, _cuntil in rows:
         wins = wins or 0
         losses = losses or 0
         played = wins + losses
@@ -12790,6 +13119,7 @@ def clan_page(tag):
             # is separate (they never share a spot on the row).
             "has_account": bool(owner_sub),
             "protected": bool(protected),
+            "contract": contract_until(_cclan, _cuntil, known),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
             "rank": ranks[name],
@@ -12956,31 +13286,9 @@ def gem_clan_leader(c, tag):
     return None
 
 
-def gem_check_win_achievements(c, nn, wins):
-    """Pay any win milestone this player has now passed. Safe to call as often
-    as you like - the ledger refuses the second payment."""
-    paid = []
-    for key, name, _desc, need, amount in GEM_WIN_MILESTONES:
-        if (wins or 0) >= need and gem_grant(c, "player", nn, amount, "achievement", key):
-            paid.append((key, name, amount))
-    return paid
-
-
-def gem_check_division_achievements(c, nn, peak_level):
-    """Pay every division up to and including the highest this player has
-    reached. Reaching a high one pays for the ones below it as well - they
-    were passed through on the way, and a ladder that only ever pays the top
-    rung punishes anybody who climbed quickly."""
-    paid = []
-    if not peak_level:
-        return paid
-    for r in ranks.RANKS:
-        if r["level"] > peak_level:
-            continue
-        amount = GEM_DIVISION_AWARD.get(r["level"], 100)
-        if gem_grant(c, "player", nn, amount, "achievement", "div-%s" % r["key"]):
-            paid.append(("div-%s" % r["key"], r["name"], amount))
-    return paid
+# Achievements are not paid from here any more: ach_status() reads wins,
+# peaks, hangar and wardrobe off the rows, and the player claims each one
+# on its page (achievements_claim). Nothing hands out gems on its own.
 
 
 def gem_peak_level(c, nn):
@@ -13017,17 +13325,13 @@ def award_match_gems(c, applied, match_id):
             if got:
                 out.append((player, got))
             continue
-        # First win of the day, and the milestones it may have just passed.
+        # First win of the day. Milestones and ranks are NOT paid here: an
+        # achievement is claimed by hand on its page, which reads wins and
+        # the peak off the row.
         got += gem_grant(c, "player", nn, GEM_DAILY_FIRST_WIN, "daily-win", today)
-        row = c.execute("SELECT COALESCE(wins, 0), clan FROM players "
-                        "WHERE norm_name = ?", (nn,)).fetchone()
+        row = c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
         if row:
-            for _k, _n, amount in gem_check_win_achievements(c, nn, row[0]):
-                got += amount
-            for _k, _n, amount in gem_check_division_achievements(
-                    c, nn, gem_peak_level(c, nn)):
-                got += amount
-            tag = row[1]
+            tag = row[0]
             if tag:
                 # The clan earns from the win, and so does every officer who
                 # runs it. Keyed per member so a clan with several winners in
@@ -13359,50 +13663,122 @@ def clan_suggestions(c, my_name, my_elo, my_played, my_region):
 
 @app.route('/achievements')
 def achievements_page():
-    """Every achievement there is, what it pays, and which you have.
-
-    Earned is read straight off the ledger rather than a second table: an
-    achievement IS its payment, so there is nothing that can disagree.
-    """
+    """Every achievement there is, what it pays, and where you stand on each:
+    claimed, ready to claim, or how far along."""
     if not gems_visible():
         abort(404)
     conn = db()
     c = conn.cursor()
     me = my_player(c)
-    earned = {}
     if me:
-        for ref, at in c.execute(
-                "SELECT ref, at FROM gem_ledger WHERE owner_kind = 'player' "
-                "AND owner = ? AND reason = 'achievement'", (me[1],)).fetchall():
-            earned[ref] = at
-    cat = gem_achievement_catalog()
+        st = ach_status(c, me[1])
+    else:
+        st = [dict(a, have=0, need=1, unlocked=False, claimed=False, ready=False, at="")
+              for a in gem_achievement_catalog()]
     groups = []
-    for gname in ("Ranks", "Milestones"):
-        items = []
-        for a in cat:
-            if a["group"] != gname:
-                continue
-            items.append(dict(a, got=a["key"] in earned,
-                              at=(earned.get(a["key"]) or "")[:10]))
+    for gname in ACH_GROUPS:
+        items = [a for a in st if a["group"] == gname]
         if items:
             groups.append({"name": gname, "items": items,
-                           "got": sum(1 for i in items if i["got"]),
-                           "total": len(items)})
-    have = sum(g["got"] for g in groups)
-    total = sum(g["total"] for g in groups)
-    earned_gems = sum(a["gems"] for a in cat if a["key"] in earned)
-    possible = sum(a["gems"] for a in cat)
+                           "got": sum(1 for i in items if i["claimed"]), "total": len(items)})
+    ready = [a for a in st if a["ready"]]
     balance = gem_balance(c, 'player', me[1]) if me else 0
     conn.close()
     return render_template('achievements.html', version=APP_VERSION,
                            page='achievements', groups=groups,
                            signed_in=bool(me), me=(me[0] if me else None),
-                           have=have, total=total, earned_gems=earned_gems,
-                           possible=possible, balance=balance,
+                           have=sum(1 for a in st if a["claimed"]), total=len(st),
+                           ready=ready, ready_gems=sum(a["gems"] for a in ready),
+                           earned_gems=sum(a["gems"] for a in st if a["claimed"]),
+                           possible=sum(a["gems"] for a in st), balance=balance,
                            preview=not GEMS_PUBLIC)
 
 
+@app.route('/achievements/claim', methods=['POST'])
+def achievements_claim():
+    """Collect an achievement you have done - one by key, or all of them.
+    The ledger's unique index makes a double press pay once; a locked one
+    is refused with how far along it is."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    key = str(body.get("key") or "").strip()
+    st = ach_status(c, me[1])
+    if body.get("all"):
+        targets = [a for a in st if a["ready"]]
+        if not targets:
+            conn.close()
+            return jsonify({"ok": False, "message": "Nothing to claim yet."}), 200
+    else:
+        a = next((x for x in st if x["key"] == key), None)
+        if not a:
+            conn.close()
+            return jsonify({"ok": False, "message": "No such achievement."}), 404
+        if a["claimed"]:
+            conn.close()
+            return jsonify({"ok": False, "message": "Already claimed."}), 200
+        if not a["unlocked"]:
+            conn.close()
+            return jsonify({"ok": False, "message": "Not yet - %s of %s."
+                            % (format(a["have"], ","), format(a["need"], ","))}), 200
+        targets = [a]
+    paid, total = [], 0
+    for a in targets:
+        got = gem_grant(c, "player", me[1], a["gems"], "achievement", a["key"])
+        if got:
+            paid.append(a["name"])
+            total += got
+    conn.commit()
+    balance = gem_balance(c, "player", me[1])
+    conn.close()
+    if not paid:
+        return jsonify({"ok": False, "message": "Already claimed.", "balance": balance}), 200
+    if len(paid) == 1:
+        msg = "%s claimed: +%s gems." % (paid[0], format(total, ","))
+    else:
+        msg = "%d achievements claimed: +%s gems." % (len(paid), format(total, ","))
+    return jsonify({"ok": True, "message": msg, "claimed": paid, "gems": total,
+                    "balance": balance}), 200
+
+
 AGENT_NOTE_MAX = 120
+# The terms a free agent may sign for. A hire binds the player to the clan
+# for that long: they cannot leave before it is up (the clan may still
+# release them). When it ends nothing happens - they stay until they choose
+# to go. The listing carries the term, so a clan knows before it pays.
+AGENT_CONTRACT_DAYS = (7, 14, 30, 60, 90, 180, 365)
+AGENT_CONTRACT_DEFAULT = 30
+AGENT_CONTRACT_LABELS = {7: "1 week", 14: "2 weeks", 30: "1 month", 60: "2 months",
+                         90: "3 months", 180: "6 months", 365: "1 year"}
+
+
+def contract_term(days):
+    """'6 months' for 180, and so on."""
+    days = int(days or AGENT_CONTRACT_DEFAULT)
+    return AGENT_CONTRACT_LABELS.get(days, "%d days" % days)
+
+
+def contract_until(cclan, cuntil, tag):
+    """The day a hired player's term with THIS clan ends, or None once it
+    has - or if the contract was with another clan."""
+    if cclan and cuntil and cclan == tag and cuntil > _stamp():
+        return cuntil[:10]
+    return None
+
+
+def _contract_days(raw):
+    """A term out of a request, snapped to the offered ones."""
+    try:
+        d = int(raw)
+    except (TypeError, ValueError):
+        return AGENT_CONTRACT_DEFAULT
+    return d if d in AGENT_CONTRACT_DAYS else AGENT_CONTRACT_DEFAULT
 
 
 def free_agents(c):
@@ -13411,7 +13787,7 @@ def free_agents(c):
     route removes it the moment anyone acts on it."""
     rows = c.execute(
         "SELECT a.norm_name, p.name, a.price, a.note, a.listed_at, p.elo, "
-        "COALESCE(p.wins, 0), COALESCE(p.losses, 0) "
+        "COALESCE(p.wins, 0), COALESCE(p.losses, 0), COALESCE(a.days, 30) "
         "FROM free_agents a JOIN players p ON p.norm_name = a.norm_name "
         "WHERE (p.clan IS NULL OR p.clan = '') AND " + NOT_SANDBOX +
         " ORDER BY a.price DESC, p.elo DESC").fetchall()
@@ -13420,9 +13796,10 @@ def free_agents(c):
     dmap = division_map()
     shipmap = display_ship_map()
     out = []
-    for nn, name, price, note, at, elo, w, l in rows:
+    for nn, name, price, note, at, elo, w, l, days in rows:
         d = {"norm": nn, "name": name, "display": display_name(name, None),
              "price": int(price or 0), "note": note or "", "listed_at": at or "",
+             "days": int(days or 30), "term": contract_term(days),
              "elo": round(float(elo or 0), 1), "wins": w, "losses": l,
              "division": dmap.get(nn) if (w + l) >= PROVISIONAL_GAMES else None}
         d["emblem"], d["emblem_color"], d["mythic"] = worn_emblem(nn, shipmap, True)
@@ -13443,10 +13820,11 @@ def agents_page():
         r = c.execute("SELECT clan FROM players WHERE norm_name = ?", (me[1],)).fetchone()
         my_clan = r[0] if r and r[0] else None
         can_list = not my_clan
-        row = c.execute("SELECT price, note, listed_at FROM free_agents WHERE norm_name = ?",
-                        (me[1],)).fetchone()
+        row = c.execute("SELECT price, note, listed_at, COALESCE(days, 30) FROM free_agents "
+                        "WHERE norm_name = ?", (me[1],)).fetchone()
         if row and can_list:
-            mine = {"price": int(row[0] or 0), "note": row[1] or "", "listed_at": row[2] or ""}
+            mine = {"price": int(row[0] or 0), "note": row[1] or "", "listed_at": row[2] or "",
+                    "days": int(row[3] or 30), "term": contract_term(row[3])}
     sub = current_user()
     hire_as = [t for t in clan_admin_tags(c, sub) if may_manage(c, sub, t)] if sub else []
     treasuries = {t: gem_balance(c, "clan", t) for t in hire_as}
@@ -13456,7 +13834,10 @@ def agents_page():
                            signed_in=bool(me), me=me[0] if me else None, mine=mine,
                            can_list=can_list, my_clan=my_clan, hire_as=hire_as,
                            treasuries=treasuries, agents=agents, preview=not GEMS_PUBLIC,
-                           price_max=GEM_BONUS_MAX, note_max=AGENT_NOTE_MAX)
+                           price_max=GEM_BONUS_MAX, note_max=AGENT_NOTE_MAX,
+                           contract_days=AGENT_CONTRACT_DAYS,
+                           contract_default=AGENT_CONTRACT_DEFAULT,
+                           contract_labels=AGENT_CONTRACT_LABELS)
 
 
 @app.route('/agents/list', methods=['POST'])
@@ -13490,15 +13871,19 @@ def agents_list():
         return jsonify({"ok": False,
                         "message": f"You are in {r[0]}. A free agent is somebody without a "
                                    f"clan - leave it first."}), 400
-    c.execute("INSERT INTO free_agents (norm_name, name, price, note, listed_at) "
-              "VALUES (?, ?, ?, ?, ?) ON CONFLICT(norm_name) DO UPDATE SET "
-              "price = excluded.price, note = excluded.note, name = excluded.name",
-              (me[1], me[0], price, note or None, _stamp()))
+    days = _contract_days(body.get("days"))
+    c.execute("INSERT INTO free_agents (norm_name, name, price, note, listed_at, days) "
+              "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(norm_name) DO UPDATE SET "
+              "price = excluded.price, note = excluded.note, name = excluded.name, "
+              "days = excluded.days",
+              (me[1], me[0], price, note or None, _stamp(), days))
     conn.commit()
     conn.close()
-    return jsonify({"ok": True,
-                    "message": (f"Listed at {price:,} gems." if price
-                                else "Listed - any clan can sign you for nothing.")})
+    term = contract_term(days)
+    return jsonify({"ok": True, "days": days,
+                    "message": (f"Listed at {price:,} gems on a {term} contract." if price
+                                else f"Listed - any clan can sign you for nothing, "
+                                     f"on a {term} contract.")})
 
 
 @app.route('/agents/unlist', methods=['POST'])
@@ -13539,8 +13924,8 @@ def agents_hire():
         return jsonify({"ok": False,
                         "message": f"Only the leader or a co-leader can hire for {known}."}), 403
     nn = normalize_name(str(body.get("name") or ""))
-    a = c.execute("SELECT name, price, listed_at FROM free_agents WHERE norm_name = ?",
-                  (nn,)).fetchone()
+    a = c.execute("SELECT name, price, listed_at, COALESCE(days, 30) FROM free_agents "
+                  "WHERE norm_name = ?", (nn,)).fetchone()
     if not a:
         conn.close()
         return jsonify({"ok": False, "message": "They are not on the list any more."}), 404
@@ -13569,55 +13954,93 @@ def agents_hire():
     gem_grant(c, "player", nn, price, "hire", ref)
     # The listing goes before the join: the join may rename the row (the
     # tag comes off), and a rename carries the listing with it.
+    days = int(a[3] or AGENT_CONTRACT_DEFAULT)
     c.execute("DELETE FROM free_agents WHERE norm_name = ?", (nn,))
-    c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE norm_name = ?", (known, nn))
+    # The term goes on before the tag comes off: the join may rename the
+    # row, and the row carries these columns with it.
+    c.execute("UPDATE players SET clan = ?, clan_locked = 0, contract_clan = ?, "
+              "contract_until = datetime('now', ?) WHERE norm_name = ?",
+              (known, known, "+%d days" % days, nn))
     strip_tag_on_join(c, p[0], known)
     conn.commit()
     conn.close()
-    return jsonify({"ok": True,
+    return jsonify({"ok": True, "days": days,
                     "message": f"{display_name(p[0], known)} joined {known}"
-                               + (f" for {price:,} gems." if price else ".")})
+                               + (f" for {price:,} gems" if price else "")
+                               + f" on a {contract_term(days)} contract."})
 
 
 @app.route('/shop')
 def shop_page():
-    """Every ship, what it costs, which you own, which you are wearing."""
+    """Every ship and every look: what it costs today, which you own, which
+    you are wearing - and the few on sale until midnight."""
     if not gems_visible():
         abort(404)
     conn = db()
     c = conn.cursor()
     me = my_player(c)
-    own, worn, balance, division = {}, None, 0, None
+    own, worn, balance, division, owned_cos, worn_cos = {}, None, 0, None, set(), {}
     if me:
         own = owned_ships(c, me[1])
-        r = c.execute("SELECT display_ship, COALESCE(wins,0)+COALESCE(losses,0) "
+        r = c.execute("SELECT display_ship, COALESCE(wins,0)+COALESCE(losses,0), cosmetics "
                       "FROM players WHERE norm_name = ?", (me[1],)).fetchone()
         worn = r[0] if r else None
         if r and r[1] >= PROVISIONAL_GAMES:
             division = division_map().get(me[1])
+        worn_cos = _worn_cosmetics(r[2]) if r else {}
+        owned_cos = owned_cosmetics(c, me[1])
         balance = gem_balance(c, "player", me[1])
     conn.close()
+    sale_map, _day = featured_today()
+    sale_order = {k: i for i, k in enumerate(sale_map)}
     by_level = {r["level"]: r for r in ranks.RANKS}
-    tiers = {}
+    tiers, featured = {}, []
     for item in ship_catalog():
         item["own"] = own.get(item["code"])
         item["worn"] = (worn == item["code"])
-        item["can"] = balance >= item["price"]
+        item["sale"] = sale_map.get(("ship", item["code"]))
+        item["pay"] = item["sale"]["price"] if item["sale"] else item["price"]
+        item["can"] = balance >= item["pay"]
         item["unlock_rank"] = by_level.get(item["unlock_level"]) if item["unlock_level"] else None
         tiers.setdefault(item["tier"], []).append(item)
+        if item["sale"]:
+            featured.append({"kind": "ship", "item": item, "o": sale_order[("ship", item["code"])]})
     mythic = [i for i in tiers.get(7, []) if i["mythic"]]
     tiers[7] = [i for i in tiers.get(7, []) if not i["mythic"]]
+    cos_sections = []
+    for slot, label in COSMETIC_SLOTS:
+        items = []
+        for ci in cosmetic_catalog():
+            if ci["slot"] != slot:
+                continue
+            ci["own"] = ci["id"] in owned_cos
+            ci["worn"] = worn_cos.get(slot) == ci["id"]
+            ci["sale"] = sale_map.get(("cos", ci["id"]))
+            ci["pay"] = ci["sale"]["price"] if ci["sale"] else ci["price"]
+            ci["can"] = balance >= ci["pay"]
+            items.append(ci)
+            if ci["sale"]:
+                featured.append({"kind": "cos", "item": ci, "o": sale_order[("cos", ci["id"])]})
+        cos_sections.append({"slot": slot, "label": label, "items": items,
+                             "note": COSMETIC_NOTES.get(slot, "")})
+    featured.sort(key=lambda f: f["o"])
+    rank_color = division["color"] if division else "#8b949e"
     return render_template('shop.html', version=APP_VERSION, page='shop',
-                           signed_in=bool(me), tiers=[tiers[t] for t in sorted(tiers)],
+                           signed_in=bool(me), me_name=(me[0] if me else None),
+                           tiers=[tiers[t] for t in sorted(tiers)], nships=len(ship_catalog()),
                            mythic=mythic, balance=balance, division=division,
                            worn=worn, preview=not GEMS_PUBLIC,
                            mythic_color=MYTHIC_COLOR, mythic_glow=MYTHIC_GLOW,
-                           rank_color=(division["color"] if division else "#8b949e"))
+                           rank_color=rank_color,
+                           prev_ship=worn or (division["ship"] if division else 101),
+                           cos_sections=cos_sections, featured=featured,
+                           resets_in=featured_resets_in())
 
 
 @app.route('/shop/buy', methods=['POST'])
 def shop_buy():
-    """Buy a ship. Once, and only with gems that are actually there."""
+    """Buy a ship or a look. Once, at today's price, and only with gems that
+    are actually there."""
     if not gems_visible():
         abort(404)
     conn = db()
@@ -13627,36 +14050,52 @@ def shop_buy():
         conn.close()
         return jsonify({"ok": False, "message": "Sign in first."}), 401
     body = request.get_json(silent=True) or {}
-    try:
-        code = int(body.get("code"))
-    except (TypeError, ValueError):
-        conn.close()
-        return jsonify({"ok": False, "message": "Which ship?"}), 400
-    item = next((i for i in ship_catalog() if i["code"] == code), None)
-    if not item:
-        conn.close()
-        return jsonify({"ok": False, "message": "No such ship."}), 404
-    if code in owned_ships(c, me[1]):
-        conn.close()
-        return jsonify({"ok": False, "message": "You already have the %s." % item["name"]}), 200
-    got = gem_charge(c, me[1], item["price"], "purchase", "ship-%d" % code)
+    if body.get("item") is not None:
+        ci = COSMETIC_BY_ID.get(str(body.get("item")))
+        if not ci:
+            conn.close()
+            return jsonify({"ok": False, "message": "No such item."}), 404
+        if ci["id"] in owned_cosmetics(c, me[1]):
+            conn.close()
+            return jsonify({"ok": False, "message": "You already have %s." % ci["name"]}), 200
+        pay, _sale = shop_price("cos", ci["id"], ci["price"])
+        got = gem_charge(c, me[1], pay, "purchase", "cos-%s" % ci["id"])
+        name = ci["name"]
+    else:
+        try:
+            code = int(body.get("code"))
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({"ok": False, "message": "Which ship?"}), 400
+        item = next((i for i in ship_catalog() if i["code"] == code), None)
+        if not item:
+            conn.close()
+            return jsonify({"ok": False, "message": "No such ship."}), 404
+        if code in owned_ships(c, me[1]):
+            conn.close()
+            return jsonify({"ok": False, "message": "You already have the %s." % item["name"]}), 200
+        pay, _sale = shop_price("ship", code, item["price"])
+        got = gem_charge(c, me[1], pay, "purchase", "ship-%d" % code)
+        name = "the " + item["name"]
     if got == "short":
         conn.close()
-        return jsonify({"ok": False, "message": "Not enough gems - the %s is %s."
-                        % (item["name"], format(item["price"], ","))}), 200
+        return jsonify({"ok": False, "message": "Not enough gems - %s is %s."
+                        % (name, format(pay, ","))}), 200
     if got == "duplicate":
         conn.close()
-        return jsonify({"ok": False, "message": "You already have the %s." % item["name"]}), 200
+        return jsonify({"ok": False, "message": "You already have %s." % name}), 200
     conn.commit()
     balance = gem_balance(c, "player", me[1])
     conn.close()
-    return jsonify({"ok": True, "message": "The %s is yours." % item["name"],
-                    "balance": balance}), 200
+    return jsonify({"ok": True, "message": "%s is yours." % (name[0].upper() + name[1:]),
+                    "balance": balance, "paid": pay}), 200
 
 
 @app.route('/shop/equip', methods=['POST'])
 def shop_equip():
-    """Wear a ship you own as your emblem, or none to go back to your rank's."""
+    """Wear something you own: a ship as your emblem (code, or none to go
+    back to your rank's), or a look in its slot (item, or slot + no item to
+    take it off)."""
     if not gems_visible():
         abort(404)
     conn = db()
@@ -13666,6 +14105,34 @@ def shop_equip():
         conn.close()
         return jsonify({"ok": False, "message": "Sign in first."}), 401
     body = request.get_json(silent=True) or {}
+    if "item" in body or "slot" in body:
+        r = c.execute("SELECT cosmetics FROM players WHERE norm_name = ?", (me[1],)).fetchone()
+        worn = _worn_cosmetics(r[0] if r else None)
+        raw = body.get("item")
+        if raw in (None, "", 0, "0"):
+            slot = str(body.get("slot") or "")
+            labels = dict(COSMETIC_SLOTS)
+            if slot not in labels:
+                conn.close()
+                return jsonify({"ok": False, "message": "Which slot?"}), 400
+            was = COSMETIC_BY_ID.get(worn.pop(slot, ""), {}).get("name")
+            msg = ("Took off %s." % was) if was else "Nothing was on."
+        else:
+            ci = COSMETIC_BY_ID.get(str(raw))
+            if not ci:
+                conn.close()
+                return jsonify({"ok": False, "message": "No such item."}), 404
+            if ci["id"] not in owned_cosmetics(c, me[1]):
+                conn.close()
+                return jsonify({"ok": False, "message": "You do not have %s." % ci["name"]}), 200
+            worn[ci["slot"]] = ci["id"]
+            msg = "Now wearing %s." % ci["name"]
+        c.execute("UPDATE players SET cosmetics = ? WHERE norm_name = ?",
+                  (json.dumps(worn) if worn else None, me[1]))
+        conn.commit()
+        conn.close()
+        _COS_CACHE["ts"] = 0.0
+        return jsonify({"ok": True, "message": msg, "worn": worn}), 200
     raw = body.get("code")
     if raw in (None, "", 0, "0"):
         c.execute("UPDATE players SET display_ship = NULL WHERE norm_name = ?", (me[1],))
@@ -14044,10 +14511,22 @@ def clan_leave():
     if not rows:
         conn.close()
         return jsonify({"ok": False, "message": "You are not in a clan."}), 200
+    # A hired free agent signed for a term: until it is up, the clan that
+    # paid keeps them. (The clan may still release them - that clears it.)
+    for name, _clan in rows:
+        r = c.execute("SELECT contract_clan, contract_until FROM players WHERE name = ?",
+                      (name,)).fetchone()
+        until = contract_until(r[0], r[1], _clan) if r else None
+        if until:
+            conn.close()
+            return jsonify({"ok": False, "contract_until": until,
+                            "message": f"You are under contract with {_clan} until {until} - "
+                                       f"a hired player stays for the term they listed."}), 200
     # clan_locked = 1: this was a deliberate choice, so detection must not
     # quietly put them back next time they are seen wearing the tag.
     for name, _clan in rows:
-        c.execute("UPDATE players SET clan = NULL, clan_locked = 1 WHERE name = ?", (name,))
+        c.execute("UPDATE players SET clan = NULL, clan_locked = 1, "
+                  "contract_clan = NULL, contract_until = NULL WHERE name = ?", (name,))
     conn.commit()
     conn.close()
     left = rows[0][1]
@@ -14118,7 +14597,8 @@ def clan_remove():
     # An admin does not need it - their clan is curated, so detection already
     # skips it - and setting it would let one clan's admin permanently stop a
     # player being tagged into any clan at all, including a rival's.
-    c.execute("UPDATE players SET clan = NULL, clan_locked = ? WHERE name = ?",
+    c.execute("UPDATE players SET clan = NULL, clan_locked = ?, contract_clan = NULL, "
+              "contract_until = NULL WHERE name = ?",
               (0 if by_admin else 1, stored_name))
     conn.commit()
     conn.close()
@@ -15256,8 +15736,8 @@ def bot_clan_members_route():
         # clan_locked stays 0: an admin's clan is curated, so detection
         # already skips it, and locking would stop the player ever being
         # tagged into another clan.
-        c.execute("UPDATE players SET clan = NULL, clan_locked = 0 WHERE name = ?",
-                  (stored_name,))
+        c.execute("UPDATE players SET clan = NULL, clan_locked = 0, contract_clan = NULL, "
+                  "contract_until = NULL WHERE name = ?", (stored_name,))
         conn.commit()
         conn.close()
         return jsonify({"ok": True,
@@ -18674,7 +19154,8 @@ def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
     members = (c.fetchone() or [0])[0]
     # clan_locked stays 0 so a name can be tagged again later; the clan is
     # gone, not the players.
-    c.execute("UPDATE players SET clan = NULL, tag_style = NULL WHERE clan = ?", (known,))
+    c.execute("UPDATE players SET clan = NULL, tag_style = NULL, contract_clan = NULL, "
+              "contract_until = NULL WHERE clan = ?", (known,))
     c.execute("DELETE FROM clan_tag_styles WHERE clan = ?", (known,))
     tag_cache_reset()
     c.execute("DELETE FROM clan_admins WHERE clan = ?", (known,))
@@ -19136,7 +19617,8 @@ def my_clan_page():
     role = clan_role(c, sub_id, tag)
 
     c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at, "
-              "COALESCE(strict_mode, 0) FROM players WHERE clan = ?", (tag,))
+              "COALESCE(strict_mode, 0), contract_clan, contract_until "
+              "FROM players WHERE clan = ?", (tag,))
     rows = c.fetchall()
     c.execute("SELECT google_sub, COALESCE(role, 'leader') FROM clan_admins WHERE clan = ?",
               (tag,))
@@ -19147,7 +19629,7 @@ def my_clan_page():
     _shown = clan_display(c, tag)
     rows.sort(key=leaderboard_sort_key)
     members = []
-    for name, elo, wins, losses, owner_sub, joined, protected in rows:
+    for name, elo, wins, losses, owner_sub, joined, protected, _cclan, _cuntil in rows:
         wins = wins or 0
         losses = losses or 0
         played = wins + losses
@@ -19164,6 +19646,7 @@ def my_clan_page():
             # only an account-holder can be given a rank or made leader
             "has_account": bool(owner_sub),
             "protected": bool(protected),
+            "contract": contract_until(_cclan, _cuntil, tag),
         })
 
     c.execute("SELECT region, bio, theme FROM clans WHERE tag = ?", (tag,))
@@ -19300,11 +19783,11 @@ def account_page():
     acct = None
     if account_name:
         c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan, "
-                  "COALESCE(wipe_available,0), bio "
+                  "COALESCE(wipe_available,0), bio, contract_clan, contract_until "
                   "FROM players WHERE norm_name = ?", (normalize_name(account_name),))
         row = c.fetchone()
         if row:
-            name, elo, wins, losses, clan, wipe_avail, bio = row
+            name, elo, wins, losses, clan, wipe_avail, bio, _cclan, _cuntil = row
             c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
             rank = c.fetchone()[0]
             c.execute("SELECT COUNT(*) FROM players")
@@ -19339,6 +19822,8 @@ def account_page():
                 "by_region": by_region, "recent": recent,
                 "wipe_available": int(wipe_avail or 0),
                 "bio": bio or "",
+                "cos": cosmetic_view(normalize_name(name), gems_visible()),
+                "contract": contract_until(_cclan, _cuntil, clan) if clan else None,
             }
     # Discord link status for the settings section. A Discord sign-in IS its
     # own Discord (nothing to link); a Google account may have one bound.
@@ -20076,15 +20561,13 @@ def home_page():
               "AND owner = ? AND amount > 0 AND at >= ?", (nn, today))
     today_gems = c.fetchone()[0]
 
-    earned = {}
-    for ref, at in c.execute("SELECT ref, at FROM gem_ledger WHERE owner_kind = 'player' "
-                             "AND owner = ? AND reason = 'achievement'", (nn,)).fetchall():
-        earned[ref] = (at or "")[:10]
-    cat = gem_achievement_catalog()
-    have = [dict(a, at=earned[a["key"]]) for a in cat if a["key"] in earned]
-    # Ranks first in the catalogue, lowest first, so the first one you do not
-    # have is the next rung - or, past the ladder, the next milestone.
-    next_up = next((a for a in cat if a["key"] not in earned), None)
+    cat = ach_status(c, nn)
+    have = [a for a in cat if a["claimed"]]
+    ready = [a for a in cat if a["ready"]]
+    # The next one to chase: whichever locked achievement you are furthest along.
+    locked = [a for a in cat if not a["unlocked"]]
+    next_up = (max(locked, key=lambda a: (a["have"] / float(a["need"] or 1), -a["gems"]))
+               if locked else None)
 
     c.execute("SELECT m.played_at, mp.won, mp.delta, m.id FROM match_players mp "
               "JOIN matches m ON m.id = mp.match_row WHERE mp.norm_name = ? "
@@ -20101,6 +20584,8 @@ def home_page():
         peak_rank=peak_rank, clan=clan, clan_shown=clan_shown, bio=bio,
         placements_left=max(0, PROVISIONAL_GAMES - played) if played < PROVISIONAL_GAMES else 0,
         balance=balance, today_gems=today_gems, have=have, next_up=next_up,
+        ready=ready, ready_gems=sum(a["gems"] for a in ready),
+        cos=cosmetic_view(nn, True),
         total_ach=len(cat), recent=recent, preview=not GEMS_PUBLIC,
         emblem=emblem, emblem_color=emblem_color, mythic=mythic)
 

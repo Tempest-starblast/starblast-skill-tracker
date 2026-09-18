@@ -81,6 +81,12 @@
 .achnext{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;
   border:1px dashed rgba(153,221,255,.35);font-size:12px;color:var(--muted,#8aa0b0)}
 .achnext b{color:#8ef3ff;font-variant-numeric:tabular-nums}
+/* Done but not collected: the pip is green and says so. */
+.achpip.ready{border-color:rgba(102,230,184,.7);background:rgba(102,230,184,.14);color:#66E6B8}
+.gemclaim{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:8px 12px;border-radius:9px;
+  background:var(--green,#66E6B8);color:#04121f;font-weight:800;font-size:12.5px;text-decoration:none;
+  box-shadow:0 6px 18px rgba(102,230,184,.3)}
+.gemclaim:hover{filter:brightness(1.08)}
 
 /* Recent form: a strip of results you can read at a glance and open. */
 .form{display:flex;flex-wrap:wrap;gap:6px}
@@ -103,11 +109,11 @@
 <div class="previewbar">🔒 Not released &mdash; this front page is only shown to you.</div>
 {% endif %}
 
-<div class="profcard"{% if mythic %} style="--rk:{{ emblem_color }};--rkglow:rgba(255,46,77,.38)"{% elif d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
+<div class="profcard{% if cos.banner %} cosb {{ cos.banner.cls }}{% endif %}{% if cos.frame %} cosf {{ cos.frame.cls }}{% endif %}"{% if mythic %} style="--rk:{{ emblem_color }};--rkglow:rgba(255,46,77,.38)"{% elif d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
   <div class="idcard">
-    <div class="idemb">{{ rank_emblem(emblem or (d.ship if d else 101), 100, emblem_color or (d.color if d else '#8b949e'), (d.name if d else 'Fly'), 'rank-emblem mythic' if mythic else 'rank-emblem')|safe }}</div>
+    <div class="idemb{% if cos.fx %} cosx {{ cos.fx.cls }}{% endif %}">{{ rank_emblem(emblem or (d.ship if d else 101), 100, emblem_color or (d.color if d else '#8b949e'), (d.name if d else 'Fly'), 'rank-emblem mythic' if mythic else 'rank-emblem')|safe }}</div>
     <div class="idtext">
-      <h1 class="idname">{% if clan %}<a class="badge" href="/clan/{{ clan|urlencode }}">{{ clan_shown or clan }}</a>{% endif %}{{ name }}</h1>
+      <h1 class="idname">{% if clan %}<a class="badge" href="/clan/{{ clan|urlencode }}">{{ clan_shown or clan }}</a>{% endif %}<span class="{% if cos.name %}cosn {{ cos.name.cls }}{% endif %}">{{ name }}</span>{% if cos.title %} <span class="cost">{{ cos.title.text }}</span>{% endif %}</h1>
       <p class="idrank">
         {%- if d %}<b style="color:{{ d.color }}">{{ d.name }}</b> &middot; {{ d.band }} &middot; #{{ '{:,}'.format(rank) }} of {{ '{:,}'.format(rank_of) }}
         {%- elif placements_left %}<b>In placements</b> &middot; {{ placements_left }} more to earn a rank
@@ -125,6 +131,7 @@
     <span class="gemnum">{{ gem_svg|safe }}{{ '{:,}'.format(balance) }}</span>
     <span class="gemsub">{% if today_gems %}<b>+{{ '{:,}'.format(today_gems) }}</b> today &middot; {% endif %}{{ have|length }} of {{ total_ach }} achievements</span>
     <span class="gemgo"><a href="/shop">Shop</a> &middot; <a href="/achievements">Achievements</a></span>
+    {% if ready %}<a class="gemclaim" href="/achievements">Claim {{ ready|length }} achievement{{ '' if ready|length == 1 else 's' }} &middot; +{{ '{:,}'.format(ready_gems) }}</a>{% endif %}
   </div>
 
 <div class="profbody">
@@ -137,8 +144,13 @@
       <span class="emb">{% if a.rank %}{{ rank_emblem(a.rank.ship, 22, a.rank.color, a.rank.name)|safe }}{% else %}{{ gem_svg|safe }}{% endif %}</span>{{ a.name }}
     </a>
     {% endfor %}
+    {% for a in ready %}
+    <a class="achpip ready" href="/achievements" title="Done - press to claim {{ '{:,}'.format(a.gems) }} gems">
+      <span class="emb">{% if a.rank %}{{ rank_emblem(a.rank.ship, 22, a.rank.color, a.rank.name)|safe }}{% else %}{{ gem_svg|safe }}{% endif %}</span>{{ a.name }} &middot; claim
+    </a>
+    {% endfor %}
     {% if next_up %}
-    <span class="achnext">Next: {{ next_up.name }} &middot; <b>+{{ '{:,}'.format(next_up.gems) }}</b></span>
+    <span class="achnext">Next: {{ next_up.name }}{% if next_up.need > 1 %} &middot; {{ '{:,}'.format(next_up.have) }}/{{ '{:,}'.format(next_up.need) }}{% endif %} &middot; <b>+{{ '{:,}'.format(next_up.gems) }}</b></span>
     {% endif %}
     {% if not have and not next_up %}<p class="empty">Nothing yet.</p>{% endif %}
   </div>

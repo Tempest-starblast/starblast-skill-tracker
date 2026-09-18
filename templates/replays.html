@@ -47,9 +47,10 @@
     <span class="lbl">Find</span>
     <input type="date" name="date" value="{{ date }}" aria-label="Date">
     <input type="number" name="sys" placeholder="{% if survival %}Lobby #{% else %}Server #{% endif %}" min="0" value="{{ sysq }}">
+    <input type="text" name="who" placeholder="{% if survival %}Winner{% else %}Player name{% endif %}" maxlength="40" value="{{ who or '' }}">
     {% if not survival %}<input type="text" name="q" placeholder="Server name" maxlength="40" value="{{ q or '' }}">{% endif %}
     <button class="primary" type="submit">{{ t('Search all') }}</button>
-    {% if date or sysq or q %}<a href="/replays{{ '?mode=survival' if survival else '' }}" class="ghost" style="text-decoration:none;
+    {% if date or sysq or q or who %}<a href="/replays{{ '?mode=survival' if survival else '' }}" class="ghost" style="text-decoration:none;
        padding:8px 14px;border:1px solid var(--line);border-radius:9px">{{ t('Clear') }}</a>{% endif %}
   </form>
 </div>
@@ -94,13 +95,13 @@
   </div>
   <div class="pager" style="padding:0 0 14px">
     <a class="{% if pg <= 1 %}off{% endif %}"
-       href="/replays?page={{ pg - 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">&larr;</a>
+       href="/replays?page={{ pg - 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if who %}&amp;who={{ who|urlencode }}{% endif %}">&larr;</a>
     <span>{{ t('Page') }} {{ pg }} / {{ pages }}</span>
     <a class="{% if pg >= pages %}off{% endif %}"
-       href="/replays?page={{ pg + 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">&rarr;</a>
+       href="/replays?page={{ pg + 1 }}{{ mq }}{% if date %}&amp;date={{ date }}{% endif %}{% if sysq %}&amp;sys={{ sysq }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if who %}&amp;who={{ who|urlencode }}{% endif %}">&rarr;</a>
   </div>
   {% else %}
-  <p class="empty" style="padding:26px 22px">No {% if survival %}survival rounds{% else %}replays{% endif %} match that search.</p>
+  <p class="empty" style="padding:26px 22px">No {% if survival %}survival rounds{% else %}replays{% endif %} match that search.{% if who %} A player search finds matches under the name the result was credited to.{% endif %}</p>
   {% endif %}
 </div>
 {% endblock %}

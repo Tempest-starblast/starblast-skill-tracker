@@ -1,24 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Shop - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-/* A hangar, not a price list. Every ship is drawn in YOUR rank colour, since
-   that is how it would look worn - the shop shows the thing you would get. */
-.shophead{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin:0 0 6px}
-.gemcount{display:inline-flex;align-items:center;gap:7px;font-size:15px;font-weight:800;
-  color:#8ef3ff;background:rgba(142,243,255,.10);border:1px solid rgba(142,243,255,.35);
-  border-radius:999px;padding:6px 14px;font-variant-numeric:tabular-nums}
-.gemcount svg{width:13px;height:13px;flex:none}
-.shopsub{font-size:13px;color:var(--muted,#8aa0b0)}
-.shopsub b{color:var(--text)}
-
+/* A hangar and a wardrobe. Every ship is drawn in its tier's colour, since
+   on the board it wears yours; every look is shown on YOUR name and ship,
+   so a tile is the thing you would get, not a swatch. */
 .previewbar{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:10px 14px;
   border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
   color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
+.gem{width:13px;height:13px;flex:none}
 
 .tier{margin:0 0 22px}
 .sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 11px}
 .sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
 .sechead .n{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.secnote{margin:0 0 12px;font-size:13px;color:var(--muted,#8aa0b0);line-height:1.5}
+.secnote b{color:var(--text)}
 
 .hangar{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 .ship{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;
@@ -29,16 +25,18 @@
 .ship:hover{transform:translateY(-2px);border-color:rgba(153,221,255,.4)}
 .ship .emb{width:72px;height:72px;display:flex;align-items:center;justify-content:center;
   filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
-.ship:not(.own) .emb{opacity:.42}
+.ship:not(.own):not(.cos) .emb{opacity:.42}
 .ship.worn{border-color:rgba(102,230,184,.6);
   background:linear-gradient(160deg,rgba(102,230,184,.14),rgba(102,230,184,.02))}
 .ship .nm{font-size:13.5px;font-weight:800;line-height:1.2}
-.ship .why{font-size:11px;color:var(--muted,#8aa0b0);min-height:14px}
+.ship .why{font-size:11px;color:var(--muted,#8aa0b0);min-height:14px;line-height:1.4}
 .ship .why.rank{color:var(--dim,#5d7f93)}
 .ship .price{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:800;
-  color:#8ef3ff;font-variant-numeric:tabular-nums}
+  color:#8ef3ff;font-variant-numeric:tabular-nums;flex-wrap:wrap;justify-content:center}
 .ship .price svg{width:11px;height:11px}
 .ship .price.short{color:var(--dim,#5d7f93)}
+.ship .price s{color:var(--dim,#5d7f93);font-weight:600;margin-right:2px}
+.ship .price .off{font-size:10.5px;padding:1px 6px;border-radius:999px;background:var(--green);color:#04121f;margin-left:3px}
 .ship .btn{width:100%;margin-top:2px;font-family:inherit;font-size:12px;font-weight:700;
   border-radius:8px;cursor:pointer;padding:7px 10px;border:1px solid var(--blue,#66E6B8);
   color:var(--blue,#66E6B8);background:rgba(102,230,184,.10)}
@@ -47,13 +45,30 @@
 .ship .btn.quiet{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);background:none}
 .ship .btn.quiet:hover{color:var(--blue,#99DDFF);border-color:rgba(153,221,255,.5);background:rgba(153,221,255,.08)}
 .ship .wornlbl{font-size:11px;font-weight:800;color:#66E6B8;letter-spacing:.6px;text-transform:uppercase}
+.ship .saletag{position:absolute;top:8px;left:8px;font-size:10px;font-weight:800;letter-spacing:.8px;
+  padding:2px 7px;border-radius:999px;background:var(--green);color:#04121f;text-transform:uppercase}
+
+/* A look is previewed on a small stage: the banner as a strip, the frame as
+   a box, the name as your name, the effect on your ship, the title as its chip. */
+.cprev{width:100%;height:60px;border-radius:10px;border:1px solid rgba(153,221,255,.2);
+  background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;overflow:hidden;
+  box-sizing:border-box}
+.cprev .cosn{font-size:18px;font-weight:900;letter-spacing:.3px;padding:0 6px;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cprev .cosx{display:inline-flex}
+.cprev .cost{margin:0}
+
+/* Featured: the same tiles, on sale, under a countdown. */
+.featured{margin:0 0 22px;padding:14px 16px 16px;border-radius:14px;
+  border:1px solid rgba(102,230,184,.4);
+  background:linear-gradient(160deg,rgba(102,230,184,.10),rgba(102,230,184,.02))}
+.featured .sechead h2{color:#66E6B8}
+.featured .ship{border-color:rgba(102,230,184,.35)}
 
 /* The mythic. One hull, its own colour, its own section, its own light. */
 .mythic .ship{border-color:rgba(255,46,77,.6);
   background:linear-gradient(160deg,rgba(255,46,77,.18),rgba(255,46,77,.03));
   box-shadow:0 0 34px rgba(255,46,77,.22) inset}
-/* The emblem itself carries the glow (.rank-emblem.mythic, base.html); the
-   tile adds a slow sheen sweep so the whole card reads as the rare thing. */
 .mythic .ship{position:relative;overflow:hidden}
 .mythic .ship::before{content:"";position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(115deg,transparent 40%,rgba(255,180,200,.22) 50%,transparent 60%);
@@ -71,18 +86,32 @@
 .toast.bad{background:#ff9a9a}
 {% endblock %}
 {% block body %}
-{% set gem_svg %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
+{% set gem_svg %}<svg class="gem" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
 
-<div class="ptitlerow"><h1 class="ptitle">Shop</h1></div>
 {% if preview %}<div class="previewbar">🔒 Not released &mdash; only you can see the shop.</div>{% endif %}
 
-<div class="shophead">
-  {% if signed_in %}<span class="gemcount">{{ gem_svg|safe }}<span id="bal">{{ '{:,}'.format(balance) }}</span></span>{% endif %}
-  <span class="shopsub">Your emblem&#39;s <b>colour</b> is your rank and cannot be bought &mdash; here every hull is drawn in its tier&#39;s colour; on the board it wears yours. The <b>ship</b> is yours to choose &mdash; every rank you reach hands you its ship, and the rest are for sale.</span>
+<div class="pagehead" style="--ct:#8ef3ff">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Shop</p>
+    <h1 class="phname">Ships and looks</h1>
+    <p class="phsub">Paid for with the gems your matches and achievements earn. Your emblem&#39;s <b>colour</b>
+      is your rank and cannot be bought; the hull, the banner, the name, the frame, the effect and the
+      title are yours to choose.</p>
+  </div></div>
+  <div class="phnums">
+    {% if signed_in %}<div class="phnum"><span>Gems</span><b class="blue big" id="bal">{{ '{:,}'.format(balance) }}</b></div>{% endif %}
+    <div class="phnum"><span>Sale resets in</span><b id="resetIn" data-secs="{{ resets_in }}">&hellip;</b></div>
+  </div>
 </div>
+
+{% macro price_of(i) -%}
+  {% if i.sale %}<span class="price sale{% if not i.can %} short{% endif %}"><s>{{ '{:,}'.format(i.sale.was) }}</s>{{ gem_svg|safe }}{{ '{:,}'.format(i.sale.price) }}<span class="off">-{{ i.sale.off }}%</span></span>
+  {% else %}<span class="price{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>{% endif %}
+{%- endmacro %}
 
 {% macro tile(i) %}
 <div class="ship{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-code="{{ i.code }}" data-name="{{ i.name }}">
+  {% if i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
   <span class="emb">{{ rank_emblem(i.code, 72, (mythic_color if i.mythic else i.color), i.name, 'rank-emblem mythic' if i.mythic else 'rank-emblem')|safe }}</span>
   <span class="nm">{{ i.name }}</span>
   {% if i.mythic %}
@@ -98,23 +127,65 @@
       <button type="button" class="btn quiet" data-act="unequip">Back to rank&#39;s ship</button>
     {% else %}<button type="button" class="btn" data-act="equip">Wear it</button>{% endif %}
   {% else %}
-    <span class="price{% if not i.can %} short{% endif %}">{{ gem_svg|safe }}{{ '{:,}'.format(i.price) }}</span>
+    {{ price_of(i) }}
     <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
   {% endif %}
 </div>
 {% endmacro %}
 
+{% macro ctile(i) %}
+<div class="ship cos{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-item="{{ i.id }}" data-slot="{{ i.slot }}" data-name="{{ i.name }}">
+  {% if i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
+  <span class="cprev{% if i.slot == 'banner' %} cosb {{ i.cls }}{% elif i.slot == 'frame' %} cosf {{ i.cls }}{% endif %}">
+    {%- if i.slot == 'name' %}<span class="cosn {{ i.cls }}">{{ me_name or 'Your name' }}</span>
+    {%- elif i.slot == 'fx' %}<span class="cosx {{ i.cls }}">{{ rank_emblem(prev_ship, 40, rank_color, i.name)|safe }}</span>
+    {%- elif i.slot == 'title' %}<span class="cost">{{ i.name }}</span>{% endif -%}
+  </span>
+  <span class="nm">{{ i.name }}</span>
+  <span class="why">{{ i.desc }}</span>
+  {% if i.own %}
+    {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
+      <button type="button" class="btn quiet" data-act="unequip">Take it off</button>
+    {% else %}<button type="button" class="btn" data-act="equip">Wear it</button>{% endif %}
+  {% else %}
+    {{ price_of(i) }}
+    <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% if featured %}
+<section class="featured">
+  <div class="sechead"><h2>Featured today</h2><span class="n">{{ featured|length }} on sale &middot; a new set every day at midnight UTC</span></div>
+  <div class="hangar">{% for f in featured %}{% if f.kind == 'ship' %}{{ tile(f.item) }}{% else %}{{ ctile(f.item) }}{% endif %}{% endfor %}</div>
+</section>
+{% endif %}
+
+<nav class="subtabs" id="subtabs" aria-label="Sections" data-default="ships">
+  <a href="#ships" data-panel="ships">Ships<span class="n">{{ nships }}</span></a>
+  {% for s in cos_sections %}<a href="#{{ s.slot }}" data-panel="{{ s.slot }}">{{ s.label }}<span class="n">{{ s['items']|length }}</span></a>{% endfor %}
+</nav>
+
+<section class="panel" data-panel="ships" hidden>
+<p class="secnote">Every rank you reach hands you its ship; the rest are for sale. The ship is drawn here in its tier&#39;s colour and on the board in <b>your rank&#39;s</b>.</p>
 {% if mythic %}
 <section class="tier mythic">
   <div class="sechead"><h2>Mythic</h2></div>
   <div class="hangar">{% for i in mythic %}{{ tile(i) }}{% endfor %}</div>
 </section>
 {% endif %}
-
 {% for group in tiers|reverse %}
 <section class="tier">
   <div class="sechead"><h2 style="color:{{ group[0].tier_color }}">Tier {{ group[0].tier }}</h2><span class="n">{{ group|length }}</span></div>
   <div class="hangar">{% for i in group %}{{ tile(i) }}{% endfor %}</div>
+</section>
+{% endfor %}
+</section>
+
+{% for s in cos_sections %}
+<section class="panel" data-panel="{{ s.slot }}" hidden>
+  <p class="secnote">{{ s.note }}</p>
+  <div class="hangar">{% for i in s['items'] %}{{ ctile(i) }}{% endfor %}</div>
 </section>
 {% endfor %}
 
@@ -130,10 +201,12 @@
   document.addEventListener('click', function(ev){
     var b=ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
-    var tile=b.closest('[data-code]'), code=tile && tile.getAttribute('data-code'), act=b.getAttribute('data-act');
-    if(!code) return;
-    var url = act==='buy' ? '/shop/buy' : '/shop/equip';
-    var body = act==='unequip' ? {code:null} : {code:parseInt(code,10)};
+    var tile=b.closest('[data-code],[data-item]'); if(!tile) return;
+    var code=tile.getAttribute('data-code'), item=tile.getAttribute('data-item'),
+        slot=tile.getAttribute('data-slot'), act=b.getAttribute('data-act');
+    var url = act==='buy' ? '/shop/buy' : '/shop/equip', body;
+    if(item){ body = act==='unequip' ? {slot:slot, item:null} : {item:item}; }
+    else { body = act==='unequip' ? {code:null} : {code:parseInt(code,10)}; }
     b.disabled=true;
     fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
       .then(function(r){ return r.json(); })
@@ -145,6 +218,19 @@
       })
       .catch(function(){ say('Could not reach the site.', true); b.disabled=false; });
   });
+  // The sale flips at midnight UTC; the band counts down to it.
+  var el=document.getElementById('resetIn');
+  if(el){
+    var left=parseInt(el.getAttribute('data-secs'),10)||0, t0=Date.now();
+    function tick(){
+      var s=Math.max(0, left-Math.floor((Date.now()-t0)/1000));
+      var h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+      el.textContent = h>0 ? (h+'h '+(m<10?'0':'')+m+'m') : (m+'m '+((s%60)<10?'0':'')+(s%60)+'s');
+      if(s<=0){ setTimeout(function(){ location.reload(); }, 1500); return; }
+      setTimeout(tick, s>3600 ? 30000 : 1000);
+    }
+    tick();
+  }
 })();
 </script>
 {% endblock %}

@@ -54,6 +54,8 @@
   max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
   color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
 .toast.bad{background:#ff9a9a}
+.listrow select{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;color:inherit;
+  padding:8px 10px;font:inherit;font-size:13.5px}
 {% endblock %}
 {% block body %}
 {% set gem_svg %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
@@ -63,8 +65,9 @@
 
 <div class="agenthead">
   <span class="agentsub">Players without a clan who have put themselves up for hire, at a price of
-    their own choosing. A clan&#39;s leader or co-leader pays it out of the <b>treasury</b> and the
-    player joins on the spot.</span>
+    their own choosing and for a term they name. A clan&#39;s leader or co-leader pays it out of the
+    <b>treasury</b>, the player joins on the spot, and stays for the length of the <b>contract</b> &mdash;
+    they cannot leave before it is up. When it ends they simply stay on until they choose to go.</span>
 </div>
 
 {% if signed_in %}
@@ -73,7 +76,7 @@
   {% if my_clan %}
     <p class="empty">You are in <b>{{ my_clan }}</b>. A free agent is somebody without a clan &mdash; leave it first if you want to be on this list.</p>
   {% else %}
-    {% if mine %}<p class="listed">&#10003; Listed at {{ '{:,}'.format(mine.price) }} gems since {{ mine.listed_at[:10] }}</p>{% endif %}
+    {% if mine %}<p class="listed">&#10003; Listed at {{ '{:,}'.format(mine.price) }} gems on a {{ mine.term }} contract, since {{ mine.listed_at[:10] }}</p>{% endif %}
     <div class="listrow">
       <label>Asking price (gems)
         <input type="number" id="agPrice" min="0" max="{{ price_max }}" step="1"
@@ -82,6 +85,8 @@
         <input type="text" id="agNote" class="note" maxlength="{{ note_max }}"
                placeholder="What you fly, when you play, what you want"
                value="{{ mine.note if mine else '' }}"></label>
+      <label>Contract
+        <select id="agDays">{% for d in contract_days %}<option value="{{ d }}"{% if (mine.days if mine else contract_default) == d %} selected{% endif %}>{{ contract_labels[d] }}</option>{% endfor %}</select></label>
       <button type="button" class="btn" onclick="listMe()">{{ 'Update' if mine else 'List me' }}</button>
       {% if mine %}<button type="button" class="btn quiet" onclick="unlistMe()">Take me off</button>{% endif %}
     </div>
@@ -108,6 +113,7 @@
         <span>{{ a.wins }}-{{ a.losses }}</span>
         {% if a.division %}<span>{{ a.division.name }}</span>{% endif %}
         <span>listed {{ a.listed_at[:10] }}</span>
+        <span title="How long they stay once hired - after that they stay until they choose to leave"><b>{{ a.term }}</b> contract</span>
       </div>
       {% if a.price %}<span class="ask">{{ gem_svg|safe }}{{ '{:,}'.format(a.price) }}</span>
       {% else %}<span class="ask free">Free to sign</span>{% endif %}
@@ -119,7 +125,7 @@
         {% endif %}
         <button type="button" class="btn" data-act="hire"
           {% if hire_as|length == 1 and treasuries[hire_as[0]] < a.price %} disabled title="The treasury cannot cover it"{% endif %}
-        >Hire{% if a.price %} for {{ '{:,}'.format(a.price) }}{% endif %}</button>
+        >Hire{% if a.price %} for {{ '{:,}'.format(a.price) }}{% endif %} &middot; {{ a.term }}</button>
       </div>
       {% endif %}
     </div>
@@ -143,8 +149,9 @@
     return [r, await r.json()];
   }
   window.listMe=async function(){
-    var price=document.getElementById('agPrice').value, note=document.getElementById('agNote').value;
-    try{ var x=await post('/agents/list',{price:price, note:note}); say(x[1].message, !x[1].ok);
+    var price=document.getElementById('agPrice').value, note=document.getElementById('agNote').value,
+        days=document.getElementById('agDays').value;
+    try{ var x=await post('/agents/list',{price:price, note:note, days:days}); say(x[1].message, !x[1].ok);
          if(x[1].ok) setTimeout(function(){ location.reload(); }, 900);
     }catch(e){ say('Server connection error.', true); }
   };

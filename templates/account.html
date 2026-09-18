@@ -53,15 +53,16 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 {% else %}
 
 {# ------------------------------------------------------------ the band #}
-<div class="pagehead" style="--ct:#3aa0d8">
+{% set ac = (acct.cos if acct else none) or {} %}
+<div class="pagehead{% if ac.banner %} cosb {{ ac.banner.cls }}{% endif %}{% if ac.frame %} cosf {{ ac.frame.cls }}{% endif %}" style="--ct:#3aa0d8">
   <div class="phwho">
     <div class="phtext">
       <p class="pheye">{{ t('Your account') }}</p>
       {% if acct %}
-      <h1 class="phname">{% if acct.clan %}<a class="badge" href="/clan/{{ acct.clan }}">{{ acct.clan_display or acct.clan }}</a>{% endif %}{{ acct.display }}</h1>
+      <h1 class="phname">{% if acct.clan %}<a class="badge" href="/clan/{{ acct.clan }}">{{ acct.clan_display or acct.clan }}</a>{% endif %}<span class="{% if ac.name %}cosn {{ ac.name.cls }}{% endif %}">{{ acct.display }}</span>{% if ac.title %} <span class="cost">{{ ac.title.text }}</span>{% endif %}</h1>
       <p class="phsub">{{ t('Rank') }} <b>#{{ acct.rank }}</b> of {{ acct.total }}
         &middot; <a href="/player/{{ acct.name|urlencode }}">Public profile &rarr;</a>
-        {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% endif %}</p>
+        {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% if gems_on and acct.contract %} &middot; <span title="Hired as a free agent: you stay until then">under contract until {{ acct.contract }}</span>{% endif %}{% endif %}</p>
       {% else %}
       <h1 class="phname">No name yet</h1>
       <p class="phsub">Set the name you play under on the <a href="#names">Names</a> tab &mdash; matches are recorded against it.</p>
@@ -233,6 +234,12 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
     <button class="primary" onclick="forgotClaim()">Move it to me</button>
   </div>
   <p class="msg" id="forgotMsg"></p>
+</div>
+
+<div class="card" id="mergeCard">
+  <h2>Merge a name</h2>
+  <p class="desc">Played under another name before you set this one? Its wins, losses and
+     replays can be folded into this account. <a href="/merge">Ask for a merge &rarr;</a></p>
 </div>
 {% endif %}
 

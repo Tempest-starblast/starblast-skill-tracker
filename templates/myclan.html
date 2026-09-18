@@ -138,6 +138,9 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
         {%- if m.joined %}
         <span class="mcstat mcjoined"><b>{{ m.joined }}</b>{{ t('Joined') }}</span>
         {%- endif %}
+        {%- if gems_on and m.contract %}
+        <span class="mcstat mccontract" title="Hired as a free agent - stays until this date"><b>{{ m.contract }}</b>Contract</span>
+        {%- endif %}
       </div>
     </div>
     {% if clan.can_manage and not m.is_you %}
