@@ -121,7 +121,7 @@
   <thead><tr>
     <th class="rank">#</th><th>{{ t('Clan') }}</th>
     <th class="mid">{{ t('Members') }}</th><th class="mid">{{ t('Region') }}</th><th class="mid">{{ t('Record') }}</th>
-    <th class="mid">{{ t('Win%') }}</th><th class="num">{{ t('Avg skill') }}</th>
+    <th class="mid">{{ t('Win%') }}</th><th class="mid">{{ t('Survival') }}</th><th class="num">{{ t('Avg skill') }}</th>
   </tr></thead>
   <tbody>
   {% for c in clans %}
@@ -135,6 +135,7 @@
     <td class="mid">{% if c.region_label %}<a href="/?region={{ c.region }}">{{ c.region_label }}</a>{% else %}&mdash;{% endif %}</td>
     <td class="mid">{{ c.wins }}-{{ c.losses }}</td>
     <td class="mid">{{ c.winrate }}</td>
+    <td class="mid">{{ c.surv_wins }}</td>
     <td class="skill">{{ c.avg_elo }}</td>
   </tr>
   {% endfor %}

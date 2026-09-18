@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.28.1"
+APP_VERSION = "9.29.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -102,8 +102,13 @@ GEM_LOSS = 10
 # the leader and every co-leader, each. Both are per member win, so a big
 # clan earns more because more of it is playing. A moderator is not paid -
 # they remove members, they do not run the clan.
-GEM_CLAN_WIN = 50
-GEM_LEADER_WIN = 10
+GEM_CLAN_WIN = 100
+GEM_LEADER_WIN = 50
+# A survival win (last player standing on the survival board): the winner,
+# their clan's treasury and each officer. Owner's rates, 18 Sep 2026.
+GEM_SURVIVAL_WIN = 200
+GEM_SURVIVAL_CLAN_WIN = 200
+GEM_SURVIVAL_LEADER_WIN = 100
 # Once a day, on your first win, so somebody with one match in them is not
 # simply left behind by somebody with twenty.
 GEM_DAILY_FIRST_WIN = 250
@@ -6363,6 +6368,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.29.0", "at": "2026-09-18T08:30:00Z", "changes": [
+        "Clan pages and the clans list now count <b>survival wins</b> too: every "
+        "survival round a current member has won, added together, beside the "
+        "team record.",
+    ]},
     {"version": "9.27.1", "at": "2026-09-18T05:40:00Z", "changes": [
         "When a rename meets a survival record already kept under the new name, "
         "the two are folded together (rounds and wins add up, the better placing "
@@ -10069,6 +10079,10 @@ def apply_survival_round(c, round_key, ended_at, data, protected=None):
             "(round_key, norm_name, name, place, field, delta, ended_at) "
             "VALUES (?,?,?,?,?,?,?)",
             (round_key, k, disp, place, n, round(deltas[i], 2), now))
+        if won:
+            # Gems hang off the rating: a round that is not rated pays
+            # nothing, and a rebuild of the board pays each round once.
+            award_survival_gems(c, k, round_key)
     return n
 
 
@@ -12720,6 +12734,23 @@ def clan_page(tag):
     # it carries the longer history.
     clan_wins, clan_losses = total_wins, total_losses
     played = clan_wins + clan_losses
+    # Survival: every round a current member has won, added together - the
+    # survival board keeps its own record per name.
+    surv_wins = surv_rounds = 0
+    _norms = [normalize_name(r[0]) for r in rows if r[0]]
+    if _norms:
+        # The page's own connection is closed by here (the dict is built
+        # from what was read); one short read of its own.
+        _cs = db()
+        try:
+            _sr = _cs.execute("SELECT COALESCE(SUM(wins), 0), COALESCE(SUM(rounds), 0) "
+                              "FROM survival_players WHERE norm_name IN (%s)"
+                              % ",".join("?" for _ in _norms), _norms).fetchone()
+        except sqlite3.Error:
+            _sr = (0, 0)
+        finally:
+            _cs.close()
+        surv_wins, surv_rounds = int(_sr[0] or 0), int(_sr[1] or 0)
     clan = {
         "tag": known,
         "members": members,
@@ -12729,6 +12760,8 @@ def clan_page(tag):
         "losses": clan_losses,
         "winrate": f"{round(100 * clan_wins / played)}%" if played else "-",
         "played": played,
+        "surv_wins": surv_wins,
+        "surv_rounds": surv_rounds,
     }
     clan["applications"] = apps
     clan["region"] = region_key
@@ -12926,6 +12959,28 @@ def award_match_gems(c, applied, match_id):
         if got:
             out.append((player, got))
     return out
+
+
+def award_survival_gems(c, nn, round_key):
+    """Gems for one survival win, keyed on the round so a rebuild of the
+    survival board pays nobody twice. Only a name with a row on the site can
+    hold gems - a winner without one earns nothing for that round. The clan
+    and its officers are paid as for a team win, at the survival rates.
+    Returns what the winner got."""
+    if not nn or not round_key:
+        return 0
+    row = c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    if not row:
+        return 0
+    got = gem_grant(c, "player", nn, GEM_SURVIVAL_WIN, "survival-win", round_key)
+    tag = row[0]
+    if tag:
+        gem_grant(c, "clan", tag, GEM_SURVIVAL_CLAN_WIN, "survival-member-win",
+                  "%s#%s" % (round_key, nn))
+        for officer in gem_clan_officers(c, tag):
+            gem_grant(c, "player", officer, GEM_SURVIVAL_LEADER_WIN,
+                      "survival-member-win", "%s#%s" % (round_key, nn))
+    return got
 
 
 def my_player(c):
@@ -19082,9 +19137,13 @@ def clans_page():
         losses = sum(r[2] for r in got)
         played = wins + losses
         avg = sum(elos) / len(elos) if elos else 0.0
+        surv = c.execute("SELECT COALESCE(SUM(s.wins), 0) FROM survival_players s "
+                         "JOIN players p ON p.norm_name = s.norm_name "
+                         "WHERE p.clan = ? AND " + NOT_SANDBOX, (tag,)).fetchone()[0]
         rows.append({
             "tag": tag,
             "size": len(elos),
+            "surv_wins": int(surv or 0),
             "avg": avg,
             "avg_elo": f"{avg:.1f}",
             "wins": wins,

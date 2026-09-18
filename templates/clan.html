@@ -30,12 +30,14 @@
   <div class="stat"><div class="label">Average skill</div><div class="value" style="color:var(--blue)">{{ clan.avg_elo }}</div></div>
   <div class="stat"><div class="label">Combined record</div><div class="value">{{ clan.wins }}-{{ clan.losses }}</div></div>
   <div class="stat"><div class="label">Win rate</div><div class="value" style="color:var(--green)">{{ clan.winrate }}</div></div>
+  <div class="stat"><div class="label">Survival wins</div><div class="value">{{ clan.surv_wins }}</div></div>
   {% if gems_on and clan.treasury is not none %}
   <div class="stat gold"><div class="label">Treasury</div><div class="value">{{ '{:,}'.format(clan.treasury) }}</div></div>
   {% endif %}
 </div>
 <p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
-   added together. A match won by two clanmates therefore counts twice.</p>
+   added together. A match won by two clanmates therefore counts twice. Survival wins are every
+   survival round a current member has won.</p>
 {%- if clan.bio %}
 <div class="clanbio clamp" id="clanBio">{{ clan.bio }}</div>
 <button class="biomore" id="bioMore" style="display:none" onclick="toggleBio()">Read more</button>
