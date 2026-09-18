@@ -1,18 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Your account - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-/* The hero card: the big number is your rating, the way a trophy count
-   leads a game profile. Everything else hangs off it. */
-.acct{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;margin-bottom:16px}
-.acctcard{flex:2;min-width:260px;background:var(--panel);border:1px solid rgba(153,221,255,.35);
-  border-radius:3px;padding:22px;display:flex;flex-direction:column;gap:6px;
-  box-shadow:0 0 18px rgba(153,221,255,.08) inset}
-.acctname{font-size:20px;font-weight:700;letter-spacing:1px;color:#eaf8ff;
-  text-shadow:var(--glow);overflow-wrap:anywhere}
-.acctelo{font-size:52px;font-weight:700;line-height:1.05;color:var(--blue);
-  text-shadow:0 0 14px rgba(153,221,255,.55);font-variant-numeric:tabular-nums}
-.acctsub{color:var(--muted);font-size:13px;letter-spacing:.6px}
-.acctstats{flex:3;min-width:260px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
 .line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;
   border-bottom:1px solid var(--line);font-size:14px}
 .line:last-child{border-bottom:none}
@@ -36,61 +24,8 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 .hd{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
 .hd.up{color:var(--green)}.hd.dn{color:var(--red)}
 .hhalf{color:var(--amber);font-size:11px;letter-spacing:.5px}
-/* A result being seen for the first time. Gone on the next visit. */
-.hrow.new{background:rgba(153,221,255,.07);border-left:2px solid var(--blue);
-  padding-left:8px}
+.hrow.new{background:rgba(153,221,255,.07);border-left:2px solid var(--blue);padding-left:8px}
 .hnew{color:var(--blue);font-size:11px;letter-spacing:.5px;font-weight:700}
-{% endblock %}
-{% block body %}
-<h1 class="ptitle">{{ t('Your account') }}</h1>
-
-{% if not signed_in %}
-<div class="card">
-  <h2>{{ t('Sign in') }}</h2>
-  <p class="desc">Sign in at the top of the page &mdash; your rating, history and
-     settings live here.</p>
-</div>
-{% else %}
-
-{% if acct %}
-<div class="acct">
-  <div class="acctcard">
-    <span class="acctname">{% if acct.clan %}<a class="badge" href="/clan/{{ acct.clan }}">{{ acct.clan_display or acct.clan }}</a> {% endif %}{{ acct.display }}</span>
-    <span class="acctelo">{{ acct.elo }}</span>
-    <span class="acctsub">SKILL &middot; {{ t('Rank') }} #{{ acct.rank }} {{ 'of' }} {{ acct.total }}</span>
-    <span class="acctsub"><a href="/player/{{ acct.name|urlencode }}">Public profile &rarr;</a>
-      {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% endif %}</span>
-    {%- if acct.tag_styles %}
-    <span class="acctsub">{{ t('Wear your tag as') }}
-      <select id="tagStyle" onchange="pickTagStyle(this)" style="margin-left:4px">
-        {%- for s in acct.tag_styles %}
-        <option value="{{ s.id }}"{% if s.on %} selected{% endif %}>{{ s.shown }}</option>
-        {%- endfor %}
-      </select>
-      <span class="msg" id="tagStyleMsg" style="display:inline;margin-left:6px"></span></span>
-    {%- endif %}
-  </div>
-  <div class="acctstats">
-    <div class="stat"><div class="label">{{ t('Record') }}</div><div class="value">{{ acct.wins }}-{{ acct.losses }}</div></div>
-    <div class="stat"><div class="label">{{ t('Win%') }}</div><div class="value">{{ acct.winrate }}</div></div>
-    <div class="stat"><div class="label">{{ t('Gained') }}</div><div class="value">{{ acct.gained }}</div></div>
-  </div>
-</div>
-
-<div class="card bio-card">
-  <h2>{{ t('Bio') }}</h2>
-  <p class="desc">{{ t('A few lines about yourself, shown on your public profile.') }}
-    <a href="/player/{{ acct.name|urlencode }}">{{ t('View profile') }} &rarr;</a></p>
-  <textarea id="accBio" maxlength="{{ bio_max }}" rows="5"
-            placeholder="{{ t('A few lines about yourself…') }}">{{ acct.bio }}</textarea>
-  <div class="bio-actions">
-    <span class="bio-count" id="accBioCount"></span>
-    <span class="bio-spacer"></span>
-    <button class="primary" onclick="saveBio()">{{ t('Save bio') }}</button>
-  </div>
-  <p class="bio-msg" id="accBioMsg"></p>
-</div>
-<style>
 .bio-card #accBio{width:100%;box-sizing:border-box;resize:vertical;min-height:104px;font:inherit;
   line-height:1.55;padding:9px 11px;color:var(--text);background:var(--card);
   border:1px solid var(--line);border-radius:9px}
@@ -99,28 +34,61 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 .bio-card .bio-spacer{flex:1}
 .bio-card .bio-count{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
 .bio-card .bio-msg{color:var(--red);font-size:13px;margin:7px 0 0;min-height:1px}
-</style>
-<script>
-(function(){
-  var MAX={{ bio_max }};
-  var ta=document.getElementById('accBio');
-  if(!ta) return;
-  function cnt(){document.getElementById('accBioCount').textContent=ta.value.length+' / '+MAX;}
-  ta.addEventListener('input',cnt); cnt();
-  window.saveBio=function(){
-    var msg=document.getElementById('accBioMsg'); msg.textContent=''; msg.style.color='';
-    fetch('/account/bio',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({bio:ta.value})})
-     .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
-     .then(function(res){
-       if(!res.ok){ msg.textContent=(res.d&&res.d.message)||{{ t('Could not save.')|tojson }}; return; }
-       msg.style.color='var(--green)'; msg.textContent={{ t('Bio saved.')|tojson }};
-     }).catch(function(){ msg.textContent={{ t('Could not save.')|tojson }}; });
-  };
-})();
-</script>
+.emptyover{padding:26px 22px;text-align:center}
+.emptyover .go{display:inline-flex;margin-top:12px}
+.tagpick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 0;font-size:13px;color:var(--muted)}
+.owner{border-color:rgba(216,160,42,.5)}
+.owner h2{color:var(--amber,#d8a02a)}
+{% endblock %}
+{% block body %}
 
-{% if acct.wipe_available %}
+{% if not signed_in %}
+<div class="pagehead" style="--ct:#3aa0d8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">{{ t('Your account') }}</p>
+    <h1 class="phname">{{ t('Sign in') }}</h1>
+    <p class="phsub">Sign in at the top of the page &mdash; your rating, history and settings live here.</p>
+  </div></div>
+</div>
+{% else %}
+
+{# ------------------------------------------------------------ the band #}
+<div class="pagehead" style="--ct:#3aa0d8">
+  <div class="phwho">
+    <div class="phtext">
+      <p class="pheye">{{ t('Your account') }}</p>
+      {% if acct %}
+      <h1 class="phname">{% if acct.clan %}<a class="badge" href="/clan/{{ acct.clan }}">{{ acct.clan_display or acct.clan }}</a>{% endif %}{{ acct.display }}</h1>
+      <p class="phsub">{{ t('Rank') }} <b>#{{ acct.rank }}</b> of {{ acct.total }}
+        &middot; <a href="/player/{{ acct.name|urlencode }}">Public profile &rarr;</a>
+        {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% endif %}</p>
+      {% else %}
+      <h1 class="phname">No name yet</h1>
+      <p class="phsub">Set the name you play under on the <a href="#names">Names</a> tab &mdash; matches are recorded against it.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% if acct %}
+  <div class="phnums">
+    <div class="phnum"><span>{{ t('Skill') }}</span><b class="blue big">{{ acct.elo }}</b></div>
+    <div class="phnum"><span>{{ t('Record') }}</span><b>{{ acct.wins }}-{{ acct.losses }}</b></div>
+    <div class="phnum"><span>{{ t('Win%') }}</span><b class="green">{{ acct.winrate }}</b></div>
+    <div class="phnum"><span>{{ t('Gained') }}</span><b>{{ acct.gained }}</b></div>
+  </div>
+  {% endif %}
+</div>
+
+<nav class="subtabs" id="subtabs" aria-label="Sections" data-default="{{ 'overview' if acct else 'names' }}">
+  <a href="#overview" data-panel="overview">Overview<span class="n hot" id="tabInbox" style="display:none"></span></a>
+  <a href="#names" data-panel="names">Names</a>
+  <a href="#protection" data-panel="protection">Protection</a>
+  <a href="#settings" data-panel="settings">{{ t('Settings') }}</a>
+  {% if is_owner %}<a href="#owner" data-panel="owner" class="own">Owner</a>{% endif %}
+</nav>
+
+{# ---------------------------------------------------------- overview #}
+<section class="panel" data-panel="overview" hidden>
+{% if acct and acct.wipe_available %}
 <div class="card" style="border-color:rgba(216,160,42,.5)">
   <h2 style="color:var(--amber,#d8a02a)">You just claimed this name</h2>
   <p class="desc">Before you claimed it, other people may have played under
@@ -136,7 +104,44 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 </div>
 {% endif %}
 
-{% if acct.by_region %}
+<div class="card" id="inboxCard" style="display:none">
+  <h2>{{ t('Invites & updates') }}</h2>
+  <div id="missedList"></div>
+  <div id="inviteList"></div>
+  <div id="updateList"></div>
+  <p class="msg" id="inboxMsg"></p>
+</div>
+
+{% if acct and acct.recent %}
+{% set progress_name = acct.name %}
+{% include 'progress_chart.html' %}
+<div class="card">
+  <h2>Recent matches</h2>
+  {% for m in acct.recent %}
+  <div class="hrow{% if m.unseen %} new{% endif %}">
+    <span class="sq {{ 'w' if m.won else 'l' }}">{{ 'W' if m.won else 'L' }}</span>
+    <span>{{ m.when }}</span>
+    {% if m.half %}<span class="hhalf">HALF</span>{% endif %}
+    {% if m.unseen %}<span class="hnew">NEW</span>{% endif %}
+    <span class="hd {{ 'up' if m.delta >= 0 else 'dn' }}">{{ '%+.2f'|format(m.delta) }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% elif acct %}
+<div class="card emptyover">
+  <p class="desc" style="margin:0">No rated matches yet. Press Play, join a team match, and your
+     results land here within a minute of the match ending.</p>
+  <a class="phcta go" href="/play">{{ t('Play') }}</a>
+</div>
+{% else %}
+<div class="card emptyover">
+  <p class="desc" style="margin:0">Your results, your region split and your invites will show
+     here once you have a name.</p>
+  <a class="phcta go" href="#names">Set your name</a>
+</div>
+{% endif %}
+
+{% if acct and acct.by_region %}
 <div class="card">
   <h2>{{ t('Region') }}</h2>
   <div class="tablewrap" style="border:none">
@@ -153,97 +158,22 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 </div>
 {% endif %}
 
-{% if acct.recent %}
-{% set progress_name = acct.name %}
-{% include 'progress_chart.html' %}
-
-<div class="card">
-  <h2>Recent matches</h2>
-  {% for m in acct.recent %}
-  <div class="hrow{% if m.unseen %} new{% endif %}">
-    <span class="sq {{ 'w' if m.won else 'l' }}">{{ 'W' if m.won else 'L' }}</span>
-    <span>{{ m.when }}</span>
-    {% if m.half %}<span class="hhalf">HALF</span>{% endif %}
-    {% if m.unseen %}<span class="hnew">NEW</span>{% endif %}
-    <span class="hd {{ 'up' if m.delta >= 0 else 'dn' }}">{{ '%+.2f'|format(m.delta) }}</span>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-{% endif %}
-
-<div class="card" id="inboxCard" style="display:none">
-  <h2>{{ t('Invites & updates') }}</h2>
-  <div id="missedList"></div>
-  <div id="inviteList"></div>
-  <div id="updateList"></div>
-  <p class="msg" id="inboxMsg"></p>
-</div>
-
-{% if signed_in and account_name %}
-<div class="card" id="forgotCard">
-  <h2>Played under a different name?</h2>
-  <p class="desc">When you press <b>Play</b> here, the first ship to turn up in that lobby
-     under your saved name is yours. If you typed a different name into the game, that
-     game went to the name&rsquo;s own record. Enter it and the game is moved to you
-     &mdash; provided you pressed Play on that match here before joining, the name has no
-     record of its own, and the game is from the last two days. One of these a day.</p>
-  <div class="row">
-    <input type="text" id="forgotName" placeholder="The name you played as" maxlength="40" autocomplete="off">
-    <button class="primary" onclick="forgotClaim()">Move it to me</button>
-  </div>
-  <p class="msg" id="forgotMsg"></p>
-</div>
-<script>
-async function forgotClaim(){
-  var i = document.getElementById('forgotName'), m = document.getElementById('forgotMsg');
-  m.textContent = 'Checking…'; m.style.color = '';
-  try{
-    var r = await fetch('/api/forgot', {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                       body: JSON.stringify({name: i.value})});
-    var d = await r.json();
-    m.textContent = (d && d.message) || 'Something went wrong.';
-    if(d && d.ok){ m.style.color = 'var(--green,#66e6b8)'; setTimeout(function(){ location.reload(); }, 2200); }
-  }catch(e){ m.textContent = 'Server connection error.'; }
-}
-</script>
-{% endif %}
-
 <div class="card" id="heldCard" style="display:none">
   <h2>Matches that did not count</h2>
   <p class="desc">Every result the tracker sets aside is written down with its reason.
      These are yours, newest first &mdash; nothing here counted for or against you.</p>
   <div id="heldList"></div>
 </div>
+</section>
 
-<script>
-(function(){
-  fetch('/api/my/held').then(function(r){ return r.json(); }).then(function(d){
-    var rows = (d && d.held) || [];
-    if(!rows.length) return;
-    var esc = function(s){ var e=document.createElement('span');
-      e.textContent = String(s==null?'':s); return e.innerHTML; };
-    document.getElementById('heldCard').style.display = 'block';
-    document.getElementById('heldList').innerHTML = rows.map(function(h){
-      return '<div style="padding:9px 0;border-bottom:1px solid var(--line)">'
-        + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline">'
-        + '<b>' + esc(h.name) + '</b>'
-        + '<span class="sub">lobby #' + esc(h.sys_id) + ' &middot; ' + esc(h.at || '') + '</span>'
-        + '<span class="sub" style="margin-left:auto">'
-        + (h.won ? 'would have been a win' : 'would have been a loss')
-        + (h.score != null ? ' &middot; ' + h.score + ' pts' : '') + '</span></div>'
-        + '<div class="sub" style="margin-top:3px">' + esc(h.why) + '</div></div>';
-    }).join('');
-  }).catch(function(){});
-})();
-</script>
-
+{# ------------------------------------------------------------- names #}
+<section class="panel" data-panel="names" hidden>
 <div class="card">
-  <h2>Account</h2>
+  <h2>Account name</h2>
   <div id="signedIn">
     <p class="current" id="currentName">No name set yet. <span>Pick one below.</span></p>
     <p class="desc">Exactly as it appears in game &mdash; matches are recorded
-       against it.</p>
+       against it. The clan tag is not part of it; that comes from your clan.</p>
     <div class="row">
       <input type="text" id="accName" placeholder="Your name in Starblast" maxlength="16" autocomplete="off">
       <button class="primary" onclick="saveName()">Save</button>
@@ -269,8 +199,84 @@ async function forgotClaim(){
       <p class="msg" id="claimMsg"></p>
     </div>
   </div>
+  {%- if acct and acct.tag_styles %}
+  <div class="tagpick">{{ t('Wear your tag as') }}
+    <select id="tagStyle" onchange="pickTagStyle(this)">
+      {%- for s in acct.tag_styles %}
+      <option value="{{ s.id }}"{% if s.on %} selected{% endif %}>{{ s.shown }}</option>
+      {%- endfor %}
+    </select>
+    <span class="msg" id="tagStyleMsg" style="display:inline;margin:0"></span></div>
+  {%- endif %}
 </div>
 
+<div class="card" id="claimCard" style="display:none">
+  <h2>Claims you are waiting on</h2>
+  <div id="pendingClaims" style="display:none;margin-top:14px;padding-top:12px;
+       border-top:1px solid var(--line)">
+    <p class="desc">Waiting on a tracked win.</p>
+    <div id="claimList"></div>
+    <p class="msg" id="withdrawMsg"></p>
+  </div>
+</div>
+
+{% if account_name %}
+<div class="card" id="forgotCard">
+  <h2>Played under a different name?</h2>
+  <p class="desc">When you press <b>Play</b> here, the first ship to turn up in that lobby
+     under your saved name is yours. If you typed a different name into the game, that
+     game went to the name&rsquo;s own record. Enter it and the game is moved to you
+     &mdash; provided you pressed Play on that match here before joining, the name has no
+     record of its own, and the game is from the last two days. One of these a day.</p>
+  <div class="row">
+    <input type="text" id="forgotName" placeholder="The name you played as" maxlength="40" autocomplete="off">
+    <button class="primary" onclick="forgotClaim()">Move it to me</button>
+  </div>
+  <p class="msg" id="forgotMsg"></p>
+</div>
+{% endif %}
+
+{% if acct %}
+<div class="card bio-card">
+  <h2>{{ t('Bio') }}</h2>
+  <p class="desc">{{ t('A few lines about yourself, shown on your public profile.') }}
+    <a href="/player/{{ acct.name|urlencode }}">{{ t('View profile') }} &rarr;</a></p>
+  <textarea id="accBio" maxlength="{{ bio_max }}" rows="5"
+            placeholder="{{ t('A few lines about yourself…') }}">{{ acct.bio }}</textarea>
+  <div class="bio-actions">
+    <span class="bio-count" id="accBioCount"></span>
+    <span class="bio-spacer"></span>
+    <button class="primary" onclick="saveBio()">{{ t('Save bio') }}</button>
+  </div>
+  <p class="bio-msg" id="accBioMsg"></p>
+</div>
+{% endif %}
+</section>
+
+{# -------------------------------------------------------- protection #}
+<section class="panel" data-panel="protection" hidden>
+<div class="card" id="protCard">
+  <div class="line">
+    <div><b>Protection</b><p class="desc" style="margin:4px 0 0">Only count matches I check
+      into.</p></div>
+    <label class="switch"><input type="checkbox" id="prot" disabled onchange="setProt(this.checked)">
+      <span class="slider"></span></label>
+  </div>
+  <div id="protConfirm" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)"></div>
+  <p class="desc" id="protWhy" style="margin:12px 0 0"></p>
+  <p class="msg" id="protMsg"></p>
+</div>
+<div class="card">
+  <h2>What it means</h2>
+  <p class="desc">Off, every match under your name is rated, whoever is at the controls.
+     On, only the matches you press <b>Check in &amp; play</b> for on the Play page count
+     &mdash; a stricter, slower rating with a <b>&#10003;</b> beside your name. It can be
+     switched once a day.</p>
+</div>
+</section>
+
+{# ---------------------------------------------------------- settings #}
+<section class="panel" data-panel="settings" hidden>
 <div class="card">
   <h2>Discord</h2>
   {% if link_status == 'ok' %}<p class="msg" style="color:var(--good,#66e6b8)">Discord linked.</p>
@@ -294,32 +300,22 @@ async function forgotClaim(){
             onclick="location.href='/auth/discord?mode=link'">Link Discord</button>
   {% endif %}
 </div>
-
-<div class="card" id="claimCard" style="display:none">
-  <h2>Claims you are waiting on</h2>
-  <div id="pendingClaims" style="display:none;margin-top:14px;padding-top:12px;
-       border-top:1px solid var(--line)">
-    <p class="desc">Waiting on a tracked win.</p>
-    <div id="claimList"></div>
-    <p class="msg" id="withdrawMsg"></p>
-  </div>
+<div class="card">
+  <h2>{{ t('Language') }}</h2>
+  <p class="desc">The site follows the language picker at the top of every page.</p>
 </div>
-
-<div class="card" id="protCard" style="display:none">
-  <div class="line">
-    <div><b>Protection</b><p class="desc" style="margin:4px 0 0">Only count matches I check
-      into.</p></div>
-    <label class="switch"><input type="checkbox" id="prot" disabled onchange="setProt(this.checked)">
-      <span class="slider"></span></label>
-  </div>
-  <div id="protConfirm" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)"></div>
-  <p class="desc" id="protWhy" style="margin:12px 0 0"></p>
-  <p class="msg" id="protMsg"></p>
+<div class="card">
+  <h2>Sign out</h2>
+  <p class="desc">Signs this browser out of your account. Your name, rating and settings stay.</p>
+  <button class="ghost" onclick="sbSignOut()">Sign out</button>
 </div>
+</section>
 
+{# ------------------------------------------------------------- owner #}
 {% if is_owner %}
-<div class="card" style="border-color:rgba(216,160,42,.5)">
-  <h2 style="color:var(--amber,#d8a02a)">Owner tools</h2>
+<section class="panel" data-panel="owner" hidden>
+<div class="card owner">
+  <h2>Owner tools</h2>
   <p class="desc">Step into a sandbox account to see the site as somebody else does. A
      banner at the top brings you straight back. Nothing you do as the sandbox touches
      your real account, and the test account is deleted when you come back.</p>
@@ -344,10 +340,9 @@ async function forgotClaim(){
   <p class="desc" style="margin-top:6px">Not released, visible only to you:
      <a href="/achievements">Achievements</a></p>
 </div>
+</section>
 <script>
 async function devActAs(mode){
-  // The rating and the game count only mean anything for the settled account,
-  // so the newcomer mode sends neither and the server keeps its own defaults.
   const body = {mode: mode || 'new'};
   if(body.mode === 'account'){
     body.elo = parseInt(document.getElementById('devElo').value, 10) || 1400;
@@ -367,6 +362,55 @@ async function devActAs(mode){
 <p class="foot">Something look wrong? Ask {{ contact }} on Discord.</p>
 
 <script>
+(function(){
+  var MAX={{ bio_max }};
+  var ta=document.getElementById('accBio');
+  if(!ta) return;
+  function cnt(){document.getElementById('accBioCount').textContent=ta.value.length+' / '+MAX;}
+  ta.addEventListener('input',cnt); cnt();
+  window.saveBio=function(){
+    var msg=document.getElementById('accBioMsg'); msg.textContent=''; msg.style.color='';
+    fetch('/account/bio',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({bio:ta.value})})
+     .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+     .then(function(res){
+       if(!res.ok){ msg.textContent=(res.d&&res.d.message)||{{ t('Could not save.')|tojson }}; return; }
+       msg.style.color='var(--green)'; msg.textContent={{ t('Bio saved.')|tojson }};
+     }).catch(function(){ msg.textContent={{ t('Could not save.')|tojson }}; });
+  };
+})();
+async function forgotClaim(){
+  var i = document.getElementById('forgotName'), m = document.getElementById('forgotMsg');
+  if(!i || !m) return;
+  m.textContent = 'Checking…'; m.style.color = '';
+  try{
+    var r = await fetch('/api/forgot', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                       body: JSON.stringify({name: i.value})});
+    var d = await r.json();
+    m.textContent = (d && d.message) || 'Something went wrong.';
+    if(d && d.ok){ m.style.color = 'var(--green,#66e6b8)'; setTimeout(function(){ location.reload(); }, 2200); }
+  }catch(e){ m.textContent = 'Server connection error.'; }
+}
+(function(){
+  fetch('/api/my/held').then(function(r){ return r.json(); }).then(function(d){
+    var rows = (d && d.held) || [];
+    if(!rows.length) return;
+    var esc = function(s){ var e=document.createElement('span');
+      e.textContent = String(s==null?'':s); return e.innerHTML; };
+    document.getElementById('heldCard').style.display = 'block';
+    document.getElementById('heldList').innerHTML = rows.map(function(h){
+      return '<div style="padding:9px 0;border-bottom:1px solid var(--line)">'
+        + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline">'
+        + '<b>' + esc(h.name) + '</b>'
+        + '<span class="sub">lobby #' + esc(h.sys_id) + ' &middot; ' + esc(h.at || '') + '</span>'
+        + '<span class="sub" style="margin-left:auto">'
+        + (h.won ? 'would have been a win' : 'would have been a loss')
+        + (h.score != null ? ' &middot; ' + h.score + ' pts' : '') + '</span></div>'
+        + '<div class="sub" style="margin-top:3px">' + esc(h.why) + '</div></div>';
+    }).join('');
+  }).catch(function(){});
+})();
+
 let myName = {{ (account_name or '')|tojson }};
 let claimTarget = null;
 
@@ -381,7 +425,7 @@ async function post(u,b){
   const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
   return [r, await r.json()];
 }
-function say(id, ok, t){ const m=document.getElementById(id); m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
+function say(id, ok, t){ const m=document.getElementById(id); if(!m) return; m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
 function el(t,c,x){ const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e; }
 
 async function loadMe(){
@@ -389,8 +433,11 @@ async function loadMe(){
     const d=await (await fetch('/me')).json();
     if(!d.logged_in) return;
     document.getElementById('claimCard').style.display='block';
-    document.getElementById('protCard').style.display='block';
     myName = (d.names && d.names.length) ? d.names[0] : null;
+    // The Overview tab wears the count of things waiting for an answer.
+    const n = d.notices && d.notices.total;
+    const tb = document.getElementById('tabInbox');
+    if (tb && n){ tb.textContent = n; tb.style.display = ''; }
     showName();
     loadProt();
     loadClaims();
@@ -410,7 +457,6 @@ async function loadInbox(){
     if (!inv.length && !upd.length && !mis.length){ card.style.display = 'none'; return; }
     card.style.display = 'block';
     mis.forEach(function(b){
-      // One decision for the whole batch, wins and losses together.
       const row = el('div', 'clanrow');
       const games = b.games.map(function(g){
         return (g.won ? 'win ' : 'loss ') + (g.delta >= 0 ? '+' : '') + g.delta + ' (' + g.at.slice(5) + ')';
@@ -431,7 +477,7 @@ async function loadInbox(){
     inv.forEach(function(v){
       const row = el('div', 'clanrow');
       row.appendChild(el('div', 'ctag', v.clan + ' invited ' + v.name{% if gems_on %}
-        + (v.gems ? ' \u00b7 ' + v.gems.toLocaleString() + ' gems joining bonus' : ''){% endif %}));
+        + (v.gems ? ' · ' + v.gems.toLocaleString() + ' gems joining bonus' : ''){% endif %}));
       const yes = el('button', 'primary', 'Accept');
       yes.onclick = function(){ answerInvite(v.id, true); };
       const no = el('button', 'ghost', 'Decline');
@@ -441,8 +487,6 @@ async function loadInbox(){
     });
     upd.forEach(function(u){ ul.appendChild(el('p', 'desc', u.text)); });
     if (upd.length){
-      // Shown once counts as seen; the badge clears on the next page.
-      // Invitations are different - they stay until actually answered.
       post('/me/notices/seen', {}).catch(function(){});
     }
   }catch(e){}
@@ -531,6 +575,7 @@ async function loadClaims(){
     list.textContent = '';
     const claims = d.claims || [];
     box.style.display = claims.length ? 'block' : 'none';
+    document.getElementById('claimCard').style.display = claims.length ? 'block' : 'none';
     claims.forEach(function(c){
       const row = el('div', 'clanrow');
       const who = el('div', 'ctag');

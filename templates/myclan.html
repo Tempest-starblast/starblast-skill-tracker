@@ -3,17 +3,6 @@
 {% block css %}
 /* One header, one row of tabs, one thing on screen at a time. The tabs
    hold what used to be ten cards stacked down the page. */
-.subtabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 14px;padding:4px;border-radius:12px;
-  background:rgba(2,5,10,.55);border:1px solid var(--line)}
-.subtabs a{flex:1 1 auto;text-align:center;padding:10px 14px;border-radius:9px;text-decoration:none;
-  color:var(--muted);font-weight:700;font-size:13px;letter-spacing:.2px;white-space:nowrap;
-  transition:background .14s,color .14s}
-.subtabs a:hover{color:var(--text);background:rgba(153,221,255,.07)}
-.subtabs a.on{background:rgba(153,221,255,.13);color:#eaf8ff;box-shadow:inset 0 0 0 1px rgba(153,221,255,.25)}
-.subtabs .n{display:inline-block;margin-left:7px;padding:0 7px;border-radius:999px;font-size:11px;
-  line-height:18px;background:rgba(153,221,255,.12);color:var(--blue);font-variant-numeric:tabular-nums}
-.subtabs .n.hot{background:var(--green);color:#04121f}
-.panel[hidden]{display:none}
 .mcrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:12px 13px;margin:0 -13px;border-bottom:1px solid var(--line);
   border-radius:3px;transition:background .12s}
@@ -115,7 +104,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 {% endif %}
 
 {% set waiting = (clan.applications|length) + (clan.invited|length) %}
-<nav class="subtabs" id="subtabs" aria-label="Sections">
+<nav class="subtabs" id="subtabs" aria-label="Sections" data-default="members">
   <a href="#members" data-panel="members" class="on">{{ t('Members') }}<span class="n">{{ clan.size }}</span></a>
   {% if clan.can_manage %}
   <a href="#requests" data-panel="requests">Requests{% if waiting %}<span class="n hot">{{ waiting }}</span>{% endif %}</a>
@@ -419,30 +408,6 @@ const SHOWN = {{ ((clan.display or clan.tag) if clan else '')|tojson }};
 const ROLE_HELP = {{ role_help|tojson }};
 const ROLE_COLORS = {{ (clan.role_colors if clan else {})|tojson }};
 const CAN_MANAGE = {{ (clan.can_manage if clan else False)|tojson }};
-
-// The sub-tabs: one panel on screen, the choice in the URL hash so a
-// reload after a save lands on the same tab.
-(function(){
-  const bar = document.getElementById('subtabs');
-  if (!bar) return;
-  const links = Array.from(bar.querySelectorAll('a[data-panel]'));
-  function show(name){
-    if (!links.some(function(a){ return a.dataset.panel === name; })) name = 'members';
-    links.forEach(function(a){ a.classList.toggle('on', a.dataset.panel === name); });
-    document.querySelectorAll('.panel[data-panel]').forEach(function(p){
-      p.hidden = (p.dataset.panel !== name);
-    });
-  }
-  links.forEach(function(a){
-    a.addEventListener('click', function(ev){
-      ev.preventDefault();
-      history.replaceState(null, '', '#' + a.dataset.panel);
-      show(a.dataset.panel);
-    });
-  });
-  window.addEventListener('hashchange', function(){ show((location.hash || '#members').slice(1)); });
-  show((location.hash || '#members').slice(1));
-})();
 
 function roleHelp(btn, role){
   const inRow = btn.closest('.mcwho');
