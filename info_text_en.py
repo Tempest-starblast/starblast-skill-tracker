@@ -101,6 +101,10 @@ CARDS = [
   '<p><b>A match under your clan&#39;s tag counts for you</b>, whatever styling the tag is'
   ' typed in. Only members of that clan are matched this way, and what follows the tag has'
   ' to be your name.</p>'
+  '<p><b>Your account name is just you.</b> When you join a clan the tag comes off your'
+  ' account name and shows beside it as the badge instead, so the tag can change, and so can'
+  ' your clan, without your record moving. The account page asks before saving a name that'
+  ' carries a tag.</p>'
   '<p><b>Ranks.</b> A leader can appoint co-leaders and moderators. A moderator removes'
   ' ordinary members; a co-leader does everything the leader can except delete the clan or'
   ' touch another co-leader. Nobody can remove someone of their own rank or above.</p>'),

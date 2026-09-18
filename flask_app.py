@@ -1,4 +1,4 @@
-from flask import (Flask, request, jsonify, render_template, session, redirect,
+from flask import (Flask, request, jsonify, render_template, session, redirect, url_for,
                    abort)
 import re
 import bisect
@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.26.1"
+APP_VERSION = "9.27.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1592,6 +1592,130 @@ def clan_member_for_tagged_name(c, name):
     return None
 
 
+# Every table that keys a player's record by norm_name. A rename must carry
+# all of them or the record splits: the board row moves and the history,
+# the trial ratings and the survival rounds stay behind under a name that
+# no longer exists. 8.5.6 fixed that for match_players alone, and the
+# Discord rename never got even that.
+RENAME_KEYED_TABLES = (
+    "match_players", "held_results", "trueskill_match_players",
+    "survival_players", "survival_round_players", "custom_match_players",
+    "game_ladder", "shadow_players", "wiped_match_players",
+    "admin_adjustments", "recredits", "restored_matches",
+)
+
+
+def rekey_identity(c, old_name, new_name):
+    """Rename one players row and carry everything keyed to it. The name
+    each match was flown under (match_players.name) is kept as it was."""
+    old_key, new_key = normalize_name(old_name), normalize_name(new_name)
+    c.execute("UPDATE players SET name = ?, norm_name = ? WHERE name = ?",
+              (new_name, new_key, old_name))
+    if old_key != new_key:
+        for t in RENAME_KEYED_TABLES:
+            try:
+                c.execute("UPDATE %s SET norm_name = ? WHERE norm_name = ?" % t,
+                          (new_key, old_key))
+            except sqlite3.Error:
+                pass
+        try:
+            c.execute("UPDATE trueskill_players SET norm_name = ?, name = ? "
+                      "WHERE norm_name = ?", (new_key, new_name, old_key))
+        except sqlite3.Error:
+            pass
+    try:
+        c.execute("UPDATE clan_invites SET name = ? WHERE name = ? AND status = 'pending'",
+                  (new_name, old_name))
+    except sqlite3.Error:
+        pass
+    _PLAY_CACHE["ts"] = 0.0
+    tag_cache_reset()
+
+
+def bare_member_name(name, tag, shows):
+    """The name with the clan tag taken off, for the ROW (display_name is
+    for the eye). Also drops the tag's own decoration left behind - the ✦
+    of ᴀʀ✦, the ↝ of SᄅF̶ ↝ - and any combining mark, then squeezes the
+    spaces. None when nothing comes off or nothing usable is left."""
+    raw = ' '.join(str(name or '').split())
+    if not raw:
+        return None
+    rest = raw
+    for s in (shows or [tag]):
+        r2 = display_name(raw, tag, s)
+        if r2 != raw:
+            rest = r2
+            break
+    if rest == raw:
+        return None
+    deco = {ch for s in (shows or []) for ch in s if not ch.isalnum() and not ch.isspace()}
+    while rest and (rest[0] in deco or rest[0].isspace()
+                    or unicodedata.category(rest[0]).startswith('M')):
+        rest = rest[1:]
+    while rest and (rest[-1] in deco or rest[-1].isspace()):
+        rest = rest[:-1]
+    rest = ' '.join(rest.split())
+    if not any(ch.isalnum() for ch in rest) or not is_valid_name_format(rest):
+        return None
+    return rest
+
+
+def strip_tag_on_join(c, name, tag):
+    """An account name is just the person; the tag comes from the clan and
+    shows beside the name (owner's rule, 18 Sep 2026). Called wherever a
+    row is put into a clan: renames the row to its tag-free form and
+    carries its record. Leaves it alone when nothing comes off, when what
+    is left is not a usable name, or when that name is already another
+    row's - folding two rows together is what Merge a name is for."""
+    if not name or not tag:
+        return None
+    shows = [s for _i, s in clan_styles(c, tag)] or [clan_display(c, tag) or tag]
+    bare = bare_member_name(name, tag, shows)
+    if not bare:
+        return None
+    c.execute("SELECT 1 FROM players WHERE norm_name = ? AND name != ?",
+              (normalize_name(bare), name))
+    if c.fetchone():
+        return None
+    rekey_identity(c, name, bare)
+    return bare
+
+
+def tag_carried(c, name):
+    """The clan tag an account name is carrying, or None: {tag, shown, bare}.
+
+    Strong evidence only - the tag as the first or last word, in brackets,
+    or the clan's own styling on the front. A word in the middle is a word
+    (THIS IS HERE is not in IS), and a fused prefix (ISAAC) is never
+    enough. It is a question the account page asks, not a wall.
+    """
+    raw = ' '.join(str(name or '').split())
+    if not raw:
+        return None
+    styles = _tag_cache(c)["styles"]
+    if not styles:
+        return None
+    toks = raw.split()
+    cands = {clean_clan_tag(toks[0]), clean_clan_tag(toks[-1])}
+    for m in re.finditer(r'[\[\(\{\u3010\u3016\u300c\u300e<\u276e]\s*'
+                         r'([^\]\)\}\u3011\u3017\u300d\u300f>\u276f]{1,12})', raw):
+        cands.add(clean_clan_tag(m.group(1)))
+    for tag in sorted(styles, key=len, reverse=True):
+        shows = [s for _i, s in styles[tag]]
+        # The clan's own styling on the front counts only when it is real
+        # decoration or stops where the name starts: a plain IS glued into
+        # ISAAC is the fused-prefix case, and that is never enough here.
+        styled = any(raw.startswith(s) and (len(raw) == len(s) or not s[-1].isalnum()
+                                            or not raw[len(s)].isalnum())
+                     for s in shows)
+        if tag not in cands and not styled:
+            continue
+        bare = bare_member_name(raw, tag, shows)
+        if bare and bare != raw:
+            return {"tag": tag, "shown": shows[0], "bare": bare}
+    return None
+
+
 def clan_custom_labels(c, tag):
     """Only the role titles a clan has explicitly renamed: {role: label}."""
     if not tag:
@@ -1639,7 +1763,7 @@ def join_admin_names(c, sub_id, tag):
             elsewhere.append(name)
             continue
         c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (tag, name))
-        joined.append(name)
+        joined.append(strip_tag_on_join(c, name, tag) or name)
     return joined, elsewhere
 
 
@@ -6143,6 +6267,19 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.27.0", "at": "2026-09-18T04:30:00Z", "changes": [
+        "<b>Your account name is just you.</b> Joining a clan now takes the "
+        "clan\u2019s tag off your account name and shows it beside your name as "
+        "the badge instead. Your record stays put, the tag can change or go, "
+        "and a match under the tag in any styling still counts for you. "
+        "Members already on a roster are being moved over the same way; an old "
+        "link to the tagged name lands on the right profile.",
+        "The account page asks before saving a name that carries a clan tag, "
+        "and offers the name without it.",
+        "Renaming your account - on the site or from Discord - now carries every "
+        "part of your record with it: match history, the trial rating, survival "
+        "rounds and the rest. From Discord it used to carry none of it.",
+    ]},
     {"version": "9.26.1", "at": "2026-09-18T02:10:00Z", "changes": [
         "A member a leader added to the clan without an account of their own is "
         "matched by the clan tag too - it is the clan roster that counts, not "
@@ -8448,7 +8585,12 @@ def player_profile(name):
               (normalize_name(name),))
     row = c.fetchone()
     if not row:
+        # A link to a name with the clan tag still on it - the row was
+        # renamed when its owner joined the clan. Send it where it went.
+        other = clan_member_for_tagged_name(c, name)
         conn.close()
+        if other and normalize_name(other) != normalize_name(name):
+            return redirect(url_for('player_profile', name=other))
         return render_template('player.html', player=None, query=name,
                                version=APP_VERSION, page='players'), 404
 
@@ -11836,6 +11978,20 @@ def set_account_name():
 
     conn = db()
     c = conn.cursor()
+    # A clan tag in an account name is the tag's job done twice: it comes
+    # from the clan and shows beside the name wherever the name is. Asked,
+    # not refused - a name can genuinely start with what a tag folds to.
+    if not bool((request.json or {}).get('keep_tag')):
+        carried = tag_carried(c, name)
+        if carried:
+            conn.close()
+            return jsonify({
+                "message": f"'{name}' carries the {carried['shown']} clan tag. Your account "
+                           f"name is just you - the tag comes from joining the clan and "
+                           f"shows beside your name everywhere. Save it as "
+                           f"'{carried['bare']}' instead?",
+                "tag_prompt": True, "tag": carried["tag"], "shown": carried["shown"],
+                "bare": carried["bare"]}), 409
     c.execute("BEGIN IMMEDIATE")
     key = normalize_name(name)
     c.execute("SELECT google_sub FROM players WHERE norm_name = ?", (key,))
@@ -11896,19 +12052,12 @@ def set_account_name():
                                        f"limit - it is how other players recognise you on the "
                                        f"board. The name you PLAY under can still be changed "
                                        f"whenever you like."}), 403
-        c.execute("UPDATE players SET name = ?, norm_name = ?, "
-                  "name_changes = COALESCE(name_changes, 0) + 1 WHERE name = ?",
-                  (name, key, mine[0]))
-        # Match history is keyed by norm_name and does NOT follow the row on
-        # its own - a rename used to orphan every match the account had played
-        # (record intact, profile history empty; fafa lost 43 matches to this).
-        # Carry the history to the new identity in the same transaction.
-        old_key = normalize_name(mine[0])
-        if old_key != key:
-            c.execute("UPDATE match_players SET norm_name = ? WHERE norm_name = ?",
-                      (key, old_key))
-            c.execute("UPDATE held_results SET norm_name = ? WHERE norm_name = ?",
-                      (key, old_key))
+        c.execute("UPDATE players SET name_changes = COALESCE(name_changes, 0) + 1 "
+                  "WHERE name = ?", (mine[0],))
+        # The record is keyed by norm_name in a dozen tables and follows the
+        # row only if carried - a rename used to orphan every match the
+        # account had played (fafa lost 43 matches to this, fixed 8.5.6).
+        rekey_identity(c, mine[0], name)
         # The play name defaults to the account name, and follows it while
         # it has never been set to anything else - most people play under
         # the name they signed up with, and making them type it twice to
@@ -13735,13 +13884,14 @@ def clan_add():
         return jsonify({"message": f"Invitation sent to '{stored_name}'. They will see it "
                                    f"on Manage your name and have to accept it."}), 200
 
-    if detect_clan(stored_name) != known:
+    if detect_clan(stored_name) != known and not clean_clan_tag(stored_name).startswith(known):
         conn.close()
         return jsonify({"message": f"'{stored_name}' has no account to ask, and {known} is "
                                    f"not in their name, so they cannot be added. Ask them "
                                    f"to sign in and claim the name first."}), 400
 
     c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (known, stored_name))
+    strip_tag_on_join(c, stored_name, known)
     conn.commit()
     conn.close()
     return jsonify({"message": f"'{stored_name}' added to {known}."}), 200
@@ -13844,6 +13994,7 @@ def clan_invite_respond():
                                        f"treasury cannot cover it right now. Nothing has changed "
                                        f"- ask them to top it up, or to invite you again for less."}), 400
         c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, stored_name))
+        strip_tag_on_join(c, stored_name, clan)
     c.execute("UPDATE clan_invites SET status = ? WHERE id = ?",
               ('approved' if accept else 'declined', invite_id))
     conn.commit()
@@ -14099,6 +14250,7 @@ def clan_join_accept(token):
         return jsonify({"message": "You are in %s. Leave it first, then open this "
                                    "link again." % (cur[0] if cur else 'another clan')}), 400
     c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, who))
+    strip_tag_on_join(c, who, clan)
     c.execute("UPDATE clan_invite_links SET uses = COALESCE(uses, 0) + 1 "
               "WHERE token = ?", (row[0],))
     # Any invitation or application already open for this player is settled
@@ -14729,6 +14881,7 @@ def bot_clan_members_route():
                                    f"in their name, so they cannot be added. Ask them to "
                                    f"sign in and claim the name first."}), 200
     c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (tag, stored_name))
+    strip_tag_on_join(c, stored_name, tag)
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "message": f"'{stored_name}' added to {tag}."}), 200
@@ -15592,8 +15745,7 @@ def bot_set_name_route():
               (sub_id,))
     mine = c.fetchone()
     if mine:
-        c.execute("UPDATE players SET name = ?, norm_name = ? WHERE name = ?",
-                  (name, key, mine[0]))
+        rekey_identity(c, mine[0], name)
         msg = f"Your name is now '{name}' (was '{mine[0]}')."
     else:
         c.execute("INSERT INTO players (name, elo, wins, losses, reg_ip, norm_name, google_sub) "
@@ -17790,6 +17942,7 @@ def absorb_unowned(c, tag):
             taken.append(nm)
     for nm in taken:
         c.execute("UPDATE players SET clan = ? WHERE name = ?", (tag, nm))
+        strip_tag_on_join(c, nm, tag)
     return taken
 
 
@@ -17991,6 +18144,7 @@ def perform_clan_app_decide(c, sub_id, app_id, accept, trusted=False):
                                 f"Top it up first, or ask them to apply again for less."}
     c.execute("UPDATE clan_invites SET status = 'approved' WHERE id = ?", (app_id,))
     c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE name = ?", (clan, name))
+    strip_tag_on_join(c, name, clan)
     _msg = (f"'{name}' joined {clan}, and now shows as "
             f"'{clan_tagged_name(name, clan)}' on the leaderboard.")
     if _paid:

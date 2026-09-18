@@ -249,6 +249,12 @@ async function forgotClaim(){
       <button class="primary" onclick="saveName()">Save</button>
     </div>
     <p class="msg" id="nameMsg"></p>
+    <div id="tagBox" style="display:none;margin-top:12px;padding-top:12px;
+         border-top:1px solid var(--line)">
+      <p class="desc" id="tagWhich"></p>
+      <button class="primary" id="tagBareBtn" onclick="saveBare()">Save without the tag</button>
+      <button class="ghost" style="margin-top:9px" onclick="saveName(false, true)">Keep the tag</button>
+    </div>
     <div id="takenBox" style="display:none;margin-top:12px;padding-top:12px;
          border-top:1px solid var(--line)">
       <p class="desc" id="takenWhich" style="display:none"></p>
@@ -472,15 +478,34 @@ function showName(){
   }
 }
 
-async function saveName(anyway){
+let tagBare = null;
+async function saveName(anyway, keepTag){
   const n=document.getElementById('accName').value.trim();
   if(!n){ say('nameMsg',false,'Enter a name.'); return; }
   try{
-    const [r,d]=await post('/account/name', anyway ? {name:n,anyway:true} : {name:n});
+    const body = {name:n};
+    if (anyway) body.anyway = true;
+    if (keepTag) body.keep_tag = true;
+    const [r,d]=await post('/account/name', body);
     say('nameMsg',r.ok,d.message);
-    showTaken(r.status===409, d, n);
+    const tagQ = r.status===409 && !!(d && d.tag_prompt);
+    showTag(tagQ, d);
+    showTaken(r.status===409 && !tagQ, d, n);
     if(r.ok){ myName=n; showName(); loadProt(); setTimeout(function(){location.reload();}, 900); }
   }catch(e){ say('nameMsg',false,'Server connection error.'); }
+}
+function showTag(on, d){
+  document.getElementById('tagBox').style.display = on ? 'block' : 'none';
+  tagBare = on ? d.bare : null;
+  if(!on) return;
+  document.getElementById('tagWhich').textContent = 'Once you are on the ' + d.shown
+    + ' roster the badge beside your name says so - the tag does not need to be in the name.';
+  document.getElementById('tagBareBtn').textContent = 'Save as ' + d.bare;
+}
+function saveBare(){
+  if(!tagBare) return;
+  document.getElementById('accName').value = tagBare;
+  saveName();
 }
 
 function showTaken(on, d, typed){
