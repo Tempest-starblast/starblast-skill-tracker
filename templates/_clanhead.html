@@ -1,0 +1,73 @@
+{# The clan's header band: who they are, who runs it, and the numbers that
+   matter - one component for the public clan page and Your clan, so the two
+   read as the same place. Expects `clan` (tag, display, size, admins,
+   region, region_label, avg_elo, wins, losses, winrate, surv_wins,
+   theme_color, and treasury while gems are on) and `mode`: 'public' or
+   'mine' (which adds your role and the link to the other page). #}
+<style>
+.chead{position:relative;overflow:hidden;border-radius:16px;border:1px solid var(--line);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--ct,#3aa0d8) 36%,rgba(6,10,18,.62)),
+    rgba(4,8,14,.74) 64%);
+  box-shadow:0 18px 50px rgba(0,0,0,.45);margin:0 0 16px;display:grid;
+  grid-template-columns:minmax(0,1fr) auto;gap:14px 28px;padding:22px 26px;align-items:center}
+.chead::after{content:"";position:absolute;inset:-40% -10% auto auto;width:55%;height:180%;
+  pointer-events:none;
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--ct,#3aa0d8) 30%,transparent),transparent 70%)}
+.chead>*{position:relative;z-index:1}
+.chwho{display:flex;align-items:center;gap:18px;min-width:0}
+.chtag{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:64px;
+  height:64px;padding:0 16px;border-radius:14px;font-size:27px;font-weight:900;letter-spacing:.5px;
+  color:#fff;margin:0;background:color-mix(in srgb,var(--ct,#3aa0d8) 58%,#000 12%);
+  border:1px solid rgba(255,255,255,.24);box-shadow:0 8px 22px rgba(0,0,0,.45);
+  overflow-wrap:anywhere;line-height:1}
+.chtext{min-width:0}
+.chline{margin:0;font-size:14px;color:#dff4ff;line-height:1.5}
+.chline b{color:#fff}
+.chline a{color:#dff4ff}
+.chsub{margin:5px 0 0;font-size:12.5px;color:#b9d6e4}
+.chsub a{color:#dff4ff;text-decoration:none;font-weight:700}
+.chsub a:hover{text-decoration:underline}
+.chrole{display:inline-block;padding:1px 9px;border-radius:9px;font-size:10.5px;font-weight:800;
+  letter-spacing:.6px;text-transform:uppercase;border:1px solid rgba(255,255,255,.38);color:#fff;
+  vertical-align:middle;margin-right:6px}
+.chnums{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,auto));gap:10px 24px;
+  align-content:center;justify-content:end;text-align:right}
+.chnum{display:flex;flex-direction:column;line-height:1.15}
+.chnum span{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#b9d6e4;white-space:nowrap}
+.chnum b{font-size:22px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums}
+.chnum b.blue{color:#9adcff}
+.chnum b.green{color:#66e6b8}
+{% if gems_on %}.chnum b.gold{color:#f6d77a;text-shadow:0 0 12px rgba(241,198,90,.35)}{% endif %}
+@media(max-width:760px){
+  .chead{grid-template-columns:minmax(0,1fr);padding:18px 18px}
+  .chtag{min-width:52px;height:52px;font-size:21px;padding:0 12px}
+  .chnums{justify-content:start;text-align:left;grid-template-columns:repeat(auto-fit,minmax(84px,1fr))}
+}
+</style>
+<div class="chead" style="--ct:{{ clan.theme_color or '#3aa0d8' }}">
+  <div class="chwho">
+    <h1 class="chtag">{{ clan.display or clan.tag }}</h1>
+    <div class="chtext">
+      <p class="chline">
+        {%- if clan.admins %}Run by {% for a in clan.admins %}<a href="/player/{{ a|urlencode }}"><b>{{ a }}</b></a>{% if not loop.last %}, {% endif %}{% endfor %}
+        {%- else %}<b>{{ clan.tag }}</b>{% endif %}
+        {%- if clan.region_label %} &middot; <a href="/?region={{ clan.region }}">{{ clan.region_label }}</a>{% endif %}</p>
+      <p class="chsub">
+        {%- if mode == 'mine' %}<span class="chrole">{{ clan.role_label or t('Member') }}</span>
+          <a href="/clan/{{ clan.tag|urlencode }}">Public page &rarr;</a>
+          {%- if clan.others %} &middot; also {% for other in clan.others %}<a href="/myclan?clan={{ other|urlencode }}">{{ other }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+        {%- else %}<a href="/clans">All clans</a>
+          <a href="/myclan" id="chManage" style="display:none;margin-left:12px">Manage &rarr;</a>{% endif %}</p>
+    </div>
+  </div>
+  <div class="chnums">
+    <div class="chnum"><span>{{ t('Members') }}</span><b>{{ clan.size }}</b></div>
+    <div class="chnum"><span>{{ t('Avg skill') }}</span><b class="blue">{{ clan.avg_elo }}</b></div>
+    <div class="chnum"><span>{{ t('Record') }}</span><b>{{ clan.wins }}-{{ clan.losses }}</b></div>
+    <div class="chnum"><span>{{ t('Win%') }}</span><b class="green">{{ clan.winrate }}</b></div>
+    <div class="chnum"><span>Survival</span><b>{{ clan.surv_wins }}</b></div>
+    {%- if gems_on and clan.treasury is not none %}
+    <div class="chnum"><span>Treasury</span><b class="gold">{{ '{:,}'.format(clan.treasury) }}</b></div>
+    {%- endif %}
+  </div>
+</div>

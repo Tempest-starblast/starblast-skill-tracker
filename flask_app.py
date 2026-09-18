@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.30.1"
+APP_VERSION = "9.31.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6368,6 +6368,20 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.31.0", "at": "2026-09-18T13:00:00Z", "changes": [
+        "<b>The tab bar shows more outright:</b> Clans, Survival and Info are tabs "
+        "now, and so is Your clan once you are in one. The menu keeps the long "
+        "tail (Live matches, Compare, Custom games, Report, Merge a name, "
+        "Changelog).",
+        "<b>Clan pages rebuilt.</b> Both start with one header band - the tag, "
+        "who runs it, members, average skill, record, win rate, survival wins - "
+        "and the public page then says in one card whether you can join and "
+        "gives you the one button for it, followed by the roster.",
+        "<b>Your clan</b> is tabbed instead of ten cards down the page: Members, "
+        "Requests (with a count waiting), Invite, Appearance, Roles, Settings, "
+        "You. And it now works for everyone on a roster, not only the people who "
+        "run the clan - a member sees their clan, their row and Leave.",
+    ]},
     {"version": "9.30.1", "at": "2026-09-18T11:30:00Z", "changes": [
         "Info in German, Spanish, French, Italian, Russian, Vietnamese, Chinese and "
         "Persian has caught up: the cards on which games count, the two names, "
@@ -12449,6 +12463,14 @@ def inject_lang():
             conn = db()
             c = conn.cursor()
             tags = clan_admin_tags(c, sub_id)
+            if not tags:
+                # A member's clan counts too (9.31.0): the tab is for
+                # everyone on a roster, not only the people who run it.
+                c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
+                          "AND clan != '' LIMIT 1", (sub_id,))
+                _m = c.fetchone()
+                if _m and _m[0]:
+                    tags = [_m[0]]
             if tags:
                 mine = {"tag": tags[0], "display": clan_display(c, tags[0]),
                         "role": clan_role(c, sub_id, tags[0]), "count": len(tags)}
@@ -12644,11 +12666,11 @@ def me():
     # account, so a visitor's page never learns the entry exists.
     _gems = None
     if gems_visible() and account_name:
-        _nav.append({"t": "a", "href": "/achievements", "id": "achTab",
+        _nav.append({"t": "a", "href": "/achievements", "id": "achTab", "top": True,
                      "label": "Achievements", "badge": "NEW", "colour": "#8ef3ff"})
-        _nav.append({"t": "a", "href": "/shop", "id": "shopTab",
+        _nav.append({"t": "a", "href": "/shop", "id": "shopTab", "top": True,
                      "label": "Shop", "badge": "NEW", "colour": "#8ef3ff"})
-        _nav.append({"t": "a", "href": "/agents", "id": "agentsTab",
+        _nav.append({"t": "a", "href": "/agents", "id": "agentsTab", "top": True,
                      "label": "Free agents", "badge": "NEW", "colour": "#8ef3ff"})
         try:
             _c5 = db()
@@ -19083,6 +19105,17 @@ def my_clan_page():
     conn = db()
     c = conn.cursor()
     tags = clan_admin_tags(c, sub_id) if sub_id else []
+    if not tags and sub_id:
+        # Not staff of any clan - but on a roster? Then this is THEIR clan,
+        # in the member's view: the header, the roster, their row, Leave.
+        # Until 9.31.0 the Your clan link brought a member here to be told
+        # they run no clan.
+        c.execute("SELECT clan FROM players WHERE google_sub = ? AND clan IS NOT NULL "
+                  "AND clan != '' ORDER BY (COALESCE(wins, 0) + COALESCE(losses, 0)) DESC "
+                  "LIMIT 1", (sub_id,))
+        _mem = c.fetchone()
+        if _mem and _mem[0]:
+            tags = [_mem[0]]
     if not tags:
         conn.close()
         return render_template('myclan.html', clan=None, signed_in=bool(sub_id),
@@ -19134,8 +19167,22 @@ def my_clan_page():
     clan_bio = _cr[1] or ""
     clan_theme = (_cr[2] or "") if (_cr[2] in CLAN_THEMES) else ""
     link_row = active_invite_link(c, tag)
+    # The header band shows the same numbers the public page does.
+    _tw = sum(m["wins"] for m in members)
+    _tl = sum(m["losses"] for m in members)
+    _elos = [float(r[1] or 0) for r in rows]
+    _surv = 0
+    if rows:
+        _surv = c.execute("SELECT COALESCE(SUM(wins), 0) FROM survival_players "
+                          "WHERE norm_name IN (%s)" % ",".join("?" for _ in rows),
+                          [normalize_name(r[0]) for r in rows]).fetchone()[0]
     clan = {
         "tag": tag, "display": _shown, "members": members,
+        "admins": [m["name"] for m in members if m["role"] == 'leader'],
+        "avg_elo": f"{sum(_elos) / len(_elos):.1f}" if _elos else "0.0",
+        "wins": _tw, "losses": _tl,
+        "winrate": f"{round(100 * _tw / (_tw + _tl))}%" if (_tw + _tl) else "-",
+        "surv_wins": int(_surv or 0),
         "size": len(members), "region": region,
         "region_label": REGION_LABELS.get(region, ""), "regions": REGIONS,
         "styles": [{"id": i, "shown": s, "default": n == 0}

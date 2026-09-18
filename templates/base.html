@@ -347,6 +347,8 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .tabs a.playtab{background:rgba(102,230,184,.10);border:1px solid rgba(102,230,184,.5);
   color:#eafff5;text-shadow:0 0 8px rgba(102,230,184,.75);padding:10px 11px}
 .tabs a.playtab:hover{background:rgba(102,230,184,.2)}
+.tabs .tbadge{font-size:9px;letter-spacing:.5px;margin-left:5px;vertical-align:top;font-weight:800}
+@media (max-width:760px){.tabs a,.tabmore>a{flex:0 0 auto;min-width:72px;padding:11px 10px}}
 .tabs a.playtab.on{border-color:var(--green);background:rgba(102,230,184,.18)}
 
 /* On a phone the nav lives at the bottom, under the thumb. */
@@ -561,15 +563,17 @@ async function devRestore(){
   <a href="/"          class="{% if page=='leaderboard' %}on{% endif %}">{{ t('Leaderboard') }}</a>
   {%- endif %}
   <a href="/play"      class="playtab {% if page=='play' %}on{% endif %}">{{ t('Play') }}</a>
-  <a href="/replays"   class="{% if page=='replays'     %}on{% endif %}">{{ t('Replays') }}</a>
-  {# TrueSkill tab retired 8.7.0 - the trial ratings are abandoned; the raw
-     engine now feeds the MAIN board instead of a parallel one. The /trueskill
-     page still answers direct links. #}
+  <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
   <a href="/social"    class="{% if page=='social'      %}on{% endif %}">{{ t('Social') }}</a>
-  <a href="/account"   class="metab {% if page=='account' %}on{% endif %}">{{ t('Your account') }}</a>
+  <a href="/replays"   class="{% if page=='replays'     %}on{% endif %}">{{ t('Replays') }}</a>
+  <a href="/survival"  class="{% if page=='survival'    %}on{% endif %}">Survival</a>
+  <a href="/info"      class="{% if page=='info'        %}on{% endif %}">{{ t('Info') }}</a>
+  {%- if my_clan %}
+  <a href="/myclan"    class="{% if page=='myclan'      %}on{% endif %}">{{ t('Your clan') }}</a>
+  {%- endif %}
   <div class="tabmore" id="tabmore">
     <a href="#" role="button" aria-haspopup="true" aria-label="More"
-       class="{% if page in ('account','myclan','reports','info','changelog') %}on{% endif %}"
+       class="{% if page in ('account','reports','merge','changelog','live','compare','customgames') %}on{% endif %}"
        style="position:relative">&#9776;<span class="cdot" id="clogDot" style="display:none"></span></a>
     <div class="tabmenu" role="menu">
       <div class="tmsec">You</div>
@@ -581,10 +585,8 @@ async function devRestore(){
       <a href="/reports"   role="menuitem" class="{% if page=='reports'   %}on{% endif %}">{{ t('Report') }}</a>
       <a href="/merge"     role="menuitem" class="{% if page=='merge'      %}on{% endif %}">Merge a name</a>
       <div class="tmsec">Site</div>
-      <a href="/info"      role="menuitem" class="{% if page=='info'      %}on{% endif %}">{{ t('Info') }}</a>
       <a href="/changelog" role="menuitem" class="{% if page=='changelog' %}on{% endif %}">{{ t('Changelog') }}<span class="cdot" id="clogMenuDot" style="display:none"></span></a>
       <a href="/live" role="menuitem" id="liveTab" class="{% if page=='live' %}on{% endif %}">Live matches</a>
-      <a href="/survival" role="menuitem" class="{% if page=='survival' %}on{% endif %}">Survival <span style="font-size:9px;color:#66E6B8;letter-spacing:.5px">BETA</span></a>
       <a href="/compare" role="menuitem" class="{% if page=='compare' %}on{% endif %}">Compare players</a>
       <a href="/customgames" role="menuitem" class="{% if page=='customgames' %}on{% endif %}">Custom games</a>
       {# The lobby / My Maps / owner entries are NOT written here: a hidden link is
@@ -751,6 +753,16 @@ window.addEventListener('DOMContentLoaded', async function(){
         if(location.pathname===href) a.className='on';
         _menuAt.appendChild(a); return a;
       }
+      function sbTabAdd(href, id, label, badge, colour){
+        var bar=document.getElementById('mainTabs'), more=document.getElementById('tabmore');
+        if(!bar || document.getElementById(id)) return;
+        var a=document.createElement('a'); a.href=href; a.id=id; a.textContent=label;
+        if(location.pathname===href) a.className='on';
+        if(badge){ var s=document.createElement('span'); s.className='tbadge'; s.textContent=badge;
+                   if(colour) s.style.color=colour; a.appendChild(s); }
+        bar.insertBefore(a, more || null);
+        window.dispatchEvent(new Event('resize'));   // re-place the glider
+      }
       function sbMenuSection(id, text){
         if(!_menuAt || document.getElementById(id)) return;
         var e=document.createElement('div'); e.className='tmsec'; e.id=id; e.textContent=text;
@@ -760,6 +772,7 @@ window.addEventListener('DOMContentLoaded', async function(){
       // trace of an entry the visitor may not use - not even its name.
       (d.nav || []).forEach(function(n){
         if(n.t === 's') sbMenuSection(n.id, n.label);
+        else if(n.top) sbTabAdd(n.href, n.id, n.label, n.badge, n.colour);
         else sbMenuAdd(n.href, n.id, n.label, n.badge, n.colour);
       });
       if(d.is_owner && d.live_flood > 0) sbFloodAlert(d.live_flood, d.flood_link);

@@ -1,110 +1,85 @@
 {% extends "base.html" %}
 {% block title %}{% if clan %}{{ clan.tag }}{% else %}Clan not found{% endif %} - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-{% if gems_on %}
-.stat.gold{border:1px solid rgba(241,198,90,.55);
-  background:linear-gradient(160deg,rgba(241,198,90,.16),rgba(241,198,90,.04))}
-.stat.gold .label{color:#e7c56a}
-.stat.gold .value{color:#f6d77a;text-shadow:0 0 12px rgba(241,198,90,.35)}
-{% endif %}
-.crown{margin-left:7px;color:#fbbf24;font-size:14px;cursor:default;vertical-align:middle}
-.legend{font-size:12px;color:var(--dim);margin:10px 0 0}
-.legend .crown{margin:0 4px 0 0}
-.kick{padding:5px 11px;font-size:12px}
+/* The page in three parts, top to bottom: who the clan is, whether you can
+   join it, who is in it. Nothing else competes with those. */
+.enroll{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:0;padding:0;overflow:hidden}
+.enroll .el{padding:20px 22px;background:rgba(0,0,0,.22);border-right:1px solid var(--line)}
+.enroll .er{padding:20px 22px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+.enroll .lbl{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--dim);font-weight:700}
+.enroll .state{margin:6px 0 4px;font-size:26px;font-weight:900;color:var(--green);display:flex;align-items:center;gap:8px}
+.enroll .state .dot{width:11px;height:11px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 10px rgba(102,230,184,.7)}
+.enroll .er .primary.big{font-size:15px;padding:12px 22px;align-self:flex-start}
+.enroll .er .desc{margin:0}
+@media(max-width:760px){.enroll{grid-template-columns:1fr}.enroll .el{border-right:0;border-bottom:1px solid var(--line)}}
+.roster td.who{min-width:0}
+.roster .pn{display:inline-flex;align-items:center;gap:7px;min-width:0}
+.roster .pn .pname{font-weight:700}
+.roster tr.me td{background:rgba(102,230,184,.08)}
 .medal{display:inline-block;width:20px}
-.me{background:#1b2a1a}
-.adminbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
-{% endblock %}
-{% block backdrop %}{% if clan and clan.theme_color %}<div class="clantint" style="--tint:{{ clan.theme_color }}"></div>{% endif %}{% endblock %}
-{% block body %}
-{% if clan %}
-<h1 class="ptitle">{{ clan.display or clan.tag }}</h1>
-<p class="psub">{{ clan.size }} member{% if clan.size != 1 %}s{% endif %}
-  {%- if clan.admins %} &middot; run by {{ clan.admins|join(', ') }}{% endif %}
-  {%- if clan.region_label %} &middot; based in
-  <a href="/?region={{ clan.region }}">{{ clan.region_label }}</a>{% endif %} &middot;
-  <a href="/clans">All clans</a></p>
-
-<div class="card"><div class="grid">
-  <div class="stat"><div class="label">Members</div><div class="value">{{ clan.size }}</div></div>
-  <div class="stat"><div class="label">Average skill</div><div class="value" style="color:var(--blue)">{{ clan.avg_elo }}</div></div>
-  <div class="stat"><div class="label">Combined record</div><div class="value">{{ clan.wins }}-{{ clan.losses }}</div></div>
-  <div class="stat"><div class="label">Win rate</div><div class="value" style="color:var(--green)">{{ clan.winrate }}</div></div>
-  <div class="stat"><div class="label">Survival wins</div><div class="value">{{ clan.surv_wins }}</div></div>
-  {% if gems_on and clan.treasury is not none %}
-  <div class="stat gold"><div class="label">Treasury</div><div class="value">{{ '{:,}'.format(clan.treasury) }}</div></div>
-  {% endif %}
-</div>
-<p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
-   added together. A match won by two clanmates therefore counts twice. Survival wins are every
-   survival round a current member has won.</p>
-{%- if clan.bio %}
-<div class="clanbio clamp" id="clanBio">{{ clan.bio }}</div>
-<button class="biomore" id="bioMore" style="display:none" onclick="toggleBio()">Read more</button>
-{%- endif %}</div>
-
-<div class="card" id="applyCard" style="display:none">
-  <h2>Join {{ clan.display or clan.tag }}</h2>
-  <p class="desc">Your application goes to whoever runs the clan. They see your rank,
-     record and skill, and decide.</p>
-  <button class="primary" onclick="applyToClan()">{{ t('Apply to join') }}</button>
-  <p class="msg" id="applyMsg"></p>
-</div>
-
-<style>
-/* Role chips carry the clan's chosen colour (--rc), and click to explain the
-   role in a box below the table. */
 .rolechip{display:inline-block;padding:1px 8px;border-radius:9px;font-size:11px;
   font-weight:700;letter-spacing:.02em;cursor:pointer;font:inherit;line-height:1.5;
-  color:var(--rc,var(--dim));
+  color:var(--rc,var(--dim));white-space:nowrap;
   border:1px solid color-mix(in srgb, var(--rc,var(--dim)) 45%, transparent);
   background:color-mix(in srgb, var(--rc,var(--dim)) 12%, transparent)}
 .rolechip:focus-visible{outline:2px solid var(--rc,var(--blue));outline-offset:2px}
-/* A green marker AFTER the name: a filled circle if the player has an account
-   ("logged in"), which turns into a check mark when their rating is protected.
-   Both are the same green and sit in the same spot, aligned to the name. */
-.logdot{display:inline-block;width:9px;height:9px;border-radius:50%;
-  background:var(--green);box-shadow:0 0 6px rgba(124,224,160,.55);
-  margin-left:7px;vertical-align:middle;position:relative;top:-1px}
-.ptick{display:inline-block;margin-left:7px;color:var(--green);font-size:13px;
-  line-height:1;vertical-align:middle}
 .pname.acct{text-decoration:underline;text-decoration-color:var(--green);
   text-decoration-thickness:2px;text-underline-offset:3px}
-.lockm{display:inline-block;margin-left:7px;line-height:0;vertical-align:middle}
-.lockm svg{vertical-align:middle}
-.remb{display:inline-block;margin-right:6px;line-height:0;vertical-align:middle;
-  filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
-.remb svg{vertical-align:middle}
-.rankchip{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:11px;
-  font-size:10.5px;font-weight:700;letter-spacing:.02em;border:1px solid;
-  vertical-align:middle;white-space:nowrap}
+.ptick{color:var(--green);font-size:13px;line-height:1}
+.lockm{display:inline-flex;line-height:0;align-items:center}
+.remb{display:inline-flex;line-height:0;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
 .rolehelpbox{margin:10px 0 0;padding:11px 14px;border-radius:8px;font-size:12.5px;
   line-height:1.6;color:var(--muted);background:var(--card,#161616);
   border:1px solid var(--line);border-left:3px solid var(--rc,var(--blue))}
 .rolehelpbox b{color:var(--text)}
-/* A self-written bio, clamped to a few lines until "Read more" opens it. */
-.clanbio{margin:14px 0 0;font-size:14px;line-height:1.7;color:var(--muted);
-  white-space:pre-wrap;word-wrap:break-word}
-.clanbio.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
-  overflow:hidden}
-.biomore{margin:6px 0 0;background:none;border:0;color:var(--blue);cursor:pointer;
-  font:inherit;font-size:12.5px;padding:0}
-/* The page tint: a wash of the clan's colour behind the whole page. A direct
-   child of <body> (via the backdrop block) at z-index:0 — ABOVE the opaque
-   .spacescape backdrop (z-index:-1) and BELOW all content (.page/.topbar are
-   z-index:1), so it colours the whole field without touching readability. */
+.legend{font-size:12px;color:var(--dim);margin:10px 0 0;line-height:1.6}
+.clanbio{margin:0;font-size:14px;line-height:1.7;color:var(--muted);white-space:pre-wrap;word-wrap:break-word}
+.clanbio.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.biomore{margin:6px 0 0;background:none;border:0;color:var(--blue);cursor:pointer;font:inherit;font-size:12.5px;padding:0}
+/* The page tint: a wash of the clan's colour behind the whole page, above
+   the opaque backdrop and below all content. */
 .clantint{position:fixed;inset:0;z-index:0;pointer-events:none;
   background:
     radial-gradient(1200px 700px at 50% -8%, color-mix(in srgb, var(--tint) 42%, transparent), transparent 68%),
     radial-gradient(900px 900px at 88% 108%, color-mix(in srgb, var(--tint) 26%, transparent), transparent 62%),
     linear-gradient(180deg, color-mix(in srgb, var(--tint) 12%, transparent), transparent 45%)}
-</style>
+{% endblock %}
+{% block backdrop %}{% if clan and clan.theme_color %}<div class="clantint" style="--tint:{{ clan.theme_color }}"></div>{% endif %}{% endblock %}
+{% block body %}
+{% if clan %}
+{% set mode = 'public' %}{% include "_clanhead.html" %}
+
+<div class="card enroll" id="enroll">
+  <div class="el">
+    <div class="lbl">{{ t('Membership') }}</div>
+    <div class="state"><span class="dot"></span>Open</div>
+    <p class="desc" style="margin:0">Anyone with an account can ask to join. Whoever runs
+       {{ clan.display or clan.tag }} sees your rank, record and skill, and decides.</p>
+  </div>
+  <div class="er">
+    <p class="desc" id="joinText">Sign in at the top of the page to apply.</p>
+    <button class="primary big" id="applyBtn" onclick="applyToClan()" style="display:none">{{ t('Apply to join') }}</button>
+    <a class="primary big" id="manageBtn" href="/myclan" style="display:none;text-decoration:none">Manage this clan</a>
+    <button class="ghost" id="leaveBtn" onclick="leaveClan()" style="display:none;align-self:flex-start">{{ t('Leave this clan') }}</button>
+    <p class="msg" id="applyMsg" style="margin:0"></p>
+  </div>
+</div>
+
+{%- if clan.bio %}
+<div class="card">
+  <div class="clanbio clamp" id="clanBio">{{ clan.bio }}</div>
+  <button class="biomore" id="bioMore" style="display:none" onclick="toggleBio()">Read more</button>
+</div>
+{%- endif %}
+
+<div class="card" style="padding:0;overflow:hidden">
 <div class="tablewrap">
-<table>
+<table class="roster">
 <thead><tr>
-  <th class="rank">#</th><th>{{ t('Player') }}</th>
+  <th class="rank">#</th><th>{{ t('Player') }}</th><th class="mid">{{ t('Rank') }}</th>
   <th class="mid">{{ t('Record') }}</th><th class="mid">{{ t('Win%') }}</th><th class="num">{{ t('Skill') }}</th>
-  <th class="mid">{{ t('Joined') }}</th><th class="mid">{{ t('Rank') }}</th>
+  <th class="mid">{{ t('Joined') }}</th>
 </tr></thead>
 <tbody>
 {% for m in clan.members %}
@@ -115,13 +90,17 @@
     {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
     {%- else %}{{ loop.index }}{% endif -%}
   </td>
-  <td>{% if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.emblem or m.division.ship, 16, m.emblem_color or m.division.color, m.division.name, 'rank-emblem mythic' if m.mythic else 'rank-emblem')|safe }}</span>{% endif %}<a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}"{% if m.division %} style="color:{{ m.division.color }}"{% endif %}>{{ m.display }}</a>{% if m.protected %}<span class="lockm" title="Protected - only matches this player checked into count toward the rating">{{ lock_icon()|safe }}</span>{% elif m.has_account %}<span class="ptick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}{% if m.admin %}<span class="crown" role="img" aria-label="Runs this clan" title="Runs this clan">&#9812;</span>{% endif %}</td>
+  <td class="who"><span class="pn">
+    {%- if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.emblem or m.division.ship, 16, m.emblem_color or m.division.color, m.division.name, 'rank-emblem mythic' if m.mythic else 'rank-emblem')|safe }}</span>{% endif %}
+    <a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
+    {%- if m.protected %}<span class="lockm" title="Protected - only matches this player checked into count">{{ lock_icon(11)|safe }}</span>
+    {%- elif m.has_account %}<span class="ptick" title="Has an account">&#10003;</span>{% endif %}</span></td>
+  <td class="mid"><button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
+      onclick="roleHelp(this,'{{ m.role or 'player' }}')" title="What this role can do">{{ m.role_label or t('Member') }}</button></td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
   <td class="mid">{{ m.joined or '&mdash;'|safe }}</td>
-  <td class="mid"><button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
-      onclick="roleHelp(this,'{{ m.role or 'player' }}')" title="What this role can do">{{ m.role_label or t('Member') }}</button></td>
 </tr>
 {% else %}
 <tr><td colspan="7" class="empty">Nobody is in {{ clan.display or clan.tag }} right now.</td></tr>
@@ -129,37 +108,25 @@
 </tbody>
 </table>
 </div>
+</div>
 <div id="roleHelpBox"></div>
 
-<p class="legend"><span class="crown">&#9812;</span> Runs this clan &mdash; decides who is in it.
-  a <b style="text-decoration:underline;text-decoration-color:var(--green);text-underline-offset:2px">green
-  underline</b> and a <span class="ptick" style="margin:0 2px">&#10003;</span> mean they have an account;
-  a <span class="lockm" style="margin:0 2px">{{ lock_icon(11)|safe }}</span> means their rating is protected.
-  Tap a role to see what it can do. The # column is the member's place within {{ clan.tag }};
-  open a player to see their rank on the whole leaderboard.</p>
-
-<div class="card" id="meCard" style="display:none;margin-top:18px">
-  <h2>You</h2>
-  <p class="desc" id="meText"></p>
-  <div class="adminbar">
-    <button class="ghost" id="leaveBtn" onclick="leaveClan()" style="display:none">{{ t('Leave this clan') }}</button>
-  </div>
-  <p class="msg" id="meMsg"></p>
-</div>
-
-<p class="foot" style="margin-top:18px">Listed here by mistake? Open your player page and use
+<p class="legend">The record is every match the current members have played, added together
+  (a match won by two clanmates counts twice); survival is every survival round a member has won.
+  A <span class="ptick">&#10003;</span> or green underline means an account; a
+  <span class="lockm">{{ lock_icon(11)|safe }}</span> means a protected rating. Tap a role to see what it can do.
+  The # is the member's place within {{ clan.display or clan.tag }}.</p>
+<p class="msg" id="meMsg"></p>
+<p class="foot" style="margin-top:14px">Listed here by mistake? Open your player page and use
 Remove clan tag, or ask {{ contact }} on Discord.</p>
 
 <script>
 const TAG = {{ clan.tag|tojson }};
-// What to print. TAG is the key: it goes in requests, never on screen.
 const SHOWN = {{ (clan.display or clan.tag)|tojson }};
 const ROLE_HELP = {{ role_help|tojson }};
 const ROLE_COLORS = {{ clan.role_colors|tojson }};
 let amAdmin = false, myNames = [], MY_NAME = '';
 
-// Tap a role chip to explain it in the box below the table. Same chip again
-// closes it. Label via textContent so a custom role name can't inject markup.
 function roleHelp(btn, role){
   const box = document.getElementById('roleHelpBox');
   if (box.dataset.role === role){ box.innerHTML = ''; box.dataset.role = ''; return; }
@@ -181,7 +148,6 @@ function toggleBio(){
   const clamped = bio.classList.toggle('clamp');
   btn.textContent = clamped ? 'Read more' : 'Show less';
 }
-// Only offer "Read more" when the bio is actually taller than its clamp.
 (function(){
   const bio = document.getElementById('clanBio');
   const btn = document.getElementById('bioMore');
@@ -196,32 +162,43 @@ function say(id, ok, t){
   const m = document.getElementById(id);
   m.className = 'msg ' + (ok ? 'ok' : 'err'); m.textContent = t;
 }
+function show(id, on){ const e = document.getElementById(id); if (e) e.style.display = on ? '' : 'none'; }
+// One card, one truth: what you can do here. Signed out: sign in. In no
+// clan: apply. On the roster: leave (and manage, if you run it). In another
+// clan: said plainly, nothing to press.
 async function refresh(){
   try{
     const me = await (await fetch('/me')).json();
     if (!me.logged_in) return;
     myNames = me.names || [];
     MY_NAME = me.account_name || myNames[0] || '';
-    // Your own row highlighted, and Leave offered only if you are on it.
+    const admins = [].concat(me.admin_of || []);
+    amAdmin = admins.indexOf(TAG) !== -1;
     let onRoster = false;
     document.querySelectorAll('tr[data-name]').forEach(function(tr){
       if (myNames.indexOf(tr.dataset.name) !== -1){ tr.classList.add('me'); onRoster = true; }
     });
-    if (MY_NAME && !onRoster && !me.clan){
-      document.getElementById('applyCard').style.display = 'block';
-    }
+    const text = document.getElementById('joinText');
     if (onRoster){
-      document.getElementById('meCard').style.display = 'block';
-      document.getElementById('leaveBtn').style.display = 'inline-block';
-      document.getElementById('meText').textContent =
-        'You are in ' + SHOWN + '. Your row is highlighted below.';
+      text.textContent = 'You are in ' + SHOWN + '. Your row is highlighted below.';
+      show('leaveBtn', true);
+      if (amAdmin){ show('manageBtn', true); show('chManage', true); }
+    } else if (amAdmin){
+      text.textContent = 'You run ' + SHOWN + ' but are not on its roster - set your name on Your account.';
+      show('manageBtn', true); show('chManage', true);
+    } else if (!MY_NAME){
+      text.textContent = 'Set your account name first - it is what the roster shows.';
+    } else if (me.clan){
+      text.textContent = 'You are in ' + me.clan + '. Leave it first to apply here.';
+    } else {
+      text.textContent = 'Your application goes to whoever runs the clan.';
+      show('applyBtn', true);
     }
   }catch(e){}
 }
 async function applyToClan(){
   const extra = {};
   {% if gems_on %}
-  // What you would like from their treasury on joining. 0 is fine; cancel = no application.
   const g = window.prompt('Ask for a joining bonus, in gems? 0 for none.', '0');
   if (g === null) return;
   extra.gems = Math.max(0, parseInt(g, 10) || 0);
@@ -232,16 +209,14 @@ async function applyToClan(){
   }catch(e){ say('applyMsg', false, 'Server connection error.'); }
 }
 async function leaveClan(){
-  if (!window.confirm('Leave ' + TAG + '?' + (amAdmin ?
+  if (!window.confirm('Leave ' + SHOWN + '?' + (amAdmin ?
       ' You will still run the clan - only your name comes off the roster.' : ''))) return;
   try{
     const [r, d] = await post('/clan/leave', {});
-    say('meMsg', r.ok && d.ok, d.message);
+    say('applyMsg', r.ok && d.ok, d.message);
     if (d.ok) setTimeout(function(){ location.reload(); }, 1200);
-  }catch(e){ say('meMsg', false, 'Server connection error.'); }
+  }catch(e){ say('applyMsg', false, 'Server connection error.'); }
 }
-// Without this call none of the above ever ran: the apply card, the row
-// highlight and the Leave button all waited on a refresh nobody started.
 refresh();
 </script>
 {% else %}

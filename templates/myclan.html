@@ -1,16 +1,28 @@
 {% extends "base.html" %}
 {% block title %}Your clan - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+/* One header, one row of tabs, one thing on screen at a time. The tabs
+   hold what used to be ten cards stacked down the page. */
+.subtabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 14px;padding:4px;border-radius:12px;
+  background:rgba(2,5,10,.55);border:1px solid var(--line)}
+.subtabs a{flex:1 1 auto;text-align:center;padding:10px 14px;border-radius:9px;text-decoration:none;
+  color:var(--muted);font-weight:700;font-size:13px;letter-spacing:.2px;white-space:nowrap;
+  transition:background .14s,color .14s}
+.subtabs a:hover{color:var(--text);background:rgba(153,221,255,.07)}
+.subtabs a.on{background:rgba(153,221,255,.13);color:#eaf8ff;box-shadow:inset 0 0 0 1px rgba(153,221,255,.25)}
+.subtabs .n{display:inline-block;margin-left:7px;padding:0 7px;border-radius:999px;font-size:11px;
+  line-height:18px;background:rgba(153,221,255,.12);color:var(--blue);font-variant-numeric:tabular-nums}
+.subtabs .n.hot{background:var(--green);color:#04121f}
+.panel[hidden]{display:none}
 .mcrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:12px 13px;margin:0 -13px;border-bottom:1px solid var(--line);
   border-radius:3px;transition:background .12s}
 .mcrow:last-child{border-bottom:0}
-/* The row lifts under the cursor, so it is obvious which one the + and
-   the x belong to when several sit close together. */
 .mcrow:hover{background:rgba(153,221,255,.05)}
+.mcrow.me{background:rgba(102,230,184,.07)}
 .mcwho{min-width:0}
 .mcname{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
-.mcname .pname{font-size:15px}
+.mcname .pname{font-size:15px;font-weight:700}
 .mcstats{display:flex;gap:18px;flex-wrap:wrap}
 .mcstat{display:flex;flex-direction:column;line-height:1.25;
   font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim)}
@@ -18,10 +30,7 @@
   font-weight:700;font-variant-numeric:tabular-nums}
 .mcstat b.skill{color:var(--blue);text-shadow:0 0 7px rgba(153,221,255,.45)}
 .mcjoined b{font-size:13px;font-weight:600;color:var(--muted)}
-@media (max-width:560px){
-  .mcstats{gap:12px}
-  .mcjoined{display:none}
-}
+@media (max-width:560px){ .mcstats{gap:12px} .mcjoined{display:none} }
 .linkbox{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .linkbox input{flex:1;min-width:240px;font-family:ui-monospace,Menlo,Consolas,monospace}
 .mcactions{position:relative;display:flex;gap:8px;align-items:center}
@@ -31,24 +40,15 @@
   background:var(--card,#161616);border:1px solid var(--line);border-radius:8px;
   box-shadow:0 6px 20px rgba(0,0,0,.45);min-width:170px}
 .rankmenu button{white-space:nowrap;text-align:left}
-/* Role chips now carry the clan's chosen colour inline (--rc). The border
-   is a dim wash of that colour so the chip reads as a set. Clickable, because
-   tapping one explains what the role can do. */
 .rolechip{display:inline-block;padding:1px 8px;border-radius:9px;font-size:11px;
   font-weight:700;border:1px solid color-mix(in srgb, var(--rc,var(--dim)) 45%, transparent);
   color:var(--rc,var(--dim));background:color-mix(in srgb, var(--rc,var(--dim)) 12%, transparent);
   margin-left:6px;cursor:pointer;font:inherit;line-height:1.5}
 .rolechip:focus-visible{outline:2px solid var(--rc,var(--blue));outline-offset:2px}
-/* A green marker AFTER the name: a filled circle if the player has an account
-   ("logged in"), which turns into a check mark when their rating is protected.
-   Same green, same spot, aligned to the name. */
-.logdot{display:inline-block;width:9px;height:9px;border-radius:50%;
-  background:var(--green);box-shadow:0 0 6px rgba(124,224,160,.55);flex:0 0 auto}
 .tick{display:inline-block;color:var(--green);font-size:13px;line-height:1;flex:0 0 auto}
 .pname.acct{text-decoration:underline;text-decoration-color:var(--green);
   text-decoration-thickness:2px;text-underline-offset:3px}
 .lockm{display:inline-flex;line-height:0;flex:0 0 auto;align-items:center}
-/* Swatch pickers for role colours and the page tint. */
 .swrow{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 2px}
 ul.styles{list-style:none;padding:0;margin:4px 0 10px}
 ul.styles li{display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap}
@@ -60,33 +60,31 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 .sw.on{border-color:var(--text);box-shadow:0 0 0 2px var(--bg,#111),0 0 8px rgba(0,0,0,.5)}
 .sw.none{background:var(--card,#161616);border:2px dashed var(--line);
   color:var(--dim);font-size:12px;display:flex;align-items:center;justify-content:center}
-.rolecolors{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
-  gap:14px;margin:10px 0 4px}
-.rolecolors .rcname{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;
-  color:var(--dim);margin-bottom:2px}
-/* The role-help popover a chip opens. */
+.rolecolors{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:10px 0 4px}
+.rolecolors .rcname{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:2px}
 .rolehelp{margin:2px 0 0;padding:11px 13px;border-radius:8px;font-size:12.5px;
   line-height:1.6;color:var(--muted);background:var(--card,#161616);
   border:1px solid var(--line);border-left:3px solid var(--rc,var(--blue))}
 .rolehelp b{color:var(--text)}
-.bioarea{width:100%;min-height:120px;resize:vertical;font:inherit;line-height:1.6;
-  padding:10px 12px}
+.bioarea{width:100%;min-height:120px;resize:vertical;font:inherit;line-height:1.6;padding:10px 12px}
 .biocount{font-size:11px;color:var(--dim);margin:4px 0 0;text-align:right}
 .sub{margin:18px 0 6px;font-size:14px;color:var(--text)}
-/* A leader with no leaderboard name is invisible on their own roster and
-   the clan reads "no run by". Amber, because it is worth doing and nothing
-   is broken. */
-.mcprompt{margin:0 0 18px;padding:12px 14px;border-radius:3px;font-size:13px;
-  line-height:1.65;color:#e6d5ad;background:rgba(64,50,20,.45);
-  border:1px solid rgba(255,199,87,.45)}
+.mcprompt{margin:0 0 14px;padding:12px 14px;border-radius:8px;font-size:13px;
+  line-height:1.65;color:#e6d5ad;background:rgba(64,50,20,.45);border:1px solid rgba(255,199,87,.45)}
 .mcprompt b{color:#ffd98a}
 .mcprompt a{color:#ffd98a}
-.rolenames{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;
-  margin:4px 0 12px}
+.rolenames{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:4px 0 12px}
 .rolenames label{display:flex;flex-direction:column;gap:6px;font-size:10.5px;letter-spacing:1px;
   text-transform:uppercase;color:var(--dim)}
 .rolenames .df{color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px}
 .rolenames input{font-size:14px}
+.card h2{margin-top:0}
+.noclan{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin-top:14px}
+.noclan a{display:flex;flex-direction:column;gap:4px;padding:14px 15px;border-radius:13px;text-decoration:none;
+  color:inherit;border:1px solid var(--line);background:linear-gradient(160deg,rgba(153,221,255,.055),rgba(153,221,255,.015))}
+.noclan a:hover{border-color:rgba(153,221,255,.45)}
+.noclan b{font-size:14px;color:var(--text)}
+.noclan span{font-size:11.5px;color:var(--muted)}
 {% endblock %}
 {% block body %}
 
@@ -94,97 +92,47 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 <h1 class="ptitle">Your clan</h1>
 <div class="card">
   {% if signed_in %}
-  <p class="desc">You do not run a clan yet. Ask for one on
-     <a style="color:var(--green);font-weight:600" href="/clans">the Clans page</a>
-     &mdash; {{ contact }} approves it on Discord.</p>
+  <p class="desc" style="margin:0">You are not in a clan. Join one and it shows here &mdash; the roster,
+     who runs it, and everything you can do as a member.</p>
+  <div class="noclan">
+    <a href="/clans"><b>{{ t('Clans') }}</b><span>Every clan, ranked</span></a>
+    <a href="/social"><b>Social</b><span>Clans that play at your level</span></a>
+    {% if gems_on %}<a href="/agents"><b>Free agents</b><span>List yourself for hire</span></a>{% endif %}
+  </div>
+  <p class="desc" style="margin:16px 0 0">Want to run one? Ask on the
+     <a style="color:var(--green);font-weight:600" href="/clans">Clans page</a> &mdash; {{ contact }} approves it on Discord.</p>
   {% else %}
-  <p class="desc">Sign in at the top of the page. This tab is for people who run a clan.</p>
+  <p class="desc" style="margin:0">Sign in at the top of the page to see your clan.</p>
   {% endif %}
 </div>
 
 {% else %}
-<h1 class="ptitle">{{ clan.display }}</h1>
-<p class="psub">You are its <b>{{ clan.role_label|lower }}</b> &middot;
-  {{ clan.size }} member{{ '' if clan.size == 1 else 's' }} &middot;
-  <a href="/clan/{{ clan.tag|urlencode }}">Public page &rarr;</a>
-  {%- if clan.others %} &middot; also
-  {% for other in clan.others %}<a href="/myclan?clan={{ other|urlencode }}">{{ other }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
-  {%- endif %}</p>
+{% set mode = 'mine' %}{% include "_clanhead.html" %}
 
 {% if not clan.you_named %}
 <p class="mcprompt"><b>You do not appear on your own roster yet</b> &mdash;
    set your name in <a href="/account">{{ t('Your account') }}</a>.</p>
 {% endif %}
 
-{% if clan.can_manage %}
-<div class="card">
-  <h2>Invite link</h2>
-  <p class="desc">Anyone who opens this link can join {{ clan.display }} once they are
-     signed in and have a name. It lasts {{ clan.link_days }} days. Making a new one
-     retires the old one, so a link that leaked cannot still be used.</p>
-  <div class="linkbox">
-    <input type="text" id="linkUrl" readonly
-           value="{{ clan.link.url if clan.link else '' }}"
-           placeholder="No live link - make one below">
-    <button class="primary" onclick="copyLink()">Copy</button>
-  </div>
-  {% if clan.link %}
-  <p class="desc" style="margin-top:8px">Used {{ clan.link.uses }} time{{ '' if clan.link.uses == 1 else 's' }}{% if clan.link.expires_at %} &middot; expires {{ clan.link.expires_at }}{% endif %}</p>
+{% set waiting = (clan.applications|length) + (clan.invited|length) %}
+<nav class="subtabs" id="subtabs" aria-label="Sections">
+  <a href="#members" data-panel="members" class="on">{{ t('Members') }}<span class="n">{{ clan.size }}</span></a>
+  {% if clan.can_manage %}
+  <a href="#requests" data-panel="requests">Requests{% if waiting %}<span class="n hot">{{ waiting }}</span>{% endif %}</a>
+  <a href="#invite" data-panel="invite">Invite</a>
+  <a href="#appearance" data-panel="appearance">Appearance</a>
+  <a href="#roles" data-panel="roles">{{ t('Roles') }}</a>
+  <a href="#settings" data-panel="settings">{{ t('Settings') }}</a>
   {% endif %}
-  <div class="row" style="margin-top:10px">
-    <button class="primary" onclick="newLink()">{{ 'Make a new link' if clan.link else 'Make a link' }}</button>
-    {% if clan.link %}<button class="danger" onclick="revokeLink()">Withdraw it</button>{% endif %}
-  </div>
-  <p class="msg" id="linkMsg"></p>
-  {% if gems_on %}<p class="desc" style="margin-top:10px">Or <a href="/agents">hire a free agent</a>
-     &mdash; players who listed themselves at a price, paid from the treasury.</p>{% endif %}
-</div>
-{% endif %}
+  <a href="#you" data-panel="you">You</a>
+</nav>
 
-{% if clan.can_manage %}
+{# ---------------------------------------------------------------- members #}
+<section class="panel" data-panel="members">
 <div class="card">
-  <h2>Waiting to join</h2>
-  <p class="desc">Anyone can ask to join from the clan's public page. Accepting puts them
-     on the roster straight away.{% if gems_on %} An ask is paid from the treasury
-     (<b style="color:#8ef3ff">{{ '{:,}'.format(clan.treasury or 0) }}</b> gems) when you accept.{% endif %}</p>
-  {% for a in clan.applications %}
-  <div class="mcrow">
-    <div>
-      <a class="pname" href="/player/{{ a.name|urlencode }}">{{ a.name }}</a>
-      <div class="cmeta">Rank #{{ a.rank }} &middot; skill {{ a.elo }} &middot;
-        {{ a.wins }}-{{ a.losses }} &middot; {{ a.winrate }}{% if gems_on and a.gems %} &middot;
-        <b style="color:#8ef3ff">asks {{ '{:,}'.format(a.gems) }} gems</b>{% endif %}</div>
-    </div>
-    <div style="white-space:nowrap">
-      <button class="primary" onclick="decideApp({{ a.id }}, true)">{{ t('Accept') }}</button>
-      <button class="danger" onclick="decideApp({{ a.id }}, false)">{{ t('Deny') }}</button>
-    </div>
-  </div>
-  {% else %}
-  <p class="empty">Nobody is waiting to join right now.</p>
-  {% endfor %}
-  <p class="msg" id="appMsg"></p>
-</div>
-
-<div class="card">
-  <h2>{{ t('Invited') }}</h2>
-  <p class="desc">Waiting on the player. An invitation can be taken back until they answer.</p>
-  {% for i in clan.invited %}
-  <div class="mcrow">
-    <div><a class="pname" href="/player/{{ i.name|urlencode }}">{{ i.name }}</a></div>
-    <div><button class="danger" onclick="cancelInvite({{ i.id }})">{{ t('Cancel invite') }}</button></div>
-  </div>
-  {% else %}
-  <p class="empty">No invitations are out right now.</p>
-  {% endfor %}
-  <p class="msg" id="invitedMsg"></p>
-</div>
-{% endif %}
-
-<div class="card">
-  <h2>Members</h2>
+  <h2>{{ t('Members') }}</h2>
   {% for m in clan.members %}
-  <div class="mcrow">
+  <div class="mcrow{% if m.is_you %} me{% endif %}">
     <div class="mcwho">
       <div class="mcname">
         <a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
@@ -219,6 +167,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   {% else %}
   <p class="empty">Nobody is in this clan yet.</p>
   {% endfor %}
+  <p class="msg" id="roleMsg"></p>
   {% if clan.can_manage %}
   <div class="row" style="margin-top:12px">
     <input type="text" id="memberName" maxlength="32" autocomplete="off"
@@ -229,20 +178,134 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
     <button class="primary" onclick="addMember()">{{ t('Add') }}</button>
   </div>
   <p class="desc">Someone with an account is invited and has to accept. Someone without
-     one joins straight away if your tag is already in their name.</p>
+     one joins straight away if your tag is already in their name. Use the <b>+</b> beside a
+     member to give them a rank.</p>
   {% if gems_on %}<p class="desc">Treasury: <b style="color:#8ef3ff">{{ '{:,}'.format(clan.treasury or 0) }}</b> gems.
      The number beside the name is a joining bonus, paid from it the moment they accept.</p>{% endif %}
   <p class="msg" id="memberMsg"></p>
   {% endif %}
 </div>
+</section>
 
 {% if clan.can_manage %}
+{# --------------------------------------------------------------- requests #}
+<section class="panel" data-panel="requests" hidden>
+<div class="card">
+  <h2>Waiting to join</h2>
+  <p class="desc">Anyone can ask to join from the clan's public page. Accepting puts them
+     on the roster straight away.{% if gems_on %} An ask is paid from the treasury
+     (<b style="color:#8ef3ff">{{ '{:,}'.format(clan.treasury or 0) }}</b> gems) when you accept.{% endif %}</p>
+  {% for a in clan.applications %}
+  <div class="mcrow">
+    <div>
+      <a class="pname" href="/player/{{ a.name|urlencode }}">{{ a.name }}</a>
+      <div class="cmeta">Rank #{{ a.rank }} &middot; skill {{ a.elo }} &middot;
+        {{ a.wins }}-{{ a.losses }} &middot; {{ a.winrate }}{% if gems_on and a.gems %} &middot;
+        <b style="color:#8ef3ff">asks {{ '{:,}'.format(a.gems) }} gems</b>{% endif %}</div>
+    </div>
+    <div style="white-space:nowrap">
+      <button class="primary" onclick="decideApp({{ a.id }}, true)">{{ t('Accept') }}</button>
+      <button class="danger" onclick="decideApp({{ a.id }}, false)">{{ t('Deny') }}</button>
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">Nobody is waiting to join right now.</p>
+  {% endfor %}
+  <p class="msg" id="appMsg"></p>
+</div>
+<div class="card">
+  <h2>{{ t('Invited') }}</h2>
+  <p class="desc">Waiting on the player. An invitation can be taken back until they answer.</p>
+  {% for i in clan.invited %}
+  <div class="mcrow">
+    <div><a class="pname" href="/player/{{ i.name|urlencode }}">{{ i.name }}</a></div>
+    <div><button class="danger" onclick="cancelInvite({{ i.id }})">{{ t('Cancel invite') }}</button></div>
+  </div>
+  {% else %}
+  <p class="empty">No invitations are out right now.</p>
+  {% endfor %}
+  <p class="msg" id="invitedMsg"></p>
+</div>
+</section>
+
+{# ----------------------------------------------------------------- invite #}
+<section class="panel" data-panel="invite" hidden>
+<div class="card">
+  <h2>Invite link</h2>
+  <p class="desc">Anyone who opens this link can join {{ clan.display }} once they are
+     signed in and have a name. It lasts {{ clan.link_days }} days. Making a new one
+     retires the old one, so a link that leaked cannot still be used.</p>
+  <div class="linkbox">
+    <input type="text" id="linkUrl" readonly
+           value="{{ clan.link.url if clan.link else '' }}"
+           placeholder="No live link - make one below">
+    <button class="primary" onclick="copyLink()">Copy</button>
+  </div>
+  {% if clan.link %}
+  <p class="desc" style="margin-top:8px">Used {{ clan.link.uses }} time{{ '' if clan.link.uses == 1 else 's' }}{% if clan.link.expires_at %} &middot; expires {{ clan.link.expires_at }}{% endif %}</p>
+  {% endif %}
+  <div class="row" style="margin-top:10px">
+    <button class="primary" onclick="newLink()">{{ 'Make a new link' if clan.link else 'Make a link' }}</button>
+    {% if clan.link %}<button class="danger" onclick="revokeLink()">Withdraw it</button>{% endif %}
+  </div>
+  <p class="msg" id="linkMsg"></p>
+  {% if gems_on %}<p class="desc" style="margin-top:10px">Or <a href="/agents">hire a free agent</a>
+     &mdash; players who listed themselves at a price, paid from the treasury.</p>{% endif %}
+</div>
+</section>
+
+{# ------------------------------------------------------------- appearance #}
+<section class="panel" data-panel="appearance" hidden>
+<div class="card">
+  <h2>{{ t('Clan profile') }}</h2>
+  <p class="desc">How {{ clan.display }} looks to everyone: the tag's stylings, the page tint
+     and a short bio. Keep it clean &mdash; no slurs or profanity.</p>
+  <div class="sub" style="margin-top:2px">{{ t('Tag stylings') }}</div>
+  <p class="desc">Other ways of writing {{ clan.tag }} &mdash; fancy letters, brackets, a symbol
+     after it. Every styling still has to spell {{ clan.tag }}. Members choose which one to wear
+     on Your account; the default is what the clan page shows.</p>
+  <ul class="styles" id="styleList">
+    {%- for s in clan.styles %}
+    <li><span class="badge">{{ s.shown }}</span>
+      {% if s.default %}<span class="sub" style="margin:0">{{ t('default') }}</span>{% else %}
+      <button type="button" class="tiny" onclick="styleAct('default', {{ s.id }})">{{ t('Make default') }}</button>{% endif %}
+      {% if clan.styles|length > 1 %}<button type="button" class="tiny" onclick="styleAct('remove', {{ s.id }})">{{ t('Remove') }}</button>{% endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  <div class="row">
+    <input id="styleNew" maxlength="32" placeholder="e.g. [{{ clan.tag }}] or a fancy-letter version">
+    <button type="button" onclick="styleAdd()">{{ t('Add styling') }}</button>
+  </div>
+  <p class="msg" id="styleMsg"></p>
+  <div class="sub">{{ t('Page tint') }}</div>
+  <div class="swrow" id="themeRow">
+    <button type="button" class="sw none{% if not clan.theme %} on{% endif %}"
+            data-key="" title="No tint" onclick="pickTheme(this)"
+            aria-label="No tint">&times;</button>
+    {%- for key, hexv in themes.items() %}
+    <button type="button" class="sw{% if clan.theme == key %} on{% endif %}"
+            style="background:{{ hexv }}" data-key="{{ key }}" title="{{ key }}"
+            onclick="pickTheme(this)" aria-label="{{ key }} tint"></button>
+    {%- endfor %}
+  </div>
+  <div class="sub">{{ t('Clan bio') }}</div>
+  <textarea id="clanBio" class="bioarea" maxlength="{{ clan.bio_max }}"
+            placeholder="Tell people who you are..."
+            oninput="bioCount()">{{ clan.bio }}</textarea>
+  <p class="biocount"><span id="bioNow">0</span> / {{ clan.bio_max }}</p>
+  <button class="primary" onclick="saveProfile()">{{ t('Save profile') }}</button>
+  <p class="msg" id="profileMsg"></p>
+</div>
+</section>
+
+{# ------------------------------------------------------------------ roles #}
+<section class="panel" data-panel="roles" hidden>
 <div class="card">
   <h2>{{ t('Ranks') }}</h2>
-  <p class="desc">Tap a role to see exactly what it can do. Use the <b>+</b> next to a
-     member above to give them a rank. There is <b>no limit</b> on how many of each
-     role you hand out &mdash; the only rule is that a member needs an account on the
-     site to hold one, so the <b>+</b> only appears next to members who have signed in.</p>
+  <p class="desc">Tap a role to see exactly what it can do. Give a member a rank with the
+     <b>+</b> beside them on the Members tab. There is <b>no limit</b> on how many of each
+     role you hand out &mdash; a member only needs an account on the site to hold one.</p>
   <div class="swrow" style="margin:2px 0 0">
     {%- for r in ['leader','coleader','moderator','player'] %}
     <button type="button" class="rolechip" style="--rc:{{ clan.role_colors[r] }};margin-left:0"
@@ -250,25 +313,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
     {%- endfor %}
   </div>
   <div id="rankHelp"></div>
-  <p class="msg" id="roleMsg"></p>
 </div>
-
-<div class="card">
-  <h2>{{ t('Region') }}</h2>
-  <p class="desc">Where the clan plays. It shows on the clan table and links to that
-     region's leaderboard. Leave it unset if you are spread across regions.</p>
-  <div class="row">
-    <select id="regionSel">
-      <option value="">{{ t('Not set') }}</option>
-      {% for key, label in clan.regions %}
-      <option value="{{ key }}"{% if clan.region == key %} selected{% endif %}>{{ t(label) }}</option>
-      {% endfor %}
-    </select>
-    <button class="primary" onclick="saveRegion()">{{ t('Save region') }}</button>
-  </div>
-  <p class="msg" id="regionMsg"></p>
-</div>
-
 <div class="card">
   <h2>{{ t('Roles') }}</h2>
   <p class="desc">Rename each role and pick its chip colour. Titles and colours show on the
@@ -298,50 +343,25 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   <button class="primary" onclick="saveRoleNames()">{{ t('Save roles') }}</button>
   <p class="msg" id="roleNamesMsg"></p>
 </div>
+</section>
 
+{# --------------------------------------------------------------- settings #}
+<section class="panel" data-panel="settings" hidden>
 <div class="card">
-  <h2>{{ t('Clan profile') }}</h2>
-  <p class="desc">A short bio and a page tint make your clan page your own. Both show to
-     everyone on the public clan page. Keep it clean &mdash; no slurs or profanity.</p>
-  <div class="sub" style="margin-top:2px">{{ t('Page tint') }}</div>
-  <div class="swrow" id="themeRow">
-    <button type="button" class="sw none{% if not clan.theme %} on{% endif %}"
-            data-key="" title="No tint" onclick="pickTheme(this)"
-            aria-label="No tint">&times;</button>
-    {%- for key, hexv in themes.items() %}
-    <button type="button" class="sw{% if clan.theme == key %} on{% endif %}"
-            style="background:{{ hexv }}" data-key="{{ key }}" title="{{ key }}"
-            onclick="pickTheme(this)" aria-label="{{ key }} tint"></button>
-    {%- endfor %}
-  </div>
-  <div class="sub">{{ t('Tag stylings') }}</div>
-  <p class="desc">Other ways of writing {{ clan.tag }} &mdash; fancy letters, brackets, a symbol
-     after it. Every styling still has to spell {{ clan.tag }}. Members choose which one to wear
-     on Your account; the default is what the clan page shows.</p>
-  <ul class="styles" id="styleList">
-    {%- for s in clan.styles %}
-    <li><span class="badge">{{ s.shown }}</span>
-      {% if s.default %}<span class="sub" style="margin:0">{{ t('default') }}</span>{% else %}
-      <button type="button" class="tiny" onclick="styleAct('default', {{ s.id }})">{{ t('Make default') }}</button>{% endif %}
-      {% if clan.styles|length > 1 %}<button type="button" class="tiny" onclick="styleAct('remove', {{ s.id }})">{{ t('Remove') }}</button>{% endif %}
-    </li>
-    {%- endfor %}
-  </ul>
+  <h2>{{ t('Region') }}</h2>
+  <p class="desc">Where the clan plays. It shows on the clan table and links to that
+     region's leaderboard. Leave it unset if you are spread across regions.</p>
   <div class="row">
-    <input id="styleNew" maxlength="32" placeholder="e.g. [{{ clan.tag }}] or a fancy-letter version">
-    <button type="button" onclick="styleAdd()">{{ t('Add styling') }}</button>
+    <select id="regionSel">
+      <option value="">{{ t('Not set') }}</option>
+      {% for key, label in clan.regions %}
+      <option value="{{ key }}"{% if clan.region == key %} selected{% endif %}>{{ t(label) }}</option>
+      {% endfor %}
+    </select>
+    <button class="primary" onclick="saveRegion()">{{ t('Save region') }}</button>
   </div>
-  <p class="msg" id="styleMsg"></p>
-  <div class="sub">{{ t('Clan bio') }}</div>
-  <textarea id="clanBio" class="bioarea" maxlength="{{ clan.bio_max }}"
-            placeholder="Tell people who you are..."
-            oninput="bioCount()">{{ clan.bio }}</textarea>
-  <p class="biocount"><span id="bioNow">0</span> / {{ clan.bio_max }}</p>
-  <button class="primary" onclick="saveProfile()">{{ t('Save profile') }}</button>
-  <p class="msg" id="profileMsg"></p>
+  <p class="msg" id="regionMsg"></p>
 </div>
-{% endif %}
-
 {% if clan.is_leader %}
 <div class="card">
   <h2>{{ t('Transfer ownership') }}</h2>
@@ -358,7 +378,6 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   </div>
   <p class="msg" id="transferMsg"></p>
 </div>
-
 <div class="card">
   <h2>Delete {{ clan.display }}</h2>
   <p class="desc">Every member is released and the tag is free again. Their ratings and
@@ -372,18 +391,59 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   <p class="msg" id="deleteMsg"></p>
 </div>
 {% endif %}
+</section>
+{% endif %}
+
+{# -------------------------------------------------------------------- you #}
+<section class="panel" data-panel="you" hidden>
+<div class="card">
+  <h2>You</h2>
+  <p class="desc">You are in {{ clan.display }} as its <b>{{ clan.role_label|lower }}</b>.
+     {% if clan.you_named %}Your row is highlighted on the Members tab.{% endif %}
+     The tag shows beside your name everywhere; pick which styling to wear on
+     <a href="/account">{{ t('Your account') }}</a>.</p>
+  <div class="row" style="margin-top:12px">
+    <a class="ghost" href="/clan/{{ clan.tag|urlencode }}" style="text-decoration:none">Public page</a>
+    {% if clan.you_named %}<button class="danger" onclick="leaveClan()">{{ t('Leave this clan') }}</button>{% endif %}
+  </div>
+  <p class="msg" id="youMsg"></p>
+</div>
+</section>
 {% endif %}
 
 <p class="foot">Questions? Ask {{ contact }} on Discord.</p>
 
 <script>
 const TAG = {{ (clan.tag if clan else '')|tojson }};
+const SHOWN = {{ ((clan.display or clan.tag) if clan else '')|tojson }};
 const ROLE_HELP = {{ role_help|tojson }};
 const ROLE_COLORS = {{ (clan.role_colors if clan else {})|tojson }};
+const CAN_MANAGE = {{ (clan.can_manage if clan else False)|tojson }};
 
-// Tap a role chip to explain what the role can do. The popover sits inside the
-// member's row (or the Ranks legend), toggling off when the same chip is tapped
-// again. Label comes via textContent so a custom role name can't inject markup.
+// The sub-tabs: one panel on screen, the choice in the URL hash so a
+// reload after a save lands on the same tab.
+(function(){
+  const bar = document.getElementById('subtabs');
+  if (!bar) return;
+  const links = Array.from(bar.querySelectorAll('a[data-panel]'));
+  function show(name){
+    if (!links.some(function(a){ return a.dataset.panel === name; })) name = 'members';
+    links.forEach(function(a){ a.classList.toggle('on', a.dataset.panel === name); });
+    document.querySelectorAll('.panel[data-panel]').forEach(function(p){
+      p.hidden = (p.dataset.panel !== name);
+    });
+  }
+  links.forEach(function(a){
+    a.addEventListener('click', function(ev){
+      ev.preventDefault();
+      history.replaceState(null, '', '#' + a.dataset.panel);
+      show(a.dataset.panel);
+    });
+  });
+  window.addEventListener('hashchange', function(){ show((location.hash || '#members').slice(1)); });
+  show((location.hash || '#members').slice(1));
+})();
+
 function roleHelp(btn, role){
   const inRow = btn.closest('.mcwho');
   const container = inRow || document.getElementById('rankHelp');
@@ -473,7 +533,6 @@ async function addMember(){
   try{
     const body = {clan: TAG, name: who};
     {% if gems_on %}
-    // The bonus field only exists while the preview is on; so does this.
     const gEl = document.getElementById('memberGems');
     if (gEl) body.gems = parseInt(gEl.value, 10) || 0;
     {% endif %}
@@ -503,8 +562,6 @@ function closeRankMenus(){
   document.querySelectorAll('.rankmenu').forEach(function(m){ m.remove(); });
 }
 function popover(btn, items){
-  // A little menu under a button. Pressing the same button again closes
-  // it, so it cannot stack up.
   const open = btn.parentNode.querySelector('.rankmenu');
   closeRankMenus();
   if (open) return;
@@ -560,7 +617,7 @@ async function deleteClan(){
 }
 async function saveRoleNames(){
   const roles = ['player', 'moderator', 'coleader'];
-  if (document.getElementById('rn_leader')) roles.push('leader');   // leader-only
+  if (document.getElementById('rn_leader')) roles.push('leader');
   const labels = {}, colors = {};
   roles.forEach(function(r){
     labels[r] = document.getElementById('rn_' + r).value;
@@ -609,6 +666,15 @@ async function transferClan(){
     say('transferMsg', d.ok, d.message);
     if (d.ok) reloadSoon();
   }catch(e){ say('transferMsg', false, 'Server connection error.'); }
+}
+async function leaveClan(){
+  if (!window.confirm('Leave ' + SHOWN + '?' + (CAN_MANAGE ?
+      ' You will still run the clan - only your name comes off the roster.' : ''))) return;
+  try{
+    const [r, d] = await post('/clan/leave', {});
+    say('youMsg', r.ok && d.ok, d.message);
+    if (d.ok) setTimeout(function(){ location.href = CAN_MANAGE ? '/myclan' : '/clans'; }, 1200);
+  }catch(e){ say('youMsg', false, 'Server connection error.'); }
 }
 bioCount();
 </script>
