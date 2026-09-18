@@ -8,7 +8,7 @@ NOMATCH = "Auf dieser Seite passt dazu nichts."
 # Card 2 (which games count) states rules that changed on 16 Sep 2026:
 # no player minimum, a ten-minute match, top eight per team. Until this
 # file is retranslated the page shows the English card there.
-STALE = (2, 6, 7, 8)
+STALE = ()
 FOOT = 'Fragen? Frag [[CONTACT]] auf Discord.'
 
 CARDS = [
@@ -30,12 +30,16 @@ CARDS = [
   ' gedacht.</p>'),
 
  ("Welche Spiele zählen",
-  '<p>Jedes laufende Teamspiel wird jetzt beobachtet, vom Moment seines Beginns an &mdash;'
-  ' es gibt keine Begrenzung mehr auf nur ein paar gleichzeitig. Ein Spiel braucht nur'
-  ' mindestens <b>vier Spieler</b> und wird bis zum Schluss verfolgt.</p>'
-  '<p>Der Reiter <a href="/play">Spielen</a> listet jedes laufende Spiel auf und ob der'
-  ' Beobachter schon dran ist; eine brandneue Lobby wird innerhalb weniger Sekunden erfasst.'
-  ' Läuft ein Spiel, zählt es.</p>'),
+  '<p>Jedes laufende Teamspiel wird beobachtet, vom Moment an, in dem die Lobby auftaucht.'
+  ' Es gibt keine Grenze, wie viele gleichzeitig, und keine Mindestzahl an Spielern, damit'
+  ' eine Lobby erfasst wird.</p><p>Um <b>gewertet</b> zu werden, muss ein Spiel'
+  ' <b>mindestens zehn Minuten</b> laufen. Kürzere Spiele werden trotzdem aufgezeichnet und'
+  ' können nachgeschaut werden, aber sie bewegen niemandes Wertung.</p><p>In einem'
+  ' gewerteten Spiel werden pro Team die <b>acht Besten nach Punkten</b> gewertet, und du'
+  ' brauchst ungefähr <b>zehn Minuten im Spiel</b>, um dazuzugehören &mdash; ein Gewinner'
+  ' braucht das, egal wie früh er kam.</p><p>Der Reiter <a href="/play">Spielen</a> listet'
+  ' jedes laufende Spiel auf und ob der Beobachter schon dran ist; eine brandneue Lobby wird'
+  ' innerhalb weniger Sekunden erfasst. Läuft ein Spiel, zählt es.</p>'),
 
  ("Deine Wertung",
   '<p>Alle starten bei <b>[[ELO]]</b>. Ein Spiel bewegt dich um höchstens <b>[[K]]</b>'
@@ -64,43 +68,55 @@ CARDS = [
  ("Zwei Namen",
   '<p><b>Dein Kontoname</b> ist die Zeile in der Rangliste, die dir gehört. Dort lebt deine'
   ' Wertung, und sie ändert sich nicht, wenn du dich im Spiel umbenennst. Einzustellen in'
-  ' den <a href="/settings">Einstellungen</a>.</p>'
-  '<p><b>Dein Spielname</b> ist das, wie du in Starblast gerade heißt. Einzustellen auf der'
-  ' Seite <a href="/play">Spielen</a>, und so oft zu ändern, wie du magst &mdash; damit'
-  ' erkennen wir dein Schiff in einer Lobby, mehr nicht.</p>'
-  '<p>Am Anfang sind beide gleich, und bei den meisten bleiben sie es. Sie unterscheiden'
-  ' sich nur, wenn du eine Weile unter etwas anderem spielst.</p>'),
+  ' den <a href="/settings">Einstellungen</a>.</p><p><b>Dein Spielname</b> ist das, wie du'
+  ' in Starblast gerade heißt. Einzustellen auf der Seite <a href="/play">Spielen</a>, und'
+  ' so oft zu ändern, wie du magst &mdash; daran erkennen wir dein Schiff in einer Lobby,'
+  ' und ein Spiel unter diesem Namen zählt für dein Konto.</p><p>Am Anfang sind beide'
+  ' gleich, und bei den meisten bleiben sie es. Sie unterscheiden sich nur, wenn du eine'
+  ' Weile unter etwas anderem spielst.</p>'),
 
  ("Anmelden vor dem Spiel, und der grüne Haken",
   '<p><b>Spielen</b> zu drücken, bevor ein Spiel losgeht, verbindet die beiden Namen. Die'
   ' Seite hält in dieser Lobby nach einem Schiff mit deinem <b>Spielnamen</b> Ausschau,'
   ' entscheidet, dass dieses Schiff du bist, und schreibt das Ergebnis deinem'
   ' <b>Kontonamen</b> gut &mdash; so wächst deine Wertung an einer Stelle, egal wie du im'
-  ' Spiel heißt.</p>'
-  '<p>Halte also den Spielnamen auf der Seite Spielen gleich dem Namen deines Schiffs. Der'
-  ' muss übereinstimmen; dein Kontoname nicht.</p>'
-  '<p><b>Meldest du dich nicht an</b>, landet das Ergebnis einfach auf dem Namen, den das'
-  ' Spiel gemeldet hat. Für dich zählt das nur, wenn dieser Name dir gehört.</p>'
-  '<p>Ein <b>&#10003;</b> neben einem Namen heißt, dass dieser Spieler den Schutz'
-  ' eingeschaltet hat: Für ihn zählen nur Spiele, für die er sich angemeldet hat. Das ist'
-  ' eine strengere, langsamere Wertung, und sie ist freiwillig &mdash; zu finden in den'
-  ' <a href="/settings">Einstellungen</a>.</p>'),
+  ' Spiel heißt.</p><p>Halte also den Spielnamen auf der Seite Spielen gleich dem Namen'
+  ' deines Schiffs. Der muss übereinstimmen; dein Kontoname nicht.</p><p><b>Meldest du dich'
+  ' nicht an</b>, zählt ein Spiel unter deinem Spielnamen trotzdem für dich. Was die'
+  ' Anmeldung hinzufügt, ist der Beleg, welches Schiff deins war: Fliegt in derselben Lobby'
+  ' jemand anderes unter deinem Namen, wird das Spiel zurückgehalten, falls du dich nicht'
+  ' angemeldet hast, und der <b>Schutz</b> zählt nur die Spiele, für die du dich angemeldet'
+  ' hast. Ein Spielname, den zwei Konten beanspruchen, zählt für keines.</p><p>Ein'
+  ' <b>&#10003;</b> neben einem Namen heißt, dass dieser Spieler den Schutz eingeschaltet'
+  ' hat: Für ihn zählen nur Spiele, für die er sich angemeldet hat. Das ist eine strengere,'
+  ' langsamere Wertung, und sie ist freiwillig &mdash; zu finden in den <a'
+  ' href="/settings">Einstellungen</a>.</p>'),
 
  ("Clans",
   '<p>Ein Clan ist eine Gruppe von Spielern, die sich ein Kürzel teilen. Seine Seite zeigt'
-  ' die nach Stärke sortierte Mannschaft, die gemeinsame Bilanz und wo der Clan spielt.</p>'
-  '<p><b>Beitreten.</b> Öffne die Seite des Clans und drück <b>Beitritt anfragen</b>, oder'
-  ' nutze einen Einladungslink, den dir sein Anführer gibt. So oder so entscheidet der'
-  ' Anführer. Trägt dein Spielname das Kürzel des Clans schon, wenn der Clan angelegt wird,'
-  ' wirst du automatisch aufgenommen.</p>'
-  '<p><b>Dein Kürzel wird genau so angezeigt, wie es geschrieben ist</b> &mdash; samt'
-  ' Zierbuchstaben. Die Fassung in einfachen Buchstaben wird nur hinter den Kulissen'
-  ' benutzt, damit jede Schreibweise eines Kürzels als ein Clan zählt und die Suche in'
-  ' beide Richtungen funktioniert.</p>'
-  '<p><b>Ränge.</b> Ein Anführer kann Co-Anführer und Moderatoren ernennen. Ein Moderator'
-  ' entfernt normale Mitglieder; ein Co-Anführer kann alles, was der Anführer kann, außer'
-  ' den Clan zu löschen oder einen anderen Co-Anführer anzufassen. Niemand kann jemanden'
-  ' des eigenen Rangs oder darüber entfernen.</p>'),
+  ' die nach Stärke sortierte Mannschaft, die gemeinsame Bilanz, seine Survival-Siege und wo'
+  ' der Clan spielt.</p><p><b>Beitreten.</b> <a href="/social">Social</a> schlägt dir die'
+  ' Clans vor, deren Mitglieder ungefähr auf deinem Niveau spielen, und zeigt dir jeden'
+  ' Clan, der Anfragen annimmt. Du kannst auch die Seite eines Clans öffnen und <b>Beitritt'
+  ' anfragen</b> drücken, oder einen Einladungslink nutzen, den dir sein Anführer gibt. So'
+  ' oder so entscheidet der Anführer. Trägt dein Spielname das Kürzel des Clans schon, wenn'
+  ' der Clan angelegt wird, wirst du automatisch aufgenommen.</p><p><b>Dein Kürzel wird'
+  ' genau so angezeigt, wie es geschrieben ist</b> &mdash; samt Zierbuchstaben. Die Fassung'
+  ' in einfachen Buchstaben wird nur hinter den Kulissen benutzt, damit jede Schreibweise'
+  ' eines Kürzels als ein Clan zählt und die Suche in beide Richtungen funktioniert. Ein'
+  ' Anführer kann unter <a href="/myclan">Dein Clan</a> weitere Schreibweisen des Kürzels'
+  ' anlegen, und jedes Mitglied wählt unter <a href="/account">Dein Konto</a> die, die es'
+  ' tragen will.</p><p><b>Ein Spiel unter dem Kürzel deines Clans zählt für dich</b>, in'
+  ' welcher Schreibweise das Kürzel auch getippt ist. Nur Mitglieder dieses Clans werden so'
+  ' zugeordnet, und was auf das Kürzel folgt, muss dein Name sein.</p><p><b>Dein Kontoname'
+  ' bist nur du.</b> Trittst du einem Clan bei, kommt das Kürzel aus deinem Kontonamen'
+  ' heraus und erscheint stattdessen als Abzeichen daneben &mdash; so kann sich das Kürzel'
+  ' ändern, und auch dein Clan, ohne dass deine Bilanz umzieht. Die Kontoseite fragt nach,'
+  ' bevor sie einen Namen mit Kürzel speichert.</p><p><b>Ränge.</b> Ein Anführer kann'
+  ' Co-Anführer und Moderatoren ernennen. Ein Moderator entfernt normale Mitglieder; ein'
+  ' Co-Anführer kann alles, was der Anführer kann, außer den Clan zu löschen oder einen'
+  ' anderen Co-Anführer anzufassen. Niemand kann jemanden des eigenen Rangs oder darüber'
+  ' entfernen.</p>'),
 
  ("Ein Name, der schon in der Rangliste steht",
   '<p>Tipp ihn in den <a href="/settings">Einstellungen</a> ein: Gehört er niemandem, ist'

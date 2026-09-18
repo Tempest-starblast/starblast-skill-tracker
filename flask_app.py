@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.30.0"
+APP_VERSION = "9.30.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6368,6 +6368,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.30.1", "at": "2026-09-18T11:30:00Z", "changes": [
+        "Info in German, Spanish, French, Italian, Russian, Vietnamese, Chinese and "
+        "Persian has caught up: the cards on which games count, the two names, "
+        "checking in and clans read in your language again instead of English.",
+    ]},
     {"version": "9.30.0", "at": "2026-09-18T10:00:00Z", "changes": [
         "<b>Survival rounds now count for your account</b> the way team matches "
         "do. A round played under a check-in, your play name or your clan\u2019s "

@@ -8,7 +8,7 @@ NOMATCH = "Rien sur cette page ne correspond."
 # Card 2 (which games count) states rules that changed on 16 Sep 2026:
 # no player minimum, a ten-minute match, top eight per team. Until this
 # file is retranslated the page shows the English card there.
-STALE = (2, 6, 7, 8)
+STALE = ()
 FOOT = 'Des questions ? Demandez à [[CONTACT]] sur Discord.'
 
 CARDS = [
@@ -29,13 +29,17 @@ CARDS = [
   ' options ci-dessous.</p>'),
 
  ("Quelles parties comptent",
-  '<p>Désormais, chaque partie en équipe en cours est suivie, dès l&#39;instant où elle'
-  ' commence &mdash; il n&#39;y a plus de limite à quelques-unes seulement à la fois. Il'
-  ' suffit qu&#39;une partie compte au moins <b>quatre joueurs</b>, et elle est suivie'
-  ' jusqu&#39;au bout.</p>'
-  '<p>L&#39;onglet <a href="/play">Jouer</a> liste chaque partie en cours et indique si'
-  ' l&#39;observateur y est déjà ; un salon tout neuf est repéré en quelques secondes. Si'
-  ' une partie est en cours, elle compte.</p>'),
+  '<p>Chaque partie en équipe en cours est suivie, dès l&#39;instant où le salon apparaît.'
+  ' Il n&#39;y a pas de limite au nombre suivi en même temps, ni de minimum de joueurs pour'
+  ' qu&#39;un salon soit repéré.</p><p>Pour être <b>classée</b>, une partie doit durer <b>au'
+  ' moins dix minutes</b>. Les parties plus courtes sont quand même enregistrées et peuvent'
+  ' être revues, mais elles ne font bouger le niveau de personne.</p><p>Dans une partie'
+  ' classée, les joueurs classés sont les <b>huit meilleurs au score</b> de chaque équipe,'
+  ' et il faut environ <b>dix minutes dans la partie</b> pour en faire partie &mdash; un'
+  ' vainqueur en a besoin, si tôt qu&#39;il soit arrivé.</p><p>L&#39;onglet <a'
+  ' href="/play">Jouer</a> liste chaque partie en cours et indique si l&#39;observateur y'
+  ' est déjà ; un salon tout neuf est repéré en quelques secondes. Si une partie est en'
+  ' cours, elle compte.</p>'),
 
  ("Votre niveau",
   '<p>Tout le monde commence à <b>[[ELO]]</b>. Une partie vous déplace d&#39;au plus'
@@ -64,42 +68,56 @@ CARDS = [
  ("Deux noms",
   '<p><b>Votre nom de compte</b> est la ligne du classement qui vous appartient. C&#39;est'
   ' là que vit votre niveau, et il ne change pas quand vous vous renommez en jeu. Il se'
-  ' règle dans <a href="/settings">Paramètres</a>.</p>'
-  '<p><b>Votre nom de jeu</b> est celui que vous portez dans Starblast en ce moment. Il se'
-  ' règle sur la page <a href="/play">Jouer</a>, et vous pouvez le changer autant que vous'
-  ' voulez &mdash; il sert à reconnaître votre vaisseau dans un salon, rien de plus.</p>'
-  '<p>Au départ ce sont les mêmes, et pour la plupart des gens ils le restent. Ils ne'
-  ' diffèrent que si vous jouez sous un autre nom pendant un temps.</p>'),
+  ' règle dans <a href="/settings">Paramètres</a>.</p><p><b>Votre nom de jeu</b> est celui'
+  ' que vous portez dans Starblast en ce moment. Il se règle sur la page <a'
+  ' href="/play">Jouer</a>, et vous pouvez le changer autant que vous voulez &mdash;'
+  ' c&#39;est à lui que nous reconnaissons votre vaisseau dans un salon, et une partie jouée'
+  ' sous ce nom compte pour votre compte.</p><p>Au départ ce sont les mêmes, et pour la'
+  ' plupart des gens ils le restent. Ils ne diffèrent que si vous jouez sous un autre nom'
+  ' pendant un temps.</p>'),
 
  ("L'annonce avant la partie, et la coche verte",
   '<p>Appuyer sur <b>Jouer</b> avant une partie, c&#39;est ce qui relie les deux noms. Le'
   ' site guette dans ce salon un vaisseau portant votre <b>nom de jeu</b>, décide que ce'
-  ' vaisseau c&#39;est vous, et met le résultat sur votre <b>nom de compte</b> &mdash;'
-  ' ainsi votre niveau grandit au même endroit, quel que soit votre nom en jeu.</p>'
-  '<p>Gardez donc le nom de jeu de la page Jouer identique à celui de votre vaisseau.'
-  ' C&#39;est celui-là qui doit correspondre ; pas votre nom de compte.</p>'
-  '<p><b>Si vous ne vous annoncez pas</b>, le résultat tombe simplement sur le nom rapporté'
-  ' par le jeu. Cela ne compte pour vous que si ce nom est le vôtre.</p>'
-  '<p>Une <b>&#10003;</b> à côté d&#39;un nom signifie que ce joueur a activé la Protection :'
-  ' seules les parties qu&#39;il a annoncées comptent pour lui. C&#39;est un classement plus'
-  ' strict et plus lent, et c&#39;est facultatif &mdash; cela se trouve dans'
-  ' <a href="/settings">Paramètres</a>.</p>'),
+  ' vaisseau c&#39;est vous, et met le résultat sur votre <b>nom de compte</b> &mdash; ainsi'
+  ' votre niveau grandit au même endroit, quel que soit votre nom en jeu.</p><p>Gardez donc'
+  ' le nom de jeu de la page Jouer identique à celui de votre vaisseau. C&#39;est celui-là'
+  ' qui doit correspondre ; pas votre nom de compte.</p><p><b>Si vous ne vous annoncez'
+  ' pas</b>, une partie sous votre nom de jeu compte quand même pour vous. Ce que'
+  ' l&#39;annonce ajoute, c&#39;est la preuve de quel vaisseau était le vôtre : si'
+  ' quelqu&#39;un d&#39;autre vole sous votre nom dans le même salon, la partie est retenue'
+  ' à moins que vous ne vous soyez annoncé, et la <b>Protection</b> ne compte que les'
+  ' parties que vous avez annoncées. Un nom de jeu revendiqué par deux comptes ne compte'
+  ' pour aucun.</p><p>Une <b>&#10003;</b> à côté d&#39;un nom signifie que ce joueur a'
+  ' activé la Protection : seules les parties qu&#39;il a annoncées comptent pour lui.'
+  ' C&#39;est un classement plus strict et plus lent, et c&#39;est facultatif &mdash; cela'
+  ' se trouve dans <a href="/settings">Paramètres</a>.</p>'),
 
  ("Les clans",
   '<p>Un clan est un groupe de joueurs qui partagent un tag. Sa page montre l&#39;effectif'
-  ' classé par niveau, le bilan commun et où le clan joue.</p>'
-  '<p><b>Pour en rejoindre un.</b> Ouvrez la page du clan et appuyez sur <b>Demander à'
-  ' rejoindre</b>, ou utilisez un lien d&#39;invitation donné par son chef. Dans les deux'
-  ' cas, c&#39;est le chef qui décide. Si votre nom en jeu porte déjà le tag du clan au'
-  ' moment de sa création, vous êtes ajouté automatiquement.</p>'
-  '<p><b>Votre tag est affiché exactement tel qu&#39;il est écrit</b> &mdash; lettres'
-  ' fantaisie comprises. La version en lettres simples ne sert qu&#39;en coulisses, pour'
-  ' que toutes les écritures d&#39;un tag comptent comme un seul clan et que la recherche'
-  ' marche dans les deux sens.</p>'
-  '<p><b>Les rangs.</b> Un chef peut nommer des co-chefs et des modérateurs. Un modérateur'
-  ' retire les membres ordinaires ; un co-chef fait tout ce que fait le chef sauf supprimer'
-  ' le clan ou toucher à un autre co-chef. Personne ne peut retirer quelqu&#39;un de son'
-  ' propre rang ou au-dessus.</p>'),
+  ' classé par niveau, le bilan commun, ses victoires en survie et où le clan'
+  ' joue.</p><p><b>Pour en rejoindre un.</b> <a href="/social">Social</a> vous suggère les'
+  ' clans dont les membres jouent à peu près à votre niveau, et vous montre tous ceux qui'
+  ' acceptent les candidatures. Vous pouvez aussi ouvrir la page d&#39;un clan et appuyer'
+  ' sur <b>Demander à rejoindre</b>, ou utiliser un lien d&#39;invitation donné par son'
+  ' chef. Dans les deux cas, c&#39;est le chef qui décide. Si votre nom en jeu porte déjà le'
+  ' tag du clan au moment de sa création, vous êtes ajouté automatiquement.</p><p><b>Votre'
+  ' tag est affiché exactement tel qu&#39;il est écrit</b> &mdash; lettres fantaisie'
+  ' comprises. La version en lettres simples ne sert qu&#39;en coulisses, pour que toutes'
+  ' les écritures d&#39;un tag comptent comme un seul clan et que la recherche marche dans'
+  ' les deux sens. Un chef peut ajouter d&#39;autres écritures du tag dans <a'
+  ' href="/myclan">Votre clan</a>, et chaque membre choisit celle qu&#39;il porte dans <a'
+  ' href="/account">Votre compte</a>.</p><p><b>Une partie sous le tag de votre clan compte'
+  ' pour vous</b>, quelle que soit l&#39;écriture du tag. Seuls les membres de ce clan sont'
+  ' reconnus ainsi, et ce qui suit le tag doit être votre nom.</p><p><b>Votre nom de compte,'
+  ' c&#39;est vous et rien d&#39;autre.</b> Quand vous rejoignez un clan, le tag quitte'
+  ' votre nom de compte et s&#39;affiche à côté comme un badge, si bien que le tag peut'
+  ' changer, et votre clan aussi, sans que votre bilan ne bouge. La page du compte demande'
+  ' confirmation avant d&#39;enregistrer un nom qui porte un tag.</p><p><b>Les rangs.</b> Un'
+  ' chef peut nommer des co-chefs et des modérateurs. Un modérateur retire les membres'
+  ' ordinaires ; un co-chef fait tout ce que fait le chef sauf supprimer le clan ou toucher'
+  ' à un autre co-chef. Personne ne peut retirer quelqu&#39;un de son propre rang ou'
+  ' au-dessus.</p>'),
 
  ("Un nom déjà présent au classement",
   '<p>Tapez-le dans <a href="/settings">Paramètres</a> et, si personne ne le possède, il'

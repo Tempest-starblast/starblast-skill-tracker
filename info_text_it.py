@@ -8,7 +8,7 @@ NOMATCH = "Niente in questa pagina corrisponde."
 # Card 2 (which games count) states rules that changed on 16 Sep 2026:
 # no player minimum, a ten-minute match, top eight per team. Until this
 # file is retranslated the page shows the English card there.
-STALE = (2, 6, 7, 8)
+STALE = ()
 FOOT = 'Domande? Chiedi a [[CONTACT]] su Discord.'
 
 CARDS = [
@@ -28,12 +28,16 @@ CARDS = [
   '<p>Non serve altro. Accedere è facoltativo e serve solo per gli extra qui sotto.</p>'),
 
  ("Quali partite contano",
-  '<p>Ora ogni partita a squadre dal vivo viene osservata, dal momento in cui inizia'
-  ' &mdash; non c&#39;è più un limite di poche alla volta. A una partita bastano almeno'
-  ' <b>quattro giocatori</b>, e viene seguita fino alla fine.</p>'
-  '<p>La scheda <a href="/play">Gioca</a> elenca ogni partita dal vivo e se'
-  ' l&#39;osservatore è già su di essa; una lobby appena creata viene rilevata in pochi'
-  ' secondi. Se una partita è dal vivo, conta.</p>'),
+  '<p>Ogni partita a squadre dal vivo viene osservata, dal momento in cui la lobby compare.'
+  ' Non c&#39;è un limite a quante alla volta né un minimo di giocatori perché una lobby'
+  ' venga rilevata.</p><p>Per essere <b>valutata</b>, una partita deve durare <b>almeno'
+  ' dieci minuti</b>. Quelle più corte vengono comunque registrate e si possono rivedere, ma'
+  ' non muovono il punteggio di nessuno.</p><p>In una partita valutata, i giocatori valutati'
+  ' sono gli <b>otto migliori per punteggio</b> di ogni squadra, e servono circa <b>dieci'
+  ' minuti in partita</b> per essere tra loro &mdash; a un vincitore servono comunque, per'
+  ' quanto presto sia arrivato.</p><p>La scheda <a href="/play">Gioca</a> elenca ogni'
+  ' partita dal vivo e se l&#39;osservatore è già su di essa; una lobby appena creata viene'
+  ' rilevata in pochi secondi. Se una partita è dal vivo, conta.</p>'),
 
  ("Il tuo punteggio",
   '<p>Si parte tutti da <b>[[ELO]]</b>. Una partita ti sposta al massimo di <b>[[K]]</b>'
@@ -61,43 +65,53 @@ CARDS = [
 
  ("Due nomi",
   '<p><b>Il tuo nome account</b> è la riga della classifica che ti appartiene. Lì vive il'
-  ' tuo punteggio, e non cambia se ti rinomini nel gioco. Si imposta in'
-  ' <a href="/settings">Impostazioni</a>.</p>'
-  '<p><b>Il tuo nome di gioco</b> è come ti chiami in Starblast in questo momento. Si'
-  ' imposta nella pagina <a href="/play">Gioca</a>, e puoi cambiarlo quanto vuoi &mdash;'
-  ' serve a riconoscere la tua nave in una lobby, nulla di più.</p>'
-  '<p>All&#39;inizio sono lo stesso, e per la maggior parte delle persone lo restano.'
-  ' Differiscono solo se giochi con un altro nome per un po&#39;.</p>'),
+  ' tuo punteggio, e non cambia se ti rinomini nel gioco. Si imposta in <a'
+  ' href="/settings">Impostazioni</a>.</p><p><b>Il tuo nome di gioco</b> è come ti chiami in'
+  ' Starblast in questo momento. Si imposta nella pagina <a href="/play">Gioca</a>, e puoi'
+  ' cambiarlo quanto vuoi &mdash; è da quello che riconosciamo la tua nave in una lobby, e'
+  ' una partita giocata con quel nome conta per il tuo account.</p><p>All&#39;inizio sono lo'
+  ' stesso, e per la maggior parte delle persone lo restano. Differiscono solo se giochi con'
+  ' un altro nome per un po&#39;.</p>'),
 
  ("La registrazione prima della partita, e la spunta verde",
   '<p>Premere <b>Gioca</b> prima di una partita è ciò che lega i due nomi. Il sito cerca in'
   ' quella lobby una nave che porta il tuo <b>nome di gioco</b>, decide che quella nave sei'
   ' tu, e mette il risultato sul tuo <b>nome account</b> &mdash; così il tuo punteggio'
-  ' cresce in un posto solo, comunque tu ti chiami nel gioco.</p>'
-  '<p>Tieni quindi il nome di gioco della pagina Gioca uguale a quello della tua nave. È'
-  ' quello che deve coincidere; il nome account no.</p>'
-  '<p><b>Se non ti registri prima</b>, il risultato finisce semplicemente sul nome che ha'
-  ' riportato il gioco. Vale per te solo se quel nome è tuo.</p>'
-  '<p>Una <b>&#10003;</b> accanto a un nome vuol dire che quel giocatore ha la Protezione'
-  ' attiva: gli contano solo le partite per cui si è registrato. È una valutazione più'
-  ' severa e più lenta, ed è facoltativa &mdash; si trova in'
-  ' <a href="/settings">Impostazioni</a>.</p>'),
+  ' cresce in un posto solo, comunque tu ti chiami nel gioco.</p><p>Tieni quindi il nome di'
+  ' gioco della pagina Gioca uguale a quello della tua nave. È quello che deve coincidere;'
+  ' il nome account no.</p><p><b>Se non ti registri prima</b>, una partita con il tuo nome'
+  ' di gioco conta comunque per te. Quello che la registrazione aggiunge è la prova di quale'
+  ' nave fosse la tua: se qualcun altro vola con il tuo nome nella stessa lobby, la partita'
+  ' viene trattenuta a meno che tu non ti sia registrato, e la <b>Protezione</b> conta solo'
+  ' le partite per cui ti sei registrato. Un nome di gioco rivendicato da due account non'
+  ' conta per nessuno dei due.</p><p>Una <b>&#10003;</b> accanto a un nome vuol dire che'
+  ' quel giocatore ha la Protezione attiva: gli contano solo le partite per cui si è'
+  ' registrato. È una valutazione più severa e più lenta, ed è facoltativa &mdash; si trova'
+  ' in <a href="/settings">Impostazioni</a>.</p>'),
 
  ("Clan",
   '<p>Un clan è un gruppo di giocatori che condividono un tag. La sua pagina mostra la rosa'
-  ' ordinata per abilità, il record complessivo e dove gioca il clan.</p>'
-  '<p><b>Come entrare.</b> Apri la pagina del clan e premi <b>Chiedi di entrare</b>, oppure'
-  ' usa un link d&#39;invito che ti dà il suo leader. In entrambi i casi decide il leader.'
-  ' Se il tuo nome nel gioco porta già il tag del clan quando il clan viene creato, vieni'
-  ' aggiunto automaticamente.</p>'
-  '<p><b>Il tuo tag è mostrato esattamente com&#39;è scritto</b> &mdash; lettere strane'
-  ' comprese. La versione in lettere semplici serve solo dietro le quinte, così ogni modo'
-  ' di scrivere un tag conta come un unico clan e la ricerca funziona in entrambi i'
-  ' versi.</p>'
-  '<p><b>Ruoli.</b> Un leader può nominare co-leader e moderatori. Un moderatore rimuove i'
-  ' membri semplici; un co-leader fa tutto quello che fa il leader tranne eliminare il clan'
-  ' o toccare un altro co-leader. Nessuno può rimuovere qualcuno del proprio ruolo o'
-  ' superiore.</p>'),
+  ' ordinata per abilità, il record complessivo, le sue vittorie in survival e dove gioca il'
+  ' clan.</p><p><b>Come entrare.</b> <a href="/social">Social</a> ti suggerisce i clan i cui'
+  ' membri giocano più o meno al tuo livello, e ti mostra tutti quelli che accettano'
+  ' richieste. Puoi anche aprire la pagina di un clan e premere <b>Chiedi di entrare</b>,'
+  ' oppure usare un link d&#39;invito che ti dà il suo leader. In entrambi i casi decide il'
+  ' leader. Se il tuo nome nel gioco porta già il tag del clan quando il clan viene creato,'
+  ' vieni aggiunto automaticamente.</p><p><b>Il tuo tag è mostrato esattamente com&#39;è'
+  ' scritto</b> &mdash; lettere strane comprese. La versione in lettere semplici serve solo'
+  ' dietro le quinte, così ogni modo di scrivere un tag conta come un unico clan e la'
+  ' ricerca funziona in entrambi i versi. Un leader può aggiungere altri modi di scrivere il'
+  ' tag in <a href="/myclan">Il tuo clan</a>, e ogni membro sceglie quale portare in <a'
+  ' href="/account">Il tuo account</a>.</p><p><b>Una partita con il tag del tuo clan conta'
+  ' per te</b>, in qualunque modo il tag sia scritto. Solo i membri di quel clan vengono'
+  ' riconosciuti così, e ciò che segue il tag deve essere il tuo nome.</p><p><b>Il tuo nome'
+  ' account sei solo tu.</b> Quando entri in un clan, il tag esce dal tuo nome account e'
+  ' compare accanto come badge, così il tag può cambiare, e anche il tuo clan, senza che il'
+  ' tuo record si sposti. La pagina dell&#39;account chiede conferma prima di salvare un'
+  ' nome che porta un tag.</p><p><b>Ruoli.</b> Un leader può nominare co-leader e'
+  ' moderatori. Un moderatore rimuove i membri semplici; un co-leader fa tutto quello che fa'
+  ' il leader tranne eliminare il clan o toccare un altro co-leader. Nessuno può rimuovere'
+  ' qualcuno del proprio ruolo o superiore.</p>'),
 
  ("Un nome già presente in classifica",
   '<p>Scrivilo in <a href="/settings">Impostazioni</a> e, se non è di nessuno, è subito'

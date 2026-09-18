@@ -8,7 +8,7 @@ NOMATCH = "Không có gì trên trang này khớp với đó."
 # Card 2 (which games count) states rules that changed on 16 Sep 2026:
 # no player minimum, a ten-minute match, top eight per team. Until this
 # file is retranslated the page shows the English card there.
-STALE = (2, 6, 7, 8)
+STALE = ()
 FOOT = 'Có thắc mắc? Hỏi [[CONTACT]] trên Discord.'
 
 CARDS = [
@@ -26,12 +26,15 @@ CARDS = [
   '<p>Chỉ cần vậy thôi. Đăng nhập là tuỳ bạn, và chỉ cần cho những phần thêm ở dưới.</p>'),
 
  ("Trận nào được tính",
-  '<p>Giờ đây mọi trận đồng đội đang diễn ra đều được theo dõi, ngay từ khi bắt đầu &mdash;'
-  ' không còn giới hạn chỉ vài trận cùng lúc nữa. Một trận chỉ cần có ít nhất'
-  ' <b>bốn người chơi</b>, và nó được theo dõi cho tới hết.</p>'
-  '<p>Thẻ <a href="/play">Chơi</a> liệt kê mọi trận đang diễn ra và cho biết trình theo dõi'
-  ' đã vào trận đó chưa; một phòng vừa mới lập sẽ được bắt trong vài giây. Nếu một trận đang'
-  ' diễn ra, nó được tính.</p>'),
+  '<p>Mọi trận đồng đội đang diễn ra đều được theo dõi, ngay từ lúc phòng xuất hiện. Không'
+  ' giới hạn số trận theo dõi cùng lúc, cũng không cần số người chơi tối thiểu để một phòng'
+  ' được bắt.</p><p>Để được <b>tính điểm</b>, một trận phải kéo dài <b>ít nhất mười'
+  ' phút</b>. Trận ngắn hơn vẫn được ghi lại và có thể xem lại, nhưng không làm thay đổi'
+  ' điểm của ai.</p><p>Trong một trận được tính điểm, mỗi đội có <b>tám người điểm cao'
+  ' nhất</b> được tính, và bạn cần khoảng <b>mười phút trong trận</b> để nằm trong số đó'
+  ' &mdash; người thắng cũng cần vậy, dù vào sớm đến đâu.</p><p>Thẻ <a href="/play">Chơi</a>'
+  ' liệt kê mọi trận đang diễn ra và cho biết trình theo dõi đã vào trận đó chưa; một phòng'
+  ' vừa mới lập sẽ được bắt trong vài giây. Nếu một trận đang diễn ra, nó được tính.</p>'),
 
  ("Điểm của bạn",
   '<p>Ai cũng bắt đầu ở <b>[[ELO]]</b>. Một trận làm bạn thay đổi nhiều nhất <b>[[K]]</b>'
@@ -56,40 +59,48 @@ CARDS = [
 
  ("Hai cái tên",
   '<p><b>Tên tài khoản</b> là dòng trên bảng xếp hạng thuộc về bạn. Điểm của bạn nằm ở đó,'
-  ' và nó không đổi khi bạn đổi tên trong game. Đặt ở'
-  ' <a href="/settings">Cài đặt</a>.</p>'
-  '<p><b>Tên khi chơi</b> là tên bạn đang dùng trong Starblast lúc này. Đặt ở trang'
-  ' <a href="/play">Chơi</a>, và đổi bao nhiêu lần cũng được &mdash; nó chỉ để nhận ra tàu'
-  ' của bạn trong phòng, vậy thôi.</p>'
-  '<p>Ban đầu hai tên giống nhau, và với hầu hết mọi người thì vẫn vậy. Chúng chỉ khác nhau'
-  ' nếu bạn chơi dưới một cái tên khác một thời gian.</p>'),
+  ' và nó không đổi khi bạn đổi tên trong game. Đặt ở <a href="/settings">Cài'
+  ' đặt</a>.</p><p><b>Tên khi chơi</b> là tên bạn đang dùng trong Starblast lúc này. Đặt ở'
+  ' trang <a href="/play">Chơi</a>, và đổi bao nhiêu lần cũng được &mdash; nhờ nó chúng tôi'
+  ' nhận ra tàu của bạn trong phòng, và một trận chơi dưới tên đó được tính cho tài khoản'
+  ' của bạn.</p><p>Ban đầu hai tên giống nhau, và với hầu hết mọi người thì vẫn vậy. Chúng'
+  ' chỉ khác nhau nếu bạn chơi dưới một cái tên khác một thời gian.</p>'),
 
  ("Báo danh trước trận, và dấu tích xanh",
   '<p>Bấm <b>Chơi</b> trước một trận chính là thứ nối hai cái tên lại. Trang web tìm trong'
   ' phòng đó một con tàu mang <b>tên khi chơi</b> của bạn, xác định con tàu đó là bạn, rồi'
   ' ghi kết quả vào <b>tên tài khoản</b> của bạn &mdash; nhờ vậy điểm của bạn dồn về một'
-  ' chỗ, dù trong game bạn tên là gì.</p>'
-  '<p>Vậy nên hãy để tên khi chơi ở trang Chơi giống hệt tên trên tàu của bạn. Chính nó mới'
-  ' phải khớp; tên tài khoản thì không cần.</p>'
-  '<p><b>Nếu bạn không báo danh</b>, kết quả sẽ rơi vào đúng cái tên mà game báo về. Nó chỉ'
-  ' tính cho bạn nếu cái tên đó là của bạn.</p>'
-  '<p>Dấu <b>&#10003;</b> cạnh một cái tên nghĩa là người đó đã bật Bảo vệ: chỉ những trận'
-  ' họ có báo danh mới được tính. Đó là cách tính chặt hơn và chậm hơn, và không bắt buộc'
-  ' &mdash; xem trong <a href="/settings">Cài đặt</a>.</p>'),
+  ' chỗ, dù trong game bạn tên là gì.</p><p>Vậy nên hãy để tên khi chơi ở trang Chơi giống'
+  ' hệt tên trên tàu của bạn. Chính nó mới phải khớp; tên tài khoản thì không'
+  ' cần.</p><p><b>Nếu bạn không báo danh</b>, một trận dưới tên khi chơi của bạn vẫn được'
+  ' tính cho bạn. Báo danh chỉ thêm bằng chứng con tàu nào là của bạn: nếu ai đó bay dưới'
+  ' tên bạn trong cùng phòng, trận sẽ bị giữ lại trừ khi bạn đã báo danh, và <b>Bảo vệ</b>'
+  ' chỉ tính những trận bạn có báo danh. Một tên khi chơi mà hai tài khoản cùng nhận thì'
+  ' không tính cho bên nào.</p><p>Dấu <b>&#10003;</b> cạnh một cái tên nghĩa là người đó đã'
+  ' bật Bảo vệ: chỉ những trận họ có báo danh mới được tính. Đó là cách tính chặt hơn và'
+  ' chậm hơn, và không bắt buộc &mdash; xem trong <a href="/settings">Cài đặt</a>.</p>'),
 
  ("Bang hội",
   '<p>Bang hội là một nhóm người chơi dùng chung một thẻ tên. Trang của bang cho thấy danh'
-  ' sách thành viên xếp theo kỹ năng, thành tích chung và nơi bang thường chơi.</p>'
-  '<p><b>Cách vào bang.</b> Mở trang của bang và bấm <b>Xin gia nhập</b>, hoặc dùng liên'
-  ' kết mời do bang chủ đưa. Dù cách nào thì bang chủ vẫn là người quyết định. Nếu tên'
-  ' trong game của bạn đã mang thẻ của bang vào lúc bang được lập, bạn được thêm vào tự'
-  ' động.</p>'
-  '<p><b>Thẻ của bạn hiện đúng như cách nó được viết</b> &mdash; kể cả chữ hoa mỹ. Bản chữ'
-  ' thường chỉ dùng ở phía sau, để mọi cách viết của một thẻ đều tính là một bang và tìm'
-  ' kiếm kiểu nào cũng ra.</p>'
-  '<p><b>Cấp bậc.</b> Bang chủ có thể phong phó bang và điều hành. Điều hành xoá được thành'
-  ' viên thường; phó bang làm được mọi thứ bang chủ làm, trừ xoá bang và động đến một phó'
-  ' bang khác. Không ai xoá được người cùng cấp hoặc cao hơn mình.</p>'),
+  ' sách thành viên xếp theo kỹ năng, thành tích chung, số trận sinh tồn bang đã thắng, và'
+  ' nơi bang thường chơi.</p><p><b>Cách vào bang.</b> <a href="/social">Social</a> gợi ý'
+  ' những bang có thành viên chơi ở tầm của bạn, và cho bạn xem mọi bang đang nhận đơn xin'
+  ' gia nhập. Bạn cũng có thể mở trang của bang và bấm <b>Xin gia nhập</b>, hoặc dùng liên'
+  ' kết mời do bang chủ đưa. Dù cách nào thì bang chủ vẫn là người quyết định. Nếu tên trong'
+  ' game của bạn đã mang thẻ của bang vào lúc bang được lập, bạn được thêm vào tự'
+  ' động.</p><p><b>Thẻ của bạn hiện đúng như cách nó được viết</b> &mdash; kể cả chữ hoa mỹ.'
+  ' Bản chữ thường chỉ dùng ở phía sau, để mọi cách viết của một thẻ đều tính là một bang và'
+  ' tìm kiếm kiểu nào cũng ra. Bang chủ có thể thêm các cách viết khác của thẻ ở <a'
+  ' href="/myclan">Bang của bạn</a>, và mỗi thành viên chọn cách viết mình đeo ở <a'
+  ' href="/account">Tài khoản của bạn</a>.</p><p><b>Một trận dưới thẻ của bang bạn được tính'
+  ' cho bạn</b>, dù thẻ được gõ theo cách viết nào. Chỉ thành viên của bang đó mới được khớp'
+  ' theo cách này, và phần sau thẻ phải là tên của bạn.</p><p><b>Tên tài khoản chỉ là chính'
+  ' bạn.</b> Khi bạn vào một bang, thẻ được gỡ khỏi tên tài khoản và hiện bên cạnh như một'
+  ' huy hiệu, nên thẻ có thể đổi, bang của bạn cũng có thể đổi, mà thành tích của bạn không'
+  ' phải dời đi đâu. Trang tài khoản sẽ hỏi trước khi lưu một cái tên có mang'
+  ' thẻ.</p><p><b>Cấp bậc.</b> Bang chủ có thể phong phó bang và điều hành. Điều hành xoá'
+  ' được thành viên thường; phó bang làm được mọi thứ bang chủ làm, trừ xoá bang và động đến'
+  ' một phó bang khác. Không ai xoá được người cùng cấp hoặc cao hơn mình.</p>'),
 
  ("Một cái tên đã có trên bảng",
   '<p>Gõ tên đó ở <a href="/settings">Cài đặt</a>: nếu chưa ai sở hữu, nó là của bạn ngay.'

@@ -8,7 +8,7 @@ NOMATCH = "Nada en esta página coincide con eso."
 # Card 2 (which games count) states rules that changed on 16 Sep 2026:
 # no player minimum, a ten-minute match, top eight per team. Until this
 # file is retranslated the page shows the English card there.
-STALE = (2, 6, 7, 8)
+STALE = ()
 FOOT = '¿Dudas? Pregunta a [[CONTACT]] en Discord.'
 
 CARDS = [
@@ -29,12 +29,16 @@ CARDS = [
   ' extras de más abajo.</p>'),
 
  ("Qué partidas cuentan",
-  '<p>Ahora se observa cada partida por equipos en directo, desde el momento en que empieza'
-  ' &mdash; ya no hay un límite de solo unas pocas a la vez. A una partida solo le hacen'
-  ' falta al menos <b>cuatro jugadores</b>, y se sigue hasta el final.</p>'
-  '<p>La pestaña <a href="/play">Jugar</a> muestra cada partida en directo y si el'
-  ' observador ya está en ella; una sala recién creada se detecta en unos segundos. Si una'
-  ' partida está en directo, cuenta.</p>'),
+  '<p>Se observa cada partida por equipos en directo, desde el momento en que aparece la'
+  ' sala. No hay límite de cuántas a la vez ni un mínimo de jugadores para que una sala se'
+  ' detecte.</p><p>Para ser <b>puntuada</b>, una partida tiene que durar <b>al menos diez'
+  ' minutos</b>. Las más cortas se registran igualmente y se pueden ver después, pero no'
+  ' mueven la puntuación de nadie.</p><p>Dentro de una partida puntuada, los puntuados son'
+  ' los <b>ocho mejores por puntos</b> de cada equipo, y hacen falta unos <b>diez minutos en'
+  ' la partida</b> para ser uno de ellos &mdash; un ganador los necesita por muy pronto que'
+  ' haya llegado.</p><p>La pestaña <a href="/play">Jugar</a> muestra cada partida en directo'
+  ' y si el observador ya está en ella; una sala recién creada se detecta en unos segundos.'
+  ' Si una partida está en directo, cuenta.</p>'),
 
  ("Tu puntuación",
   '<p>Todo el mundo empieza en <b>[[ELO]]</b>. Una partida te mueve como mucho <b>[[K]]</b>'
@@ -61,42 +65,53 @@ CARDS = [
 
  ("Dos nombres",
   '<p><b>Tu nombre de cuenta</b> es la fila de la clasificación que te pertenece. Ahí vive'
-  ' tu puntuación, y no cambia cuando te cambias el nombre en el juego. Se establece en'
-  ' <a href="/settings">Ajustes</a>.</p>'
-  '<p><b>Tu nombre de juego</b> es como te llames en Starblast ahora mismo. Se pone en la'
-  ' página <a href="/play">Jugar</a>, y puedes cambiarlo tantas veces como quieras'
-  ' &mdash; sirve para reconocer tu nave en una sala, nada más.</p>'
-  '<p>Empiezan siendo el mismo, y para la mayoría siguen siéndolo. Solo se diferencian si'
-  ' juegas con otro nombre durante un tiempo.</p>'),
+  ' tu puntuación, y no cambia cuando te cambias el nombre en el juego. Se establece en <a'
+  ' href="/settings">Ajustes</a>.</p><p><b>Tu nombre de juego</b> es como te llames en'
+  ' Starblast ahora mismo. Se pone en la página <a href="/play">Jugar</a>, y puedes'
+  ' cambiarlo tantas veces como quieras &mdash; así reconocemos tu nave en una sala, y una'
+  ' partida jugada con ese nombre cuenta para tu cuenta.</p><p>Empiezan siendo el mismo, y'
+  ' para la mayoría siguen siéndolo. Solo se diferencian si juegas con otro nombre durante'
+  ' un tiempo.</p>'),
 
  ("El registro previo y la marca verde",
   '<p>Pulsar <b>Jugar</b> antes de una partida es lo que une los dos nombres. El sitio'
   ' busca en esa sala una nave llamada con tu <b>nombre de juego</b>, decide que esa nave'
   ' eres tú, y pone el resultado en tu <b>nombre de cuenta</b> &mdash; así tu puntuación'
-  ' crece en un solo sitio, te llames como te llames en el juego.</p>'
-  '<p>Así que mantén el nombre de juego de la página Jugar igual que el de tu nave. Ese es'
-  ' el que tiene que coincidir; tu nombre de cuenta no.</p>'
-  '<p><b>Si no te registras antes</b>, el resultado cae sin más en el nombre que reportó el'
-  ' juego. Eso solo cuenta para ti si ese nombre es tuyo.</p>'
-  '<p>Una <b>&#10003;</b> junto a un nombre significa que ese jugador tiene la Protección'
-  ' activada: solo le cuentan las partidas en las que se registró antes. Es una puntuación'
-  ' más estricta y más lenta, y es opcional &mdash; está en'
-  ' <a href="/settings">Ajustes</a>.</p>'),
+  ' crece en un solo sitio, te llames como te llames en el juego.</p><p>Así que mantén el'
+  ' nombre de juego de la página Jugar igual que el de tu nave. Ese es el que tiene que'
+  ' coincidir; tu nombre de cuenta no.</p><p><b>Si no te registras antes</b>, una partida'
+  ' con tu nombre de juego cuenta para ti igualmente. Lo que añade el registro es la prueba'
+  ' de qué nave era la tuya: si otra persona vuela con tu nombre en la misma sala, la'
+  ' partida se retiene a menos que te hayas registrado, y la <b>Protección</b> solo cuenta'
+  ' las partidas en las que te registraste. Un nombre de juego que reclaman dos cuentas no'
+  ' cuenta para ninguna.</p><p>Una <b>&#10003;</b> junto a un nombre significa que ese'
+  ' jugador tiene la Protección activada: solo le cuentan las partidas en las que se'
+  ' registró antes. Es una puntuación más estricta y más lenta, y es opcional &mdash; está'
+  ' en <a href="/settings">Ajustes</a>.</p>'),
 
  ("Clanes",
   '<p>Un clan es un grupo de jugadores que comparten una etiqueta. Su página muestra la'
-  ' plantilla ordenada por habilidad, el registro conjunto y dónde juega el clan.</p>'
-  '<p><b>Cómo entrar.</b> Abre la página del clan y pulsa <b>Solicitar unirse</b>, o usa un'
-  ' enlace de invitación que te dé su líder. En ambos casos decide el líder. Si tu nombre'
-  ' en el juego ya lleva la etiqueta del clan cuando este se crea, entras'
-  ' automáticamente.</p>'
-  '<p><b>Tu etiqueta se muestra exactamente como está escrita</b> &mdash; con letras raras'
-  ' y todo. La versión en letras normales solo se usa por dentro, para que todas las formas'
-  ' de escribir una etiqueta cuenten como un mismo clan y la búsqueda funcione de las dos'
-  ' maneras.</p>'
-  '<p><b>Rangos.</b> Un líder puede nombrar colíderes y moderadores. Un moderador quita a'
-  ' miembros normales; un colíder hace todo lo que hace el líder salvo eliminar el clan o'
-  ' tocar a otro colíder. Nadie puede quitar a alguien de su mismo rango o superior.</p>'),
+  ' plantilla ordenada por habilidad, el registro conjunto, sus victorias en supervivencia y'
+  ' dónde juega el clan.</p><p><b>Cómo entrar.</b> <a href="/social">Social</a> te sugiere'
+  ' los clanes cuyos miembros juegan más o menos a tu nivel, y te muestra todos los que'
+  ' aceptan solicitudes. También puedes abrir la página de un clan y pulsar <b>Solicitar'
+  ' unirse</b>, o usar un enlace de invitación que te dé su líder. En ambos casos decide el'
+  ' líder. Si tu nombre en el juego ya lleva la etiqueta del clan cuando este se crea,'
+  ' entras automáticamente.</p><p><b>Tu etiqueta se muestra exactamente como está'
+  ' escrita</b> &mdash; con letras raras y todo. La versión en letras normales solo se usa'
+  ' por dentro, para que todas las formas de escribir una etiqueta cuenten como un mismo'
+  ' clan y la búsqueda funcione de las dos maneras. Un líder puede añadir otras formas de'
+  ' escribir la etiqueta en <a href="/myclan">Tu clan</a>, y cada miembro elige en <a'
+  ' href="/account">Tu cuenta</a> cuál llevar.</p><p><b>Una partida con la etiqueta de tu'
+  ' clan cuenta para ti</b>, esté escrita como esté. Solo los miembros de ese clan se'
+  ' asignan así, y lo que sigue a la etiqueta tiene que ser tu nombre.</p><p><b>Tu nombre de'
+  ' cuenta eres solo tú.</b> Al entrar en un clan, la etiqueta sale de tu nombre de cuenta y'
+  ' aparece al lado como insignia, así que la etiqueta puede cambiar, y tu clan también, sin'
+  ' que tu registro se mueva. La página de la cuenta pregunta antes de guardar un nombre que'
+  ' lleve una etiqueta.</p><p><b>Rangos.</b> Un líder puede nombrar colíderes y moderadores.'
+  ' Un moderador quita a miembros normales; un colíder hace todo lo que hace el líder salvo'
+  ' eliminar el clan o tocar a otro colíder. Nadie puede quitar a alguien de su mismo rango'
+  ' o superior.</p>'),
 
  ("Un nombre que ya está en la clasificación",
   '<p>Escríbelo en <a href="/settings">Ajustes</a> y, si no es de nadie, es tuyo al'
