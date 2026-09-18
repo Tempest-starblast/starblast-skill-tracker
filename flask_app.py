@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.33.0"
+APP_VERSION = "9.33.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -19291,7 +19291,7 @@ def clans_page():
                            version=APP_VERSION, contact=CONTACT_HANDLE,
                            # A clan directory is a ranking: it belongs to the
                            # Leaderboard tab, beside the players.
-                           page='leaderboard',
+                           page='clans',
                            notice=CLANS_NOTICE)
 
 
