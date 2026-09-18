@@ -59,10 +59,10 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
     <div class="phtext">
       <p class="pheye">{{ t('Your account') }}</p>
       {% if acct %}
-      <h1 class="phname">{% if acct.clan %}<a class="badge" href="/clan/{{ acct.clan }}">{{ acct.clan_display or acct.clan }}</a>{% endif %}<span class="{% if ac.name %}cosn {{ ac.name.cls }}{% endif %}">{{ acct.display }}</span>{% if ac.title %} <span class="cost{% if ac.title.earned %} earned{% endif %}">{{ ac.title.text }}</span>{% endif %}</h1>
+      <h1 class="phname">{% if acct.clan %}<a class="badge{% if acct.cv and acct.cv.tag %} cbadge {{ acct.cv.tag }}{% endif %}" href="/clan/{{ acct.clan }}">{{ acct.clan_display or acct.clan }}</a>{% endif %}<span class="{% if ac.name %}cosn {{ ac.name.cls }}{% endif %}">{{ acct.display }}</span>{% if ac.title %} <span class="cost{% if ac.title.earned %} earned{% endif %}">{{ ac.title.text }}</span>{% endif %}</h1>
       <p class="phsub">{{ t('Rank') }} <b>#{{ acct.rank }}</b> of {{ acct.total }}
         &middot; <a href="/player/{{ acct.name|urlencode }}">Public profile &rarr;</a>
-        {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% if gems_on and acct.contract %} &middot; <span title="Hired as a free agent: you stay until then">under contract until {{ acct.contract }}</span>{% endif %}{% endif %}</p>
+        {% if acct.clan %} &middot; <a href="/myclan">{{ t('Your clan') }} &rarr;</a>{% if gems_on and acct.contract %} &middot; <span title="Hired as a free agent: you stay until then">under contract until {{ acct.contract }}{% if acct.contract_rate %} at +{{ acct.contract_rate }} a win{% endif %}</span>{% endif %}{% endif %}</p>
       {% else %}
       <h1 class="phname">No name yet</h1>
       <p class="phsub">Set the name you play under on the <a href="#names">Names</a> tab &mdash; matches are recorded against it.</p>

@@ -60,7 +60,8 @@
       {%- if c.place == 1 %}&#129351;{% elif c.place == 2 %}&#129352;
       {%- elif c.place == 3 %}&#129353;{% else %}{{ c.place }}{% endif -%}
     </td>
-    <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a></td>
+    <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a>
+      {%- if gems_on and c.perks %}{% if 'perk-spotlight' in c.perks %}<span class="pill2" style="color:#f6d77a">Spotlight</span>{% endif %}{% if 'perk-recruit' in c.perks %}<span class="pill2" style="color:#66e6b8;border-color:rgba(102,230,184,.5);background:rgba(102,230,184,.1)">Recruiting</span>{% endif %}{% endif %}</td>
     <td class="mid">{{ c.size }}</td>
     <td class="mid">{% if c.region_label %}<a href="/?region={{ c.region }}">{{ c.region_label }}</a>{% else %}&mdash;{% endif %}</td>
     <td class="mid">{{ c.wins }}-{{ c.losses }}</td>

@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.37.1"
+APP_VERSION = "9.38.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -104,11 +104,21 @@ GEM_LOSS = 10
 # they remove members, they do not run the clan.
 GEM_CLAN_WIN = 100
 GEM_LEADER_WIN = 50
+# ...and each co-leader half of that. There are at most CLAN_COLEADER_MAX
+# of them, which is what stops the cut being farmed by handing out the role.
+GEM_COLEADER_WIN = 25
 # A survival win (last player standing on the survival board): the winner,
 # their clan's treasury and each officer. Owner's rates, 18 Sep 2026.
 GEM_SURVIVAL_WIN = 200
 GEM_SURVIVAL_CLAN_WIN = 200
 GEM_SURVIVAL_LEADER_WIN = 100
+GEM_SURVIVAL_COLEADER_WIN = 50
+# Everyone who is not an officer is paid by the clan, per win, at a rate the
+# leader sets (a hired agent's contract may name its own). It comes out of
+# that win's own deposit and is capped at the deposit, so a win can never
+# leave the treasury lower than it found it - no payroll, no debt.
+CLAN_RATE_MAX = 100
+CLAN_COLEADER_MAX = 2
 # Once a day, on your first win, so somebody with one match in them is not
 # simply left behind by somebody with twenty.
 GEM_DAILY_FIRST_WIN = 250
@@ -2714,6 +2724,17 @@ def init_db():
         c.execute("ALTER TABLE free_agents ADD COLUMN days INTEGER NOT NULL DEFAULT 30")
     except sqlite3.Error:
         pass
+    try:
+        c.execute("ALTER TABLE free_agents ADD COLUMN rate INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.Error:
+        pass
+    # Timed things a clan bought: one row per perk, the day it runs out.
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_perks (
+                    clan TEXT NOT NULL,
+                    perk TEXT NOT NULL,
+                    until TEXT NOT NULL,
+                    PRIMARY KEY (clan, perk)
+                )''')
     for _gcol in ("ALTER TABLE players ADD COLUMN gems INTEGER DEFAULT 0",
                   "ALTER TABLE clans ADD COLUMN gems INTEGER DEFAULT 0",
                   # The ship worn as your emblem. NULL = your division's own.
@@ -2723,7 +2744,8 @@ def init_db():
                   "ALTER TABLE players ADD COLUMN tag_style INTEGER",
                   "ALTER TABLE players ADD COLUMN cosmetics TEXT",
                   "ALTER TABLE players ADD COLUMN contract_clan TEXT",
-                  "ALTER TABLE players ADD COLUMN contract_until TEXT"):
+                  "ALTER TABLE players ADD COLUMN contract_until TEXT",
+                  "ALTER TABLE players ADD COLUMN contract_rate INTEGER DEFAULT 0"):
         try:
             c.execute(_gcol)
         except sqlite3.OperationalError:
@@ -2852,7 +2874,11 @@ def init_db():
     # key (into CLAN_THEMES), both leader/co-leader editable, shown on the
     # public clan page.
     for _cc in ("ALTER TABLE clans ADD COLUMN bio TEXT",
-                "ALTER TABLE clans ADD COLUMN theme TEXT"):
+                "ALTER TABLE clans ADD COLUMN theme TEXT",
+                "ALTER TABLE clans ADD COLUMN member_rate INTEGER DEFAULT 0",
+                "ALTER TABLE clans ADD COLUMN mod_rate INTEGER DEFAULT 0",
+                "ALTER TABLE clans ADD COLUMN coleader_slots INTEGER DEFAULT 0",
+                "ALTER TABLE clans ADD COLUMN cosmetics TEXT"):
         try:
             c.execute(_cc)
         except sqlite3.OperationalError:
@@ -6800,6 +6826,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.38.0", "at": "2026-09-19T05:00:00Z", "changes": [
+        "<b>A clan has at most two co-leaders.</b> The ones already appointed "
+        "stay; a third cannot be added. Moderators are still unlimited.",
+    ]},
     {"version": "9.37.0", "at": "2026-09-19T02:30:00Z", "changes": [
         "<b>One header everywhere.</b> The leaderboard, match and survival "
         "replays, Compare, Live matches, Custom games, Report and Merge a name "
@@ -9382,6 +9412,7 @@ def player_profile(name):
      player["mythic"]) = worn_emblem(normalize_name(stored_name), display_ship_map(),
                                      gems_visible())
     player["cos"] = cosmetic_view(normalize_name(stored_name), gems_visible())
+    player["cv"] = clan_view(clan, gems_visible()) if clan else {}
     # Where the viewer stands with this player, so the profile can offer the
     # right button rather than one that will be refused.
     _fs = 'none'
@@ -13303,6 +13334,12 @@ def clan_page(tag):
     c2 = conn2.cursor()
     clan["display"] = clan_display(c2, known)
     clan["treasury"] = gem_balance(c2, "clan", known) if _ships_ok_c else None
+    clan["member_rate"], clan["mod_rate"] = clan_pay_rates(c2, known) if _ships_ok_c else (0, 0)
+    clan["paid_week"] = clan_paid_week(c2, known) if _ships_ok_c else None
+    clan["cv"] = clan_view(known, _ships_ok_c)
+    if _ships_ok_c:
+        for m in members:
+            m["rate"] = clan_member_rate(c2, known, normalize_name(m["name"]))
     clan["your_role"] = clan_role(c2, current_user(), known) or ""
     clan["can_manage"] = clan_rank(clan["your_role"]) >= clan_rank('coleader')
     clan["is_leader"] = clan["your_role"] == 'leader'
@@ -13392,6 +13429,294 @@ def gem_clan_officers(c, tag):
         return []
 
 
+def gem_clan_officers_by_role(c, tag):
+    """[(norm_name, role)] for the leader and each co-leader with a player
+    row - the two roles paid a cut of every member win."""
+    if not tag:
+        return []
+    try:
+        return [(r[0], r[1]) for r in c.execute(
+            "SELECT DISTINCT p.norm_name, COALESCE(a.role, 'leader') FROM clan_admins a "
+            "JOIN players p ON p.google_sub = a.google_sub "
+            "WHERE a.clan = ? AND COALESCE(a.role, 'leader') IN ('leader', 'coleader') "
+            "AND p.norm_name IS NOT NULL", (tag,)).fetchall()]
+    except sqlite3.Error:
+        return []
+
+
+def clan_coleader_cap(c, tag):
+    """How many co-leaders this clan may have: the site's cap plus any slots
+    it bought."""
+    try:
+        r = c.execute("SELECT COALESCE(coleader_slots, 0) FROM clans WHERE tag = ?", (tag,)).fetchone()
+    except sqlite3.Error:
+        r = None
+    return CLAN_COLEADER_MAX + (int(r[0]) if r and r[0] else 0)
+
+
+def clan_pay_rates(c, tag):
+    """(member rate, moderator rate) the clan pays per team win."""
+    try:
+        r = c.execute("SELECT COALESCE(member_rate, 0), COALESCE(mod_rate, 0) FROM clans "
+                      "WHERE tag = ?", (tag,)).fetchone()
+    except sqlite3.Error:
+        r = None
+    if not r:
+        return 0, 0
+    return (max(0, min(CLAN_RATE_MAX, int(r[0] or 0))),
+            max(0, min(CLAN_RATE_MAX, int(r[1] or 0))))
+
+
+def clan_member_rate(c, tag, nn):
+    """What THIS member is paid per team win: a running contract's rate,
+    else the clan's rate for their role. Officers have their cuts instead."""
+    try:
+        r = c.execute("SELECT google_sub, contract_clan, contract_until, COALESCE(contract_rate, 0) "
+                      "FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    except sqlite3.Error:
+        return 0
+    if not r:
+        return 0
+    sub, cclan, cuntil, crate = r
+    role = clan_role(c, sub, tag) if sub else ""
+    if role in ('leader', 'coleader'):
+        return 0
+    if contract_until(cclan, cuntil, tag) and crate:
+        return max(0, min(CLAN_RATE_MAX, int(crate)))
+    member_rate, mod_rate = clan_pay_rates(c, tag)
+    return mod_rate if role == 'moderator' else member_rate
+
+
+def clan_pay_member_win(c, tag, nn, ref, survival=False):
+    """The clan side of one member win, all in the caller's transaction:
+    the treasury's deposit, the leader's and co-leaders' cuts (minted, like
+    the deposit), and the member's own per-win pay taken back out of that
+    deposit. Returns what the member was paid by the clan."""
+    deposit = GEM_SURVIVAL_CLAN_WIN if survival else GEM_CLAN_WIN
+    reason = "survival-member-win" if survival else "member-win"
+    gem_grant(c, "clan", tag, deposit, reason, ref)
+    for officer, role in gem_clan_officers_by_role(c, tag):
+        if role == 'leader':
+            cut = GEM_SURVIVAL_LEADER_WIN if survival else GEM_LEADER_WIN
+        else:
+            cut = GEM_SURVIVAL_COLEADER_WIN if survival else GEM_COLEADER_WIN
+        gem_grant(c, "player", officer, cut, reason, ref)
+    rate = clan_member_rate(c, tag, nn)
+    if rate <= 0:
+        return 0
+    pay = min(rate * (2 if survival else 1), deposit)
+    if gem_clan_charge(c, tag, pay, "member-pay", ref) != "ok":
+        return 0
+    return gem_grant(c, "player", nn, pay, "clan-pay", ref)
+
+
+def clan_paid_week(c, tag):
+    """What left the treasury in the last seven days, by reason."""
+    out = {"member-pay": 0, "salary": 0, "hire": 0, "purchase": 0, "total": 0}
+    try:
+        for reason, amt in c.execute(
+                "SELECT reason, COALESCE(-SUM(amount), 0) FROM gem_ledger WHERE owner_kind = 'clan' "
+                "AND owner = ? AND amount < 0 AND at >= datetime('now', '-7 days') GROUP BY reason",
+                (tag,)).fetchall():
+            out[reason] = int(amt or 0)
+            out["total"] += int(amt or 0)
+    except sqlite3.Error:
+        pass
+    return out
+
+
+# ---- The clan shop ---------------------------------------------------
+# What a clan buys with its treasury. Looks dress the clan band and the tag
+# every member wears; the emblem is a ship beside the tag; perks are timed
+# (a week) or permanent slots. Officers buy; the treasury pays; a clan's
+# money never buys a player's own items (that rule stands).
+CLAN_PERK_DAYS = 7
+CLAN_COLEADER_SLOTS_MAX = 2          # extra slots on top of CLAN_COLEADER_MAX
+CLAN_ITEMS = [
+    # id, kind, slot, name, price, desc, css class
+    ("cb-dark", "look", "banner", "Dark", 1500, "Lights off.", "cos-b-dark"),
+    ("cb-starfield", "look", "banner", "Starfield", 3000, "Deep space, a few stars.", "cos-b-starfield"),
+    ("cb-grid", "look", "banner", "Grid", 4000, "Radar lines across the band.", "cos-b-grid"),
+    ("cb-laser", "look", "banner", "Laser", 4000, "Pink beams across the dark.", "cos-b-laser"),
+    ("cb-nebula", "look", "banner", "Nebula", 6000, "Violet and rose cloud.", "cos-b-nebula"),
+    ("cb-aurora", "look", "banner", "Aurora", 7500, "Green and blue light, folded.", "cos-b-aurora"),
+    ("cb-void", "look", "banner", "Void", 9000, "Black, with something purple below.", "cos-b-void"),
+    ("cb-plasma", "look", "banner", "Plasma", 15000, "Magenta, cyan and violet, swirling.", "cos-b-plasma"),
+    ("cb-bloodmoon", "look", "banner", "Blood moon", 15000, "A red moon in the corner.", "cos-b-bloodmoon"),
+    ("cb-goldleaf", "look", "banner", "Gold leaf", 25000, "Gold, hammered flat.", "cos-b-goldleaf"),
+    ("cf-frost", "look", "frame", "Frost", 4000, "A white double ring.", "cos-f-frost"),
+    ("cf-neon", "look", "frame", "Neon edge", 6000, "Cyan light round the edge.", "cos-f-neon"),
+    ("cf-crimson", "look", "frame", "Crimson", 6000, "Red light round the edge.", "cos-f-crimson"),
+    ("cf-emerald", "look", "frame", "Emerald", 6000, "Green light round the edge.", "cos-f-emerald"),
+    ("cf-circuit", "look", "frame", "Circuit", 8000, "Dashed, like a trace on a board.", "cos-f-circuit"),
+    ("cf-gold", "look", "frame", "Gold ring", 12000, "Gold, thin, bright.", "cos-f-gold"),
+    ("ct-neon", "look", "tag", "Neon tag", 5000, "The tag in cyan light - on every member.", "cos-ct-neon"),
+    ("ct-blood", "look", "tag", "Blood tag", 5000, "Crimson tag, on every member.", "cos-ct-blood"),
+    ("ct-toxic", "look", "tag", "Toxic tag", 5000, "Acid green tag, on every member.", "cos-ct-toxic"),
+    ("ct-void", "look", "tag", "Void tag", 8000, "Black and violet, on every member.", "cos-ct-void"),
+    ("ct-chrome", "look", "tag", "Chrome tag", 12000, "Brushed metal, on every member.", "cos-ct-chrome"),
+    ("ct-gold", "look", "tag", "Gold tag", 20000, "Solid gold, on every member.", "cos-ct-gold"),
+    ("ct-diamond", "look", "tag", "Diamond tag", 40000, "White light, on every member.", "cos-ct-diamond"),
+    ("perk-recruit", "perk", "", "Recruiting", 1500, "A Recruiting pill on the clans table and your band for a week.", ""),
+    ("perk-spotlight", "perk", "", "Spotlight", 5000, "Pinned to the top of the clans page for a week.", ""),
+    ("perk-host", "perk", "", "Lobby host", 8000, "Your leader and co-leaders can open the custom lobby for a week.", ""),
+    ("perk-coleader", "slot", "", "Extra co-leader slot", 20000, "One more co-leader, for good. Up to %d extra." % CLAN_COLEADER_SLOTS_MAX, ""),
+]
+CLAN_ITEM_BY_ID = {i[0]: {"id": i[0], "kind": i[1], "slot": i[2], "name": i[3], "price": i[4],
+                          "desc": i[5], "cls": i[6]} for i in CLAN_ITEMS}
+CLAN_LOOK_SLOTS = [("banner", "Band"), ("frame", "Frame"), ("tag", "Tag")]
+
+
+def clan_item(item_id):
+    """A clan-shop item by id - a look, a perk, or a ship as the clan's
+    emblem (cs-<code>, at the ship's own price)."""
+    item = CLAN_ITEM_BY_ID.get(item_id)
+    if item:
+        return dict(item)
+    if item_id.startswith("cs-"):
+        try:
+            code = int(item_id[3:])
+        except ValueError:
+            return None
+        ship = next((i for i in ship_catalog() if i["code"] == code), None)
+        if ship:
+            return {"id": item_id, "kind": "emblem", "slot": "emblem", "name": ship["name"],
+                    "price": ship["price"], "desc": "The %s beside the tag." % ship["name"],
+                    "cls": "", "code": code, "color": ship["color"]}
+    return None
+
+
+def clan_owned_items(c, tag):
+    """Ids of the looks and emblems this clan has bought (a purchase row)."""
+    out = set()
+    try:
+        for (ref,) in c.execute("SELECT ref FROM gem_ledger WHERE owner_kind = 'clan' AND owner = ? "
+                                "AND reason = 'purchase' AND ref LIKE 'citem-%'", (tag,)).fetchall():
+            if clan_item(ref[6:]):
+                out.add(ref[6:])
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def _clan_worn(raw):
+    try:
+        d = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        d = {}
+    if not isinstance(d, dict):
+        return {}
+    out = {}
+    for k, v in d.items():
+        it = clan_item(str(v)) if isinstance(v, str) else None
+        if it and it.get("slot") == k:
+            out[k] = v
+    return out
+
+
+def clan_perks_active(c, tag):
+    """{perk: until} for what is still running."""
+    out = {}
+    try:
+        for perk, until in c.execute("SELECT perk, until FROM clan_perks WHERE clan = ? AND until > ?",
+                                     (tag, _stamp())).fetchall():
+            out[perk] = until
+    except sqlite3.Error:
+        pass
+    return out
+
+
+_CLAN_COS_CACHE = {"ts": 0.0, "map": {}}
+
+
+def clan_cos_map():
+    """tag -> {slots..., perks} for every clan with anything to show. Cached
+    briefly; the pages that draw badges ask for several players."""
+    now = time.time()
+    if now - _CLAN_COS_CACHE["ts"] < 60:
+        return _CLAN_COS_CACHE["map"]
+    m = {}
+    try:
+        conn = db(timeout=3)
+        c = conn.cursor()
+        for tag, raw in c.execute("SELECT tag, cosmetics FROM clans WHERE cosmetics IS NOT NULL "
+                                  "AND cosmetics != ''").fetchall():
+            worn = _clan_worn(raw)
+            if worn:
+                m.setdefault(tag, {})["worn"] = worn
+        for tag, perk, until in c.execute("SELECT clan, perk, until FROM clan_perks WHERE until > ?",
+                                          (_stamp(),)).fetchall():
+            m.setdefault(tag, {}).setdefault("perks", {})[perk] = until
+        conn.close()
+    except sqlite3.Error:
+        pass
+    _CLAN_COS_CACHE["ts"], _CLAN_COS_CACHE["map"] = now, m
+    return m
+
+
+def clan_view(tag, allowed):
+    """What a page draws for a clan: {banner, frame, tag: css class; emblem:
+    {code, color}; perks: {perk: until}}. Empty unless the VIEWER may see the
+    shop - while unreleased, only the owner."""
+    if not allowed or not tag:
+        return {}
+    ent = clan_cos_map().get(tag) or {}
+    out = {"perks": dict(ent.get("perks") or {})}
+    for slot, item_id in (ent.get("worn") or {}).items():
+        it = clan_item(item_id)
+        if not it:
+            continue
+        if slot == "emblem":
+            out["emblem"] = {"code": it["code"], "color": it["color"], "name": it["name"]}
+        else:
+            out[slot] = it["cls"]
+    return out
+
+
+def clan_hosts_lobby(c, sub_id):
+    """True if some clan this account runs has the Lobby host perk running."""
+    if not sub_id:
+        return False
+    for tag in clan_admin_tags(c, sub_id):
+        if may_manage(c, sub_id, tag) and "perk-host" in clan_perks_active(c, tag):
+            return True
+    return False
+
+
+def clan_shop_state(c, tag):
+    """Everything the shop panel shows for one clan: each item with own /
+    worn / can, perks with their end dates, the slots bought."""
+    owned = clan_owned_items(c, tag)
+    r = c.execute("SELECT cosmetics, COALESCE(coleader_slots, 0) FROM clans WHERE tag = ?", (tag,)).fetchone()
+    worn = _clan_worn(r[0] if r else None)
+    slots = int(r[1] or 0) if r else 0
+    balance = gem_balance(c, "clan", tag)
+    perks = clan_perks_active(c, tag)
+    looks, perk_rows = [], []
+    for row in CLAN_ITEMS:
+        it = dict(CLAN_ITEM_BY_ID[row[0]])
+        it["own"] = it["id"] in owned
+        it["worn"] = worn.get(it["slot"]) == it["id"]
+        it["can"] = balance >= it["price"]
+        if it["kind"] == "look":
+            looks.append(it)
+        else:
+            it["until"] = (perks.get(it["id"]) or "")[:10]
+            it["slots"] = slots if it["kind"] == "slot" else None
+            it["maxed"] = it["kind"] == "slot" and slots >= CLAN_COLEADER_SLOTS_MAX
+            perk_rows.append(it)
+    emblems = []
+    for ship in ship_catalog():
+        it = clan_item("cs-%d" % ship["code"])
+        it["own"] = it["id"] in owned
+        it["worn"] = worn.get("emblem") == it["id"]
+        it["can"] = balance >= it["price"]
+        it["tier"] = ship["tier"]
+        emblems.append(it)
+    return {"balance": balance, "looks": looks, "emblems": emblems, "perks": perk_rows,
+            "worn": worn, "slots": slots}
+
+
 def gem_clan_leader(c, tag):
     """Kept for the one-off scripts that call it: the leader alone."""
     for nn in gem_clan_officers(c, tag):
@@ -13453,14 +13778,11 @@ def award_match_gems(c, applied, match_id):
         if row:
             tag = row[0]
             if tag:
-                # The clan earns from the win, and so does every officer who
-                # runs it. Keyed per member so a clan with several winners in
-                # one match is paid for each of them, once per officer.
-                gem_grant(c, "clan", tag, GEM_CLAN_WIN, "member-win",
-                          "%s#%s" % (match_id, nn))
-                for officer in gem_clan_officers(c, tag):
-                    gem_grant(c, "player", officer, GEM_LEADER_WIN, "member-win",
-                              "%s#%s" % (match_id, nn))
+                # The clan earns from the win, its officers take their cut,
+                # and the member is paid what the clan pays. Keyed per member
+                # so a clan with several winners in one match is paid for
+                # each of them, once.
+                got += clan_pay_member_win(c, tag, nn, "%s#%s" % (match_id, nn))
         if got:
             out.append((player, got))
     return out
@@ -13483,11 +13805,7 @@ def award_survival_gems(c, nn, round_key):
     got = gem_grant(c, "player", nn, GEM_SURVIVAL_WIN, "survival-win", round_key)
     tag = row[0]
     if tag:
-        gem_grant(c, "clan", tag, GEM_SURVIVAL_CLAN_WIN, "survival-member-win",
-                  "%s#%s" % (round_key, nn))
-        for officer in gem_clan_officers(c, tag):
-            gem_grant(c, "player", officer, GEM_SURVIVAL_LEADER_WIN,
-                      "survival-member-win", "%s#%s" % (round_key, nn))
+        got += clan_pay_member_win(c, tag, nn, "%s#%s" % (round_key, nn), survival=True)
     return got
 
 
@@ -13914,7 +14232,7 @@ def free_agents(c):
     route removes it the moment anyone acts on it."""
     rows = c.execute(
         "SELECT a.norm_name, p.name, a.price, a.note, a.listed_at, p.elo, "
-        "COALESCE(p.wins, 0), COALESCE(p.losses, 0), COALESCE(a.days, 30) "
+        "COALESCE(p.wins, 0), COALESCE(p.losses, 0), COALESCE(a.days, 30), COALESCE(a.rate, 0) "
         "FROM free_agents a JOIN players p ON p.norm_name = a.norm_name "
         "WHERE (p.clan IS NULL OR p.clan = '') AND " + NOT_SANDBOX +
         " ORDER BY a.price DESC, p.elo DESC").fetchall()
@@ -13923,10 +14241,11 @@ def free_agents(c):
     dmap = division_map()
     shipmap = display_ship_map()
     out = []
-    for nn, name, price, note, at, elo, w, l, days in rows:
+    for nn, name, price, note, at, elo, w, l, days, rate in rows:
         d = {"norm": nn, "name": name, "display": display_name(name, None),
              "price": int(price or 0), "note": note or "", "listed_at": at or "",
              "days": int(days or 30), "term": contract_term(days),
+             "rate": max(0, min(CLAN_RATE_MAX, int(rate or 0))),
              "elo": round(float(elo or 0), 1), "wins": w, "losses": l,
              "division": dmap.get(nn) if (w + l) >= PROVISIONAL_GAMES else None}
         d["emblem"], d["emblem_color"], d["mythic"] = worn_emblem(nn, shipmap, True)
@@ -13947,11 +14266,12 @@ def agents_page():
         r = c.execute("SELECT clan FROM players WHERE norm_name = ?", (me[1],)).fetchone()
         my_clan = r[0] if r and r[0] else None
         can_list = not my_clan
-        row = c.execute("SELECT price, note, listed_at, COALESCE(days, 30) FROM free_agents "
-                        "WHERE norm_name = ?", (me[1],)).fetchone()
+        row = c.execute("SELECT price, note, listed_at, COALESCE(days, 30), COALESCE(rate, 0) "
+                        "FROM free_agents WHERE norm_name = ?", (me[1],)).fetchone()
         if row and can_list:
             mine = {"price": int(row[0] or 0), "note": row[1] or "", "listed_at": row[2] or "",
-                    "days": int(row[3] or 30), "term": contract_term(row[3])}
+                    "days": int(row[3] or 30), "term": contract_term(row[3]),
+                    "rate": int(row[4] or 0)}
     sub = current_user()
     hire_as = [t for t in clan_admin_tags(c, sub) if may_manage(c, sub, t)] if sub else []
     treasuries = {t: gem_balance(c, "clan", t) for t in hire_as}
@@ -13964,7 +14284,7 @@ def agents_page():
                            price_max=GEM_BONUS_MAX, note_max=AGENT_NOTE_MAX,
                            contract_days=AGENT_CONTRACT_DAYS,
                            contract_default=AGENT_CONTRACT_DEFAULT,
-                           contract_labels=AGENT_CONTRACT_LABELS)
+                           contract_labels=AGENT_CONTRACT_LABELS, rate_max=CLAN_RATE_MAX)
 
 
 @app.route('/agents/list', methods=['POST'])
@@ -13999,17 +14319,22 @@ def agents_list():
                         "message": f"You are in {r[0]}. A free agent is somebody without a "
                                    f"clan - leave it first."}), 400
     days = _contract_days(body.get("days"))
-    c.execute("INSERT INTO free_agents (norm_name, name, price, note, listed_at, days) "
-              "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(norm_name) DO UPDATE SET "
+    try:
+        rate = max(0, min(CLAN_RATE_MAX, int(body.get("rate") or 0)))
+    except (TypeError, ValueError):
+        rate = 0
+    c.execute("INSERT INTO free_agents (norm_name, name, price, note, listed_at, days, rate) "
+              "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(norm_name) DO UPDATE SET "
               "price = excluded.price, note = excluded.note, name = excluded.name, "
-              "days = excluded.days",
-              (me[1], me[0], price, note or None, _stamp(), days))
+              "days = excluded.days, rate = excluded.rate",
+              (me[1], me[0], price, note or None, _stamp(), days, rate))
     conn.commit()
     conn.close()
     term = contract_term(days)
-    return jsonify({"ok": True, "days": days,
-                    "message": (f"Listed at {price:,} gems on a {term} contract." if price
-                                else f"Listed - any clan can sign you for nothing, "
+    per = f", +{rate} a win" if rate else ""
+    return jsonify({"ok": True, "days": days, "rate": rate,
+                    "message": (f"Listed at {price:,} gems{per}, on a {term} contract." if price
+                                else f"Listed - any clan can sign you for nothing{per}, "
                                      f"on a {term} contract.")})
 
 
@@ -14051,8 +14376,8 @@ def agents_hire():
         return jsonify({"ok": False,
                         "message": f"Only the leader or a co-leader can hire for {known}."}), 403
     nn = normalize_name(str(body.get("name") or ""))
-    a = c.execute("SELECT name, price, listed_at, COALESCE(days, 30) FROM free_agents "
-                  "WHERE norm_name = ?", (nn,)).fetchone()
+    a = c.execute("SELECT name, price, listed_at, COALESCE(days, 30), COALESCE(rate, 0) "
+                  "FROM free_agents WHERE norm_name = ?", (nn,)).fetchone()
     if not a:
         conn.close()
         return jsonify({"ok": False, "message": "They are not on the list any more."}), 404
@@ -14082,19 +14407,21 @@ def agents_hire():
     # The listing goes before the join: the join may rename the row (the
     # tag comes off), and a rename carries the listing with it.
     days = int(a[3] or AGENT_CONTRACT_DEFAULT)
+    rate = max(0, min(CLAN_RATE_MAX, int(a[4] or 0)))
     c.execute("DELETE FROM free_agents WHERE norm_name = ?", (nn,))
     # The term goes on before the tag comes off: the join may rename the
     # row, and the row carries these columns with it.
     c.execute("UPDATE players SET clan = ?, clan_locked = 0, contract_clan = ?, "
-              "contract_until = datetime('now', ?) WHERE norm_name = ?",
-              (known, known, "+%d days" % days, nn))
+              "contract_until = datetime('now', ?), contract_rate = ? WHERE norm_name = ?",
+              (known, known, "+%d days" % days, rate, nn))
     strip_tag_on_join(c, p[0], known)
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "days": days,
+    return jsonify({"ok": True, "days": days, "rate": rate,
                     "message": f"{display_name(p[0], known)} joined {known}"
                                + (f" for {price:,} gems" if price else "")
-                               + f" on a {contract_term(days)} contract."})
+                               + (f", +{rate} a win" if rate else "")
+                               + f", on a {contract_term(days)} contract."})
 
 
 @app.route('/shop')
@@ -14659,8 +14986,8 @@ def clan_leave():
     # clan_locked = 1: this was a deliberate choice, so detection must not
     # quietly put them back next time they are seen wearing the tag.
     for name, _clan in rows:
-        c.execute("UPDATE players SET clan = NULL, clan_locked = 1, "
-                  "contract_clan = NULL, contract_until = NULL WHERE name = ?", (name,))
+        c.execute("UPDATE players SET clan = NULL, clan_locked = 1, contract_clan = NULL, "
+                  "contract_until = NULL, contract_rate = 0 WHERE name = ?", (name,))
     conn.commit()
     conn.close()
     left = rows[0][1]
@@ -17203,9 +17530,22 @@ def _user_meets_custom_gate(sub_id):
 
 
 def _can_host_custom(sub_id):
-    """Only the owner may OPEN/host a lobby. Everyone else - even Odyssey - can
-    only join one the owner has opened."""
-    return bool(sub_id) and sub_id in OWNER_SUBS
+    """The owner may always OPEN/host a lobby. So may the leader or a co-leader
+    of a clan that bought the Lobby host perk, while it runs. Everyone else -
+    even Odyssey - can only join one that is open."""
+    if not sub_id:
+        return False
+    if sub_id in OWNER_SUBS:
+        return True
+    if not gems_visible():
+        return False
+    try:
+        conn = db()
+        ok = clan_hosts_lobby(conn.cursor(), sub_id)
+        conn.close()
+    except sqlite3.Error:
+        ok = False
+    return ok
 
 
 @app.route('/api/customgame/set', methods=['POST'])
@@ -19231,6 +19571,14 @@ def perform_clan_role(c, sub_id, raw_tag, name, role, trusted=False):
                      "message": "Only the clan's leader can appoint or remove a co-leader."}
     if actor == 'moderator':
         return 403, {"ok": False, "message": "Moderators cannot hand out roles."}
+    if want == 'coleader' and current != 'coleader':
+        cap = clan_coleader_cap(c, known)
+        n = c.execute("SELECT COUNT(*) FROM clan_admins WHERE clan = ? "
+                      "AND COALESCE(role, 'leader') = 'coleader'", (known,)).fetchone()[0]
+        if n >= cap:
+            return 400, {"ok": False,
+                         "message": f"{known} already has {n} co-leader{'s' if n != 1 else ''} - "
+                                    f"the most a clan may have is {cap}."}
     if not want:
         c.execute("DELETE FROM clan_admins WHERE clan = ? AND google_sub = ?",
                   (known, target_sub))
@@ -19440,6 +19788,157 @@ def clan_transfer():
         conn.commit()
     conn.close()
     return jsonify(payload), status
+
+
+@app.route('/clan/pay', methods=['POST'])
+def clan_pay_route():
+    """The leader sets what the clan pays members and moderators per win."""
+    if not gems_visible():
+        abort(404)
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    conn = db()
+    c = conn.cursor()
+    known = canonical_clan_tag(str(body.get("clan") or ""), all_clan_tags(c))
+    if not known:
+        conn.close()
+        return jsonify({"ok": False, "message": "No clan with that tag."}), 404
+    if clan_role(c, sub_id, known) != 'leader':
+        conn.close()
+        return jsonify({"ok": False, "message": "Only the leader sets what the clan pays."}), 403
+
+    def _rate(v):
+        try:
+            return max(0, min(CLAN_RATE_MAX, int(v or 0)))
+        except (TypeError, ValueError):
+            return 0
+    member_rate, mod_rate = _rate(body.get("member_rate")), _rate(body.get("mod_rate"))
+    c.execute("UPDATE clans SET member_rate = ?, mod_rate = ? WHERE tag = ?",
+              (member_rate, mod_rate, known))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "member_rate": member_rate, "mod_rate": mod_rate,
+                    "message": f"{known} now pays members +{member_rate} and moderators "
+                               f"+{mod_rate} per win, out of each win's deposit."}), 200
+
+
+@app.route('/clan/shop/buy', methods=['POST'])
+def clan_shop_buy():
+    """An officer buys something for the clan out of the treasury: a look
+    or emblem (once), a timed perk (a week, extended if still running), or a
+    co-leader slot (for good, up to the cap). The treasury never overdraws."""
+    if not gems_visible():
+        abort(404)
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    conn = db()
+    c = conn.cursor()
+    known = canonical_clan_tag(str(body.get("clan") or ""), all_clan_tags(c))
+    if not known:
+        conn.close()
+        return jsonify({"ok": False, "message": "No clan with that tag."}), 404
+    if not may_manage(c, sub_id, known):
+        conn.close()
+        return jsonify({"ok": False, "message": "Only the leader or a co-leader spends the treasury."}), 403
+    item = clan_item(str(body.get("item") or ""))
+    if not item:
+        conn.close()
+        return jsonify({"ok": False, "message": "No such item."}), 404
+    if item["kind"] in ("look", "emblem"):
+        if item["id"] in clan_owned_items(c, known):
+            conn.close()
+            return jsonify({"ok": False, "message": "%s already has %s." % (known, item["name"])}), 200
+        ref = "citem-%s" % item["id"]
+    elif item["kind"] == "slot":
+        r = c.execute("SELECT COALESCE(coleader_slots, 0) FROM clans WHERE tag = ?", (known,)).fetchone()
+        slots = int(r[0] or 0) if r else 0
+        if slots >= CLAN_COLEADER_SLOTS_MAX:
+            conn.close()
+            return jsonify({"ok": False, "message": "%s already has every extra co-leader slot." % known}), 200
+        ref = "citem-%s:%d" % (item["id"], slots + 1)
+    else:
+        # A perk can be bought again to extend it, so each purchase gets its
+        # own number rather than a timestamp two clicks could share.
+        n = c.execute("SELECT COUNT(*) FROM gem_ledger WHERE owner_kind = 'clan' AND owner = ? "
+                      "AND reason = 'purchase' AND ref LIKE ?", (known, "citem-%s:%%" % item["id"])).fetchone()[0]
+        ref = "citem-%s:%d" % (item["id"], int(n) + 1)
+    st = gem_clan_charge(c, known, item["price"], "purchase", ref)
+    if st == "short":
+        have = gem_balance(c, "clan", known)
+        conn.close()
+        return jsonify({"ok": False, "message": "%s costs %s and the treasury has %s."
+                        % (item["name"], format(item["price"], ","), format(have, ","))}), 200
+    if st == "duplicate":
+        conn.close()
+        return jsonify({"ok": False, "message": "Already bought."}), 200
+    if item["kind"] == "slot":
+        c.execute("UPDATE clans SET coleader_slots = COALESCE(coleader_slots, 0) + 1 WHERE tag = ?", (known,))
+        msg = "%s bought a co-leader slot - it may have %d now." % (known, clan_coleader_cap(c, known))
+    elif item["kind"] == "perk":
+        cur = c.execute("SELECT until FROM clan_perks WHERE clan = ? AND perk = ?", (known, item["id"])).fetchone()
+        base = cur[0] if cur and cur[0] > _stamp() else _stamp()
+        c.execute("INSERT INTO clan_perks (clan, perk, until) VALUES (?, ?, datetime(?, ?)) "
+                  "ON CONFLICT(clan, perk) DO UPDATE SET until = excluded.until",
+                  (known, item["id"], base, "+%d days" % CLAN_PERK_DAYS))
+        until = c.execute("SELECT until FROM clan_perks WHERE clan = ? AND perk = ?", (known, item["id"])).fetchone()[0]
+        msg = "%s runs until %s." % (item["name"], until[:10])
+    else:
+        msg = "%s is %s's. Put it on from the shop." % (item["name"], known)
+    conn.commit()
+    balance = gem_balance(c, "clan", known)
+    conn.close()
+    _CLAN_COS_CACHE["ts"] = 0.0
+    return jsonify({"ok": True, "message": msg, "balance": balance}), 200
+
+
+@app.route('/clan/shop/equip', methods=['POST'])
+def clan_shop_equip():
+    """Put a bought look or emblem on the clan (item), or take a slot off
+    (slot with no item)."""
+    if not gems_visible():
+        abort(404)
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    conn = db()
+    c = conn.cursor()
+    known = canonical_clan_tag(str(body.get("clan") or ""), all_clan_tags(c))
+    if not known:
+        conn.close()
+        return jsonify({"ok": False, "message": "No clan with that tag."}), 404
+    if not may_manage(c, sub_id, known):
+        conn.close()
+        return jsonify({"ok": False, "message": "Only the leader or a co-leader dresses the clan."}), 403
+    r = c.execute("SELECT cosmetics FROM clans WHERE tag = ?", (known,)).fetchone()
+    worn = _clan_worn(r[0] if r else None)
+    raw = body.get("item")
+    if raw in (None, "", 0, "0"):
+        slot = str(body.get("slot") or "")
+        if slot not in dict(CLAN_LOOK_SLOTS) and slot != "emblem":
+            conn.close()
+            return jsonify({"ok": False, "message": "Which slot?"}), 400
+        was = clan_item(worn.pop(slot, "") or "")
+        msg = ("Took off %s." % was["name"]) if was else "Nothing was on."
+    else:
+        item = clan_item(str(raw))
+        if not item or item["kind"] not in ("look", "emblem"):
+            conn.close()
+            return jsonify({"ok": False, "message": "No such item."}), 404
+        if item["id"] not in clan_owned_items(c, known):
+            conn.close()
+            return jsonify({"ok": False, "message": "%s does not have %s." % (known, item["name"])}), 200
+        worn[item["slot"]] = item["id"]
+        msg = "%s now wears %s." % (known, item["name"])
+    c.execute("UPDATE clans SET cosmetics = ? WHERE tag = ?", (json.dumps(worn) if worn else None, known))
+    conn.commit()
+    conn.close()
+    _CLAN_COS_CACHE["ts"] = 0.0
+    return jsonify({"ok": True, "message": msg, "worn": worn}), 200
 
 
 @app.route('/clan/rolenames', methods=['POST'])
@@ -19781,6 +20280,7 @@ def my_clan_page():
             "has_account": bool(owner_sub),
             "protected": bool(protected),
             "contract": contract_until(_cclan, _cuntil, tag),
+            "rate": clan_member_rate(c, tag, normalize_name(name)),
         })
 
     c.execute("SELECT region, bio, theme FROM clans WHERE tag = ?", (tag,))
@@ -19814,6 +20314,11 @@ def my_clan_page():
         "role_colors": role_colors, "role_color_keys": role_color_keys,
         "applications": clan_applications(c, tag),
         "treasury": gem_balance(c, "clan", tag),
+        "member_rate": clan_pay_rates(c, tag)[0], "mod_rate": clan_pay_rates(c, tag)[1],
+        "paid_week": clan_paid_week(c, tag),
+        "cv": clan_view(tag, True),
+        "shop": clan_shop_state(c, tag) if clan_rank(role) >= clan_rank('coleader') else None,
+        "coleader_cap": clan_coleader_cap(c, tag),
         "invited": [{"id": r[0], "name": r[1]} for r in c.execute(
             "SELECT id, name FROM clan_invites WHERE clan = ? "
             "AND status = 'pending' AND direction = 'invite' "
@@ -19839,7 +20344,11 @@ def my_clan_page():
                            page='myclan', client_id=GOOGLE_CLIENT_ID,
                            palette=CLAN_PALETTE, themes=CLAN_THEMES,
                            role_help=CLAN_ROLE_HELP,
-                           role_default_color=CLAN_ROLE_DEFAULT_COLOR)
+                           role_default_color=CLAN_ROLE_DEFAULT_COLOR,
+                           rate_max=CLAN_RATE_MAX, coleader_cap=clan_coleader_cap(db().cursor(), tag),
+                           pay_rates={"leader": GEM_LEADER_WIN, "coleader": GEM_COLEADER_WIN,
+                                      "clan": GEM_CLAN_WIN, "sleader": GEM_SURVIVAL_LEADER_WIN,
+                                      "scoleader": GEM_SURVIVAL_COLEADER_WIN, "sclan": GEM_SURVIVAL_CLAN_WIN})
 
 
 @app.route('/clans')
@@ -19891,6 +20400,12 @@ def clans_page():
     for place, row in enumerate(ranked, 1):
         row["place"] = place
     small.sort(key=lambda r: (-r["size"], r["tag"]))
+    # Bought perks, for those who may see the shop: a Spotlight clan sits at
+    # the top of the table with its real place number; Recruiting is a pill.
+    if gems_visible():
+        for row in ranked + small:
+            row["perks"] = clan_view(row["tag"], True).get("perks") or {}
+        ranked.sort(key=lambda r: (0 if "perk-spotlight" in r["perks"] else 1, r["place"]))
     return render_template('clans.html', clans=ranked, small=small,
                            total=len(rows), rank_min=CLAN_RANK_MIN,
                            version=APP_VERSION, contact=CONTACT_HANDLE,
@@ -19917,11 +20432,12 @@ def account_page():
     acct = None
     if account_name:
         c.execute("SELECT name, elo, COALESCE(wins,0), COALESCE(losses,0), clan, "
-                  "COALESCE(wipe_available,0), bio, contract_clan, contract_until "
+                  "COALESCE(wipe_available,0), bio, contract_clan, contract_until, "
+                  "COALESCE(contract_rate, 0) "
                   "FROM players WHERE norm_name = ?", (normalize_name(account_name),))
         row = c.fetchone()
         if row:
-            name, elo, wins, losses, clan, wipe_avail, bio, _cclan, _cuntil = row
+            name, elo, wins, losses, clan, wipe_avail, bio, _cclan, _cuntil, _crate = row
             c.execute("SELECT COUNT(*) + 1 FROM players WHERE elo > ?", (elo,))
             rank = c.fetchone()[0]
             c.execute("SELECT COUNT(*) FROM players")
@@ -19958,6 +20474,8 @@ def account_page():
                 "bio": bio or "",
                 "cos": cosmetic_view(normalize_name(name), gems_visible()),
                 "contract": contract_until(_cclan, _cuntil, clan) if clan else None,
+                "contract_rate": int(_crate or 0),
+                "cv": clan_view(clan, gems_visible()) if clan else {},
             }
     # Discord link status for the settings section. A Discord sign-in IS its
     # own Discord (nothing to link); a Google account may have one bound.
@@ -20719,7 +21237,7 @@ def home_page():
         placements_left=max(0, PROVISIONAL_GAMES - played) if played < PROVISIONAL_GAMES else 0,
         balance=balance, today_gems=today_gems, have=have, next_up=next_up,
         ready=ready, ready_gems=sum(a["gems"] for a in ready),
-        cos=cosmetic_view(nn, True),
+        cos=cosmetic_view(nn, True), cv=(clan_view(clan, True) if clan else {}),
         total_ach=len(cat), recent=recent, preview=not GEMS_PUBLIC,
         emblem=emblem, emblem_color=emblem_color, mythic=mythic)
 

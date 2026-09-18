@@ -37,21 +37,31 @@
 .chnum b{font-size:22px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums}
 .chnum b.blue{color:#9adcff}
 .chnum b.green{color:#66e6b8}
-{% if gems_on %}.chnum b.gold{color:#f6d77a;text-shadow:0 0 12px rgba(241,198,90,.35)}{% endif %}
+{% if gems_on %}.chnum b.gold{color:#f6d77a;text-shadow:0 0 12px rgba(241,198,90,.35)}
+.chemb{flex:none;width:52px;height:52px;display:flex;align-items:center;justify-content:center;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.55))}
+.chpill{display:inline-block;margin-left:10px;padding:1px 9px;border-radius:999px;font-size:10.5px;font-weight:800;
+  letter-spacing:.8px;text-transform:uppercase;vertical-align:middle;border:1px solid rgba(102,230,184,.6);
+  color:#66e6b8;background:rgba(102,230,184,.12)}
+.chpill.spot{border-color:rgba(246,215,122,.6);color:#f6d77a;background:rgba(246,215,122,.12)}{% endif %}
 @media(max-width:760px){
   .chead{grid-template-columns:minmax(0,1fr);padding:18px 18px}
   .chtag{min-width:52px;height:52px;font-size:21px;padding:0 12px}
   .chnums{justify-content:start;text-align:left;grid-template-columns:repeat(auto-fit,minmax(84px,1fr))}
 }
 </style>
-<div class="chead" style="--ct:{{ clan.theme_color or '#3aa0d8' }}">
+{% set cv = clan.cv or {} %}
+<div class="chead{% if cv.banner %} cosb {{ cv.banner }}{% endif %}{% if cv.frame %} cosf {{ cv.frame }}{% endif %}" style="--ct:{{ clan.theme_color or '#3aa0d8' }}">
   <div class="chwho">
-    <h1 class="chtag">{{ clan.display or clan.tag }}</h1>
+    <h1 class="chtag{% if cv.tag %} {{ cv.tag }}{% endif %}">{{ clan.display or clan.tag }}</h1>
+    {%- if cv.emblem %}<span class="chemb">{{ rank_emblem(cv.emblem.code, 48, cv.emblem.color, cv.emblem.name)|safe }}</span>{% endif %}
     <div class="chtext">
       <p class="chline">
         {%- if clan.admins %}Run by {% for a in clan.admins %}<a href="/player/{{ a|urlencode }}"><b>{{ a }}</b></a>{% if not loop.last %}, {% endif %}{% endfor %}
         {%- else %}<b>{{ clan.tag }}</b>{% endif %}
-        {%- if clan.region_label %} &middot; <a href="/?region={{ clan.region }}">{{ clan.region_label }}</a>{% endif %}</p>
+        {%- if clan.region_label %} &middot; <a href="/?region={{ clan.region }}">{{ clan.region_label }}</a>{% endif %}
+        {%- if cv.perks and 'perk-recruit' in cv.perks %}<span class="chpill" title="Looking for members">Recruiting</span>{% endif %}
+        {%- if cv.perks and 'perk-spotlight' in cv.perks %}<span class="chpill spot" title="Pinned to the top of the clans page">Spotlight</span>{% endif %}</p>
       <p class="chsub">
         {%- if mode == 'mine' %}<span class="chrole">{{ clan.role_label or t('Member') }}</span>
           <a href="/clan/{{ clan.tag|urlencode }}">Public page &rarr;</a>
@@ -68,6 +78,9 @@
     <div class="chnum"><span>Survival</span><b>{{ clan.surv_wins }}</b></div>
     {%- if gems_on and clan.treasury is not none %}
     <div class="chnum"><span>Treasury</span><b class="gold">{{ '{:,}'.format(clan.treasury) }}</b></div>
+    {%- if clan.member_rate %}
+    <div class="chnum" title="What a member is paid by the clan for each rated win, out of the win's own deposit"><span>Member pay</span><b class="gold">+{{ clan.member_rate }}<span style="font-size:12px;letter-spacing:0;text-transform:none;color:#b9d6e4;font-weight:600"> / win</span></b></div>
+    {%- endif %}
     {%- endif %}
   </div>
 </div>

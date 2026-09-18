@@ -82,11 +82,14 @@
   {% if my_clan %}
     <p class="empty">You are in <b>{{ my_clan }}</b>. A free agent is somebody without a clan &mdash; leave it first if you want to be on this list.</p>
   {% else %}
-    {% if mine %}<p class="listed">&#10003; Listed at {{ '{:,}'.format(mine.price) }} gems on a {{ mine.term }} contract, since {{ mine.listed_at[:10] }}</p>{% endif %}
+    {% if mine %}<p class="listed">&#10003; Listed at {{ '{:,}'.format(mine.price) }} gems{% if mine.rate %}, +{{ mine.rate }} a win{% endif %}, on a {{ mine.term }} contract, since {{ mine.listed_at[:10] }}</p>{% endif %}
     <div class="listrow">
       <label>Asking price (gems)
         <input type="number" id="agPrice" min="0" max="{{ price_max }}" step="1"
                value="{{ mine.price if mine else 0 }}"></label>
+      <label>Per win (gems)
+        <input type="number" id="agRate" min="0" max="{{ rate_max }}" step="1"
+               value="{{ mine.rate if mine else 0 }}" title="What the clan pays you for each rated win while the contract runs - up to {{ rate_max }}"></label>
       <label>A line about you
         <input type="text" id="agNote" class="note" maxlength="{{ note_max }}"
                placeholder="What you fly, when you play, what you want"
@@ -120,6 +123,7 @@
         {% if a.division %}<span>{{ a.division.name }}</span>{% endif %}
         <span>listed {{ a.listed_at[:10] }}</span>
         <span title="How long they stay once hired - after that they stay until they choose to leave"><b>{{ a.term }}</b> contract</span>
+        {% if a.rate %}<span title="What they ask per rated win while the contract runs"><b>+{{ a.rate }}</b> a win</span>{% endif %}
       </div>
       {% if a.price %}<span class="ask">{{ gem_svg|safe }}{{ '{:,}'.format(a.price) }}</span>
       {% else %}<span class="ask free">Free to sign</span>{% endif %}
@@ -156,8 +160,8 @@
   }
   window.listMe=async function(){
     var price=document.getElementById('agPrice').value, note=document.getElementById('agNote').value,
-        days=document.getElementById('agDays').value;
-    try{ var x=await post('/agents/list',{price:price, note:note, days:days}); say(x[1].message, !x[1].ok);
+        days=document.getElementById('agDays').value, rate=document.getElementById('agRate').value;
+    try{ var x=await post('/agents/list',{price:price, note:note, days:days, rate:rate}); say(x[1].message, !x[1].ok);
          if(x[1].ok) setTimeout(function(){ location.reload(); }, 900);
     }catch(e){ say('Server connection error.', true); }
   };
