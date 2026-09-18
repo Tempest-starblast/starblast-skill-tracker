@@ -667,6 +667,9 @@ async function devRestore(){
 // nav.subtabs carrying id subtabs (and data-default), plus one
 // section.panel per tab, each named by its data-panel.
 (function(){
+  // This script sits above the page body, so it must wait for the body to
+  // exist before it can find the tab bar.
+  function init(){
   var bar = document.getElementById('subtabs');
   if (!bar) return;
   var links = Array.prototype.slice.call(bar.querySelectorAll('a[data-panel]'));
@@ -681,13 +684,17 @@ async function devRestore(){
   links.forEach(function(a){
     a.addEventListener('click', function(ev){
       ev.preventDefault();
-      history.replaceState(null, '', '#' + a.dataset.panel);
       show(a.dataset.panel);
+      // Remembering the tab in the URL is a nicety; never let it block the switch.
+      try { history.replaceState(null, '', '#' + a.dataset.panel); } catch (e) {}
     });
   });
   window.addEventListener('hashchange', function(){ show((location.hash || '#').slice(1)); });
   window.sbShowPanel = show;
   show((location.hash || '#').slice(1));
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();
 </script>
 
