@@ -12,20 +12,19 @@
 .halfnote{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;
   font-size:10.5px;font-weight:700;letter-spacing:.3px;background:#3a3320;
   border:1px solid #6b5320;color:#f0c04a;cursor:default;vertical-align:1px}
-.live h2{font-size:13px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
-.mrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;
+.live h2{font-size:12.5px;margin:0 0 10px;color:#cfeefc;text-transform:uppercase;letter-spacing:1.3px}
+.mrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;
   border-bottom:1px solid var(--line);flex-wrap:wrap}
 .mrow:last-of-type{border-bottom:none}
-.mname{font-weight:600;color:var(--text)}
-.msub{font-size:12px;color:var(--muted);margin-top:2px}
+.mname{font-weight:700;color:var(--text);font-size:15px}
+.msub{font-size:12px;color:var(--muted);margin-top:3px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
 .dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
 .dot.soon{background:#d6b656}
 .dot.off{background:#4a4a4a}
 .dot.scoring{background:var(--amber,#ffc757);box-shadow:0 0 7px var(--amber,#ffc757)}
-.mrow button{padding:9px 16px;font-size:13px}
-/* A match that just ended and is being scored - kept visible with a moving bar
-   so the result doesn't seem to vanish while the tracker finalises it. */
+.mrow button{padding:10px 20px;font-size:13.5px;font-weight:800;border-radius:10px}
+.mrow button.primary{box-shadow:0 6px 18px rgba(102,230,184,.22)}
 .scorebar{height:5px;max-width:230px;margin-top:6px;border-radius:3px;
   background:rgba(153,221,255,.12);overflow:hidden}
 .scorebar i{display:block;height:100%;width:38%;border-radius:3px;
@@ -33,21 +32,41 @@
 @keyframes scoreslide{0%{margin-left:-38%}100%{margin-left:100%}}
 @media (prefers-reduced-motion:reduce){.scorebar i{animation:none;width:100%;opacity:.6}}
 .rgroup{margin-bottom:0}
-.rtabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px}
-.rtab{padding:8px 15px;font-size:13px;font-weight:600;border-radius:20px;
-  background:#2a2a2a;border:1px solid #3a3a3a;color:var(--muted)}
-.rtab:hover{background:#333;color:var(--text)}
-.rtab.on{background:var(--green);border-color:var(--green);color:#10240f}
+/* The region row wears the site's sub-tab look; the script behind it is unchanged. */
+.rtabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 14px;padding:4px;border-radius:12px;
+  background:rgba(2,5,10,.55);border:1px solid var(--line)}
+.rtab{flex:1 1 auto;padding:10px 14px;font-size:13px;font-weight:700;border-radius:9px;
+  background:none;border:0;color:var(--muted);cursor:pointer;font-family:inherit;white-space:nowrap}
+.rtab:hover{background:rgba(153,221,255,.07);color:var(--text)}
+.rtab.on{background:rgba(153,221,255,.13);color:#eaf8ff;box-shadow:inset 0 0 0 1px rgba(153,221,255,.25)}
 .rempty{text-align:center;color:var(--dim);padding:22px 12px;font-size:14px}
 .rhead{display:flex;align-items:baseline;gap:9px;margin:0 0 4px;padding-bottom:7px;
   border-bottom:1px solid var(--line)}
 .rhead h3{margin:0;font-size:14px;font-weight:700;color:var(--green)}
 .rhead span{font-size:12px;color:var(--dim)}
+.pheye .infobtn{margin-left:8px;vertical-align:middle}
+.howto{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin:0}
+.howto div{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--muted);line-height:1.5}
+.howto b.step{flex:none;width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;
+  justify-content:center;background:rgba(102,230,184,.16);color:var(--green);font-size:12px}
 {% endblock %}
 {% block body %}
-<div class="ptitlerow"><h1 class="ptitle">Play</h1>{% set info_q = 'checking in' %}{% set info_tip = 'How checking in works' %}{% include "_infobtn.html" %}</div>
+{% set info_q = 'checking in' %}{% set info_tip = 'How checking in works' %}
+<div class="pagehead" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">{{ t('Play') }}{% include "_infobtn.html" %}</p>
+    <h1 class="phname">Pick a match, press Play</h1>
+    <p class="phsub">You are checked in for that lobby, your name is copied, and the game opens.
+      Play under the name saved below and the result lands on your account.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>Live now</span><b class="green">{{ total }}</b></div>
+    <div class="phnum"><span>Tracked</span><b>{{ watched }}</b></div>
+  </div>
+</div>
+
 <div class="card" id="youCard">
-  <h2>In game name</h2>
+  <h2>Play as</h2>
   <div id="notSignedIn">
     <p class="desc">Use <b>Sign in with Google</b> or <b>Discord</b> at the top of the page.
        You only need this once.</p>
@@ -67,6 +86,7 @@
     <div id="ckState" style="display:none;margin:12px 0 0;padding:10px 14px;border-radius:8px;border:1px solid rgba(102,230,184,.45);background:rgba(102,230,184,.08);color:#bff3e0;font-size:13.5px;line-height:1.5"></div>
   </div>
   <div id="claimRow" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+    <p class="desc" style="margin:0 0 8px">Your name already on the leaderboard under someone else? Claim it.</p>
     <div class="row">
       <input type="text" id="claimName" placeholder="The name on the leaderboard" maxlength="16" autocomplete="off">
       <button onclick="doClaim()">Claim it</button>
@@ -77,7 +97,7 @@
 
 <div class="card live">
   <h2>Live matches &mdash; {{ watched }}/{{ total }} tracked</h2>
-  <div class="rtabs">
+  <div class="rtabs" id="rtabs">
     {% for r in all_regions %}
     <button type="button" class="rtab{% if loop.first %} on{% endif %}"
             data-region="{{ r.key }}" onclick="showRegion('{{ r.key }}')">{{ r.label }}</button>
@@ -131,6 +151,15 @@
   <p class="msg" id="lobbyMsg"></p>
 </div>
 
+<div class="card">
+  <h2>How it works</h2>
+  <div class="howto">
+    <div><b class="step">1</b><span>Save the name in your ship above. Matches under it count for your account.</span></div>
+    <div><b class="step">2</b><span>Press <b>Play</b> on a tracked lobby. You are checked in and the game opens with your name copied.</span></div>
+    <div><b class="step">3</b><span>Play. The result lands on your account within a minute of the match ending &mdash; full elo if the watcher had the match from early on.</span></div>
+  </div>
+</div>
+
 <p class="foot">Something look wrong? Ask {{ contact }} on Discord.</p>
 
 <script>
@@ -155,14 +184,12 @@ async function loadMe(){
     markCheckedIn(d.checkin);
   }catch(e){}
 }
-// The one rule people miss: a play name that is not the account name is tied
-// to the account by the check-in alone. Said in amber the moment it applies.
 function gameNameNote(){
   var el = document.getElementById('gnNote'), gn = (document.getElementById('gameName').value || '').trim();
   var fold = function(s){ return String(s || '').toUpperCase().replace(/[^\p{L}\p{N}]/gu, ''); };
   if(!el) return;
   if(myName && gn && fold(gn) !== fold(myName)){
-    el.textContent = '\u201c' + gn + '\u201d is not your account name. Saved here, a game under it still '
+    el.textContent = '“' + gn + '” is not your account name. Saved here, a game under it still '
       + 'counts for you; Check in & play adds proof of which ship was yours.';
     el.style.display = 'block';
   } else { el.style.display = 'none'; }
@@ -185,8 +212,6 @@ async function saveGameName(){
   }catch(e){ say('youMsg',false,'Server connection error.'); }
 }
 
-// Show the match you are already checked into. Checking into another one
-// cancels this, so the state has to be visible before you click again.
 async function cancelCheckIn(sysId, el){
   el.disabled = true; el.textContent = 'cancelling…';
   try{
@@ -207,8 +232,6 @@ function markCheckedIn(ck){
   });
   const line=document.getElementById('ckState');
   if(!ck){ line.style.display='none'; line.innerHTML=''; return; }
-  // Name the lobby, and keep saying so until the match is over. A
-  // check-in you cannot see is one you can lose by clicking again.
   line.style.display='block';
   const btn=document.querySelector('button[data-lobby="'+ck.sys_id+'"]');
   const where='<b>lobby #'+ck.sys_id+'</b>';
@@ -219,9 +242,6 @@ function markCheckedIn(ck){
     btn.dataset.wasChecked='1';
     line.innerHTML='&#10003; You are checked into '+where+' &mdash; play there and it counts. '
       +'Checking into a different lobby cancels this one.';
-    // Until a watcher is on the lobby a check-in is only a promise, so it can be
-    // taken back - useful when you checked into the wrong one. Once it is being
-    // watched the check-in is what ties the result to you, and it stays.
     if(!btn.closest('.mrow').querySelector('.dot.watching')){
       var x=document.createElement('button');
       x.className='ckcancel'; x.textContent='cancel check-in';
@@ -235,8 +255,6 @@ function markCheckedIn(ck){
   }
 }
 
-// The state has to survive sitting on this page: a check-in made twenty
-// minutes ago is exactly the one people forget they made.
 setInterval(function(){
   fetch('/me').then(function(r){ return r.json(); }).then(function(d){
     if(d && d.logged_in) markCheckedIn(d.checkin);
@@ -253,8 +271,6 @@ async function doClaim(){
   }catch(e){ say('youMsg',false,'Server connection error.'); }
 }
 
-// The check-in is made by the account, so no name is sent. Which name you
-// turn up under is worked out automatically from your account.
 async function checkIn(sysId, btn){
   btn.disabled=true;
   try{
@@ -279,8 +295,6 @@ async function checkIn(sysId, btn){
   }catch(e){ say('lobbyMsg',false,'Server connection error.'); btn.disabled=false; }
 }
 
-// Lobbies turn over every minute or two, but this page is rendered once.
-// Left alone it slowly starts describing matches that have already ended.
 function applyLobbyState(b, state){
   var row = b.closest('.mrow'), sub = row && row.querySelector('.msub');
   if(state === 'scoring'){
@@ -317,9 +331,6 @@ setInterval(function(){
   }).catch(function(){});
 }, 15000);
 
-// One region visible at a time, North America first because that is
-// where most matches are. Everything is already in the page, so this is
-// only showing and hiding.
 function showRegion(key){
   document.querySelectorAll('.rgroup').forEach(function(g){
     g.style.display = (g.dataset.region === key) ? '' : 'none';

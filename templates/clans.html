@@ -26,14 +26,78 @@
   padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
 .memrow:last-child{border-bottom:none}
 .memrow button{padding:6px 12px;font-size:12px}
+.pheye .infobtn{margin-left:8px;vertical-align:middle}
 .pill2{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:10px;font-size:10.5px;
   font-weight:700;background:#3a3320;border:1px solid #6b5320;color:#f0c04a}
 {% endblock %}
 {% block body %}
-<div class="ptitlerow"><h1 class="ptitle">Clans</h1>{% set info_q = 'clans' %}{% set info_tip = 'How clans work' %}{% include "_infobtn.html" %}</div>
+{% set info_q = 'clans' %}{% set info_tip = 'How clans work' %}
+<div class="pagehead" style="--ct:#3aa0d8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">{{ t('Clans') }}{% include "_infobtn.html" %}</p>
+    <h1 class="phname">Every clan, ranked</h1>
+    <p class="phsub">Ranked by the average skill of everyone in the clan. Open one to see its
+      roster and apply; want to run one? Ask below &mdash; {{ contact }} decides on Discord.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>{{ t('Clans') }}</span><b>{{ total }}</b></div>
+    <div class="phnum"><span>Ranked</span><b class="blue">{{ clans|length }}</b></div>
+  </div>
+</div>
 {% set active = "clans" %}
 {% include "_lbtabs.html" %}
-<p class="psub">{{ total }} clan{{ '' if total == 1 else 's' }} claimed.</p>
+<div class="card">
+  <h2>{{ t('Every clan') }}</h2>
+  {% if clans %}
+  <table class="board">
+  <thead><tr>
+    <th class="rank">#</th><th>{{ t('Clan') }}</th>
+    <th class="mid">{{ t('Members') }}</th><th class="mid">{{ t('Region') }}</th><th class="mid">{{ t('Record') }}</th>
+    <th class="mid">{{ t('Win%') }}</th><th class="mid">{{ t('Survival') }}</th><th class="num">{{ t('Avg skill') }}</th>
+  </tr></thead>
+  <tbody>
+  {% for c in clans %}
+  <tr{% if c.theme_color %} class="tinted" style="--ct:{{ c.theme_color }}"{% endif %}>
+    <td class="rank">
+      {%- if c.place == 1 %}&#129351;{% elif c.place == 2 %}&#129352;
+      {%- elif c.place == 3 %}&#129353;{% else %}{{ c.place }}{% endif -%}
+    </td>
+    <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a></td>
+    <td class="mid">{{ c.size }}</td>
+    <td class="mid">{% if c.region_label %}<a href="/?region={{ c.region }}">{{ c.region_label }}</a>{% else %}&mdash;{% endif %}</td>
+    <td class="mid">{{ c.wins }}-{{ c.losses }}</td>
+    <td class="mid">{{ c.winrate }}</td>
+    <td class="mid">{{ c.surv_wins }}</td>
+    <td class="skill">{{ c.avg_elo }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  </table>
+  <p class="desc">Ranked by the average skill of everyone in the clan, so a clan
+     climbs by having good players rather than many. Adding a weak player lowers
+     the average &mdash; that is the trade.</p>
+  {% elif not small %}
+  <p class="empty">No clans yet. Claim the first one above.</p>
+  {% endif %}
+  {% if small %}
+  <h3 class="sub">{{ t('Not yet ranked') }}</h3>
+  <p class="desc">A clan is ranked once it has {{ rank_min }} members. With one
+     member the average is just that person's rating, which would put a single
+     strong player above every real clan.</p>
+  <div id="dir">
+    {% for c in small %}
+    <div class="clanrow{% if c.theme_color %} tinted{% endif %}"{% if c.theme_color %} style="--ct:{{ c.theme_color }}"{% endif %}>
+      <div>
+        <a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a>
+        <div class="cmeta">{{ c.size }} member{{ '' if c.size == 1 else 's' }}
+          &middot; skill {{ c.avg_elo }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
 
 <div class="card" style="border-color:rgba(88,101,242,.55)">
   <h2 style="color:#8b9cff">{{ t('Join the community') }}</h2>
@@ -112,58 +176,6 @@
     <button onclick="redeemCode()">{{ t('Redeem') }}</button>
   </div>
   <p class="msg" id="codeMsg"></p>
-</div>
-
-<div class="card">
-  <h2>{{ t('Every clan') }}</h2>
-  {% if clans %}
-  <table class="board">
-  <thead><tr>
-    <th class="rank">#</th><th>{{ t('Clan') }}</th>
-    <th class="mid">{{ t('Members') }}</th><th class="mid">{{ t('Region') }}</th><th class="mid">{{ t('Record') }}</th>
-    <th class="mid">{{ t('Win%') }}</th><th class="mid">{{ t('Survival') }}</th><th class="num">{{ t('Avg skill') }}</th>
-  </tr></thead>
-  <tbody>
-  {% for c in clans %}
-  <tr{% if c.theme_color %} class="tinted" style="--ct:{{ c.theme_color }}"{% endif %}>
-    <td class="rank">
-      {%- if c.place == 1 %}&#129351;{% elif c.place == 2 %}&#129352;
-      {%- elif c.place == 3 %}&#129353;{% else %}{{ c.place }}{% endif -%}
-    </td>
-    <td><a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a></td>
-    <td class="mid">{{ c.size }}</td>
-    <td class="mid">{% if c.region_label %}<a href="/?region={{ c.region }}">{{ c.region_label }}</a>{% else %}&mdash;{% endif %}</td>
-    <td class="mid">{{ c.wins }}-{{ c.losses }}</td>
-    <td class="mid">{{ c.winrate }}</td>
-    <td class="mid">{{ c.surv_wins }}</td>
-    <td class="skill">{{ c.avg_elo }}</td>
-  </tr>
-  {% endfor %}
-  </tbody>
-  </table>
-  <p class="desc">Ranked by the average skill of everyone in the clan, so a clan
-     climbs by having good players rather than many. Adding a weak player lowers
-     the average &mdash; that is the trade.</p>
-  {% elif not small %}
-  <p class="empty">No clans yet. Claim the first one above.</p>
-  {% endif %}
-  {% if small %}
-  <h3 class="sub">{{ t('Not yet ranked') }}</h3>
-  <p class="desc">A clan is ranked once it has {{ rank_min }} members. With one
-     member the average is just that person's rating, which would put a single
-     strong player above every real clan.</p>
-  <div id="dir">
-    {% for c in small %}
-    <div class="clanrow{% if c.theme_color %} tinted{% endif %}"{% if c.theme_color %} style="--ct:{{ c.theme_color }}"{% endif %}>
-      <div>
-        <a class="ctag" href="/clan/{{ c.tag|urlencode }}">{{ c.display or c.tag }}</a>
-        <div class="cmeta">{{ c.size }} member{{ '' if c.size == 1 else 's' }}
-          &middot; skill {{ c.avg_elo }}</div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
 </div>
 
 <p class="foot">Questions? Ask {{ contact }} on Discord.</p>

@@ -3,32 +3,24 @@
 {% block css %}
 /* Each person is a tile, not a line in a list: a friend is something you look
    at and press, and the division emblem wants room to be seen. */
-.socgrid{display:grid;gap:16px;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
-  align-items:start}
-@media(max-width:920px){ .socgrid{grid-template-columns:1fr} }
 .socsec{margin-bottom:18px}
 .sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 10px}
 .sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
 .sechead .n{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
-/* How many of them are in a match, beside how many there are. */
 .nlive{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;
   color:#07130d;background:#66E6B8;border-radius:999px;padding:2px 8px;cursor:help;
   font-variant-numeric:tabular-nums;align-self:center}
 .nlive i{width:5px;height:5px;border-radius:50%;background:#07130d;display:inline-block;flex:none}
-
 .tiles{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(224px,1fr))}
-
 .tile{position:relative;display:flex;flex-direction:column;gap:10px;padding:13px 13px 12px;
   border:1px solid var(--line2,rgba(153,221,255,.16));border-radius:13px;
   background:linear-gradient(160deg,rgba(153,221,255,.055),rgba(153,221,255,.015));
   transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}
 .tile:hover{transform:translateY(-2px);border-color:rgba(153,221,255,.4);
   box-shadow:0 8px 22px rgba(0,0,0,.4)}
-/* Someone actually in a match is the point of the page. */
 .tile.live{border-color:rgba(102,230,184,.45);
   background:linear-gradient(160deg,rgba(102,230,184,.12),rgba(102,230,184,.02))}
 .tile.live:hover{border-color:rgba(102,230,184,.75);box-shadow:0 8px 24px rgba(0,0,0,.45)}
-
 .tiletop{display:flex;align-items:center;gap:10px;min-width:0}
 .emb{flex:none;width:34px;height:34px;display:flex;align-items:center;justify-content:center;
   filter:drop-shadow(0 2px 3px rgba(0,0,0,.55))}
@@ -38,25 +30,16 @@
 .nm{display:block;font-weight:800;font-size:14px;letter-spacing:.2px;text-decoration:none;
   color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
 .nm:hover{text-decoration:underline}
-/* The emblem already says which division they are in; the number says where
-   in the board. Spelling the division out as well was saying it twice. */
-.pos{display:block;font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;
-  margin-top:1px}
+.pos{display:block;font-size:11.5px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums;margin-top:1px}
 .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11.5px;
   color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
 .meta .tag{color:var(--blue,#99DDFF);font-weight:700}
-/* When they were last in a match - the quiet line that makes a list of names
-   into people who do or do not still play. */
 .seen{font-size:11px;color:var(--dim,#5d7f93);display:flex;align-items:center;gap:5px}
 .seen.on{color:#66E6B8;font-weight:700}
 .seen.on i{width:6px;height:6px;border-radius:50%;background:#66E6B8;display:inline-block;
   flex:none;animation:sp 1.9s infinite}
 @keyframes sp{0%{box-shadow:0 0 0 0 rgba(102,230,184,.5)}70%{box-shadow:0 0 0 6px rgba(102,230,184,0)}100%{box-shadow:0 0 0 0 rgba(102,230,184,0)}}
-
-
-/* Where they are, when they are somewhere. */
-.where{display:flex;flex-wrap:wrap;align-items:center;gap:5px 7px;font-size:11.5px;
-  color:var(--text)}
+.where{display:flex;flex-wrap:wrap;align-items:center;gap:5px 7px;font-size:11.5px;color:var(--text)}
 .modechip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:800;
   letter-spacing:.7px;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:none}
 .modechip.team{color:#07130d;background:#66E6B8}
@@ -66,7 +49,6 @@
   border-radius:50%;font-size:10px;font-weight:700;cursor:help;line-height:1;flex:none}
 .ci.yes{color:#66E6B8;background:rgba(102,230,184,.16);border:1px solid rgba(102,230,184,.5)}
 .ci.no{color:#f0c04a;background:rgba(240,192,74,.13);border:1px solid rgba(240,192,74,.5)}
-
 .acts{display:flex;gap:7px;margin-top:auto}
 .btn{flex:1;font-family:inherit;font-size:12px;font-weight:700;border-radius:8px;cursor:pointer;
   padding:8px 10px;text-align:center;white-space:nowrap;border:1px solid var(--blue,#66E6B8);
@@ -74,10 +56,8 @@
   display:inline-flex;align-items:center;justify-content:center}
 .btn:hover{background:rgba(102,230,184,.24);color:#fff}
 .btn[disabled]{opacity:.5;cursor:default}
-.btn.ghost{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);
-  background:none}
+.btn.ghost{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);background:none}
 .btn.ghost:hover{color:#ff9a9a;border-color:rgba(255,140,140,.55);background:rgba(255,120,120,.09)}
-/* Asked as a question, with both answers on screen. */
 .askdlg{border:1px solid var(--line2,rgba(153,221,255,.3));border-radius:14px;padding:20px 22px;
   background:#0a1522;color:var(--text);max-width:380px;width:calc(100% - 32px);
   box-shadow:0 24px 60px rgba(0,0,0,.6)}
@@ -87,12 +67,9 @@
 .askrow .btn{flex:1;padding:10px}
 .btn.danger{border-color:rgba(255,140,140,.7);color:#ff9a9a;background:rgba(255,120,120,.12)}
 .btn.danger:hover{background:rgba(255,120,120,.26);color:#fff}
-
-/* Add a friend, and the panel beside it. */
 .side{border:1px solid var(--line2,rgba(153,221,255,.16));border-radius:13px;
-  background:rgba(153,221,255,.03);padding:15px 16px}
-.side h2{margin:0 0 11px;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;
-  color:#cfeefc}
+  background:rgba(153,221,255,.03);padding:15px 16px;margin-bottom:16px}
+.side h2{margin:0 0 11px;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
 .addrow{display:flex;gap:8px}
 .addrow input{flex:1;min-width:0;font-family:inherit;font-size:13.5px;color:var(--text);
   background:rgba(153,221,255,.05);border:1px solid var(--line2,rgba(153,221,255,.28));
@@ -104,66 +81,49 @@
 .empty{color:var(--muted,#8aa0b0);font-size:13px;line-height:1.6}
 .clanline{font-size:13px;color:var(--muted,#8aa0b0);line-height:1.7;margin:0}
 .clanline b{color:var(--text);font-size:15px}
-/* Suggestions under the add box. */
 .addwrap{position:relative}
 .sug{position:absolute;z-index:6;left:0;right:0;top:calc(100% + 5px);margin:0;padding:5px;
   list-style:none;border:1px solid var(--line2,rgba(153,221,255,.3));border-radius:10px;
-  background:rgba(8,16,28,.97);box-shadow:0 10px 26px rgba(0,0,0,.55);max-height:250px;
-  overflow-y:auto}
-.sug li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;
-  cursor:pointer;font-size:13px}
+  background:rgba(8,16,28,.97);box-shadow:0 10px 26px rgba(0,0,0,.55);max-height:250px;overflow-y:auto}
+.sug li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:13px}
 .sug li:hover,.sug li.on{background:rgba(153,221,255,.13)}
-.sug .sn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  font-weight:700}
+.sug .sn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
 .sug .se{color:var(--muted,#8aa0b0);font-size:11.5px;font-variant-numeric:tabular-nums;flex:none}
 .sug .sc{color:var(--blue,#99DDFF);font-size:11px;font-weight:700;flex:none}
-/* The privacy switch. */
 .tog{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:var(--text)}
 .tog input{width:16px;height:16px;accent-color:var(--green,#66e6b8);cursor:pointer;flex:none}
 .togsub{margin:7px 0 0;font-size:11.5px;color:var(--muted,#8aa0b0);line-height:1.5}
-/* A request you have sent, waiting. */
 .pend{display:flex;align-items:center;gap:9px;padding:7px 0}
 .pend + .pend{border-top:1px solid rgba(255,255,255,.05)}
 .pnm{flex:1;min-width:0;font-weight:700;font-size:13px;color:var(--text);text-decoration:none;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pnm:hover{text-decoration:underline}
 .btn.sm{flex:none;padding:5px 11px;font-size:11.5px}
-.side h2 .n{font-size:12px;color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0;
-  margin-left:6px}
-.relnote{flex:1;text-align:center;font-size:11.5px;font-weight:700;color:var(--muted,#8aa0b0);
-  padding:8px 0}
-
-/* A clan you could join. The tag is the thing being recognised, so it is set
-   larger than a player name and wears the clan's own colour. */
+.side h2 .n{font-size:12px;color:var(--muted,#8aa0b0);font-weight:400;letter-spacing:0;margin-left:6px}
+.relnote{flex:1;text-align:center;font-size:11.5px;font-weight:700;color:var(--muted,#8aa0b0);padding:8px 0}
 .clantile .nm{font-size:16px}
-/* The region chip goes green when it is the one you actually play in - the
-   reason that clan is high in the list, said where the reason applies. */
 .meta .tag.here{color:#66E6B8}
-/* Opening the rest is a plain action, not a destructive one: .btn.ghost turns
-   red on hover because everything else wearing it removes something. */
-.btn.quiet{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);
-  background:none;flex:none;padding:8px 16px}
-.btn.quiet:hover{color:var(--blue,#99DDFF);border-color:rgba(153,221,255,.5);
-  background:rgba(153,221,255,.08)}
+.btn.quiet{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);background:none;flex:none;padding:8px 16px}
+.btn.quiet:hover{color:var(--blue,#99DDFF);border-color:rgba(153,221,255,.5);background:rgba(153,221,255,.08)}
 .showrow{display:flex;margin-top:11px}
-/* How the list is ordered, said once in the heading rather than on each tile. */
 .sechead .ord{color:var(--dim,#5d7f93)}
-/* Said where the button was pressed. */
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
   max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
   color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
 .toast.bad{background:#ff9a9a}
-
-
+.pheye .infobtn{margin-left:8px;vertical-align:middle}
 {% endblock %}
 {% block body %}
-<div class="ptitlerow"><h1 class="ptitle">{{ t('Social') }}</h1>{% set info_q = 'friends' %}{% set info_tip = 'How friends and clanmates work' %}{% include "_infobtn.html" %}</div>
+{% set info_q = 'friends' %}{% set info_tip = 'How friends and clanmates work' %}
 
 {% if not signed_in %}
-<div class="side">
-  <h2>Friends</h2>
-  <p class="empty">Sign in to add friends and see who is playing &mdash; the button is in
-    the header, or <a href="/auth/discord?next=/social">sign in with Discord</a>.</p>
+<div class="pagehead" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">{{ t('Social') }}{% include "_infobtn.html" %}</p>
+    <h1 class="phname">Friends, clanmates, who is on</h1>
+    <p class="phsub">Sign in to add friends and see who is playing &mdash; the button is in
+      the header, or <a href="/auth/discord?next=/social">sign in with Discord</a>.</p>
+  </div></div>
 </div>
 {% else %}
 
@@ -180,167 +140,197 @@
 {% if p.playing %}<div class="seen on"><i></i>In a match</div>{% elif p.last %}<div class="seen">Last played {{ p.last }}</div>{% else %}<div class="seen">No matches yet</div>{% endif %}
 {%- endmacro %}
 
-<div class="socgrid">
-  <div>
-    {% if onnow %}
-    <div class="socsec">
-      <div class="sechead"><h2>Playing now</h2><span class="n">{{ onnow|length }}</span></div>
-      <div class="tiles">
-        {% for p in onnow %}
-        <div class="tile live" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
-          {{ who(p) }}
-          <div class="where">
-            <span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span>
-            <span class="lob">{{ p.playing.lobby }}</span>
-            {% if p.playing.checked_in %}<span class="ci yes" role="img" aria-label="Checked in"
-              title="Checked in &mdash; this result will be recorded against their account">&#10003;</span>
-            {% else %}<span class="ci no" role="img" aria-label="Not checked in"
-              title="Not checked in &mdash; the result will land on whatever name the game reports, not on their account. They can still check in from Play before the match ends.">!</span>{% endif %}
-          </div>
-          <div class="acts">
-            {% if p.playing.sid %}<button type="button" class="btn" data-act="join"
-              data-sid="{{ p.playing.sid }}">Join</button>{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
+{% set flive = friends | selectattr('playing') | list | length %}
+{% set mlive = mates | selectattr('playing') | list | length %}
 
-    {% if incoming %}
-    <div class="socsec">
-      <div class="sechead"><h2>Friend requests</h2><span class="n">{{ incoming|length }}</span></div>
-      <div class="tiles">
-        {% for p in incoming %}
-        <div class="tile" data-name="{{ p.name }}">
-          {{ who(p) }}
-          <div class="acts">
-            <button type="button" class="btn" data-act="accept">Accept</button>
-            <button type="button" class="btn ghost" data-act="decline">Decline</button>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="socsec">
-      {% set flive = friends | selectattr('playing') | list | length %}
-      <div class="sechead"><h2>Friends</h2><span class="n">{{ friends|length }}</span><span class="nlive" id="fLive"{% if not flive %} hidden{% endif %}><i></i><b>{{ flive }}</b></span></div>
-      {% if friends %}
-      <div class="tiles">
-        {% for p in friends %}
-        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
-          {{ who(p) }}
-          {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
-          <div class="acts">
-            <button type="button" class="btn ghost" data-act="remove">Remove</button>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="empty">No friends yet. Add someone by the name they play under.</p>
-      {% endif %}
-    </div>
-
-    {% if mates %}
-    <div class="socsec">
-      {% set mlive = mates | selectattr('playing') | list | length %}
-      <div class="sechead"><h2>{{ my_tag }} clanmates</h2><span class="n">{{ mates|length }}</span><span class="nlive" id="mLive"{% if not mlive %} hidden{% endif %}><i></i><b>{{ mlive }}</b></span></div>
-      <div class="tiles">
-        {% for p in mates %}
-        <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
-          {{ who(p) }}
-          {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
-          <div class="acts">
-            {% if p.rel == 'friend' %}<span class="relnote">Friend &#10003;</span>
-            {% elif p.rel == 'asked' %}<span class="relnote">Request sent</span>
-            {% else %}<button type="button" class="btn ghost" data-act="befriend">Add friend</button>{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    {% if clan_recs %}
-    <section class="socsec">
-      <div class="sechead"><h2>Clans you could join</h2>
-        <span class="n">{{ clan_recs|length + clan_more|length }}</span>
-        {% if clan_order %}<span class="n ord">{{ clan_order }}</span>{% endif %}</div>
-      <div class="tiles">
-        {% for ct in clan_recs %}{% include "_clantile.html" %}{% endfor %}
-      </div>
-      {% if clan_more %}
-      <div class="tiles" id="moreclans" style="margin-top:11px" hidden>
-        {% for ct in clan_more %}{% include "_clantile.html" %}{% endfor %}
-      </div>
-      <div class="showrow">
-        <button type="button" class="btn quiet" id="showall" aria-expanded="false"
-                aria-controls="moreclans"
-                data-more="Show all {{ clan_recs|length + clan_more|length }} clans"
-        >Show all {{ clan_recs|length + clan_more|length }} clans</button>
-      </div>
-      {% endif %}
-    </section>
-    {% endif %}
-
-  </div>
-
-  <div>
-    <div class="side" style="margin-bottom:16px">
-      <h2>Add a friend</h2>
-      <div class="addwrap">
-        <div class="addrow">
-          <input id="addq" type="text" autocomplete="off" placeholder="Name they play under"
-                 aria-label="Add a friend by name" role="combobox" aria-expanded="false"
-                 aria-controls="addsug">
-          <button type="button" class="btn" id="addbtn">Send</button>
-        </div>
-        <ul class="sug" id="addsug" role="listbox" hidden></ul>
-      </div>
-      <div class="msg" id="msg"></div>
-    </div>
-
-    {% if outgoing %}
-    <div class="side" style="margin-bottom:16px">
-      <h2>Waiting on a reply <span class="n">{{ outgoing|length }}</span></h2>
-      {% for p in outgoing %}
-      <div class="pend" data-name="{{ p.name }}">
-        <a class="pnm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
-        <button type="button" class="btn ghost sm" data-act="remove">Cancel</button>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    <div class="side" style="margin-bottom:16px">
-      <h2>Privacy</h2>
-      <label class="tog">
-        <input type="checkbox" id="hidep"{% if hidden %} checked{% endif %}>
-        <span>Hide which lobby I am in</span>
-      </label>
-      <p class="togsub">{% if hidden %}Friends cannot see when you are playing.{% else %}Friends can see the lobby you are in, and join you.{% endif %}</p>
-    </div>
-
-    <div class="side">
-      <h2>Your clan</h2>
-      {% if clan %}
-        <p class="clanline"><b>{{ clan.tag }}</b><br>{{ clan.members }} member{{ '' if clan.members == 1 else 's' }}</p>
-        <div class="acts" style="margin-top:13px">
-          <a class="btn" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
-          <a class="btn ghost" href="/myclan">Manage</a>
-          {% if gems_on %}<a class="btn ghost" href="/agents">Free agents</a>{% endif %}
-        </div>
-      {% else %}
-        <p class="empty">You are not in a clan.</p>
-        <div class="acts" style="margin-top:13px"><a class="btn" href="/clans">Browse clans</a>
-          {% if gems_on %}<a class="btn ghost" href="/agents">Be a free agent</a>{% endif %}</div>
-      {% endif %}
-    </div>
+{# ------------------------------------------------------------ the band #}
+<div class="pagehead" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">{{ t('Social') }}{% include "_infobtn.html" %}</p>
+    <h1 class="phname">Friends, clanmates, who is on</h1>
+    <p class="phsub">{% if onnow %}<b>{{ onnow|length }}</b> of your people {{ 'is' if onnow|length == 1 else 'are' }} in a match right now.{% else %}Nobody you know is in a match right now.{% endif %}
+      {% if my_tag %} You are in <a href="/myclan">{{ my_tag }}</a>.{% endif %}</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>Friends</span><b>{{ friends|length }}</b></div>
+    <div class="phnum"><span>Playing now</span><b class="green">{{ onnow|length }}</b></div>
+    {% if mates %}<div class="phnum"><span>Clanmates</span><b>{{ mates|length }}</b></div>{% endif %}
+    {% if incoming %}<div class="phnum"><span>Requests</span><b class="blue">{{ incoming|length }}</b></div>{% endif %}
   </div>
 </div>
+
+<nav class="subtabs" id="subtabs" aria-label="Sections" data-default="friends">
+  <a href="#friends" data-panel="friends">Friends<span class="n">{{ friends|length }}</span></a>
+  <a href="#requests" data-panel="requests">Requests{% if incoming %}<span class="n hot">{{ incoming|length }}</span>{% elif outgoing %}<span class="n">{{ outgoing|length }}</span>{% endif %}</a>
+  <a href="#clan" data-panel="clan">Clan{% if mates %}<span class="n">{{ mates|length }}</span>{% endif %}</a>
+  <a href="#privacy" data-panel="privacy">Privacy</a>
+</nav>
+
+{# ----------------------------------------------------------- friends #}
+<section class="panel" data-panel="friends" hidden>
+<div class="side">
+  <h2>Add a friend</h2>
+  <div class="addwrap">
+    <div class="addrow">
+      <input id="addq" type="text" autocomplete="off" placeholder="Name they play under"
+             aria-label="Add a friend by name" role="combobox" aria-expanded="false"
+             aria-controls="addsug">
+      <button type="button" class="btn" id="addbtn">Send</button>
+    </div>
+    <ul class="sug" id="addsug" role="listbox" hidden></ul>
+  </div>
+  <div class="msg" id="msg"></div>
+</div>
+
+{% if onnow %}
+<div class="socsec">
+  <div class="sechead"><h2>Playing now</h2><span class="n">{{ onnow|length }}</span></div>
+  <div class="tiles">
+    {% for p in onnow %}
+    <div class="tile live" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
+      {{ who(p) }}
+      <div class="where">
+        <span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span>
+        <span class="lob">{{ p.playing.lobby }}</span>
+        {% if p.playing.checked_in %}<span class="ci yes" role="img" aria-label="Checked in"
+          title="Checked in &mdash; this result will be recorded against their account">&#10003;</span>
+        {% else %}<span class="ci no" role="img" aria-label="Not checked in"
+          title="Not checked in &mdash; the result will land on whatever name the game reports, not on their account. They can still check in from Play before the match ends.">!</span>{% endif %}
+      </div>
+      <div class="acts">
+        {% if p.playing.sid %}<button type="button" class="btn" data-act="join"
+          data-sid="{{ p.playing.sid }}">Join</button>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="socsec">
+  <div class="sechead"><h2>Friends</h2><span class="n">{{ friends|length }}</span><span class="nlive" id="fLive"{% if not flive %} hidden{% endif %}><i></i><b>{{ flive }}</b></span></div>
+  {% if friends %}
+  <div class="tiles">
+    {% for p in friends %}
+    <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
+      {{ who(p) }}
+      {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
+      <div class="acts">
+        <button type="button" class="btn ghost" data-act="remove">Remove</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No friends yet. Add someone by the name they play under.</p>
+  {% endif %}
+</div>
+</section>
+
+{# ---------------------------------------------------------- requests #}
+<section class="panel" data-panel="requests" hidden>
+<div class="socsec">
+  <div class="sechead"><h2>Friend requests</h2><span class="n">{{ incoming|length }}</span></div>
+  {% if incoming %}
+  <div class="tiles">
+    {% for p in incoming %}
+    <div class="tile" data-name="{{ p.name }}">
+      {{ who(p) }}
+      <div class="acts">
+        <button type="button" class="btn" data-act="accept">Accept</button>
+        <button type="button" class="btn ghost" data-act="decline">Decline</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Nobody is asking to be your friend right now.</p>
+  {% endif %}
+</div>
+<div class="side">
+  <h2>Waiting on a reply <span class="n">{{ outgoing|length }}</span></h2>
+  {% for p in outgoing %}
+  <div class="pend" data-name="{{ p.name }}">
+    <a class="pnm" href="/player/{{ p.name|urlencode }}"{% if p.division %} style="color:{{ p.division.color }}"{% endif %}>{{ p.name }}</a>
+    <button type="button" class="btn ghost sm" data-act="remove">Cancel</button>
+  </div>
+  {% else %}
+  <p class="empty">No requests of yours are waiting.</p>
+  {% endfor %}
+</div>
+</section>
+
+{# -------------------------------------------------------------- clan #}
+<section class="panel" data-panel="clan" hidden>
+<div class="side">
+  <h2>Your clan</h2>
+  {% if clan %}
+    <p class="clanline"><b>{{ clan.tag }}</b><br>{{ clan.members }} member{{ '' if clan.members == 1 else 's' }}</p>
+    <div class="acts" style="margin-top:13px">
+      <a class="btn" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
+      <a class="btn ghost" href="/myclan">{{ t('Your clan') }}</a>
+      {% if gems_on %}<a class="btn ghost" href="/agents">Free agents</a>{% endif %}
+    </div>
+  {% else %}
+    <p class="empty">You are not in a clan. The ones below play at about your level.</p>
+    <div class="acts" style="margin-top:13px"><a class="btn" href="/clans">Browse clans</a>
+      {% if gems_on %}<a class="btn ghost" href="/agents">Be a free agent</a>{% endif %}</div>
+  {% endif %}
+</div>
+
+{% if mates %}
+<div class="socsec">
+  <div class="sechead"><h2>{{ my_tag }} clanmates</h2><span class="n">{{ mates|length }}</span><span class="nlive" id="mLive"{% if not mlive %} hidden{% endif %}><i></i><b>{{ mlive }}</b></span></div>
+  <div class="tiles">
+    {% for p in mates %}
+    <div class="tile{% if p.playing %} live{% endif %}" data-name="{{ p.name }}" data-norm="{{ p.norm }}">
+      {{ who(p) }}
+      {% if p.playing %}<div class="where"><span class="modechip {{ p.playing.mode }}">{{ 'Team' if p.playing.mode == 'team' else 'Survival' }}</span><span class="lob">{{ p.playing.lobby }}</span></div>{% endif %}
+      <div class="acts">
+        {% if p.rel == 'friend' %}<span class="relnote">Friend &#10003;</span>
+        {% elif p.rel == 'asked' %}<span class="relnote">Request sent</span>
+        {% else %}<button type="button" class="btn ghost" data-act="befriend">Add friend</button>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if clan_recs %}
+<div class="socsec">
+  <div class="sechead"><h2>Clans you could join</h2>
+    <span class="n">{{ clan_recs|length + clan_more|length }}</span>
+    {% if clan_order %}<span class="n ord">{{ clan_order }}</span>{% endif %}</div>
+  <div class="tiles">
+    {% for ct in clan_recs %}{% include "_clantile.html" %}{% endfor %}
+  </div>
+  {% if clan_more %}
+  <div class="tiles" id="moreclans" style="margin-top:11px" hidden>
+    {% for ct in clan_more %}{% include "_clantile.html" %}{% endfor %}
+  </div>
+  <div class="showrow">
+    <button type="button" class="btn quiet" id="showall" aria-expanded="false"
+            aria-controls="moreclans"
+            data-more="Show all {{ clan_recs|length + clan_more|length }} clans"
+    >Show all {{ clan_recs|length + clan_more|length }} clans</button>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+</section>
+
+{# ----------------------------------------------------------- privacy #}
+<section class="panel" data-panel="privacy" hidden>
+<div class="side">
+  <h2>Privacy</h2>
+  <label class="tog">
+    <input type="checkbox" id="hidep"{% if hidden %} checked{% endif %}>
+    <span>Hide which lobby I am in</span>
+  </label>
+  <p class="togsub">{% if hidden %}Friends cannot see when you are playing.{% else %}Friends can see the lobby you are in, and join you.{% endif %}</p>
+</div>
+</section>
 
 <div class="toast" id="toast" hidden></div>
 
@@ -361,8 +351,6 @@
   var toast=document.getElementById('toast'), toastT=0;
   function say(t, bad){
     if(msg){ msg.textContent=t||''; msg.classList.toggle('bad', !!bad); }
-    // ...and again where the eye already is, because the panel that used to
-    // hold this sits across the page from most of the buttons.
     if(!toast || !t) return;
     toast.textContent=t;
     toast.classList.toggle('bad', !!bad);
@@ -380,34 +368,27 @@
       })
       .catch(function(){ say('Could not reach the site.', true); });
   }
-  // The list is rebuilt by the server, so a change that lands reloads the page
-  // rather than trying to keep two copies of the truth in step.
   function reload(o){ if(o.j.ok) setTimeout(function(){ location.reload(); }, 450); }
 
-  // ---- the question ------------------------------------------------------
   var dlg=document.getElementById('askdlg'), askTxt=document.getElementById('asktxt'),
       askYes=document.getElementById('askyes'), askNo=document.getElementById('askno'),
       onYes=null;
   function ask(text, yesLabel, fn){
-    if(!dlg || !dlg.showModal){ if(confirm(text)) fn(); return; }   // no <dialog>: still asks
+    if(!dlg || !dlg.showModal){ if(confirm(text)) fn(); return; }
     askTxt.textContent=text;
     askYes.textContent=yesLabel || 'Yes';
     onYes=fn;
     dlg.showModal();
-    askNo.focus();                       // the safe answer is the one under the cursor
+    askNo.focus();
   }
   if(askNo) askNo.addEventListener('click', function(){ onYes=null; dlg.close(); });
   if(askYes) askYes.addEventListener('click', function(){
     var fn=onYes; onYes=null; dlg.close(); if(fn) fn();
   });
-  // Clicking the dark outside the box is a no, like pressing Escape.
   if(dlg) dlg.addEventListener('click', function(ev){
     if(ev.target === dlg){ onYes=null; dlg.close(); }
   });
 
-  // ---- asking a clan to take you -----------------------------------------
-  // /clan/apply answers with a message and an HTTP status, not an ok flag, so
-  // this reads the status rather than going through post().
   var MY_NAME={{ (me or '')|tojson }};
   function applyTo(tag, btn){
     var extra={};
@@ -423,20 +404,17 @@
       .then(function(o){
         say(o.j.message || '', o.s !== 200);
         if(o.s === 200){
-          // The button has done the only thing it can do, so it stops being a
-          // button rather than sitting there inviting a second application.
           var acts=btn.parentNode;
           if(acts){ acts.innerHTML='';
             var sp=document.createElement('span');
             sp.className='relnote';
-            sp.textContent='Applied \u2014 waiting';
+            sp.textContent='Applied — waiting';
             acts.appendChild(sp); }
         } else { btn.disabled=false; }
       })
       .catch(function(){ say('Could not reach the site.', true); btn.disabled=false; });
   }
 
-  // ---- the rest of the clans ---------------------------------------------
   var showall=document.getElementById('showall'), more=document.getElementById('moreclans');
   if(showall && more) showall.addEventListener('click', function(){
     var opening = more.hidden;
@@ -448,13 +426,11 @@
   document.addEventListener('click', function(ev){
     var b=ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
-    // A clan tile carries a tag where a person carries a name.
     if(b.getAttribute('data-act')==='apply'){
       var ch=b.closest('[data-tag]');
       if(ch) applyTo(ch.getAttribute('data-tag'), b);
       return;
     }
-    // A tile, or a row in the waiting list - whatever carries the name.
     var holder=b.closest('[data-name]'), name=holder && holder.getAttribute('data-name');
     if(!name) return;
     var act=b.getAttribute('data-act');
@@ -462,8 +438,6 @@
     if(act==='decline') post('/friends/respond', {name:name, accept:'0'}, reload);
     if(act==='befriend'){ post('/friends/request', {name:name}, reload); return; }
     if(act==='remove'){
-      // Removing cannot be undone from here, so it is asked as a question with
-      // two answers rather than as a button that acts on the first press.
       ask(b.textContent.trim() === 'Cancel'
             ? 'Cancel your friend request to ' + name + '?'
             : 'Remove ' + name + ' from your friends?',
@@ -471,9 +445,6 @@
           function(){ post('/friends/remove', {name:name}, reload); });
     }
     if(act==='join'){
-      // Exactly what pressing Play does: check in for THAT lobby so the result
-      // lands on your account, put your play name on the clipboard so the
-      // watcher can recognise your ship, then open the game.
       var sid=b.getAttribute('data-sid');
       if(!sid) return;
       b.disabled=true;
@@ -483,9 +454,6 @@
         .then(async function(o){
           b.disabled=false;
           if(o.s !== 200){ say(o.j.message || 'Could not check in.', true); return; }
-          // Open the game BEFORE awaiting the clipboard: every await puts more
-          // distance between the click and the window.open, and that distance
-          // is what a popup blocker measures.
           window.open('https://starblast.io/#' + sid, '_blank');
           var nm=PLAY_NAME;
           if(nm && navigator.clipboard){
@@ -500,10 +468,6 @@
     }
   });
 
-  // ---- keep the page current without reloading it ------------------------
-  // Only the parts that actually change are touched: whether each person is in
-  // a match, what it says under their name, and the two counts. Anything the
-  // viewer is in the middle of - a typed name, an open question - is left be.
   function paintLive(d){
     var playing = d.playing || {};
     document.querySelectorAll('.tile[data-norm]').forEach(function(t){
@@ -555,8 +519,6 @@
     hide();
     post('/friends/request', {name:v}, function(o){ if(o.j.ok){ q.value=''; reload(o); } });
   }
-
-  // ---- suggestions, from the same index the leaderboard search uses -------
   var sel=-1, items=[], tmr=0, lastQ='';
   function hide(){ if(!sug) return; sug.hidden=true; sug.innerHTML=''; items=[]; sel=-1;
                    q.setAttribute('aria-expanded','false'); }
@@ -576,7 +538,6 @@
     }).join('');
     sug.hidden=false; q.setAttribute('aria-expanded','true');
   }
-
   function look(){
     var v=(q.value||'').trim();
     if(v.length<2){ hide(); return; }
@@ -609,7 +570,6 @@
   });
   if(add) add.addEventListener('click', function(){ send(); });
 
-  // ---- the privacy switch -------------------------------------------------
   var hp=document.getElementById('hidep');
   if(hp) hp.addEventListener('change', function(){
     var sub=document.querySelector('.togsub');

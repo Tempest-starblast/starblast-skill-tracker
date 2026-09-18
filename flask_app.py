@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.32.0"
+APP_VERSION = "9.33.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6368,6 +6368,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.33.0", "at": "2026-09-18T17:00:00Z", "changes": [
+        "<b>Social, Play and the clans list</b> follow the same pattern as the "
+        "account and clan pages now. Social: a band with who is on, then tabs - "
+        "Friends (add someone, who is playing now, your friends), Requests (with "
+        "a count), Clan (your clan, clanmates, clans you could join), Privacy. "
+        "Play: the rule in one line up top, live and tracked counts, your play "
+        "name, the match list with region tabs, and how it works in three steps. "
+        "Clans: the ranked directory first, requesting a clan below it.",
+    ]},
     {"version": "9.32.0", "at": "2026-09-18T15:00:00Z", "changes": [
         "<b>Your account rebuilt</b> the same way as the clan pages: a header "
         "band with your name, rank, skill, record and win rate, then tabs - "
