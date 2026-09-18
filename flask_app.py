@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.28.0"
+APP_VERSION = "9.28.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -12587,6 +12587,8 @@ def me():
                      "label": "Achievements", "badge": "NEW", "colour": "#8ef3ff"})
         _nav.append({"t": "a", "href": "/shop", "id": "shopTab",
                      "label": "Shop", "badge": "NEW", "colour": "#8ef3ff"})
+        _nav.append({"t": "a", "href": "/agents", "id": "agentsTab",
+                     "label": "Free agents", "badge": "NEW", "colour": "#8ef3ff"})
         try:
             _c5 = db()
             _gems = gem_balance(_c5.cursor(), "player", normalize_name(account_name))
