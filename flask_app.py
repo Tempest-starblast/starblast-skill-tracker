@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.38.1"
+APP_VERSION = "9.38.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6826,6 +6826,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.38.2", "at": "2026-09-19T07:00:00Z", "changes": [
+        "<b>Fixed on phones: the tab bar was cut off.</b> Everything past the "
+        "fourth or fifth tab ran off the side of the screen, including the "
+        "menu button - so Your account, Merge a name, Live matches, Compare "
+        "and the changelog could not be reached from a phone at all. The bar "
+        "now slides sideways, the menu button stays pinned at its right end, "
+        "and the menu opens above it.",
+    ]},
     {"version": "9.38.0", "at": "2026-09-19T05:00:00Z", "changes": [
         "<b>A clan has at most two co-leaders.</b> The ones already appointed "
         "stay; a third cannot be added. Moderators are still unlimited.",
@@ -13354,7 +13362,7 @@ def clan_page(tag):
     clan["treasury"] = gem_balance(c2, "clan", known) if _ships_ok_c else None
     clan["member_rate"], clan["mod_rate"] = clan_pay_rates(c2, known) if _ships_ok_c else (0, 0)
     clan["paid_week"] = clan_paid_week(c2, known) if _ships_ok_c else None
-    clan["cv"] = clan_view(known, _ships_ok_c)
+    clan["cv"] = clan_view(known, _ships_ok_c, c2)
     if _ships_ok_c:
         for m in members:
             m["rate"] = clan_member_rate(c2, known, normalize_name(m["name"]))
@@ -13672,13 +13680,32 @@ def clan_cos_map():
     return m
 
 
-def clan_view(tag, allowed):
+def clan_view(tag, allowed, c=None):
     """What a page draws for a clan: {banner, frame, tag: css class; emblem:
     {code, color}; perks: {perk: until}}. Empty unless the VIEWER may see the
-    shop - while unreleased, only the owner."""
+    shop - while unreleased, only the owner.
+
+    Pass an open cursor where the answer has to be current - the clans table's
+    order, or a page the buyer lands on straight after paying. The cache is a
+    minute old, and each worker process has its own, so a purchase would
+    otherwise take up to a minute to show up.
+    """
     if not allowed or not tag:
         return {}
-    ent = clan_cos_map().get(tag) or {}
+    if c is not None:
+        ent = {}
+        try:
+            r = c.execute("SELECT cosmetics FROM clans WHERE tag = ?", (tag,)).fetchone()
+            worn = _clan_worn(r[0] if r else None)
+            if worn:
+                ent["worn"] = worn
+            ent["perks"] = {k: v for k, v in c.execute(
+                "SELECT perk, until FROM clan_perks WHERE clan = ? AND until > ?",
+                (tag, _stamp())).fetchall()}
+        except sqlite3.Error:
+            ent = clan_cos_map().get(tag) or {}
+    else:
+        ent = clan_cos_map().get(tag) or {}
     out = {"perks": dict(ent.get("perks") or {})}
     for slot, item_id in (ent.get("worn") or {}).items():
         it = clan_item(item_id)
@@ -20357,7 +20384,7 @@ def my_clan_page():
         "treasury": gem_balance(c, "clan", tag),
         "member_rate": clan_pay_rates(c, tag)[0], "mod_rate": clan_pay_rates(c, tag)[1],
         "paid_week": clan_paid_week(c, tag),
-        "cv": clan_view(tag, True),
+        "cv": clan_view(tag, True, c),
         "invited": [{"id": r[0], "name": r[1]} for r in c.execute(
             "SELECT id, name FROM clan_invites WHERE clan = ? "
             "AND status = 'pending' AND direction = 'invite' "
@@ -20442,8 +20469,20 @@ def clans_page():
     # Bought perks, for those who may see the shop: a Spotlight clan sits at
     # the top of the table with its real place number; Recruiting is a pill.
     if gems_visible():
+        # Read live rather than through the cache: this decides the order, and
+        # a clan that just paid for Spotlight should be at the top on the very
+        # next load, not up to a minute later.
+        live = {}
+        try:
+            _pc = db()
+            for _tag, _perk in _pc.execute("SELECT clan, perk FROM clan_perks WHERE until > ?",
+                                           (_stamp(),)).fetchall():
+                live.setdefault(_tag, {})[_perk] = 1
+            _pc.close()
+        except sqlite3.Error:
+            pass
         for row in ranked + small:
-            row["perks"] = clan_view(row["tag"], True).get("perks") or {}
+            row["perks"] = live.get(row["tag"], {})
         ranked.sort(key=lambda r: (0 if "perk-spotlight" in r["perks"] else 1, r["place"]))
     return render_template('clans.html', clans=ranked, small=small,
                            total=len(rows), rank_min=CLAN_RANK_MIN,

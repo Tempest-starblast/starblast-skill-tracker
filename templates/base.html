@@ -441,8 +441,19 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .tabmenu a:hover{background:rgba(153,221,255,.08);color:var(--text)}
 .tabmenu a.on{color:#dff4ff;text-shadow:var(--glow)}
 @media (max-width:760px){
-  .tabmenu{bottom:calc(100% + 8px);top:auto}
-  .tabmenu::before{top:auto;bottom:-9px}
+  /* A phone cannot fit eight tabs, and the bar is the only way to most of
+     the site - so the strip scrolls sideways, the menu button stays pinned
+     at its right end, and the flyout is fixed above the bar (a scrolling
+     strip would otherwise clip it). */
+  .tabs{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none}
+  .tabs::-webkit-scrollbar{width:0;height:0}
+  .tabmore{position:sticky;right:0;flex:0 0 auto;min-width:56px;
+    background:linear-gradient(90deg,rgba(1,6,12,0),rgba(1,6,12,.96) 30%)}
+  .tabmenu{position:fixed;left:auto;right:10px;top:auto;
+    bottom:calc(62px + env(safe-area-inset-bottom));
+    max-height:min(62vh,430px);overflow-y:auto}
+  .tabmenu::before{display:none}
 }
 /* Owner sandbox banner: impossible to miss, always a way back. */
 .devbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;
