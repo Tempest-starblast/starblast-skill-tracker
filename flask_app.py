@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.29.0"
+APP_VERSION = "9.30.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6368,6 +6368,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.30.0", "at": "2026-09-18T10:00:00Z", "changes": [
+        "<b>Survival rounds now count for your account</b> the way team matches "
+        "do. A round played under a check-in, your play name or your clan\u2019s "
+        "tag lands on your record instead of on a separate row for that spelling. "
+        "Two names in one round that are one account are rated for neither, and "
+        "Protection works the same way: a protected account\u2019s round counts "
+        "only with a check-in. The survival board is being rebuilt under the new "
+        "rule.",
+    ]},
     {"version": "9.29.0", "at": "2026-09-18T08:30:00Z", "changes": [
         "Clan pages and the clans list now count <b>survival wins</b> too: every "
         "survival round a current member has won, added together, beside the "
@@ -9967,15 +9976,44 @@ def _survival_dupe_keys(data):
     return dupes
 
 
-def _survival_withheld(c, round_key, ended_at, data, protected=None):
-    """Names in this round that must not be rated: flown twice, or protected
-    without a check-in for this lobby."""
+def _survival_keys(c, round_key, ranked):
+    """{norm as flown: the account's norm} for a round's field - a check-in
+    binding for this lobby, the play name, the clan tag, in that order, the
+    same door a team result goes through; a name that is nobody's keeps its
+    own norm. The rating row is written under the account so a round won as
+    '(L7) Tempest' lands on Tempest, not on a row of that spelling."""
+    sid = str(round_key).split("|")[0]
+    try:
+        sid = int(sid)
+    except (TypeError, ValueError):
+        sid = None
+    out = {}
+    for k, disp in ranked:
+        try:
+            acct = account_for_ingame_name(c, disp, sid)
+        except sqlite3.Error:
+            acct = None
+        out[k] = normalize_name(acct) if acct else k
+    return out
+
+
+def _survival_withheld(c, round_key, ended_at, data, protected=None, keymap=None):
+    """Names in this round that must not be rated: flown twice, two flown
+    names that are one account, or a protected account (judged on who the
+    name resolves to) without a check-in for this lobby. Returns norms as
+    flown."""
     dupes = _survival_dupe_keys(data)
     if protected is None:
         protected = {normalize_name(r[0]) for r in
                      c.execute("SELECT name FROM players WHERE strict_mode = 1")}
     field = {k for k, _ in _survival_ranked_field(data)}
-    guarded = field & protected
+    keymap = keymap or {}
+    owner = {k: keymap.get(k, k) for k in field}
+    shared = {}
+    for k, a in owner.items():
+        shared.setdefault(a, set()).add(k)
+    twice = {k for k, a in owner.items() if len(shared[a]) > 1}
+    guarded = {k for k, a in owner.items() if a in protected}
     checked = set()
     if guarded:
         sid = str(round_key).split("|")[0]
@@ -9996,7 +10034,7 @@ def _survival_withheld(c, round_key, ended_at, data, protected=None):
                     "AND created_at > datetime('now', ?)",
                     (sid, '-%d hours' % SURV_CHECKIN_WINDOW_HOURS)).fetchall()
             checked = {normalize_name(r[0]) for r in rows}
-    return (dupes & field) | (guarded - checked)
+    return (dupes & field) | twice | {k for k in guarded if owner[k] not in checked}
 
 
 def _survival_true_winner(data):
@@ -10031,12 +10069,15 @@ def apply_survival_round(c, round_key, ended_at, data, protected=None):
                  (round_key,)).fetchone():
         return 0                       # already rated - keep it idempotent
     close_call = bool(data.get('close_call'))
-    keys = [k for k, _ in ranked]
-    # Rated for nobody: a name two ships were flying, and a protected name with
-    # no check-in for this lobby. They stay in the field below - they really did
-    # finish where they finished, and everyone else was measured against them -
-    # but no rating row is written, so no phantom result lands on an account.
-    withheld = _survival_withheld(c, round_key, ended_at, data, protected)
+    # Each flown name resolved to its account (9.30.0): the rating row, the
+    # history and the gems all land there. Rated for nobody: a name two ships
+    # were flying, two names that are one account, and a protected account
+    # with no check-in for this lobby. They stay in the field below - they
+    # really did finish where they finished, and everyone else was measured
+    # against them - but no rating row is written.
+    keymap = _survival_keys(c, round_key, ranked)
+    keys = [keymap[k] for k, _ in ranked]
+    withheld = _survival_withheld(c, round_key, ended_at, data, protected, keymap)
     elos, games = {}, {}
     ph = ",".join("?" for _ in keys)
     for nn, el, rd in c.execute(
@@ -10060,9 +10101,10 @@ def apply_survival_round(c, round_key, ended_at, data, protected=None):
                        if games.get(keys[i], 0) < SURV_PROVISIONAL_ROUNDS else 1.0)
         deltas.append(kf / (n - 1) * s)
     now = ended_at or time.strftime('%Y-%m-%d %H:%M:%S')
-    for i, (k, disp) in enumerate(ranked):
-        if k in withheld:
+    for i, (raw, disp) in enumerate(ranked):
+        if raw in withheld:
             continue
+        k = keys[i]
         place = i + 1
         new_elo = round(r[i] + deltas[i], 2)
         won = 1 if i == 0 else 0
@@ -12818,6 +12860,13 @@ def gem_grant(c, kind, owner, amount, reason, ref=""):
         else:
             c.execute("UPDATE players SET gems = COALESCE(gems, 0) + ? "
                       "WHERE norm_name = ?", (int(amount), owner))
+        if not c.rowcount:
+            # Nobody to carry it: a ledger row with no balance behind it is
+            # a debt the site would owe forever (five players were short by
+            # exactly one such grant). Take the row back out.
+            c.execute("DELETE FROM gem_ledger WHERE owner_kind = ? AND owner = ? "
+                      "AND reason = ? AND ref = ?", (kind, owner, reason, str(ref or "")))
+            return 0
         return int(amount)
     except sqlite3.Error:
         return 0
@@ -12972,6 +13021,9 @@ def award_survival_gems(c, nn, round_key):
     row = c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
     if not row:
         return 0
+    if c.execute("SELECT 1 FROM gem_ledger WHERE reason = 'survival-win' AND ref = ? LIMIT 1",
+                 (round_key,)).fetchone():
+        return 0                      # paid already, under whatever key it had then
     got = gem_grant(c, "player", nn, GEM_SURVIVAL_WIN, "survival-win", round_key)
     tag = row[0]
     if tag:
