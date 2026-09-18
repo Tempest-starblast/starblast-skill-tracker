@@ -1,0 +1,47 @@
+{# The Spotlight perk: a clan pays to be shown, so it is shown - as a banner
+   that says what it is, never as a place in a ranked table. Included on the
+   leaderboard and the clans page, and only where the economy is visible. #}
+{% if featured %}
+<style>
+.featc{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px 18px;align-items:center;
+  margin:0 0 18px;padding:14px 18px;border-radius:14px;position:relative;overflow:hidden;
+  border:1px solid var(--line);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--ct,#3aa0d8) 26%,rgba(6,10,18,.62)),rgba(4,8,14,.74) 62%)}
+.featc::after{content:"";position:absolute;inset:-40% -10% auto auto;width:45%;height:180%;pointer-events:none;
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--ct,#3aa0d8) 26%,transparent),transparent 70%)}
+.featc>*{position:relative;z-index:1}
+.featc .fctag{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:56px;height:56px;
+  padding:0 14px;border-radius:13px;font-size:23px;font-weight:900;letter-spacing:.5px;color:#fff;margin:0;
+  background:color-mix(in srgb,var(--ct,#3aa0d8) 58%,#000 12%);border:1px solid rgba(255,255,255,.24);
+  text-decoration:none;line-height:1;overflow-wrap:anywhere}
+.featc .fceye{display:block;font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:#b9d6e4;
+  font-weight:800;margin:0 0 3px}
+.featc .fcline{margin:0;font-size:13.5px;color:#dff4ff;line-height:1.5}
+.featc .fcline b{color:#fff}
+.featc .fcbio{margin:4px 0 0;font-size:12.5px;color:#b9d6e4;line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.featc .fcgo{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:10px;
+  text-decoration:none;font-weight:800;font-size:13px;white-space:nowrap;
+  color:#04121f;background:var(--green);box-shadow:0 8px 20px rgba(102,230,184,.25)}
+.featc .fcgo:hover{filter:brightness(1.08)}
+@media(max-width:700px){
+  .featc{grid-template-columns:auto minmax(0,1fr);padding:13px 14px}
+  .featc .fcgo{grid-column:1 / -1;justify-content:center}
+}
+</style>
+{% for f in featured %}
+<div class="featc{% if f.cv and f.cv.banner %} cosb {{ f.cv.banner }}{% endif %}{% if f.cv and f.cv.frame %} cosf {{ f.cv.frame }}{% endif %}"
+     style="--ct:{{ f.theme_color or '#3aa0d8' }}">
+  <a class="fctag{% if f.cv and f.cv.tag %} {{ f.cv.tag }}{% endif %}" href="/clan/{{ f.tag|urlencode }}">{{ f.display or f.tag }}</a>
+  <div>
+    <span class="fceye">Featured clan</span>
+    <p class="fcline"><b>{{ f.size }}</b> member{{ '' if f.size == 1 else 's' }}
+      &middot; <b>{{ f.avg_elo }}</b> average skill
+      &middot; {{ f.wins }}-{{ f.losses }}{% if f.winrate != '-' %} &middot; {{ f.winrate }} won{% endif %}
+      {%- if f.region_label %} &middot; {{ f.region_label }}{% endif %}</p>
+    {% if f.bio %}<p class="fcbio">{{ f.bio }}</p>{% endif %}
+  </div>
+  <a class="fcgo" href="/clan/{{ f.tag|urlencode }}">See the clan &rarr;</a>
+</div>
+{% endfor %}
+{% endif %}

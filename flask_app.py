@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.39.0"
+APP_VERSION = "9.39.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -13595,7 +13595,7 @@ CLAN_ITEMS = [
     ("ct-gold", "look", "tag", "Gold tag", 20000, "Solid gold, on every member.", "cos-ct-gold"),
     ("ct-diamond", "look", "tag", "Diamond tag", 40000, "White light, on every member.", "cos-ct-diamond"),
     ("perk-recruit", "perk", "", "Recruiting", 1500, "A Recruiting pill on the clans table and your band for a week.", ""),
-    ("perk-spotlight", "perk", "", "Spotlight", 5000, "Pinned to the top of the clans page for a week.", ""),
+    ("perk-spotlight", "perk", "", "Spotlight", 5000, "Your clan gets a banner on the leaderboard and the clans page for a week.", ""),
     ("perk-host", "perk", "", "Lobby host", 8000, "Your leader and co-leaders can open the custom lobby for a week.", ""),
     ("perk-coleader", "slot", "", "Extra co-leader slot", 20000, "One more co-leader, for good. Up to %d extra." % CLAN_COLEADER_SLOTS_MAX, ""),
 ]
@@ -13726,6 +13726,40 @@ def clan_view(tag, allowed, c=None):
             out["emblem"] = {"code": it["code"], "color": it["color"], "name": it["name"]}
         else:
             out[slot] = it["cls"]
+    return out
+
+
+def featured_clans(c):
+    """The clans running Spotlight, with what a banner needs. Read live, and
+    deliberately NOT part of the ranking: a paid position in a ranked table
+    would make the ranking a lie, so this is a banner beside it instead."""
+    try:
+        tags = [r[0] for r in c.execute(
+            "SELECT clan FROM clan_perks WHERE perk = 'perk-spotlight' AND until > ? "
+            "ORDER BY clan", (_stamp(),)).fetchall()]
+    except sqlite3.Error:
+        return []
+    out = []
+    for tag in tags:
+        got = c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) FROM players "
+                        "WHERE clan = ? AND " + NOT_SANDBOX, (tag,)).fetchall()
+        if not got:
+            continue
+        wins = sum(r[1] for r in got)
+        losses = sum(r[2] for r in got)
+        played = wins + losses
+        row = c.execute("SELECT region, bio, theme FROM clans WHERE tag = ?", (tag,)).fetchone()
+        region = (row[0] if row else "") or ""
+        out.append({
+            "tag": tag, "display": clan_display(c, tag), "size": len(got),
+            "avg_elo": "%.1f" % (sum(r[0] for r in got) / len(got)),
+            "wins": wins, "losses": losses,
+            "winrate": ("%d%%" % round(100 * wins / played)) if played else "-",
+            "region": region, "region_label": REGION_LABELS.get(region, ""),
+            "bio": ((row[1] if row else "") or "")[:160],
+            "theme_color": CLAN_THEMES.get((row[2] if row else "") or "", ""),
+            "cv": clan_view(tag, True, c),
+        })
     return out
 
 
@@ -20530,23 +20564,24 @@ def clans_page():
     small.sort(key=lambda r: (-r["size"], r["tag"]))
     # Bought perks, for those who may see the shop: a Spotlight clan sits at
     # the top of the table with its real place number; Recruiting is a pill.
+    # Perks never touch the order. Recruiting is a label on the row; Spotlight
+    # is a banner above the table, so a ranking stays a ranking.
+    featured = []
     if gems_visible():
-        # Read live rather than through the cache: this decides the order, and
-        # a clan that just paid for Spotlight should be at the top on the very
-        # next load, not up to a minute later.
         live = {}
         try:
             _pc = db()
-            for _tag, _perk in _pc.execute("SELECT clan, perk FROM clan_perks WHERE until > ?",
-                                           (_stamp(),)).fetchall():
+            _pcc = _pc.cursor()
+            for _tag, _perk in _pcc.execute("SELECT clan, perk FROM clan_perks WHERE until > ?",
+                                            (_stamp(),)).fetchall():
                 live.setdefault(_tag, {})[_perk] = 1
+            featured = featured_clans(_pcc)
             _pc.close()
         except sqlite3.Error:
             pass
         for row in ranked + small:
             row["perks"] = live.get(row["tag"], {})
-        ranked.sort(key=lambda r: (0 if "perk-spotlight" in r["perks"] else 1, r["place"]))
-    return render_template('clans.html', clans=ranked, small=small,
+    return render_template('clans.html', clans=ranked, small=small, featured=featured,
                            total=len(rows), rank_min=CLAN_RANK_MIN,
                            version=APP_VERSION, contact=CONTACT_HANDLE,
                            # A clan directory is a ranking: it belongs to the
@@ -21382,6 +21417,20 @@ def home_page():
         emblem=emblem, emblem_color=emblem_color, mythic=mythic)
 
 
+def _featured_for_page():
+    """The featured-clan banner's clans, or nothing at all when the person
+    looking may not see the economy yet."""
+    if not gems_visible():
+        return []
+    try:
+        conn = db()
+        out = featured_clans(conn.cursor())
+        conn.close()
+        return out
+    except sqlite3.Error:
+        return []
+
+
 @app.route('/')
 @app.route('/leaderboard')
 def leaderboard():
@@ -21610,7 +21659,8 @@ def leaderboard():
                            total=total_ranked, mode=mode,
                            watched_team=_wt, watched_survival=_ws,
                            top_today=(top_scores_today(region)
-                                      if mode == 'team' else []))
+                                      if mode == 'team' else []),
+                           featured=_featured_for_page())
 
 
 init_db()  # runs on import too, since WSGI hosts never execute __main__
