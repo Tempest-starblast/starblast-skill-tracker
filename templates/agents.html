@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Free agents - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+/* A market, kept plain: who is for hire, what they ask, one button. */
+.agenthead{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 16px}
+.agentsub{font-size:13px;color:var(--muted,#8aa0b0);max-width:70ch}
+.agentsub b{color:var(--text)}
+.previewbar{display:flex;align-items:center;gap:10px;margin:0 0 16px;padding:10px 14px;
+  border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
+  color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
+.card{margin:0 0 18px}
+.listrow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px}
+.listrow label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;letter-spacing:1.1px;
+  text-transform:uppercase;color:var(--dim,#5d7f93)}
+.listrow input{font:inherit;font-size:14px;padding:8px 10px;border-radius:8px;
+  border:1px solid var(--line2,rgba(153,221,255,.26));background:rgba(0,0,0,.25);color:var(--text)}
+.listrow input.note{min-width:min(360px,100%)}
+.listed{font-size:13px;color:#66E6B8;font-weight:700;margin:0 0 8px}
+.sechead{display:flex;align-items:baseline;gap:9px;margin:0 0 10px}
+.sechead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#cfeefc}
+.sechead .n{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.tiles{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(236px,1fr))}
+.tile{display:flex;flex-direction:column;gap:9px;padding:13px 13px 12px;border-radius:13px;
+  border:1px solid var(--line2,rgba(153,221,255,.16));
+  background:linear-gradient(160deg,rgba(153,221,255,.055),rgba(153,221,255,.015))}
+.tiletop{display:flex;align-items:center;gap:10px;min-width:0}
+.tiletop .emb{flex:none;width:34px;height:34px;display:flex;align-items:center;justify-content:center}
+.tiletop .emb svg{display:block}
+.tiletop .nm{font-weight:800;font-size:15px;color:var(--text);text-decoration:none;
+  overflow-wrap:anywhere;min-width:0}
+.tiletop .nm:hover{text-decoration:underline}
+.meta{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11.5px;color:var(--muted,#8aa0b0);
+  font-variant-numeric:tabular-nums}
+.meta b{color:var(--text)}
+.ask{display:inline-flex;align-items:center;gap:6px;font-size:17px;font-weight:900;color:#8ef3ff;
+  font-variant-numeric:tabular-nums}
+.ask svg{width:15px;height:15px}
+.ask.free{color:#66E6B8;font-size:13px}
+.note{font-size:12.5px;color:#cfe3ee;line-height:1.45;overflow-wrap:anywhere}
+.acts{display:flex;flex-wrap:wrap;gap:7px;margin-top:auto;align-items:center}
+.btn{font-family:inherit;font-size:12px;font-weight:700;border-radius:8px;cursor:pointer;
+  padding:7px 12px;border:1px solid rgba(102,230,184,.45);color:#66E6B8;
+  background:rgba(102,230,184,.10)}
+.btn:hover{background:rgba(102,230,184,.24);color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.quiet{border-color:var(--line2,rgba(153,221,255,.26));color:var(--muted,#8aa0b0);background:none}
+.btn.quiet:hover{color:var(--blue,#99DDFF);border-color:rgba(153,221,255,.5);background:rgba(153,221,255,.08)}
+.tile select{font:inherit;font-size:12px;padding:6px 8px;border-radius:8px;
+  border:1px solid var(--line2,rgba(153,221,255,.26));background:rgba(0,0,0,.25);color:var(--text)}
+.treas{font-size:12px;color:var(--muted,#8aa0b0)}
+.treas b{color:#f6d77a}
+.empty{color:var(--muted,#8aa0b0);font-size:13.5px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
+  max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
+  color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
+.toast.bad{background:#ff9a9a}
+{% endblock %}
+{% block body %}
+{% set gem_svg %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>{% endset %}
+
+<div class="ptitlerow"><h1 class="ptitle">Free agents</h1></div>
+{% if preview %}<div class="previewbar">🔒 Not released &mdash; only you can see this page.</div>{% endif %}
+
+<div class="agenthead">
+  <span class="agentsub">Players without a clan who have put themselves up for hire, at a price of
+    their own choosing. A clan&#39;s leader or co-leader pays it out of the <b>treasury</b> and the
+    player joins on the spot.</span>
+</div>
+
+{% if signed_in %}
+<div class="card">
+  <h2>Your listing</h2>
+  {% if my_clan %}
+    <p class="empty">You are in <b>{{ my_clan }}</b>. A free agent is somebody without a clan &mdash; leave it first if you want to be on this list.</p>
+  {% else %}
+    {% if mine %}<p class="listed">&#10003; Listed at {{ '{:,}'.format(mine.price) }} gems since {{ mine.listed_at[:10] }}</p>{% endif %}
+    <div class="listrow">
+      <label>Asking price (gems)
+        <input type="number" id="agPrice" min="0" max="{{ price_max }}" step="1"
+               value="{{ mine.price if mine else 0 }}"></label>
+      <label>A line about you
+        <input type="text" id="agNote" class="note" maxlength="{{ note_max }}"
+               placeholder="What you fly, when you play, what you want"
+               value="{{ mine.note if mine else '' }}"></label>
+      <button type="button" class="btn" onclick="listMe()">{{ 'Update' if mine else 'List me' }}</button>
+      {% if mine %}<button type="button" class="btn quiet" onclick="unlistMe()">Take me off</button>{% endif %}
+    </div>
+    <p class="msg" id="listMsg"></p>
+  {% endif %}
+</div>
+{% endif %}
+
+<section>
+  <div class="sechead"><h2>For hire</h2><span class="n">{{ agents|length }}</span>
+    {% if hire_as %}<span class="treas" style="margin-left:auto">
+      {% for t in hire_as %}{{ t }} treasury <b>{{ '{:,}'.format(treasuries[t]) }}</b>{% if not loop.last %} &middot; {% endif %}{% endfor %}
+    </span>{% endif %}</div>
+  {% if agents %}
+  <div class="tiles">
+    {% for a in agents %}
+    <div class="tile" data-name="{{ a.name }}" data-price="{{ a.price }}">
+      <div class="tiletop">
+        <span class="emb">{{ a.emblem|safe }}</span>
+        <a class="nm" href="/player/{{ a.name|urlencode }}"{% if a.emblem_color %} style="color:{{ a.emblem_color }}"{% endif %}>{{ a.display }}</a>
+      </div>
+      <div class="meta">
+        <span title="Rating"><b>{{ a.elo }}</b></span>
+        <span>{{ a.wins }}-{{ a.losses }}</span>
+        {% if a.division %}<span>{{ a.division.name }}</span>{% endif %}
+        <span>listed {{ a.listed_at[:10] }}</span>
+      </div>
+      {% if a.price %}<span class="ask">{{ gem_svg|safe }}{{ '{:,}'.format(a.price) }}</span>
+      {% else %}<span class="ask free">Free to sign</span>{% endif %}
+      {% if a.note %}<div class="note">{{ a.note }}</div>{% endif %}
+      {% if hire_as and a.name != me %}
+      <div class="acts">
+        {% if hire_as|length > 1 %}
+        <select class="forclan">{% for t in hire_as %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select>
+        {% endif %}
+        <button type="button" class="btn" data-act="hire"
+          {% if hire_as|length == 1 and treasuries[hire_as[0]] < a.price %} disabled title="The treasury cannot cover it"{% endif %}
+        >Hire{% if a.price %} for {{ '{:,}'.format(a.price) }}{% endif %}</button>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Nobody is listed right now.</p>
+  {% endif %}
+</section>
+
+<div class="toast" id="toast" hidden></div>
+<script>
+(function(){
+  var toast=document.getElementById('toast'), tt=0;
+  function say(t, bad){
+    toast.textContent=t; toast.className='toast'+(bad?' bad':''); toast.hidden=false;
+    clearTimeout(tt); tt=setTimeout(function(){ toast.hidden=true; }, 3200);
+  }
+  async function post(u, b){
+    var r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+    return [r, await r.json()];
+  }
+  window.listMe=async function(){
+    var price=document.getElementById('agPrice').value, note=document.getElementById('agNote').value;
+    try{ var x=await post('/agents/list',{price:price, note:note}); say(x[1].message, !x[1].ok);
+         if(x[1].ok) setTimeout(function(){ location.reload(); }, 900);
+    }catch(e){ say('Server connection error.', true); }
+  };
+  window.unlistMe=async function(){
+    try{ var x=await post('/agents/unlist',{}); say(x[1].message, !x[1].ok);
+         if(x[1].ok) setTimeout(function(){ location.reload(); }, 900);
+    }catch(e){ say('Server connection error.', true); }
+  };
+  var ONLY = {{ (hire_as[0] if hire_as|length == 1 else '')|tojson }};
+  document.querySelectorAll('.tile [data-act="hire"]').forEach(function(b){
+    b.addEventListener('click', async function(){
+      var tile=b.closest('.tile'), name=tile.dataset.name, price=+tile.dataset.price;
+      var sel=tile.querySelector('.forclan'), clan=sel?sel.value:ONLY;
+      if(!clan) return;
+      if(!window.confirm('Hire '+name+' into '+clan+(price?(' for '+price.toLocaleString()+' gems from the treasury'):'')+'?')) return;
+      b.disabled=true;
+      try{ var x=await post('/agents/hire',{name:name, clan:clan}); say(x[1].message, !x[1].ok);
+           if(x[1].ok) setTimeout(function(){ location.reload(); }, 1100); else b.disabled=false;
+      }catch(e){ say('Server connection error.', true); b.disabled=false; }
+    });
+  });
+})();
+</script>
+{% endblock %}

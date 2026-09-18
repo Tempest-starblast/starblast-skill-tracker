@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.27.2"
+APP_VERSION = "9.28.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -140,16 +140,31 @@ MYTHIC_GLOW = "rgba(255,46,77,.6)"
 
 
 def ship_catalog():
-    """Every ship you could wear, cheapest first within a tier."""
+    """Every ship you could wear, cheapest first within a tier. Each carries
+    the colour of the rank its tier stands for - the Shadow X-3 its own,
+    the Odyssey the mythic red - which is how the shop draws it; on the
+    board a ship always wears its owner's rank colour."""
+    by_level = {r["level"]: r["color"] for r in ranks.RANKS}
+    by_ship = {r["ship"]: r["color"] for r in ranks.RANKS}
+    # A tier's colour is that of the lowest rank whose own ship sits in it
+    # (tier 6 holds both the Advanced-Fighter and the Marauder; the tier is
+    # gold, the Marauder itself is orange).
+    tier_level = {}
+    for r in ranks.RANKS:
+        t = r["ship"] // 100
+        tier_level[t] = min(tier_level.get(t, 99), r["level"])
     out = []
     for code in sorted(ship_shapes.ship_codes()):
         tier = code // 100
+        tier_color = by_level.get(tier_level.get(tier, 0), "#8b949e")
         out.append({
             "code": code, "name": ship_shapes.ship_name(code), "tier": tier,
             "price": SHIP_SPECIAL_PRICE.get(code, SHIP_TIER_PRICE.get(tier, 0)),
             "unlock_level": SHIP_RANK_UNLOCK.get(code),
             "mythic": code == MYTHIC_SHIP,
             "premium": code in (703, 704),
+            "tier_color": tier_color,
+            "color": MYTHIC_COLOR if code == MYTHIC_SHIP else by_ship.get(code, tier_color),
         })
     return out
 
@@ -1601,7 +1616,7 @@ RENAME_KEYED_TABLES = (
     "match_players", "held_results", "trueskill_match_players",
     "survival_round_players", "custom_match_players",
     "game_ladder", "shadow_players", "wiped_match_players",
-    "admin_adjustments", "recredits", "restored_matches",
+    "admin_adjustments", "recredits", "restored_matches", "free_agents",
 )
 
 
@@ -2266,6 +2281,16 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO clan_tag_styles (clan, shown, created_by, created_at) "
               "SELECT tag, COALESCE(NULLIF(display_tag, ''), tag), created_by, created_at "
               "FROM clans")
+    # Free agents (9.28.0): a player without a clan lists themselves at a
+    # price; a clan's officer hires them for it out of the treasury and they
+    # join on the spot. One listing per player.
+    c.execute('''CREATE TABLE IF NOT EXISTS free_agents (
+                    norm_name TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    price INTEGER NOT NULL DEFAULT 0,
+                    note TEXT,
+                    listed_at TEXT NOT NULL
+                )''')
     for _gcol in ("ALTER TABLE players ADD COLUMN gems INTEGER DEFAULT 0",
                   "ALTER TABLE clans ADD COLUMN gems INTEGER DEFAULT 0",
                   # The ship worn as your emblem. NULL = your division's own.
@@ -12179,6 +12204,8 @@ def _wipe_sandbox(c):
                   "(SELECT norm_name FROM players WHERE google_sub = ?)", (SANDBOX_SUB,))
     except sqlite3.Error:
         pass
+    c.execute("DELETE FROM free_agents WHERE norm_name IN "
+              "(SELECT norm_name FROM players WHERE google_sub = ?)", (SANDBOX_SUB,))
     c.execute("DELETE FROM players WHERE google_sub = ?", (SANDBOX_SUB,))
     c.execute("DELETE FROM claim_requests WHERE google_sub = ?", (SANDBOX_SUB,))
     # Anyone it asked to be friends with, so a real player is not left with a
@@ -12716,6 +12743,7 @@ def clan_page(tag):
     conn2 = db()
     c2 = conn2.cursor()
     clan["display"] = clan_display(c2, known)
+    clan["treasury"] = gem_balance(c2, "clan", known) if _ships_ok_c else None
     clan["your_role"] = clan_role(c2, current_user(), known) or ""
     clan["can_manage"] = clan_rank(clan["your_role"]) >= clan_rank('coleader')
     clan["is_leader"] = clan["your_role"] == 'leader'
@@ -13231,6 +13259,183 @@ def achievements_page():
                            have=have, total=total, earned_gems=earned_gems,
                            possible=possible, balance=balance,
                            preview=not GEMS_PUBLIC)
+
+
+AGENT_NOTE_MAX = 120
+
+
+def free_agents(c):
+    """Every listed free agent with their current record, dearest first. A
+    listing whose player has since joined a clan is not shown - the hire
+    route removes it the moment anyone acts on it."""
+    rows = c.execute(
+        "SELECT a.norm_name, p.name, a.price, a.note, a.listed_at, p.elo, "
+        "COALESCE(p.wins, 0), COALESCE(p.losses, 0) "
+        "FROM free_agents a JOIN players p ON p.norm_name = a.norm_name "
+        "WHERE (p.clan IS NULL OR p.clan = '') AND " + NOT_SANDBOX +
+        " ORDER BY a.price DESC, p.elo DESC").fetchall()
+    if not rows:
+        return []
+    dmap = division_map()
+    shipmap = display_ship_map()
+    out = []
+    for nn, name, price, note, at, elo, w, l in rows:
+        d = {"norm": nn, "name": name, "display": display_name(name, None),
+             "price": int(price or 0), "note": note or "", "listed_at": at or "",
+             "elo": round(float(elo or 0), 1), "wins": w, "losses": l,
+             "division": dmap.get(nn) if (w + l) >= PROVISIONAL_GAMES else None}
+        d["emblem"], d["emblem_color"], d["mythic"] = worn_emblem(nn, shipmap, True)
+        out.append(d)
+    return out
+
+
+@app.route('/agents')
+def agents_page():
+    """Who is for hire, your own listing, and the button if you run a clan."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    mine, can_list, my_clan = None, False, None
+    if me:
+        r = c.execute("SELECT clan FROM players WHERE norm_name = ?", (me[1],)).fetchone()
+        my_clan = r[0] if r and r[0] else None
+        can_list = not my_clan
+        row = c.execute("SELECT price, note, listed_at FROM free_agents WHERE norm_name = ?",
+                        (me[1],)).fetchone()
+        if row and can_list:
+            mine = {"price": int(row[0] or 0), "note": row[1] or "", "listed_at": row[2] or ""}
+    sub = current_user()
+    hire_as = [t for t in clan_admin_tags(c, sub) if may_manage(c, sub, t)] if sub else []
+    treasuries = {t: gem_balance(c, "clan", t) for t in hire_as}
+    agents = free_agents(c)
+    conn.close()
+    return render_template('agents.html', version=APP_VERSION, page='agents',
+                           signed_in=bool(me), me=me[0] if me else None, mine=mine,
+                           can_list=can_list, my_clan=my_clan, hire_as=hire_as,
+                           treasuries=treasuries, agents=agents, preview=not GEMS_PUBLIC,
+                           price_max=GEM_BONUS_MAX, note_max=AGENT_NOTE_MAX)
+
+
+@app.route('/agents/list', methods=['POST'])
+def agents_list():
+    """Put yourself up for hire, or change your price. Clan-less only."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign in and set your name first."}), 401
+    body = request.get_json(silent=True) or {}
+    try:
+        price = int(body.get("price") or 0)
+    except (TypeError, ValueError):
+        price = -1
+    if price < 0 or price > GEM_BONUS_MAX:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"A price is 0 to {GEM_BONUS_MAX:,} gems."}), 400
+    note = ' '.join(str(body.get("note") or "").split())[:AGENT_NOTE_MAX]
+    if note and clan_bio_blocked(note):
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": "That note isn't allowed. Remove any slurs or profanity."}), 400
+    r = c.execute("SELECT clan FROM players WHERE norm_name = ?", (me[1],)).fetchone()
+    if r and r[0]:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"You are in {r[0]}. A free agent is somebody without a "
+                                   f"clan - leave it first."}), 400
+    c.execute("INSERT INTO free_agents (norm_name, name, price, note, listed_at) "
+              "VALUES (?, ?, ?, ?, ?) ON CONFLICT(norm_name) DO UPDATE SET "
+              "price = excluded.price, note = excluded.note, name = excluded.name",
+              (me[1], me[0], price, note or None, _stamp()))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True,
+                    "message": (f"Listed at {price:,} gems." if price
+                                else "Listed - any clan can sign you for nothing.")})
+
+
+@app.route('/agents/unlist', methods=['POST'])
+def agents_unlist():
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    c.execute("DELETE FROM free_agents WHERE norm_name = ?", (me[1],))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "message": "You are off the list."})
+
+
+@app.route('/agents/hire', methods=['POST'])
+def agents_hire():
+    """Pay a free agent's price from the treasury and put them on the
+    roster - the join, the tag rule and the ledger all in one transaction.
+    Keyed on the listing, so a double click hires once."""
+    if not gems_visible():
+        abort(404)
+    sub = current_user()
+    if not sub:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    conn = db()
+    c = conn.cursor()
+    known = canonical_clan_tag(str(body.get("clan") or ""), all_clan_tags(c))
+    if not known:
+        conn.close()
+        return jsonify({"ok": False, "message": "No clan with that tag."}), 404
+    if not may_manage(c, sub, known):
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"Only the leader or a co-leader can hire for {known}."}), 403
+    nn = normalize_name(str(body.get("name") or ""))
+    a = c.execute("SELECT name, price, listed_at FROM free_agents WHERE norm_name = ?",
+                  (nn,)).fetchone()
+    if not a:
+        conn.close()
+        return jsonify({"ok": False, "message": "They are not on the list any more."}), 404
+    p = c.execute("SELECT name, clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    if not p or p[1]:
+        c.execute("DELETE FROM free_agents WHERE norm_name = ?", (nn,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": (f"{p[0]} has joined {p[1]} since - the listing is gone."
+                                    if p else "That player is gone.")}), 400
+    price = int(a[1] or 0)
+    ref = f"hire:{nn}:{a[2]}"
+    st = gem_clan_charge(c, known, price, "hire", ref)
+    if st == "short":
+        conn.rollback()
+        have = gem_balance(c, "clan", known)
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": f"{p[0]} asks {price:,} gems and {known}'s treasury has "
+                                   f"{have:,}. Top it up first."}), 400
+    if st == "duplicate":
+        conn.rollback()
+        conn.close()
+        return jsonify({"ok": False, "message": "Already hired."}), 400
+    gem_grant(c, "player", nn, price, "hire", ref)
+    # The listing goes before the join: the join may rename the row (the
+    # tag comes off), and a rename carries the listing with it.
+    c.execute("DELETE FROM free_agents WHERE norm_name = ?", (nn,))
+    c.execute("UPDATE players SET clan = ?, clan_locked = 0 WHERE norm_name = ?", (known, nn))
+    strip_tag_on_join(c, p[0], known)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True,
+                    "message": f"{display_name(p[0], known)} joined {known}"
+                               + (f" for {price:,} gems." if price else ".")})
 
 
 @app.route('/shop')

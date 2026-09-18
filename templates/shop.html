@@ -78,12 +78,12 @@
 
 <div class="shophead">
   {% if signed_in %}<span class="gemcount">{{ gem_svg|safe }}<span id="bal">{{ '{:,}'.format(balance) }}</span></span>{% endif %}
-  <span class="shopsub">Your emblem&#39;s <b>colour</b> is your rank and cannot be bought. The <b>ship</b> is yours to choose &mdash; every rank you reach hands you its ship, and the rest are for sale.</span>
+  <span class="shopsub">Your emblem&#39;s <b>colour</b> is your rank and cannot be bought &mdash; here every hull is drawn in its tier&#39;s colour; on the board it wears yours. The <b>ship</b> is yours to choose &mdash; every rank you reach hands you its ship, and the rest are for sale.</span>
 </div>
 
 {% macro tile(i) %}
 <div class="ship{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-code="{{ i.code }}" data-name="{{ i.name }}">
-  <span class="emb">{{ rank_emblem(i.code, 72, (mythic_color if i.mythic else rank_color), i.name, 'rank-emblem mythic' if i.mythic else 'rank-emblem')|safe }}</span>
+  <span class="emb">{{ rank_emblem(i.code, 72, (mythic_color if i.mythic else i.color), i.name, 'rank-emblem mythic' if i.mythic else 'rank-emblem')|safe }}</span>
   <span class="nm">{{ i.name }}</span>
   {% if i.mythic %}
     <span class="why">{{ '{:,}'.format(i.price) }} gems &mdash; or yours for having been the best player on the board.</span>
@@ -113,7 +113,7 @@
 
 {% for group in tiers|reverse %}
 <section class="tier">
-  <div class="sechead"><h2>Tier {{ group[0].tier }}</h2><span class="n">{{ group|length }}</span></div>
+  <div class="sechead"><h2 style="color:{{ group[0].tier_color }}">Tier {{ group[0].tier }}</h2><span class="n">{{ group|length }}</span></div>
   <div class="hangar">{% for i in group %}{{ tile(i) }}{% endfor %}</div>
 </section>
 {% endfor %}

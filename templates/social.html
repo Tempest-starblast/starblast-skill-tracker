@@ -331,10 +331,12 @@
         <div class="acts" style="margin-top:13px">
           <a class="btn" href="/clan/{{ clan.tag|urlencode }}">Clan page</a>
           <a class="btn ghost" href="/myclan">Manage</a>
+          {% if gems_on %}<a class="btn ghost" href="/agents">Free agents</a>{% endif %}
         </div>
       {% else %}
         <p class="empty">You are not in a clan.</p>
-        <div class="acts" style="margin-top:13px"><a class="btn" href="/clans">Browse clans</a></div>
+        <div class="acts" style="margin-top:13px"><a class="btn" href="/clans">Browse clans</a>
+          {% if gems_on %}<a class="btn ghost" href="/agents">Be a free agent</a>{% endif %}</div>
       {% endif %}
     </div>
   </div>

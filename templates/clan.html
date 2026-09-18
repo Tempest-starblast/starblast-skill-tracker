@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{% if clan %}{{ clan.tag }}{% else %}Clan not found{% endif %} - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+{% if gems_on %}
+.stat.gold{border:1px solid rgba(241,198,90,.55);
+  background:linear-gradient(160deg,rgba(241,198,90,.16),rgba(241,198,90,.04))}
+.stat.gold .label{color:#e7c56a}
+.stat.gold .value{color:#f6d77a;text-shadow:0 0 12px rgba(241,198,90,.35)}
+{% endif %}
 .crown{margin-left:7px;color:#fbbf24;font-size:14px;cursor:default;vertical-align:middle}
 .legend{font-size:12px;color:var(--dim);margin:10px 0 0}
 .legend .crown{margin:0 4px 0 0}
@@ -24,6 +30,9 @@
   <div class="stat"><div class="label">Average skill</div><div class="value" style="color:var(--blue)">{{ clan.avg_elo }}</div></div>
   <div class="stat"><div class="label">Combined record</div><div class="value">{{ clan.wins }}-{{ clan.losses }}</div></div>
   <div class="stat"><div class="label">Win rate</div><div class="value" style="color:var(--green)">{{ clan.winrate }}</div></div>
+  {% if gems_on and clan.treasury is not none %}
+  <div class="stat gold"><div class="label">Treasury</div><div class="value">{{ '{:,}'.format(clan.treasury) }}</div></div>
+  {% endif %}
 </div>
 <p class="desc" style="margin:14px 0 0">Every match this clan's current members have played,
    added together. A match won by two clanmates therefore counts twice.</p>
