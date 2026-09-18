@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.27.0"
+APP_VERSION = "9.27.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1599,10 +1599,61 @@ def clan_member_for_tagged_name(c, name):
 # Discord rename never got even that.
 RENAME_KEYED_TABLES = (
     "match_players", "held_results", "trueskill_match_players",
-    "survival_players", "survival_round_players", "custom_match_players",
+    "survival_round_players", "custom_match_players",
     "game_ladder", "shadow_players", "wiped_match_players",
     "admin_adjustments", "recredits", "restored_matches",
 )
+
+
+def _fold_survival_row(c, old_key, new_key, new_name):
+    """survival_players is one row per identity. When both keys have one -
+    the player had already played survival under the bare name - the old
+    row folds into the new: rounds and wins add, best place is the better,
+    last_at the later, and the rating is both moves from the start (each
+    row is 1000 plus its own rounds' deltas). The 18 Sep migration hit
+    exactly this twice and the plain UPDATE had nothing to say about it."""
+    try:
+        o = c.execute("SELECT elo, rounds, wins, best_place, last_at FROM survival_players "
+                      "WHERE norm_name = ?", (old_key,)).fetchone()
+        if not o:
+            return
+        n = c.execute("SELECT elo, rounds, wins, best_place, last_at FROM survival_players "
+                      "WHERE norm_name = ?", (new_key,)).fetchone()
+        if not n:
+            c.execute("UPDATE survival_players SET norm_name = ?, name = ? WHERE norm_name = ?",
+                      (new_key, new_name, old_key))
+            return
+        places = [x for x in (o[3], n[3]) if x is not None]
+        c.execute("UPDATE survival_players SET elo = ?, rounds = ?, wins = ?, best_place = ?, "
+                  "last_at = ? WHERE norm_name = ?",
+                  (round((o[0] or 1000) + (n[0] or 1000) - 1000, 2),
+                   (o[1] or 0) + (n[1] or 0), (o[2] or 0) + (n[2] or 0),
+                   min(places) if places else None,
+                   max(o[4] or "", n[4] or "") or None, new_key))
+        c.execute("DELETE FROM survival_players WHERE norm_name = ?", (old_key,))
+    except sqlite3.Error:
+        pass
+
+
+def _fold_trueskill_row(c, old_key, new_key, new_name):
+    """trueskill_players is one trial rating per identity. Two cannot be
+    added; the one built on more games is the one that stays."""
+    try:
+        o = c.execute("SELECT games FROM trueskill_players WHERE norm_name = ?",
+                      (old_key,)).fetchone()
+        if not o:
+            return
+        n = c.execute("SELECT games FROM trueskill_players WHERE norm_name = ?",
+                      (new_key,)).fetchone()
+        if n and (n[0] or 0) >= (o[0] or 0):
+            c.execute("DELETE FROM trueskill_players WHERE norm_name = ?", (old_key,))
+            return
+        if n:
+            c.execute("DELETE FROM trueskill_players WHERE norm_name = ?", (new_key,))
+        c.execute("UPDATE trueskill_players SET norm_name = ?, name = ? WHERE norm_name = ?",
+                  (new_key, new_name, old_key))
+    except sqlite3.Error:
+        pass
 
 
 def rekey_identity(c, old_name, new_name):
@@ -1618,11 +1669,8 @@ def rekey_identity(c, old_name, new_name):
                           (new_key, old_key))
             except sqlite3.Error:
                 pass
-        try:
-            c.execute("UPDATE trueskill_players SET norm_name = ?, name = ? "
-                      "WHERE norm_name = ?", (new_key, new_name, old_key))
-        except sqlite3.Error:
-            pass
+        _fold_survival_row(c, old_key, new_key, new_name)
+        _fold_trueskill_row(c, old_key, new_key, new_name)
     try:
         c.execute("UPDATE clan_invites SET name = ? WHERE name = ? AND status = 'pending'",
                   (new_name, old_name))
@@ -6267,6 +6315,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.27.1", "at": "2026-09-18T05:40:00Z", "changes": [
+        "When a rename meets a survival record already kept under the new name, "
+        "the two are folded together (rounds and wins add up, the better placing "
+        "stands) instead of one being left behind.",
+    ]},
     {"version": "9.27.0", "at": "2026-09-18T04:30:00Z", "changes": [
         "<b>Your account name is just you.</b> Joining a clan now takes the "
         "clan\u2019s tag off your account name and shows it beside your name as "
