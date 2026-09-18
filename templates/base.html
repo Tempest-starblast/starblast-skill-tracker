@@ -304,7 +304,9 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 /* Your own standing, on every page - the way a game keeps your name and
    trophy count in the corner. Hidden until /me answers, so signed-out
    visitors never see an empty box flash. */
-#authIn{flex-direction:column;align-items:flex-end;gap:6px}
+/* One column, every row the same width - the chip sets it, the rest
+   stretch to match, so nothing sits ragged against the edge. */
+#authIn{flex-direction:column;align-items:stretch;gap:6px}
 .pchip{display:flex;align-items:center;gap:11px;padding:7px 13px;text-decoration:none;
   background:rgba(0,0,0,.45);border:1px solid rgba(153,221,255,.3);border-radius:3px;
   flex-shrink:0;max-width:230px}
@@ -323,7 +325,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   filter:drop-shadow(0 0 4px rgba(255,46,77,.95)) drop-shadow(0 0 12px rgba(255,46,77,.6))}}
 /* The balance, beside the name it belongs to. Behind the switch like the
    markup: a class name in a stylesheet is a trace too. */
-.gchip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;text-decoration:none;
+.gchip{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 12px;text-decoration:none;
   border-radius:3px;border:1px solid rgba(142,243,255,.35);background:rgba(142,243,255,.08);
   color:#8ef3ff;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;flex-shrink:0}
 .gchip:hover{background:rgba(142,243,255,.16);border-color:rgba(142,243,255,.6)}
@@ -377,6 +379,9 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .phcta{display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:11px;text-decoration:none;
   font-weight:800;font-size:14px;color:#04121f;background:var(--green);box-shadow:0 8px 22px rgba(102,230,184,.25)}
 .phcta:hover{filter:brightness(1.08)}
+.phcta.ghost{background:rgba(0,0,0,.28);color:#eaf8ff;border:1px solid rgba(255,255,255,.22);box-shadow:none}
+/* A row of places to go under the band's text and numbers. */
+.phlinks{grid-column:1 / -1;display:flex;gap:10px;flex-wrap:wrap}
 @media(max-width:760px){
   .pagehead{grid-template-columns:minmax(0,1fr);padding:18px 18px}
   .phname{font-size:22px}
@@ -613,14 +618,10 @@ async function devRestore(){
   <a href="/clans"     class="{% if page=='clans'       %}on{% endif %}">{{ t('Clans') }}</a>
   <a href="/social"    class="{% if page=='social'      %}on{% endif %}">{{ t('Social') }}</a>
   <a href="/replays"   class="{% if page=='replays'     %}on{% endif %}">{{ t('Replays') }}</a>
-  <a href="/survival"  class="{% if page=='survival'    %}on{% endif %}">Survival</a>
   <a href="/info"      class="{% if page=='info'        %}on{% endif %}">{{ t('Info') }}</a>
-  {%- if my_clan %}
-  <a href="/myclan"    class="{% if page=='myclan'      %}on{% endif %}">{{ t('Your clan') }}</a>
-  {%- endif %}
   <div class="tabmore" id="tabmore">
     <a href="#" role="button" aria-haspopup="true" aria-label="More"
-       class="{% if page in ('account','reports','merge','changelog','live','compare','customgames') %}on{% endif %}"
+       class="{% if page in ('account','myclan','reports','merge','changelog','live','compare','customgames') %}on{% endif %}"
        style="position:relative">&#9776;<span class="cdot" id="clogDot" style="display:none"></span></a>
     <div class="tabmenu" role="menu">
       <div class="tmsec">You</div>

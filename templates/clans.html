@@ -1,13 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Clans - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-.lbtabs{display:inline-flex;border:1px solid rgba(153,221,255,.22);border-radius:9px;
-  overflow:hidden;margin:0 0 16px}
-.lbtabs a{padding:8px 16px;font-size:13px;font-weight:700;color:var(--muted,#8aa0b0);
-  text-decoration:none;background:rgba(153,221,255,.05)}
-.lbtabs a+a{border-left:1px solid rgba(153,221,255,.22)}
-.lbtabs a.on{background:rgba(102,230,184,.16);color:var(--green,#66e6b8)}
-.lbtabs a:hover:not(.on){color:var(--text)}
 
 .clanrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:11px 0;border-bottom:1px solid var(--line)}
@@ -43,9 +36,13 @@
     <div class="phnum"><span>{{ t('Clans') }}</span><b>{{ total }}</b></div>
     <div class="phnum"><span>Ranked</span><b class="blue">{{ clans|length }}</b></div>
   </div>
+  {% if my_clan or gems_on %}
+  <div class="phlinks">
+    {% if my_clan %}<a class="phcta" href="/myclan">{{ t('Your clan') }} &rarr;</a>{% endif %}
+    {% if gems_on %}<a class="phcta ghost" href="/agents">Free agents</a>{% endif %}
+  </div>
+  {% endif %}
 </div>
-{% set active = "clans" %}
-{% include "_lbtabs.html" %}
 <div class="card">
   <h2>{{ t('Every clan') }}</h2>
   {% if clans %}

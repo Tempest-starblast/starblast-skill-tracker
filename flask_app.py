@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.34.1"
+APP_VERSION = "9.35.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6368,6 +6368,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.35.0", "at": "2026-09-18T20:30:00Z", "changes": [
+        "<b>Fewer tabs.</b> Survival is no longer its own tab: the survival "
+        "board is the Survival mode on the Leaderboard, the round replays are "
+        "the Survival tab on Replays, and the old page sends you to the board. "
+        "Your clan left the bar too - it is one press away from the band on "
+        "your account, from the Clans page, and from the menu. The Players / "
+        "Clans switch on the boards is gone as well; the bar already has both.",
+        "The name chip and Sign out in the header sit as one aligned column.",
+    ]},
     {"version": "9.34.1", "at": "2026-09-18T19:00:00Z", "changes": [
         "<b>Fixed:</b> the tabs on Social, Your clan and Your account did nothing "
         "when pressed, and only the first section showed. The script that "
@@ -10437,46 +10446,9 @@ def bot_reports_delivered():
 
 @app.route('/survival')
 def survival_page():
-    """Public read-only view of recorded survival rounds: who outlasted the
-    field to be the last ship standing, plus a most-wins tally."""
-    conn = db()
-    c = conn.cursor()
-    try:
-        data_rows = c.execute("SELECT key, data FROM survival_results "
-                              "ORDER BY ended_at DESC LIMIT 80").fetchall()
-        # Most wins comes from the rated board, which already excludes blocked
-        # bots/observers - not a raw GROUP BY on the stored winner column.
-        win_rows = c.execute("SELECT name, wins FROM survival_players "
-                             "WHERE wins > 0 ORDER BY wins DESC, rounds LIMIT 12").fetchall()
-    except sqlite3.Error:
-        data_rows, win_rows = [], []
-    rounds = []
-    for (key, data) in data_rows:
-        try:
-            r = json.loads(data)
-        except Exception:
-            continue
-        ea = r.get('ended_at') or ''
-        # Re-derive winner/runner-up past any resident bot, so a blocklisted
-        # ship never shows as the winner of a historical round.
-        w, ru = _survival_true_winner(r)
-        rounds.append({
-            "key": key,
-            "winner": w or r.get('winner') or '',
-            "runner_up": ru,
-            "field": r.get('elim_field_size') or 0,
-            "region": (r.get('region') or '').title(),
-            "lobby": r.get('lobby') or '',
-            "when": ea[:16],
-            "when_utc": (ea.replace(' ', 'T') + 'Z') if ea else '',
-            "dur_min": round((r.get('duration_s') or 0) / 60),
-        })
-    top = [{"name": w, "wins": n} for w, n in win_rows if w]
-    conn.close()
-    # The full placement ratings now live on the leaderboard (Survival beta);
-    # this page is the round-by-round results feed + most-wins tally.
-    return render_template('survival.html', page='survival', version=APP_VERSION,
-                           rounds=rounds, top=top)
+    """The survival board is the Survival mode on the leaderboard and the
+    round replays live under Replays; this address only sends people on."""
+    return redirect('/?mode=survival')
 
 
 @app.route('/survival/replay')
@@ -10487,14 +10459,14 @@ def survival_replay():
     timeline, not a radar. key = the survival_results key (sid|ended_at)."""
     key = (request.args.get('key') or '').strip()
     if not key:
-        return redirect('/survival')
+        return redirect('/replays?mode=survival')
     conn = db()
     c = conn.cursor()
     row = c.execute("SELECT ended_at, region, lobby, winner, elim_field_size, data "
                     "FROM survival_results WHERE key = ?", (key,)).fetchone()
     if not row:
         conn.close()
-        return redirect('/survival')
+        return redirect('/replays?mode=survival')
     ended_at, region, lobby, winner, field, data_json = row
     try:
         d = json.loads(data_json)
@@ -12699,11 +12671,11 @@ def me():
     # account, so a visitor's page never learns the entry exists.
     _gems = None
     if gems_visible() and account_name:
-        _nav.append({"t": "a", "href": "/achievements", "id": "achTab", "top": True,
+        _nav.append({"t": "a", "href": "/achievements", "id": "achTab",
                      "label": "Achievements", "badge": "NEW", "colour": "#8ef3ff"})
         _nav.append({"t": "a", "href": "/shop", "id": "shopTab", "top": True,
                      "label": "Shop", "badge": "NEW", "colour": "#8ef3ff"})
-        _nav.append({"t": "a", "href": "/agents", "id": "agentsTab", "top": True,
+        _nav.append({"t": "a", "href": "/agents", "id": "agentsTab",
                      "label": "Free agents", "badge": "NEW", "colour": "#8ef3ff"})
         try:
             _c5 = db()

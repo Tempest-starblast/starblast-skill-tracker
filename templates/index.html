@@ -1,13 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Leaderboard - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-.lbtabs{display:inline-flex;border:1px solid rgba(153,221,255,.22);border-radius:9px;
-  overflow:hidden;margin:0 0 16px}
-.lbtabs a{padding:8px 16px;font-size:13px;font-weight:700;color:var(--muted,#8aa0b0);
-  text-decoration:none;background:rgba(153,221,255,.05)}
-.lbtabs a+a{border-left:1px solid rgba(153,221,255,.22)}
-.lbtabs a.on{background:rgba(102,230,184,.16);color:var(--green,#66e6b8)}
-.lbtabs a:hover:not(.on){color:var(--text)}
 
 .psub.watched{margin-top:-4px;opacity:.85}
 /* The day's best scores: ten rows, five visible, sliding upward forever.
@@ -211,8 +204,6 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 <div class="bhead">
 <div class="bheadtext">
 <div class="ptitlerow"><h1 class="ptitle">{{ t('Leaderboard') }}</h1>{% set info_q = 'ranks' %}{% set info_tip = 'How the rating and the ranks work' %}{% include "_infobtn.html" %}</div>
-{% set active = "players" %}
-{% include "_lbtabs.html" %}
 <div class="modebar" role="tablist" aria-label="Board mode">
   <a href="{{ board(1, md='team') }}" role="tab"
      aria-selected="{{ 'true' if mode != 'survival' else 'false' }}"

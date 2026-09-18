@@ -15,8 +15,10 @@
   background:radial-gradient(closest-side,var(--rkglow,rgba(153,221,255,.18)),transparent 70%);
   pointer-events:none}
 @media(max-width:820px){ .profcard{grid-template-columns:minmax(0,1fr)} }
-.idcard{position:relative;z-index:1;display:flex;gap:20px;align-items:center;padding:22px 24px}
-.idemb{flex:none;width:104px;height:104px;display:flex;align-items:center;justify-content:center;
+/* Emblem and name share a top line; the bio hangs below them, so the
+   emblem is not centred against a paragraph. */
+.idcard{position:relative;z-index:1;display:flex;gap:20px;align-items:flex-start;padding:22px 24px}
+.idemb{flex:none;width:104px;height:104px;margin-top:2px;display:flex;align-items:center;justify-content:center;
   filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
 .idtext{min-width:0;position:relative;z-index:1}
 .idname{margin:0;font-size:30px;line-height:1.1;font-weight:900;letter-spacing:.3px;
@@ -88,17 +90,6 @@
 .form a.l{background:rgba(255,86,112,.14);color:#ff9a9a;border:1px solid rgba(255,86,112,.4)}
 .form a:hover{transform:translateY(-2px)}
 
-/* Where to go: tiles, because a place you can press should look pressable. */
-.go{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
-.go a{display:flex;flex-direction:column;gap:4px;padding:14px 15px;border-radius:13px;
-  border:1px solid var(--line2,rgba(153,221,255,.16));text-decoration:none;color:inherit;
-  background:linear-gradient(160deg,rgba(153,221,255,.055),rgba(153,221,255,.015));
-  transition:transform .14s,border-color .14s}
-.go a:hover{transform:translateY(-2px);border-color:rgba(153,221,255,.45)}
-.go b{font-size:14px;color:var(--text)}
-.go span{font-size:11.5px;color:var(--muted,#8aa0b0)}
-.go a.play b{color:#66E6B8}
-
 .previewbar{display:flex;align-items:center;gap:10px;margin:0 0 16px;padding:10px 14px;
   border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
   color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
@@ -168,18 +159,6 @@
   {% endif %}
 </section>
 
-<section class="sec">
-  <div class="sechead"><h2>Where to</h2></div>
-  <div class="go">
-    <a class="play" href="/play"><b>Play</b><span>Check in and open the game</span></a>
-    <a href="/social"><b>Social</b><span>Friends, clanmates, who is on</span></a>
-    <a href="/leaderboard"><b>Leaderboard</b><span>Everyone, ranked</span></a>
-    <a href="/achievements"><b>Achievements</b><span>Every rank and milestone</span></a>
-    <a href="/shop"><b>Shop</b><span>Ships to wear as your emblem</span></a>
-    <a href="/agents"><b>Free agents</b><span>Players for hire, and your own listing</span></a>
-    <a href="/account"><b>Your account</b><span>Names, protection, settings</span></a>
-  </div>
-</section>
 </div>
 </div>
 <script>
