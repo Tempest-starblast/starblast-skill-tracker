@@ -1,6 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Your clan - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+.paycards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 14px}
+.paycard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.paycard span{display:block;font-size:10.5px;letter-spacing:1.3px;text-transform:uppercase;
+  color:var(--dim);font-weight:800;margin:0 0 5px}
+.paycard b{font-size:21px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;line-height:1.1}
+.paycard b.blue{color:#8ef3ff}.paycard b.green{color:var(--green,#66e6b8)}.paycard b.pink{color:#ff8fa3}
+.paycard em{display:block;font-style:normal;font-size:11.5px;color:var(--muted);margin-top:4px}
+.runway{margin:0 0 16px;padding:10px 14px;border-radius:10px;font-size:13px;
+  border:1px solid var(--line);color:#cfe3ee}
+.runway b{color:#fff}
+.runway.good{border-color:rgba(102,230,184,.45);background:rgba(102,230,184,.08);color:#66e6b8}
+.runway.thin{border-color:rgba(255,143,163,.5);background:rgba(255,143,163,.08);color:#ff8fa3}
+.runway.thin b{color:#ff8fa3}
+.paytable{width:100%;border-collapse:collapse;font-size:13.5px}
+.paytable th{text-align:left;font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;
+  color:var(--dim);font-weight:800;padding:0 8px 8px}
+.paytable td{padding:8px;border-top:1px solid var(--line);vertical-align:middle}
+.paytable td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.paytable a{color:inherit;text-decoration:none}
+.paytable a:hover{color:var(--green,#66e6b8)}
+.paytable .bar{display:block;height:4px;border-radius:2px;background:rgba(140,160,180,.15);
+  margin-top:5px;max-width:170px}
+.paytable .bar i{display:block;height:100%;border-radius:2px;background:var(--green,#66e6b8)}
 /* One header, one row of tabs, one thing on screen at a time. The tabs
    hold what used to be ten cards stacked down the page. */
 .mcrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -111,6 +134,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   <a href="#invite" data-panel="invite">Invite</a>
   <a href="#appearance" data-panel="appearance">Appearance</a>
   <a href="#roles" data-panel="roles">{{ t('Roles') }}</a>
+  {% if gems_on and clan.can_manage %}<a href="#pay" data-panel="pay">Pay</a>{% endif %}
   <a href="#settings" data-panel="settings">{{ t('Settings') }}</a>
   {% endif %}
   <a href="#you" data-panel="you">You</a>
@@ -341,6 +365,98 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 </section>
 
 {# --------------------------------------------------------------- settings #}
+{% if gems_on and clan.can_manage %}
+<section class="panel" data-panel="pay" hidden>
+{% set pr = clan.payroll %}
+<div class="paycards">
+  <div class="paycard"><span>Treasury</span><b class="blue">{{ '{:,}'.format(pr.treasury) }}</b></div>
+  <div class="paycard"><span>Earned this week</span><b class="green">+{{ '{:,}'.format(pr.earned) }}</b></div>
+  <div class="paycard"><span>Spent this week</span><b class="pink">-{{ '{:,}'.format(pr.spent) }}</b></div>
+  <div class="paycard"><span>Owed on contracts</span><b>{{ '{:,}'.format(pr.owed) }}</b>
+    {% if pr.contracts %}<em>{{ pr.contracts|length }} running</em>{% endif %}</div>
+</div>
+{% if pr.runway is not none %}
+<p class="runway{% if pr.runway < 14 %} thin{% endif %}">At this week&#39;s rate the treasury lasts about
+  <b>{{ pr.runway }}</b> more day{{ '' if pr.runway == 1 else 's' }}.
+  {% if pr.runway < 14 %}Win more, or pay less.{% endif %}</p>
+{% else %}
+<p class="runway good">The clan is earning more than it pays out.</p>
+{% endif %}
+
+<div class="card" id="payCard">
+  <h2>What the clan pays</h2>
+  <p class="desc">Every rated member win puts <b>{{ pay_rates.clan }}</b> in the treasury (<b>{{ pay_rates.sclan }}</b> for a
+     survival win). As leader you take <b>{{ pay_rates.leader }}</b> / {{ pay_rates.sleader }} of each, and every co-leader
+     <b>{{ pay_rates.coleader }}</b> / {{ pay_rates.scoleader }} (at most {{ coleader_cap }} co-leaders). Everyone else is paid what you set
+     here, per win, out of that win&#39;s own deposit &mdash; so it can never run the treasury dry. The most is
+     {{ rate_max }} a win ({{ rate_max * 2 }} in survival). A hired free agent&#39;s contract rate overrides these while it runs.</p>
+  {% if clan.is_leader %}
+  <div class="row" style="flex-wrap:wrap;gap:12px">
+    <label style="display:flex;align-items:center;gap:8px">Members <input type="number" id="payMember" min="0" max="{{ rate_max }}" step="1" value="{{ clan.member_rate }}" style="width:90px"> per win</label>
+    <label style="display:flex;align-items:center;gap:8px">Moderators <input type="number" id="payMod" min="0" max="{{ rate_max }}" step="1" value="{{ clan.mod_rate }}" style="width:90px"> per win</label>
+    <button class="primary" onclick="savePay()">Save pay</button>
+  </div>
+  {% else %}
+  <p class="desc">Members are paid <b>{{ clan.member_rate }}</b> a win and moderators <b>{{ clan.mod_rate }}</b>. Only the leader changes that.</p>
+  {% endif %}
+  <p class="desc" style="margin-top:10px">Left the treasury this week: <b>{{ '{:,}'.format(clan.paid_week.total) }}</b>
+     &mdash; {{ '{:,}'.format(clan.paid_week['member-pay']) }} member pay,
+     {{ '{:,}'.format(clan.paid_week['salary']) }} signing bonuses,
+     {{ '{:,}'.format(clan.paid_week['hire']) }} hires,
+     {{ '{:,}'.format(clan.paid_week['purchase']) }} purchases.</p>
+  <p class="desc" style="margin-top:8px">Looks, an emblem and perks for {{ clan.display }} are bought in the
+     <a href="/shop#clan">Shop</a>, under its Clan tab, from this treasury.</p>
+  <p class="msg" id="payMsg"></p>
+</div>
+
+<div class="card">
+  <h2>Who it went to, this week</h2>
+  {% if pr.members %}
+  <div class="tablewrap">
+  <table class="paytable">
+    <thead><tr><th>Member</th><th style="text-align:right">Paid</th></tr></thead>
+    <tbody>
+    {% for m in pr.members %}
+    <tr><td><a href="/player/{{ m.name|urlencode }}">{{ m.name }}</a></td>
+        <td class="n">{{ '{:,}'.format(m.gems) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="empty">Nobody has been paid this week yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Contracts</h2>
+  <p class="desc">A signing fee of a month or more is paid across the term, a week at a time.
+     Release someone early and what is left comes back to the treasury.</p>
+  {% if pr.contracts %}
+  <div class="tablewrap">
+  <table class="paytable">
+    <thead><tr><th>Player</th><th>Until</th><th style="text-align:right">Paid</th><th style="text-align:right">Left</th><th style="text-align:right">A week</th></tr></thead>
+    <tbody>
+    {% for k in pr.contracts %}
+    <tr>
+      <td><a href="/player/{{ k.name|urlencode }}">{{ k.name }}</a>
+        <span class="bar"><i style="width:{{ k.pc }}%"></i></span></td>
+      <td>{{ k.until }}</td>
+      <td class="n">{{ '{:,}'.format(k.paid) }}</td>
+      <td class="n">{{ '{:,}'.format(k.left) }}</td>
+      <td class="n">{{ '{:,}'.format(k.per_week) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="empty">No contract is being paid off right now.</p>
+  {% endif %}
+</div>
+</section>
+{% endif %}
+
 <section class="panel" data-panel="settings" hidden>
 <div class="card">
   <h2>{{ t('Region') }}</h2>
@@ -358,29 +474,6 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   <p class="msg" id="regionMsg"></p>
 </div>
 {% if clan.is_leader %}
-{% if gems_on %}
-<div class="card" id="payCard">
-  <h2>Pay</h2>
-  <p class="desc">Every rated member win puts <b>{{ pay_rates.clan }}</b> in the treasury (<b>{{ pay_rates.sclan }}</b> for a
-     survival win). As leader you take <b>{{ pay_rates.leader }}</b> / {{ pay_rates.sleader }} of each, and every co-leader
-     <b>{{ pay_rates.coleader }}</b> / {{ pay_rates.scoleader }} (at most {{ coleader_cap }} co-leaders). Everyone else is paid what you set
-     here, per win, out of that win&#39;s own deposit &mdash; so it can never run the treasury dry. The most is
-     {{ rate_max }} a win ({{ rate_max * 2 }} in survival). A hired free agent&#39;s contract rate overrides these while it runs.</p>
-  <div class="row" style="flex-wrap:wrap;gap:12px">
-    <label style="display:flex;align-items:center;gap:8px">Members <input type="number" id="payMember" min="0" max="{{ rate_max }}" step="1" value="{{ clan.member_rate }}" style="width:90px"> per win</label>
-    <label style="display:flex;align-items:center;gap:8px">Moderators <input type="number" id="payMod" min="0" max="{{ rate_max }}" step="1" value="{{ clan.mod_rate }}" style="width:90px"> per win</label>
-    <button class="primary" onclick="savePay()">Save pay</button>
-  </div>
-  <p class="desc" style="margin-top:10px">Left the treasury this week: <b>{{ '{:,}'.format(clan.paid_week.total) }}</b>
-     &mdash; {{ '{:,}'.format(clan.paid_week['member-pay']) }} member pay,
-     {{ '{:,}'.format(clan.paid_week['salary']) }} signing bonuses,
-     {{ '{:,}'.format(clan.paid_week['hire']) }} hires,
-     {{ '{:,}'.format(clan.paid_week['purchase']) }} purchases.</p>
-  <p class="desc" style="margin-top:8px">Looks, an emblem and perks for {{ clan.display }} are bought in the
-     <a href="/shop#clan">Shop</a>, under its Clan tab, from this treasury.</p>
-  <p class="msg" id="payMsg"></p>
-</div>
-{% endif %}
 <div class="card">
   <h2>{{ t('Transfer ownership') }}</h2>
   <p class="desc">Hand {{ clan.display }} to another member. They become the leader and you step

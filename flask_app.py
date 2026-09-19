@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.44.0"
+APP_VERSION = "9.45.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -3500,6 +3500,21 @@ def init_db():
                     uses INTEGER DEFAULT 0,
                     last_used_at TEXT
                 )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS contract_escrow (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    clan TEXT NOT NULL,
+                    norm_name TEXT NOT NULL,
+                    total INTEGER NOT NULL,
+                    paid INTEGER NOT NULL DEFAULT 0,
+                    weeks INTEGER NOT NULL,
+                    per_week INTEGER NOT NULL,
+                    started_at TEXT NOT NULL,
+                    until TEXT NOT NULL,
+                    closed_at TEXT,
+                    closed_why TEXT
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_escrow_open "
+              "ON contract_escrow(norm_name, closed_at)")
     c.execute('''CREATE TABLE IF NOT EXISTS clan_keys (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     label TEXT,
@@ -13896,6 +13911,7 @@ def clan_pay_member_win(c, tag, nn, ref, survival=False):
     pay = min(rate * (2 if survival else 1), deposit)
     if gem_clan_charge(c, tag, pay, "member-pay", ref) != "ok":
         return 0
+    escrow_tick(c, nn=nn)          # a win is as good a moment as any to pay up
     return gem_grant(c, "player", nn, pay, "clan-pay", ref)
 
 
@@ -14112,6 +14128,166 @@ def featured_clans(c):
             "theme_color": CLAN_THEMES.get((row[2] if row else "") or "", ""),
             "cv": clan_view(tag, True, c),
         })
+    return out
+
+
+
+# ------------------------------------------------------------- ESCROW
+# A signing fee for a month or more is not handed over on day one. The
+# treasury pays it in full at signing - the clan cannot spend it twice -
+# and the player is paid a share of it each week the contract runs. If the
+# clan releases them early, what has not been released goes back. Short
+# contracts (under ESCROW_MIN_DAYS) are paid on the day, because splitting
+# a fortnight into two payments helps nobody.
+ESCROW_MIN_DAYS = 30
+ESCROW_WEEK = 7 * 86400
+
+
+def escrow_plan(total, days):
+    """(first payment, weeks, per week) for a fee over a term. A term under
+    a month, or a fee too small to divide, is simply paid."""
+    total = max(0, int(total or 0))
+    days = int(days or 0)
+    if total <= 0 or days < ESCROW_MIN_DAYS:
+        return total, 0, 0
+    weeks = max(2, days // 7)
+    per_week = total // weeks
+    if per_week <= 0:
+        return total, 0, 0
+    # The first week is paid at signing, so joining is never empty-handed.
+    return per_week, weeks - 1, per_week
+
+
+def escrow_open(c, tag, nn, total, days, until):
+    """Hold what is not paid at signing. Returns what to pay now."""
+    first, weeks, per_week = escrow_plan(total, days)
+    if weeks > 0:
+        c.execute("INSERT INTO contract_escrow (clan, norm_name, total, paid, weeks, "
+                  "per_week, started_at, until) VALUES (?,?,?,?,?,?,?,?)",
+                  (tag, nn, int(total), int(first), int(weeks), int(per_week),
+                   _stamp(), until))
+    return first
+
+
+def _escrow_due(row, now=None):
+    """(what has come due but not been handed over, which week that is).
+
+    The player is paid one share a week, counting the share they were given
+    at signing. The last week pays whatever is left, so rounding never
+    leaves a few gems stuck in the table forever.
+    """
+    now = time.time() if now is None else now
+    try:
+        started = calendar.timegm(time.strptime(row["started_at"], "%Y-%m-%d %H:%M:%S"))
+    except (ValueError, TypeError):
+        return 0, 0
+    weeks_gone = max(0, int((now - started) // ESCROW_WEEK))
+    if weeks_gone >= row["weeks"]:
+        should_have = row["total"]
+    else:
+        should_have = row["per_week"] * (1 + weeks_gone)
+    return max(0, should_have - row["paid"]), weeks_gone
+
+
+def escrow_rows(c, tag=None, nn=None, open_only=True):
+    where, args = ["1 = 1"], []
+    if tag:
+        where.append("clan = ?")
+        args.append(tag)
+    if nn:
+        where.append("norm_name = ?")
+        args.append(nn)
+    if open_only:
+        where.append("closed_at IS NULL")
+    try:
+        rows = c.execute("SELECT id, clan, norm_name, total, paid, weeks, per_week, "
+                         "started_at, until, closed_at FROM contract_escrow WHERE "
+                         + " AND ".join(where) + " ORDER BY id", args).fetchall()
+    except sqlite3.Error:
+        return []
+    keys = ("id", "clan", "norm_name", "total", "paid", "weeks", "per_week",
+            "started_at", "until", "closed_at")
+    return [dict(zip(keys, r)) for r in rows]
+
+
+def escrow_tick(c, tag=None, nn=None, now=None):
+    """Hand over whatever has come due. Safe to call from anywhere and as
+    often as you like: each instalment is its own ledger row, keyed by the
+    contract and the week, so a second call pays nothing twice."""
+    paid_out = 0
+    for row in escrow_rows(c, tag=tag, nn=nn):
+        due, week = _escrow_due(row, now)
+        if due <= 0:
+            continue
+        got = gem_grant(c, "player", row["norm_name"], due, "contract",
+                        "e%d:w%d" % (row["id"], week))
+        if not got:
+            continue
+        paid_out += got
+        c.execute("UPDATE contract_escrow SET paid = paid + ? WHERE id = ?", (got, row["id"]))
+        if row["paid"] + got >= row["total"]:
+            c.execute("UPDATE contract_escrow SET closed_at = ?, closed_why = 'served' "
+                      "WHERE id = ?", (_stamp(), row["id"]))
+    return paid_out
+
+
+def escrow_close(c, nn, why="left"):
+    """The contract is over early. What was due is handed over; what was not
+    goes back to the clan that put it up."""
+    escrow_tick(c, nn=nn)                 # whatever they have earned is theirs
+    back = 0
+    for row in escrow_rows(c, nn=nn):
+        left = max(0, row["total"] - row["paid"])
+        if left:
+            back += gem_grant(c, "clan", row["clan"], left, "contract-refund",
+                              "e%d" % row["id"])
+        c.execute("UPDATE contract_escrow SET closed_at = ?, closed_why = ? WHERE id = ?",
+                  (_stamp(), why, row["id"]))
+    return back
+
+
+def clan_payroll(c, tag):
+    """What the clan earns, what it pays, who it pays, and how long the
+    treasury lasts if nothing changes."""
+    week = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() - 7 * 86400))
+    out = {"treasury": gem_balance(c, "clan", tag), "earned": 0, "spent": 0,
+           "members": [], "contracts": [], "owed": 0, "runway": None}
+    try:
+        r = c.execute("SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount END), 0), "
+                      "COALESCE(-SUM(CASE WHEN amount < 0 THEN amount END), 0) "
+                      "FROM gem_ledger WHERE owner_kind = 'clan' AND owner = ? AND at >= ?",
+                      (tag, week)).fetchone()
+        if r:
+            out["earned"], out["spent"] = r
+        members = [row[0] for row in c.execute(
+            "SELECT norm_name FROM players WHERE clan = ?", (tag,)).fetchall()]
+        if members:
+            qs = ",".join("?" for _ in members)
+            paid = {row[0]: row[1] for row in c.execute(
+                "SELECT owner, SUM(amount) FROM gem_ledger WHERE owner_kind = 'player' "
+                "AND reason IN ('clan-pay', 'contract') AND at >= ? AND owner IN (%s) "
+                "GROUP BY owner" % qs, [week] + members).fetchall()}
+            names = {row[0]: row[1] for row in c.execute(
+                "SELECT norm_name, name FROM players WHERE clan = ?", (tag,)).fetchall()}
+            out["members"] = sorted(
+                [{"norm": k, "name": names.get(k, k), "gems": int(v or 0)}
+                 for k, v in paid.items() if v],
+                key=lambda m: -m["gems"])[:12]
+    except sqlite3.Error:
+        pass
+    for row in escrow_rows(c, tag=tag):
+        left = max(0, row["total"] - row["paid"])
+        out["owed"] += left
+        out["contracts"].append({
+            "name": (c.execute("SELECT name FROM players WHERE norm_name = ?",
+                               (row["norm_name"],)).fetchone() or [row["norm_name"]])[0],
+            "total": row["total"], "paid": row["paid"], "left": left,
+            "per_week": row["per_week"], "until": (row["until"] or "")[:10],
+            "pc": int(100.0 * row["paid"] / (row["total"] or 1)),
+        })
+    burn = out["spent"] - out["earned"]
+    if burn > 0:
+        out["runway"] = int(out["treasury"] // (burn / 7.0)) if burn else None
     return out
 
 
@@ -15054,10 +15230,15 @@ def agents_hire():
         conn.rollback()
         conn.close()
         return jsonify({"ok": False, "message": "Already hired."}), 400
-    gem_grant(c, "player", nn, price, "hire", ref)
+    days = int(a[3] or AGENT_CONTRACT_DEFAULT)
+    # A month or more is paid across the term rather than on the day: the
+    # first week now, the rest week by week while the contract runs.
+    first = escrow_open(c, known, nn, price, days,
+                        time.strftime("%Y-%m-%d %H:%M:%S",
+                                      time.gmtime(time.time() + days * 86400)))
+    gem_grant(c, "player", nn, first, "hire", ref)
     # The listing goes before the join: the join may rename the row (the
     # tag comes off), and a rename carries the listing with it.
-    days = int(a[3] or AGENT_CONTRACT_DEFAULT)
     rate = max(0, min(CLAN_RATE_MAX, int(a[4] or 0)))
     c.execute("DELETE FROM free_agents WHERE norm_name = ?", (nn,))
     # The term goes on before the tag comes off: the join may rename the
@@ -15068,11 +15249,14 @@ def agents_hire():
     strip_tag_on_join(c, p[0], known)
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "days": days, "rate": rate,
+    weekly = price - first
+    return jsonify({"ok": True, "days": days, "rate": rate, "escrow": weekly,
                     "message": f"{display_name(p[0], known)} joined {known}"
                                + (f" for {price:,} gems" if price else "")
                                + (f", +{rate} a win" if rate else "")
-                               + f", on a {contract_term(days)} contract."})
+                               + f", on a {contract_term(days)} contract."
+                               + (f" {first:,} paid now, {weekly:,} across the term."
+                                  if weekly else "")})
 
 
 @app.route('/shop')
@@ -15654,6 +15838,7 @@ def clan_leave():
     # clan_locked = 1: this was a deliberate choice, so detection must not
     # quietly put them back next time they are seen wearing the tag.
     for name, _clan in rows:
+        escrow_close(c, normalize_name(name), "released")
         c.execute("UPDATE players SET clan = NULL, clan_locked = 1, contract_clan = NULL, "
                   "contract_until = NULL, contract_rate = 0 WHERE name = ?", (name,))
     conn.commit()
@@ -15726,6 +15911,7 @@ def clan_remove():
     # An admin does not need it - their clan is curated, so detection already
     # skips it - and setting it would let one clan's admin permanently stop a
     # player being tagged into any clan at all, including a rival's.
+    escrow_close(c, normalize_name(name), "left")
     c.execute("UPDATE players SET clan = NULL, clan_locked = ?, contract_clan = NULL, "
               "contract_until = NULL WHERE name = ?",
               (0 if by_admin else 1, stored_name))
@@ -16865,6 +17051,7 @@ def bot_clan_members_route():
         # clan_locked stays 0: an admin's clan is curated, so detection
         # already skips it, and locking would stop the player ever being
         # tagged into another clan.
+        escrow_close(c, normalize_name(stored_name), "left")
         c.execute("UPDATE players SET clan = NULL, clan_locked = 0, contract_clan = NULL, "
                   "contract_until = NULL WHERE name = ?", (stored_name,))
         conn.commit()
@@ -19643,6 +19830,7 @@ GEM_REASON_LABELS = {
     "hire": "Free-agent signing fee", "purchase": "Bought in the shop",
     "clan-start": "Started a clan", "sandbox": "Test account (not real)",
     "objective": "Daily or weekly objective",
+    "contract": "Contract instalment", "contract-refund": "Contract ended early",
     "rent": "Rented a look",
 }
 
@@ -20617,6 +20805,10 @@ def perform_clan_delete(c, sub_id, raw_tag, trusted=False):
     members = (c.fetchone() or [0])[0]
     # clan_locked stays 0 so a name can be tagged again later; the clan is
     # gone, not the players.
+    # Before the clan goes: every contract it was paying settles first, so
+    # nothing is left owed by something that no longer exists.
+    for _row in escrow_rows(c, tag=known):
+        escrow_close(c, _row["norm_name"], "clan closed")
     c.execute("UPDATE players SET clan = NULL, tag_style = NULL, contract_clan = NULL, "
               "contract_until = NULL WHERE clan = ?", (known,))
     c.execute("DELETE FROM clan_tag_styles WHERE clan = ?", (known,))
@@ -21235,6 +21427,10 @@ def my_clan_page():
     asked = canonical_clan_tag(request.args.get('clan'))
     tag = asked if asked in tags else tags[0]
     role = clan_role(c, sub_id, tag)
+    # Opening the clan page is a moment too: any instalment that has come
+    # due for anyone on this roster is handed over before the page is drawn.
+    if gems_visible() and escrow_tick(c, tag=tag):
+        conn.commit()
 
     c.execute("SELECT name, elo, wins, losses, google_sub, clan_joined_at, "
               "COALESCE(strict_mode, 0), contract_clan, contract_until "
@@ -21303,6 +21499,7 @@ def my_clan_page():
         "treasury": gem_balance(c, "clan", tag),
         "member_rate": clan_pay_rates(c, tag)[0], "mod_rate": clan_pay_rates(c, tag)[1],
         "paid_week": clan_paid_week(c, tag),
+        "payroll": clan_payroll(c, tag),
         "cv": clan_view(tag, True, c),
         "invited": [{"id": r[0], "name": r[1]} for r in c.execute(
             "SELECT id, name FROM clan_invites WHERE clan = ? "
@@ -22205,6 +22402,9 @@ def home_page():
     peak_division = ranks.RANK_BY_KEY.get(peak_div_key) if peak_div_key else None
     clan_shown = player_tag(c, name, clan) if clan else None
 
+    # Anything a contract owes them by now lands before the balance is read.
+    if escrow_tick(c, nn=nn):
+        conn.commit()
     balance = gem_balance(c, "player", nn)
     emblem, emblem_color, mythic = worn_emblem(nn, display_ship_map(), True)
     today = time.strftime('%Y-%m-%d', time.gmtime())
