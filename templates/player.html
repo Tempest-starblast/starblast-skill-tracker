@@ -297,7 +297,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
   <div class="pachrow">
     {% for a in earned %}
     <span class="pachpip" title="{{ a.desc }}">
-      <span class="emb">{% if a.rank %}{{ rank_emblem(a.rank.ship, 22, a.rank.color, a.rank.name)|safe }}{% else %}<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/></svg>{% endif %}</span>{{ a.name }}{% if a.at %} <time>{{ a.at }}</time>{% endif %}
+      <span class="emb">{% if a.rank %}{{ rank_emblem(a.rank.ship, 22, a.rank.color)|safe }}{% else %}<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/></svg>{% endif %}</span>{{ a.name }}{% if a.at %} <time>{{ a.at }}</time>{% endif %}
     </span>
     {% endfor %}
   </div>
@@ -641,7 +641,7 @@ const PN = {{ player.name|tojson }};
 let MY_TAGS = [];
 async function meGate(){
   try{
-    const me = await (await fetch('/me')).json();
+    const me = await sbMe();
     if (!me.logged_in) return;
     const mine = me.names || [], adm = me.admin_of || [];
     const pclan = {{ (player.clan or '')|tojson }};

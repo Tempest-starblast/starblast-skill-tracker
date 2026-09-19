@@ -468,7 +468,8 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .devbar button{background:#1a1305;color:#ffe4a0;border:none;border-radius:3px;
   padding:6px 14px;font-weight:700;cursor:pointer}
 .devbar button:hover{background:#000}
-.devtier{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12.5px}
+.devtier{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12.5px;
+  white-space:nowrap}
 .devtier select{background:#1a1305;color:#ffe4a0;border:1px solid rgba(255,228,160,.35);
   border-radius:3px;padding:5px 8px;font-weight:700;font-size:12.5px}
 @media (hover:none){
@@ -522,6 +523,22 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   background:rgba(102,230,184,.10)}
 {% block css %}{% endblock %}
 </style>
+<script>
+// Who you are, asked once. The header, the page and any panel all want it on
+// the way in and each was making its own request; they share the answer for
+// two seconds, which is long enough to collapse the arrival and short enough
+// that a poller or a panel reloading after an action still sees the truth.
+window.sbMe = (function(){
+  var p = null, at = 0;
+  return function(fresh){
+    var now = Date.now();
+    if (!fresh && p && now - at < 2000) { return p; }
+    at = now;
+    p = fetch('/me').then(function(r){ return r.json(); }).catch(function(){ return {}; });
+    return p;
+  };
+})();
+</script>
 </head><body class="pg-{{ page or 'leaderboard' }}">
 {% block backdrop %}{% endblock %}
 <div class="spacescape" aria-hidden="true"></div>
@@ -854,7 +871,7 @@ async function sbSignOut(){
 }
 window.addEventListener('DOMContentLoaded', async function(){
   try{
-    const d=await (await fetch('/me')).json();
+    const d=await sbMe();
     if(d.logged_in){
       // A Discord sign-in never touches this page, so /me is the only
       // thing that knows whose account it is - the stored Google label

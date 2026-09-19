@@ -23,7 +23,7 @@ import ship_shapes
 # glitter/shimmer treatment; `mythic` gets the crimson one.
 RANKS = [
     {"level": 9, "key": "mythos",   "name": "Mythos",   "ship": 701,
-     "cut": None, "band": "Number one on the board", "flair": 9, "mythic": True,
+     "cut": None, "band": "Once number one", "flair": 9, "mythic": True,
      "color": "#ff2e4d", "glow": "rgba(255,46,77,.6)"},
     {"level": 8, "key": "shadowx3", "name": "Archon",   "ship": 702,
      "cut": 0.005, "band": "Top 0.5%", "flair": 8, "diamond": True,
@@ -68,8 +68,17 @@ def info_table_html():
             '<td class="rk-nm" style="color:%s">%s</td>'
             '<td class="rk-bd">%s</td></tr>'
             % (d, r["color"], r["color"], r["name"], r["band"]))
+    # Any tier with no percentile of its own needs a word, or the prose
+    # above the table ("your place among every ranked player") is wrong for
+    # that row. Generated from the ladder, so it cannot drift.
+    odd = [r["name"] for r in RANKS if r["cut"] is None]
+    note = ""
+    if odd:
+        note = ('<p class="rk-note">%s is not a share of the board like the '
+                'others: it is won by finishing a day at number one, and it '
+                'is never lost afterwards.</p>' % " and ".join(odd))
     return ('<div class="rk-wrap"><table class="rk-tbl">'
-            '<tbody>' + "".join(rows) + '</tbody></table></div>')
+            '<tbody>' + "".join(rows) + '</tbody></table>' + note + '</div>')
 
 
 RANK_BY_KEY = {r["key"]: r for r in RANKS}

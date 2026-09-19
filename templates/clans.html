@@ -365,7 +365,7 @@ window.addEventListener('DOMContentLoaded', function(){
   // by being signed in: an approved leader and a hopeful one need
   // different pages.
   showLeaderState();
-  fetch('/me').then(function(r){ return r.json(); }).then(function(d){
+  sbMe().then(function(d){
     if (d.logged_in) window.onSignedInReady();
   }).catch(function(){});
 });

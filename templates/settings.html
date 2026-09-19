@@ -107,7 +107,7 @@ window.onSignedOutReady = function(){
 
 async function loadMe(){
   try{
-    const d=await (await fetch('/me')).json();
+    const d=await sbMe();
     if(!d.logged_in) return;
     document.getElementById('signedOut').style.display='none';
     document.getElementById('signedIn').style.display='block';

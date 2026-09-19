@@ -331,7 +331,7 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   <button class="primary" onclick="devActAs('new')">Test as a new player</button>
   <p class="desc" style="margin-top:14px"><b>A signed-in player</b> has a name and a
      rating, so everything an established account sees is there &mdash; Social, friends,
-     the clan suggestions, your division and rank. The rating is what most of those read,
+     the clan suggestions, your tier and rank. The rating is what most of those read,
      so it is yours to choose. Its match history is empty: no matches were played.</p>
   <div class="row" style="align-items:center;gap:8px">
     <label for="devElo" style="font-size:13px">Rating</label>
@@ -437,7 +437,7 @@ function el(t,c,x){ const e=document.createElement(t); if(c)e.className=c; if(x!
 
 async function loadMe(){
   try{
-    const d=await (await fetch('/me')).json();
+    const d=await sbMe();
     if(!d.logged_in) return;
     document.getElementById('claimCard').style.display='block';
     myName = (d.names && d.names.length) ? d.names[0] : null;

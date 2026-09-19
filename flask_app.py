@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.51.0"
+APP_VERSION = "9.51.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -814,7 +814,7 @@ def shop_price(kind, key, price):
 # The catalogue is what there is; ach_status() is where one player stands
 # on each - done or not, how far along, claimed or waiting. Keys are
 # append-only: the ledger stores them, and a renamed key pays out again.
-ACH_GROUPS = ["Ranks", "Milestones", "Survival", "Combat", "Hangar", "Wardrobe", "Wealth", "Social", "Clan"]
+ACH_GROUPS = ["Tiers", "Milestones", "Survival", "Combat", "Hangar", "Wardrobe", "Wealth", "Social", "Clan"]
 # Owning a whole tier, against what that tier costs now (tier 7 is 6,000 a
 # hull): the reward is a good chunk of the next tier, never the tier itself.
 _ACH_TIER_GEMS = {2: 200, 3: 400, 4: 1000, 5: 2000, 6: 4000, 7: 8000}
@@ -905,7 +905,7 @@ def gem_achievement_catalog():
     out = []
     for r in sorted(ranks.RANKS, key=lambda x: x["level"]):
         out.append({
-            "key": "div-%s" % r["key"], "group": "Ranks", "name": r["name"],
+            "key": "div-%s" % r["key"], "group": "Tiers", "name": r["name"],
             "desc": ("Finish a day at number one on the board. Yours for ever "
                      "after, with the Odyssey."
                      if r.get("mythic") else
@@ -3262,6 +3262,10 @@ def init_db():
                     half INTEGER DEFAULT 0
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_norm ON match_players(norm_name)")
+    # The frozen score trajectory of a finished match. Made here with
+    # everything else, rather than by whichever match happens to end first.
+    c.execute("CREATE TABLE IF NOT EXISTS match_replays ("
+              "match_row INTEGER PRIMARY KEY, data BLOB, created_at TEXT)")
     # The name actually used in that match. Rosters are rewritten to account
     # names at the door, so without this the name someone played under is
     # lost the moment the result is credited.
@@ -7217,6 +7221,24 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.51.1", "at": "2026-09-19T23:10:00Z", "changes": [
+        "<b>Fixed: a profile&#39;s rating chart could fail to load.</b> The table "
+        "holding a match&#39;s frozen score trajectory was created by whichever "
+        "match happened to end first rather than with the rest of the "
+        "database, so on a fresh one the chart&#39;s request answered with an "
+        "error instead of a graph.",
+        "Fixed on Free agents: the ship beside each name was printed as text "
+        "instead of drawn, so it read as a number &mdash; or as the word "
+        "&ldquo;None&rdquo; for anyone not wearing one. It is the silhouette "
+        "again, in the tier&#39;s colour.",
+        "Every page asked who you are three times on the way in — the "
+        "header, the page and its panels each made the same request. They "
+        "share one answer now.",
+        "Three titles could never be earned by anybody: <b>High score</b>, "
+        "<b>Whale</b> and <b>Self-made</b> pointed at achievement names that "
+        "had been renamed underneath them. They are attached to the right "
+        "ones again.",
+    ]},
     {"version": "9.51.0", "at": "2026-09-19T21:30:00Z", "changes": [
         "<b>The skill ranks are now tiers with names of their own.</b> They "
         "used to be named after the ships whose silhouettes they wear, which "
@@ -9977,13 +9999,11 @@ def rename_player():
 # stale check-in vouch for a match hours later.
 CHECKIN_VALID_SECONDS = 2 * 60 * 60
 
-# A checked-in mid-match joiner must have had at least this long in the
-# match to be rated at all (owner's rule, 22 Aug 2026: five minutes and
-# 102 points at the tail of a 37-minute game took a half loss). The
-# pre-join gate means the check-in stamp precedes the ship's first
-# appearance, so end-time minus stamp bounds their entire time in the
-# match. Ten minutes matches the winner presence bar.
-JOIN_MIN_PLAY_SECONDS = 10 * 60
+# The rule that a mid-match joiner must have had ten minutes in the match
+# to be rated at all (owner's rule, 22 Aug 2026) is enforced where the
+# rating is worked out - MIN_RATED_PRESENCE_S in the scorer on the droplet.
+# It was written here too, unread, which is how two copies of a number come
+# to disagree.
 
 # How long after pressing Play a name may appear and still be taken as
 # yours. Long enough to load the game and pick a side, short enough that
@@ -11744,13 +11764,10 @@ def trueskill_page():
                            client_id=GOOGLE_CLIENT_ID)
 
 
-# You may only check in during the opening minutes of a match. Without
-# this you could simply wait, see how it is going, and check in only when
-# winning - so a protected player's rating could rise but never fall.
-# Requiring the declaration before the outcome is knowable is the whole
-# point. Cost: someone joining a match already in progress cannot be
-# rated for it.
-CHECKIN_MAX_LOBBY_AGE = 10 * 60
+# There is deliberately no window on how old a lobby may be when you check
+# into it: half elo, not refusal, is what stops a latecomer collecting a
+# full win for arriving at the end (see perform_checkin). The constant that
+# used to set that window is gone rather than left here saying otherwise.
 
 
 def tracker_limits(c):
@@ -14574,6 +14591,11 @@ def clan_shop_state(c, tag):
             perk_rows.append(it)
     emblems = []
     for ship in ship_catalog():
+        # The mythic is not a badge to be bought out of a treasury: it is the
+        # mark of one player having finished a day at number one. A clan that
+        # somehow already holds it keeps it.
+        if ship["mythic"] and ("cs-%d" % ship["code"]) not in owned:
+            continue
         it = clan_item("cs-%d" % ship["code"])
         it["own"] = it["id"] in owned
         it["worn"] = worn.get("emblem") == it["id"]
@@ -14628,7 +14650,10 @@ def preview_level_for(nn):
     tester's own account. 0 otherwise - including for every other player on
     the site, who are never affected by somebody else's preview."""
     try:
-        if not has_request_context() or not session.get("preview"):
+        # The owner's sandbox (/dev/actas) is a testing session too, and
+        # the bar shows the picker there as well - so it has to work there.
+        if not has_request_context() or not (session.get("preview")
+                                             or session.get("dev_real_owner")):
             return 0
         lvl = int(session.get("preview_level") or 0)
     except (RuntimeError, ValueError, TypeError):
@@ -15063,7 +15088,11 @@ def _event_now():
     return time.time()
 
 
-EVENT_HOURS = (0, 6, 12, 18)
+# One number sets the schedule. EVENT_HOURS is derived from it, so the
+# hours a page prints can never disagree with the slots the code computes.
+EVENT_EVERY_H = 6
+EVENT_HOURS = tuple(range(0, 24, EVENT_EVERY_H))
+EVENT_PERIOD_S = EVENT_EVERY_H * 3600
 EVENT_KINDS = ("survival", "team")
 EVENT_SIGNUP_MIN = 20          # sign-ups open this many minutes before
 EVENT_JOIN_MIN = 6             # how long the link stays the thing to do
@@ -15100,7 +15129,7 @@ def event_kind_for(start_at):
         t = time.strptime(start_at, "%Y-%m-%d %H:%M:%S")
     except (TypeError, ValueError):
         return EVENT_KINDS[0]
-    idx = int(calendar.timegm(t) // 3600 // 6)
+    idx = int(calendar.timegm(t) // EVENT_PERIOD_S)
     return EVENT_KINDS[idx % len(EVENT_KINDS)]
 
 
@@ -15108,10 +15137,10 @@ def event_slot(now=None, ahead=0):
     """The stamp of a scheduled slot: the one running now or next, plus
     `ahead` slots after it."""
     now = _event_now() if now is None else now
-    slot = (int(now) // (6 * 3600)) * (6 * 3600)
+    slot = (int(now) // EVENT_PERIOD_S) * EVENT_PERIOD_S
     if now > slot + EVENT_JOIN_MIN * 60:
-        slot += 6 * 3600                      # this one has been and gone
-    slot += ahead * 6 * 3600
+        slot += EVENT_PERIOD_S                # this one has been and gone
+    slot += ahead * EVENT_PERIOD_S
     return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(slot))
 
 
@@ -15552,7 +15581,7 @@ def event_sweep(c, now=None):
         if state in ("open", "wanted"):
             c.execute("UPDATE events SET state = 'missed', ended_at = ? WHERE id = ? "
                       "AND COALESCE(forced, 0) = 0", (_stamp(), eid))
-        elif state == "live" and now - event_when(start_at) > 6 * 3600:
+        elif state == "live" and now - event_when(start_at) > EVENT_PERIOD_S:
             c.execute("UPDATE events SET state = 'played', ended_at = ? WHERE id = ?",
                       (_stamp(), eid))
 
@@ -19137,7 +19166,7 @@ def report_name():
                                f"hand - nothing changes automatically."}), 200
 
 
-CUSTOM_GATE_MIN_LEVEL = 7           # Odyssey (ranks.py level 7) and above
+CUSTOM_GATE_MIN_LEVEL = 7           # Warden (ranks.py level 7) and above
 CUSTOM_OWNER_ONLY = True            # TESTING: only the owner can open/see/play the lobby
 
 # ---------- custom-game builder (owner-hosted; unrated when non-default) -------
@@ -19299,9 +19328,9 @@ def api_customgate():
     established = played >= PROVISIONAL_GAMES
     div = division_map().get(key)
     level = int(div["level"]) if div else 0
-    # The IN-GAME rule is always Odyssey (verified + established + Odyssey rank),
+    # The IN-GAME rule is always Warden (verified + established + Warden tier),
     # even while the lobby is owner-only to SEE/open. That way it's already the
-    # right rule when it opens to all Odyssey. The owner is always allowed too,
+    # right rule when it opens to all Wardens. The owner is always allowed too,
     # via the pre-seeded allow-set (/api/customgame/allowed), so they can test.
     ok = verified and established and level >= CUSTOM_GATE_MIN_LEVEL
     if not verified:
@@ -20819,11 +20848,10 @@ GEM_REASON_LABELS = {
     "hire": "Free-agent signing fee", "purchase": "Bought in the shop",
     "clan-start": "Started a clan", "sandbox": "Test account (not real)",
     "preview-credit": "Test gems, from an access key",
-    "objective": "Daily or weekly objective",
+    "objective": "Daily objective",
     "contract": "Contract instalment", "contract-refund": "Contract ended early",
     "event-win": "Won a hosted event", "event-clan": "Event prize, to the clan",
     "event-leader": "Event prize, the leader's share",
-    "rent": "Rented a look (a week)",
 }
 
 
@@ -23414,8 +23442,11 @@ def home_page():
     ready = [a for a in cat if a["ready"]]
     objs = obj_status(c, nn)
     obj_ready = [o for o in objs if o["ready"]]
-    # The next one to chase: whichever locked achievement you are furthest along.
-    locked = [a for a in cat if not a["unlocked"]]
+    # The next one to chase: whichever locked achievement you are furthest
+    # along. Mythos is left out of it - there is no being most of the way to
+    # having been number one, and offering it as "next" would be a lie.
+    locked = [a for a in cat if not a["unlocked"]
+              and not (a.get("rank") or {}).get("mythic")]
     next_up = (max(locked, key=lambda a: (a["have"] / float(a["need"] or 1), -a["gems"]))
                if locked else None)
 

@@ -255,7 +255,7 @@ attach('ca'); attach('cb');
           document.getElementById('pickB').classList.add('chosen'); }
   if(qa&&qb){ load(qa,qb); return; }
   if(!qa){
-    fetch('/me').then(function(r){return r.json();}).then(function(d){
+    sbMe().then(function(d){
       if(d && d.logged_in && d.names && d.names.length && !CHOSEN.ca){
         document.getElementById('ca').value=d.names[0];
         CHOSEN.ca=d.names[0];

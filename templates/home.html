@@ -122,7 +122,7 @@
       <h1 class="idname">{% if clan %}<a class="badge{% if cv.tag %} cbadge {{ cv.tag }}{% endif %}" href="/clan/{{ clan|urlencode }}">{{ clan_shown or clan }}</a>{% endif %}<span class="{% if cos.name %}cosn {{ cos.name.cls }}{% endif %}">{{ name }}</span>{% if cos.title %} <span class="cost{% if cos.title.earned %} earned{% endif %}">{{ cos.title.text }}</span>{% endif %}</h1>
       <p class="idrank">
         {%- if d %}<b style="color:{{ d.color }}">{{ d.name }}</b> &middot; {{ d.band }} &middot; #{{ '{:,}'.format(rank) }} of {{ '{:,}'.format(rank_of) }}
-        {%- elif placements_left %}<b>In placements</b> &middot; {{ placements_left }} more to earn a rank
+        {%- elif placements_left %}<b>In placements</b> &middot; {{ placements_left }} more to earn a tier
         {%- else %}#{{ '{:,}'.format(rank) }} of {{ '{:,}'.format(rank_of) }}{% endif %}
       </p>
       <p class="idline"><span>{{ '{:,.0f}'.format(elo) }} skill</span><span>{{ wins }}&ndash;{{ losses }}</span>{% if winrate %}<span>{{ winrate }} won</span>{% endif %}{% if peak_division and (not d or peak_division.level > d.level) %}<span>best {{ peak_division.name }}</span>{% endif %}</p>

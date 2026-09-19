@@ -168,7 +168,7 @@ function show(id, on){ const e = document.getElementById(id); if (e) e.style.dis
 // clan: said plainly, nothing to press.
 async function refresh(){
   try{
-    const me = await (await fetch('/me')).json();
+    const me = await sbMe();
     if (!me.logged_in) return;
     myNames = me.names || [];
     MY_NAME = me.account_name || myNames[0] || '';

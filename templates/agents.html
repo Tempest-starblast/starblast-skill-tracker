@@ -114,7 +114,7 @@
     {% for a in agents %}
     <div class="tile" data-name="{{ a.name }}" data-price="{{ a.price }}">
       <div class="tiletop">
-        <span class="emb">{{ a.emblem|safe }}</span>
+        <span class="emb">{% if a.division or a.emblem %}{{ rank_emblem(a.emblem or a.division.ship, 30, a.emblem_color or (a.division.color if a.division else '#8b949e'), a.division.name if a.division else 'Unranked', 'rank-emblem mythic' if a.mythic else 'rank-emblem')|safe }}{% endif %}</span>
         <a class="nm" href="/player/{{ a.name|urlencode }}"{% if a.emblem_color %} style="color:{{ a.emblem_color }}"{% endif %}>{{ a.display }}</a>
       </div>
       <div class="meta">

@@ -172,7 +172,7 @@ function say(id, ok, t){ const m=document.getElementById(id); m.className='msg '
 
 async function loadMe(){
   try{
-    const d=await (await fetch('/me')).json();
+    const d=await sbMe();
     document.getElementById('notSignedIn').style.display = d.logged_in ? 'none' : 'block';
     document.getElementById('signedIn').style.display = d.logged_in ? 'block' : 'none';
     document.getElementById('claimRow').style.display = d.logged_in ? 'block' : 'none';

@@ -1355,7 +1355,7 @@ function buildReplay(ST, RD){
     run();
   }
 }
-fetch('/me').then(r=>r.json()).catch(()=>({})).then(function(me){
+sbMe().then(function(me){
   if(me && me.logged_in){
     (me.names||[]).forEach(n=>MY_NAMES.add(jnorm(n)));
     if(me.account_name) MY_NAMES.add(jnorm(me.account_name));
