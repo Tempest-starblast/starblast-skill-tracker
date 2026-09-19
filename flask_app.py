@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.45.0"
+APP_VERSION = "9.46.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -707,6 +707,10 @@ def cosmetic_map():
     m = {}
     try:
         conn = db(timeout=3)
+        # A rental that has run out comes off everybody's card here, within
+        # the minute, whether or not its owner ever opens the site again.
+        if rental_sweep(conn.cursor()):
+            conn.commit()
         for nn, raw in conn.execute("SELECT norm_name, cosmetics FROM players "
                                     "WHERE cosmetics IS NOT NULL AND cosmetics != ''").fetchall():
             worn = _worn_cosmetics(raw)
@@ -3500,6 +3504,14 @@ def init_db():
                     uses INTEGER DEFAULT 0,
                     last_used_at TEXT
                 )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS cosmetic_rentals (
+                    norm_name TEXT NOT NULL,
+                    item TEXT NOT NULL,
+                    until TEXT NOT NULL,
+                    started_at TEXT,
+                    PRIMARY KEY (norm_name, item)
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_rent_until ON cosmetic_rentals(until)")
     c.execute('''CREATE TABLE IF NOT EXISTS contract_escrow (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     clan TEXT NOT NULL,
@@ -15269,7 +15281,12 @@ def shop_page():
     c = conn.cursor()
     me = my_player(c)
     own, worn, balance, division, owned_cos, worn_cos = {}, None, 0, None, set(), {}
+    rented = {}
     if me:
+        # A lapsed rental comes off here as well as on the clock, so the
+        # shop never offers to sell you something you appear to be wearing.
+        if rental_sweep(c):
+            conn.commit()
         own = owned_ships(c, me[1])
         r = c.execute("SELECT display_ship, COALESCE(wins,0)+COALESCE(losses,0), cosmetics "
                       "FROM players WHERE norm_name = ?", (me[1],)).fetchone()
@@ -15278,6 +15295,7 @@ def shop_page():
             division = division_map().get(me[1])
         worn_cos = _worn_cosmetics(r[2]) if r else {}
         owned_cos = owned_cosmetics(c, me[1])
+        rented = rentals_of(c, me[1])
         balance = gem_balance(c, "player", me[1])
     # The clan's shop, for whoever runs one: bought from the treasury, on
     # the same page as everything else so there is one place to spend.
@@ -15323,6 +15341,10 @@ def shop_page():
             ci["sale"] = sale_map.get(("cos", ci["id"]))
             ci["pay"] = ci["sale"]["price"] if ci["sale"] else ci["price"]
             ci["can"] = balance >= ci["pay"]
+            ci["rentable"] = rentable(ci) and not ci["own"]
+            ci["rent"] = rent_price(ci) if ci["rentable"] else 0
+            ci["can_rent"] = ci["rentable"] and balance >= ci["rent"]
+            ci["rented_days"] = rent_days_left(rented[ci["id"]]) if ci["id"] in rented else 0
             items.append(ci)
             if ci["sale"]:
                 featured.append({"kind": "cos", "item": ci, "o": sale_order[("cos", ci["id"])]})
@@ -15340,9 +15362,160 @@ def shop_page():
                            prev_ship=worn or (division["ship"] if division else 101),
                            cos_sections=cos_sections, featured=featured,
                            resets_in=featured_resets_in(),
+                           rent_days=RENT_DAYS,
                            clan_shop=clan_shop, clan_tag=clan_tag, clan_display=clan_disp,
                            clan_theme_color=clan_theme_color, coleader_cap=clan_cap,
                            slots_max=CLAN_COLEADER_SLOTS_MAX)
+
+
+
+# --------------------------------------------------------------- RENTALS
+# Only the dear end of the catalogue, and only by the week. A rental is not
+# ownership: it does not count towards collecting them, it cannot be worn
+# once it lapses, and renting for months never adds up to owning the thing.
+# That is the point - it is the part of the economy that runs out.
+RENT_MIN_PRICE = 5000
+RENT_DAYS = 7
+RENT_PC = 10
+RENT_MAX_AHEAD = 28          # you may stack a month, not a year
+
+
+def rent_price(item):
+    """A week of it: a tenth of the price, to the nearest hundred."""
+    price = int(item.get("price") or 0)
+    return max(100, int(round(price * RENT_PC / 100.0 / 100.0)) * 100)
+
+
+def rentable(item):
+    """Dear enough to be worth renting, and not one an achievement hands
+    out - those are earned, never rented."""
+    return bool(item) and not item.get("via") and int(item.get("price") or 0) >= RENT_MIN_PRICE
+
+
+def rentals_of(c, nn):
+    """{item id: when it runs out} for the rentals this player still has."""
+    out = {}
+    if not nn:
+        return out
+    try:
+        for item, until in c.execute(
+                "SELECT item, until FROM cosmetic_rentals WHERE norm_name = ? AND until > ?",
+                (nn, _stamp())).fetchall():
+            if item in COSMETIC_BY_ID:
+                out[item] = until
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def held_cosmetics(c, nn):
+    """What this player may wear: what they own, plus what they are renting
+    while it lasts."""
+    return owned_cosmetics(c, nn) | set(rentals_of(c, nn))
+
+
+def rental_sweep(c, now=None):
+    """Take off and clear every rental that has run out. Cheap and usually a
+    no-op: one indexed read, and writes only when something has lapsed."""
+    now = now or _stamp()
+    try:
+        gone = c.execute("SELECT norm_name, item FROM cosmetic_rentals WHERE until <= ?",
+                         (now,)).fetchall()
+    except sqlite3.Error:
+        return 0
+    if not gone:
+        return 0
+    by_player = {}
+    for nn, item in gone:
+        by_player.setdefault(nn, set()).add(item)
+    for nn, items in by_player.items():
+        row = c.execute("SELECT cosmetics FROM players WHERE norm_name = ?", (nn,)).fetchone()
+        worn = _worn_cosmetics(row[0] if row else None)
+        left = {k: v for k, v in worn.items() if v not in items}
+        if left != worn:
+            c.execute("UPDATE players SET cosmetics = ? WHERE norm_name = ?",
+                      (json.dumps(left) if left else None, nn))
+    c.execute("DELETE FROM cosmetic_rentals WHERE until <= ?", (now,))
+    _COS_CACHE["ts"] = 0.0
+    return len(gone)
+
+
+def rent_days_left(until, now=None):
+    """Whole days remaining, rounded up, so 'runs out today' is 1 and never 0."""
+    try:
+        end = calendar.timegm(time.strptime(until, "%Y-%m-%d %H:%M:%S"))
+    except (ValueError, TypeError):
+        return 0
+    left = end - (now or time.time())
+    return max(0, int((left + 86399) // 86400))
+
+
+@app.route('/shop/rent', methods=['POST'])
+def shop_rent():
+    """Rent a look for a week, or add another week to one you are already
+    renting. Wearing it comes with the rental - there is no second press."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    rental_sweep(c)
+    item = COSMETIC_BY_ID.get(str((request.get_json(silent=True) or {}).get("item") or ""))
+    if not item:
+        conn.close()
+        return jsonify({"ok": False, "message": "No such item."}), 404
+    if not rentable(item):
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": "%s is not for rent - it is %s."
+                                   % (item["name"], "earned" if item["via"] else "yours to buy")}), 200
+    nn = me[1]
+    if item["id"] in owned_cosmetics(c, nn):
+        conn.close()
+        return jsonify({"ok": False, "message": "You already own %s." % item["name"]}), 200
+    have = rentals_of(c, nn).get(item["id"])
+    if have and rent_days_left(have) > RENT_MAX_AHEAD - RENT_DAYS:
+        conn.close()
+        return jsonify({"ok": False,
+                        "message": "You have %s for another %d days - that is as far ahead "
+                                   "as it goes." % (item["name"], rent_days_left(have))}), 200
+    price = rent_price(item)
+    # Work out when it would run to BEFORE charging, and key the charge on
+    # that: a retry of the same press computes the same end and is swallowed,
+    # while a deliberate second week is a different end and is a new charge.
+    if have:
+        until = c.execute("SELECT datetime(?, '+%d days')" % RENT_DAYS, (have,)).fetchone()[0]
+    else:
+        until = c.execute("SELECT datetime('now', '+%d days')" % RENT_DAYS).fetchone()[0]
+    got = gem_charge(c, nn, price, "rent", "rent-%s:%s" % (item["id"], until))
+    if got == "short":
+        balance = gem_balance(c, "player", nn)
+        conn.close()
+        return jsonify({"ok": False, "balance": balance,
+                        "message": "A week of %s is %s gems and you have %s."
+                                   % (item["name"], format(price, ","), format(balance, ","))}), 200
+    if got == "duplicate":
+        conn.close()
+        return jsonify({"ok": False, "message": "Already done."}), 200
+    c.execute("INSERT INTO cosmetic_rentals (norm_name, item, until, started_at) "
+              "VALUES (?,?,?,?) ON CONFLICT(norm_name, item) DO UPDATE SET until = excluded.until",
+              (nn, item["id"], until, _stamp()))
+    # Renting is wearing it - nobody rents a look to leave it in a drawer.
+    row = c.execute("SELECT cosmetics FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    worn = _worn_cosmetics(row[0] if row else None)
+    worn[item["slot"]] = item["id"]
+    c.execute("UPDATE players SET cosmetics = ? WHERE norm_name = ?", (json.dumps(worn), nn))
+    conn.commit()
+    balance = gem_balance(c, "player", nn)
+    conn.close()
+    _COS_CACHE["ts"] = 0.0
+    days = rent_days_left(until)
+    return jsonify({"ok": True, "balance": balance, "until": until, "days": days,
+                    "message": "%s is yours for %d day%s - and you are wearing it."
+                               % (item["name"], days, "" if days == 1 else "s")}), 200
 
 
 @app.route('/shop/buy', methods=['POST'])
@@ -15435,7 +15608,7 @@ def shop_equip():
             if not ci:
                 conn.close()
                 return jsonify({"ok": False, "message": "No such item."}), 404
-            if ci["id"] not in owned_cosmetics(c, me[1]):
+            if ci["id"] not in held_cosmetics(c, me[1]):
                 conn.close()
                 return jsonify({"ok": False, "message": "You do not have %s." % ci["name"]}), 200
             worn[ci["slot"]] = ci["id"]
@@ -19831,7 +20004,7 @@ GEM_REASON_LABELS = {
     "clan-start": "Started a clan", "sandbox": "Test account (not real)",
     "objective": "Daily or weekly objective",
     "contract": "Contract instalment", "contract-refund": "Contract ended early",
-    "rent": "Rented a look",
+    "rent": "Rented a look (a week)",
 }
 
 

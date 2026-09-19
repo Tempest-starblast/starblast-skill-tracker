@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Shop - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
+.ship.cos.rented{border-color:rgba(240,192,74,.55)}
+.renttag{position:absolute;top:9px;right:9px;font-size:10px;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;padding:2px 7px;border-radius:999px;color:#0b0e13;background:#f0c04a}
+.rentrow{display:flex;gap:7px;flex-wrap:wrap}
+.rentrow .btn{flex:1 1 auto;min-width:96px}
+.price.short{white-space:nowrap}
 /* A hangar and a wardrobe. Every ship is drawn in its tier's colour, since
    on the board it wears yours; every look is shown on YOUR name and ship,
    so a tile is the thing you would get, not a swatch. */
@@ -146,8 +152,9 @@
 {% endmacro %}
 
 {% macro ctile(i) %}
-<div class="ship cos{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-item="{{ i.id }}" data-slot="{{ i.slot }}" data-name="{{ i.name }}">
-  {% if i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
+<div class="ship cos{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}{% if i.rented_days %} rented{% endif %}" data-item="{{ i.id }}" data-slot="{{ i.slot }}" data-name="{{ i.name }}">
+  {% if i.rented_days %}<span class="renttag">{{ i.rented_days }}d left</span>
+  {% elif i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
   <span class="cprev{% if i.slot == 'banner' %} cosb {{ i.cls }}{% elif i.slot == 'frame' %} cosf {{ i.cls }}{% endif %}">
     {%- if i.slot == 'name' %}<span class="cosn {{ i.cls }}">{{ me_name or 'Your name' }}</span>
     {%- elif i.slot == 'fx' %}<span class="cosx {{ i.cls }}">{{ rank_emblem(prev_ship, 40, rank_color, i.name)|safe }}</span>
@@ -163,9 +170,23 @@
   {% elif i.via %}
     <span class="price short">Not for sale</span>
     <button type="button" class="btn quiet" disabled>Earn it</button>
+  {% elif i.rented_days %}
+    <span class="price short">Rented &middot; {{ i.rented_days }} day{{ '' if i.rented_days == 1 else 's' }} left</span>
+    <span class="rentrow">
+      <button type="button" class="btn quiet" data-act="rent"{% if not signed_in or not i.can_rent %} disabled{% endif %}>+{{ rent_days }} days &middot; {{ '{:,}'.format(i.rent) }}</button>
+      <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy it outright</button>
+    </span>
   {% else %}
     {{ price_of(i) }}
+    {% if i.rentable %}
+    <span class="rentrow">
+      <button type="button" class="btn quiet" data-act="rent"{% if not signed_in or not i.can_rent %} disabled{% endif %}
+              title="A week of it. Rent never adds up to owning it.">Rent a week &middot; {{ '{:,}'.format(i.rent) }}</button>
+      <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
+    </span>
+    {% else %}
     <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
+    {% endif %}
   {% endif %}
   </span>
 </div>
@@ -270,7 +291,7 @@
     var tile=b.closest('[data-code],[data-item],[data-citem]'); if(!tile) return;
     var code=tile.getAttribute('data-code'), item=tile.getAttribute('data-item'), citem=tile.getAttribute('data-citem'),
         slot=tile.getAttribute('data-slot'), act=b.getAttribute('data-act');
-    var url = act==='buy' ? '/shop/buy' : '/shop/equip', body;
+    var url = act==='buy' ? '/shop/buy' : (act==='rent' ? '/shop/rent' : '/shop/equip'), body;
     if(citem){ url = act==='buy' ? '/clan/shop/buy' : '/clan/shop/equip';
                body = act==='unequip' ? {clan:CLAN, slot:slot, item:null} : {clan:CLAN, item:citem}; }
     else if(item){ body = act==='unequip' ? {slot:slot, item:null} : {item:item}; }
