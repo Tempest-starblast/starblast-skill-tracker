@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.46.2"
+APP_VERSION = "9.47.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -204,7 +204,10 @@ def preview_key_rows(c):
 # on a name the whole site can see, and a price makes starting one a decision
 # rather than something to collect. Nobody is locked out by it: the older way
 # in - ask, and the site owner says yes - still works and still costs nothing.
-CLAN_START_COST = 25000
+# ~12 weeks of ordinary play, or three of a good one. The older way in -
+# ask, and the owner says yes - is still free, so this is the price of not
+# waiting, not the price of a clan.
+CLAN_START_COST = 7500
 # A key from the owner IS that yes, handed over directly: it skips the wait
 # and the price, for exactly one clan.
 CLAN_KEY_PREFIX = "sbclan"
@@ -353,19 +356,21 @@ GEM_WIN_MILESTONES = [
 # does not pay twice, and a high division pays for the ones underneath it -
 # you went through them to get there. Steep on purpose: the top division is
 # half a percent of the board and should be worth more than grinding.
-GEM_DIVISION_AWARD = {1: 100, 2: 250, 3: 500, 4: 1000,
-                      5: 2000, 6: 3500, 7: 6000, 8: 10000}
+GEM_DIVISION_AWARD = {1: 50, 2: 100, 3: 200, 4: 400,
+                      5: 800, 6: 1400, 7: 2400, 8: 4000}
 
 
 # ---- The ship shop ---------------------------------------------------
 # What a ship costs, by tier (the hundreds digit of its code). Dearer as the
 # hull gets bigger; a top-tier hull costs more than a Shadow X-3 rank pays.
-SHIP_TIER_PRICE = {1: 500, 2: 1500, 3: 3000, 4: 6000, 5: 10000, 6: 16000, 7: 25000}
+# A week of ordinary play is ~620 gems, a good week ~1,740. So: tier 1 is a
+# night, tier 4 a fortnight, tier 7 a month or two of real play.
+SHIP_TIER_PRICE = {1: 150, 2: 400, 3: 800, 4: 1500, 5: 2500, 6: 4000, 7: 6000}
 # Which ship each division hands you on arrival. Level 7 is the Marauder,
 # matching ranks.py; the Odyssey is nobody's rank ship - it is the mythic.
 SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7, 702: 8}
 # Priced by hand rather than by tier.
-SHIP_SPECIAL_PRICE = {703: 30000, 704: 40000, 701: 100000}
+SHIP_SPECIAL_PRICE = {703: 8000, 704: 10000, 701: 25000}
 MYTHIC_SHIP = 701                       # the Odyssey
 MYTHIC_COLOR = "#ff2e4d"                # crimson, whatever your rank - and apart from Marauder orange
 MYTHIC_GLOW = "rgba(255,46,77,.6)"
@@ -554,69 +559,69 @@ COSMETIC_NOTES = {
 }
 COSMETICS = [
     # banners
-    ("b-dark", "banner", "Dark", 500, "Lights off."),
-    ("b-starfield", "banner", "Starfield", 1000, "Deep space, a few stars."),
-    ("b-grid", "banner", "Grid", 1500, "Radar lines across the card."),
-    ("b-deepsea", "banner", "Deep sea", 1500, "Blue, all the way down."),
-    ("b-laser", "banner", "Laser", 1500, "Pink beams across the dark."),
-    ("b-ember", "banner", "Ember", 2000, "A glow from underneath."),
-    ("b-nebula", "banner", "Nebula", 2000, "Violet and rose cloud."),
-    ("b-aurora", "banner", "Aurora", 2500, "Green and blue light, folded."),
-    ("b-void", "banner", "Void", 3000, "Black, with something purple below."),
-    ("b-plasma", "banner", "Plasma", 5000, "Magenta, cyan and violet, swirling."),
-    ("b-bloodmoon", "banner", "Blood moon", 5000, "A red moon in the corner."),
-    ("b-goldleaf", "banner", "Gold leaf", 8000, "Gold, hammered flat."),
+    ("b-dark", "banner", "Dark", 250, "Lights off."),
+    ("b-starfield", "banner", "Starfield", 500, "Deep space, a few stars."),
+    ("b-grid", "banner", "Grid", 750, "Radar lines across the card."),
+    ("b-deepsea", "banner", "Deep sea", 750, "Blue, all the way down."),
+    ("b-laser", "banner", "Laser", 750, "Pink beams across the dark."),
+    ("b-ember", "banner", "Ember", 1000, "A glow from underneath."),
+    ("b-nebula", "banner", "Nebula", 1000, "Violet and rose cloud."),
+    ("b-aurora", "banner", "Aurora", 1250, "Green and blue light, folded."),
+    ("b-void", "banner", "Void", 1500, "Black, with something purple below."),
+    ("b-plasma", "banner", "Plasma", 2500, "Magenta, cyan and violet, swirling."),
+    ("b-bloodmoon", "banner", "Blood moon", 2500, "A red moon in the corner."),
+    ("b-goldleaf", "banner", "Gold leaf", 4000, "Gold, hammered flat."),
     ("b-immortal", "banner", "Immortal", 0, "Gold on black. One thousand wins.", "wins-1000"),
     # name styles
-    ("n-neon", "name", "Neon", 1000, "Your name in cyan light."),
-    ("n-ice", "name", "Ice", 1500, "Pale blue, cold glow."),
-    ("n-toxic", "name", "Toxic", 1500, "Acid green."),
-    ("n-violet", "name", "Violet", 1500, "Purple glow."),
-    ("n-shadow", "name", "Shadow", 2000, "Dark letters with a light edge."),
-    ("n-blood", "name", "Blood", 2500, "Crimson."),
-    ("n-fire", "name", "Fire", 2500, "Yellow into red."),
-    ("n-chrome", "name", "Chrome", 3000, "Brushed metal."),
-    ("n-gold", "name", "Gold", 5000, "Gold, with a shine."),
-    ("n-rainbow", "name", "Rainbow", 10000, "Every colour, moving."),
+    ("n-neon", "name", "Neon", 500, "Your name in cyan light."),
+    ("n-ice", "name", "Ice", 750, "Pale blue, cold glow."),
+    ("n-toxic", "name", "Toxic", 750, "Acid green."),
+    ("n-violet", "name", "Violet", 750, "Purple glow."),
+    ("n-shadow", "name", "Shadow", 1000, "Dark letters with a light edge."),
+    ("n-blood", "name", "Blood", 1250, "Crimson."),
+    ("n-fire", "name", "Fire", 1250, "Yellow into red."),
+    ("n-chrome", "name", "Chrome", 1500, "Brushed metal."),
+    ("n-gold", "name", "Gold", 2500, "Gold, with a shine."),
+    ("n-rainbow", "name", "Rainbow", 5000, "Every colour, moving."),
     # frames
-    ("f-frost", "frame", "Frost", 1500, "A white double ring."),
-    ("f-hazard", "frame", "Hazard", 1500, "Amber warning ring."),
-    ("f-neon", "frame", "Neon edge", 2000, "Cyan light round the edge."),
-    ("f-crimson", "frame", "Crimson", 2000, "Red light round the edge."),
-    ("f-emerald", "frame", "Emerald", 2000, "Green light round the edge."),
-    ("f-circuit", "frame", "Circuit", 2500, "Dashed, like a trace on a board."),
-    ("f-gold", "frame", "Gold ring", 4000, "Gold, thin, bright."),
+    ("f-frost", "frame", "Frost", 750, "A white double ring."),
+    ("f-hazard", "frame", "Hazard", 750, "Amber warning ring."),
+    ("f-neon", "frame", "Neon edge", 1000, "Cyan light round the edge."),
+    ("f-crimson", "frame", "Crimson", 1000, "Red light round the edge."),
+    ("f-emerald", "frame", "Emerald", 1000, "Green light round the edge."),
+    ("f-circuit", "frame", "Circuit", 1250, "Dashed, like a trace on a board."),
+    ("f-gold", "frame", "Gold ring", 2000, "Gold, thin, bright."),
     ("f-diamond", "frame", "Diamond", 0, "White light. Shadow X-3 only.", "div-shadowx3"),
     # emblem effects
-    ("x-halo", "fx", "Halo", 2000, "A soft white light behind your ship."),
-    ("x-spark", "fx", "Spark", 3000, "Sparks around the hull."),
+    ("x-halo", "fx", "Halo", 1000, "A soft white light behind your ship."),
+    ("x-spark", "fx", "Spark", 1500, "Sparks around the hull."),
     ("x-flame", "fx", "Flame", 3500, "It burns."),
-    ("x-pulse", "fx", "Pulse", 4000, "The ship breathes."),
-    ("x-orbit", "fx", "Orbit", 6000, "A ring that never stops turning."),
+    ("x-pulse", "fx", "Pulse", 2000, "The ship breathes."),
+    ("x-orbit", "fx", "Orbit", 3000, "A ring that never stops turning."),
     ("x-crown", "fx", "Crown", 0, "Golden light. One hundred survival wins.", "surv-100"),
     # titles you can buy
     ("t-rookie", "title", "Rookie", 100, "Everyone starts somewhere."),
     ("t-pilot", "title", "Pilot", 300, "A word under your name."),
-    ("t-nomad", "title", "Nomad", 500, "No clan needed."),
+    ("t-nomad", "title", "Nomad", 250, "No clan needed."),
     ("t-ace", "title", "Ace", 800, "For the ones who win."),
     ("t-hunter", "title", "Hunter", 800, "Always looking for the next one."),
     ("t-ghost", "title", "Ghost", 800, "Never seen coming."),
     ("t-veteran", "title", "Veteran", 800, "Been here a while."),
-    ("t-outlaw", "title", "Outlaw", 1000, "Plays by different rules."),
-    ("t-menace", "title", "Menace", 1000, "A problem for everyone else."),
-    ("t-sentinel", "title", "Sentinel", 1000, "Holds the line."),
-    ("t-warlord", "title", "Warlord", 1500, "Runs the fight."),
-    ("t-grinder", "title", "Grinder", 2000, "Match after match."),
-    ("t-sharpshooter", "title", "Sharpshooter", 2500, "Every shot counts."),
-    ("t-champion", "title", "Champion", 3000, "The one to beat."),
-    ("t-reaper", "title", "Reaper", 4000, "Nothing gets away."),
-    ("t-legend", "title", "Legend", 5000, "Talked about."),
-    ("t-kingpin", "title", "Kingpin", 6000, "Runs the server."),
-    ("t-overlord", "title", "Overlord", 8000, "Above it all."),
-    ("t-baller", "title", "Baller", 25000, "Gems to spare."),
-    ("t-highroller", "title", "High roller", 50000, "Bets big."),
-    ("t-mogul", "title", "Mogul", 100000, "A fortune in gems."),
-    ("t-tycoon", "title", "Tycoon", 250000, "Owns the sector."),
+    ("t-outlaw", "title", "Outlaw", 500, "Plays by different rules."),
+    ("t-menace", "title", "Menace", 500, "A problem for everyone else."),
+    ("t-sentinel", "title", "Sentinel", 500, "Holds the line."),
+    ("t-warlord", "title", "Warlord", 750, "Runs the fight."),
+    ("t-grinder", "title", "Grinder", 1000, "Match after match."),
+    ("t-sharpshooter", "title", "Sharpshooter", 1250, "Every shot counts."),
+    ("t-champion", "title", "Champion", 1500, "The one to beat."),
+    ("t-reaper", "title", "Reaper", 2000, "Nothing gets away."),
+    ("t-legend", "title", "Legend", 2500, "Talked about."),
+    ("t-kingpin", "title", "Kingpin", 3000, "Runs the server."),
+    ("t-overlord", "title", "Overlord", 4000, "Above it all."),
+    ("t-baller", "title", "Baller", 6000, "Gems to spare."),
+    ("t-highroller", "title", "High roller", 12000, "Bets big."),
+    ("t-mogul", "title", "Mogul", 25000, "A fortune in gems."),
+    ("t-tycoon", "title", "Tycoon", 60000, "Owns the sector."),
     ("t-millionaire", "title", "Millionaire", 1000000, "One million gems, gone."),
     ("t-billionaire", "title", "Billionaire", 1000000000, "Nobody will ever own this. Prove us wrong."),
     # titles you can only earn
@@ -780,7 +785,9 @@ def shop_price(kind, key, price):
 # on each - done or not, how far along, claimed or waiting. Keys are
 # append-only: the ledger stores them, and a renamed key pays out again.
 ACH_GROUPS = ["Ranks", "Milestones", "Survival", "Combat", "Hangar", "Wardrobe", "Wealth", "Social", "Clan"]
-_ACH_TIER_GEMS = {2: 500, 3: 1000, 4: 2500, 5: 5000, 6: 10000, 7: 20000}
+# Owning a whole tier, against what that tier costs now (tier 7 is 6,000 a
+# hull): the reward is a good chunk of the next tier, never the tier itself.
+_ACH_TIER_GEMS = {2: 200, 3: 400, 4: 1000, 5: 2000, 6: 4000, 7: 8000}
 # What an achievement hands out besides gems: looks that cannot be bought.
 # Keyed by achievement key; the catalogue reads it for every entry.
 ACH_UNLOCKS = {
@@ -807,56 +814,56 @@ def _ach_extra():
     def add(key, group, name, desc, gems, icon, need):
         out.append((key, group, name, desc, gems, icon, need))
 
-    add("wins-500", "Milestones", "Institution", "Win 500 matches.", 10000, "gem", lambda f: (f["wins"], 500))
-    add("wins-1000", "Milestones", "Immortal", "Win 1,000 matches.", 25000, "gem", lambda f: (f["wins"], 1000))
-    add("games-100", "Milestones", "Committed", "Play 100 rated matches.", 500, "gem", lambda f: (f["games"], 100))
-    add("games-500", "Milestones", "Lifer", "Play 500 rated matches.", 2500, "gem", lambda f: (f["games"], 500))
-    add("games-1000", "Milestones", "Old guard", "Play 1,000 rated matches.", 8000, "gem", lambda f: (f["games"], 1000))
-    add("days-7", "Milestones", "A week of wins", "Win on 7 different days.", 300, "star", lambda f: (f["days"], 7))
-    add("days-30", "Milestones", "A month of wins", "Win on 30 different days.", 1500, "star", lambda f: (f["days"], 30))
-    add("days-100", "Milestones", "Devoted", "Win on 100 different days.", 6000, "star", lambda f: (f["days"], 100))
-    add("regions-3", "Milestones", "Globetrotter", "Play a rated match in every region.", 1000, "star", lambda f: (f["regions"], 3))
-    add("surv-1", "Survival", "Last one standing", "Win a survival round.", 250, "trophy", lambda f: (f["surv"], 1))
-    add("surv-10", "Survival", "Survivor", "Win 10 survival rounds.", 1000, "trophy", lambda f: (f["surv"], 10))
-    add("surv-50", "Survival", "Apex", "Win 50 survival rounds.", 5000, "trophy", lambda f: (f["surv"], 50))
-    add("surv-100", "Survival", "Untouchable", "Win 100 survival rounds.", 12000, "trophy", lambda f: (f["surv"], 100))
-    add("score-25k", "Combat", "Big game", "Score 25,000 in one rated match.", 500, "gem", lambda f: (f["best"], 25000))
-    add("score-50k", "Combat", "Huge game", "Score 50,000 in one rated match.", 1500, "gem", lambda f: (f["best"], 50000))
-    add("score-100k", "Combat", "High score", "Score 100,000 in one rated match.", 5000, "gem", lambda f: (f["best"], 100000))
-    add("total-1m", "Combat", "A million points", "Score 1,000,000 across all your rated matches.", 2500, "gem", lambda f: (f["total"], 1000000))
-    add("total-10m", "Combat", "Ten million", "Score 10,000,000 across all your rated matches.", 15000, "gem", lambda f: (f["total"], 10000000))
-    add("deaths-100", "Combat", "Respawner", "Die 100 times in rated matches.", 300, "gem", lambda f: (f["deaths"], 100))
-    add("deaths-500", "Combat", "Phoenix", "Die 500 times and keep coming back.", 2000, "gem", lambda f: (f["deaths"], 500))
-    add("hull-first", "Hangar", "First hull", "Buy a ship from the shop.", 250, "ship:201", lambda f: (f["bought"], 1))
-    add("hulls-5", "Hangar", "Small fleet", "Own 5 ships, bought or earned.", 500, "ship:302", lambda f: (len(f["ships"]), 5))
-    add("hulls-10", "Hangar", "Squadron", "Own 10 ships.", 1500, "ship:403", lambda f: (len(f["ships"]), 10))
-    add("hulls-20", "Hangar", "Armada", "Own 20 ships.", 5000, "ship:504", lambda f: (len(f["ships"]), 20))
+    add("wins-500", "Milestones", "Institution", "Win 500 matches.", 4000, "gem", lambda f: (f["wins"], 500))
+    add("wins-1000", "Milestones", "Immortal", "Win 1,000 matches.", 10000, "gem", lambda f: (f["wins"], 1000))
+    add("games-100", "Milestones", "Committed", "Play 100 rated matches.", 200, "gem", lambda f: (f["games"], 100))
+    add("games-500", "Milestones", "Lifer", "Play 500 rated matches.", 1000, "gem", lambda f: (f["games"], 500))
+    add("games-1000", "Milestones", "Old guard", "Play 1,000 rated matches.", 3200, "gem", lambda f: (f["games"], 1000))
+    add("days-7", "Milestones", "A week of wins", "Win on 7 different days.", 100, "star", lambda f: (f["days"], 7))
+    add("days-30", "Milestones", "A month of wins", "Win on 30 different days.", 600, "star", lambda f: (f["days"], 30))
+    add("days-100", "Milestones", "Devoted", "Win on 100 different days.", 2400, "star", lambda f: (f["days"], 100))
+    add("regions-3", "Milestones", "Globetrotter", "Play a rated match in every region.", 400, "star", lambda f: (f["regions"], 3))
+    add("surv-1", "Survival", "Last one standing", "Win a survival round.", 100, "trophy", lambda f: (f["surv"], 1))
+    add("surv-10", "Survival", "Survivor", "Win 10 survival rounds.", 400, "trophy", lambda f: (f["surv"], 10))
+    add("surv-50", "Survival", "Apex", "Win 50 survival rounds.", 2000, "trophy", lambda f: (f["surv"], 50))
+    add("surv-100", "Survival", "Untouchable", "Win 100 survival rounds.", 4800, "trophy", lambda f: (f["surv"], 100))
+    add("score-25k", "Combat", "Big game", "Score 25,000 in one rated match.", 200, "gem", lambda f: (f["best"], 25000))
+    add("score-50k", "Combat", "Huge game", "Score 50,000 in one rated match.", 600, "gem", lambda f: (f["best"], 50000))
+    add("score-60k", "Combat", "High score", "Score 60,000 in one rated match.", 2000, "gem", lambda f: (f["best"], 60000))
+    add("total-1m", "Combat", "A million points", "Score 1,000,000 across all your rated matches.", 1000, "gem", lambda f: (f["total"], 1000000))
+    add("total-10m", "Combat", "Ten million", "Score 10,000,000 across all your rated matches.", 6000, "gem", lambda f: (f["total"], 10000000))
+    add("deaths-100", "Combat", "Respawner", "Die 100 times in rated matches.", 100, "gem", lambda f: (f["deaths"], 100))
+    add("deaths-500", "Combat", "Phoenix", "Die 500 times and keep coming back.", 800, "gem", lambda f: (f["deaths"], 500))
+    add("hull-first", "Hangar", "First hull", "Buy a ship from the shop.", 100, "ship:201", lambda f: (f["bought"], 1))
+    add("hulls-5", "Hangar", "Small fleet", "Own 5 ships, bought or earned.", 200, "ship:302", lambda f: (len(f["ships"]), 5))
+    add("hulls-10", "Hangar", "Squadron", "Own 10 ships.", 600, "ship:403", lambda f: (len(f["ships"]), 10))
+    add("hulls-20", "Hangar", "Armada", "Own 20 ships.", 2000, "ship:504", lambda f: (len(f["ships"]), 20))
     for t in range(2, 8):
         codes = _tier_codes(t)
         names = ", ".join(ship_shapes.ship_name(x) for x in codes)
         add("tier-%d" % t, "Hangar", "Tier %d complete" % t,
             "Own every tier-%d hull: %s." % (t, names), _ACH_TIER_GEMS[t],
             "ship:%d" % codes[-1], lambda f, cs=frozenset(codes): (len(f["ships"] & cs), len(cs)))
-    add("hull-all", "Hangar", "Full hangar", "Own every ship there is.", 50000, "ship:701",
+    add("hull-all", "Hangar", "Full hangar", "Own every ship there is.", 20000, "ship:701",
         lambda f: (len(f["ships"]), len(ship_shapes.ship_codes())))
     nban = sum(1 for c in COSMETICS if c[1] == "banner" and len(c) <= 5)
     nbuy = sum(1 for c in COSMETICS if len(c) <= 5)
-    add("cos-first", "Wardrobe", "Dressed up", "Buy a banner, name style, frame, effect or title.", 250, "star", lambda f: (f["bought_cos"], 1))
-    add("cos-outfit", "Wardrobe", "Full outfit", "Wear something in every slot at once.", 1500, "star", lambda f: (f["worn"], len(COSMETIC_SLOTS)))
-    add("cos-10", "Wardrobe", "Collector", "Own 10 looks from the shop.", 3000, "star", lambda f: (len(f["cos"]), 10))
+    add("cos-first", "Wardrobe", "Dressed up", "Buy a banner, name style, frame, effect or title.", 100, "star", lambda f: (f["bought_cos"], 1))
+    add("cos-outfit", "Wardrobe", "Full outfit", "Wear something in every slot at once.", 600, "star", lambda f: (f["worn"], len(COSMETIC_SLOTS)))
+    add("cos-10", "Wardrobe", "Collector", "Own 10 looks from the shop.", 1200, "star", lambda f: (len(f["cos"]), 10))
     add("cos-banners", "Wardrobe", "Every banner", "Own all %d banners the shop sells." % nban, 8000, "star",
         lambda f: (sum(1 for i in f["cos"] if i.startswith("b-") and not COSMETIC_BY_ID[i]["via"]), nban))
-    add("cos-all", "Wardrobe", "Everything", "Own every look the shop sells.", 40000, "star",
+    add("cos-all", "Wardrobe", "Everything", "Own every look the shop sells.", 16000, "star",
         lambda f: (sum(1 for i in f["cos"] if not COSMETIC_BY_ID[i]["via"]), nbuy))
-    add("spent-10k", "Wealth", "Big spender", "Spend 10,000 gems in the shop.", 1000, "gem", lambda f: (f["spent"], 10000))
-    add("spent-100k", "Wealth", "Whale", "Spend 100,000 gems in the shop.", 10000, "gem", lambda f: (f["spent"], 100000))
-    add("earned-100k", "Wealth", "Well paid", "Earn 100,000 gems, all told.", 2000, "gem", lambda f: (f["earned"], 100000))
-    add("earned-1m", "Wealth", "Self-made", "Earn 1,000,000 gems, all told.", 25000, "gem", lambda f: (f["earned"], 1000000))
-    add("earned-10m", "Wealth", "Dynasty", "Earn 10,000,000 gems, all told.", 100000, "gem", lambda f: (f["earned"], 10000000))
-    add("friends-5", "Social", "Friendly", "Have 5 friends on the site.", 300, "star", lambda f: (f["friends"], 5))
-    add("friends-20", "Social", "Popular", "Have 20 friends on the site.", 1500, "star", lambda f: (f["friends"], 20))
-    add("clan-member", "Clan", "Signed up", "Be in a clan.", 200, "clan", lambda f: (1 if f["clan"] else 0, 1))
-    add("clan-officer", "Clan", "Officer", "Lead or co-lead a clan.", 500, "clan", lambda f: (1 if f["officer"] else 0, 1))
+    add("spent-5k", "Wealth", "Big spender", "Spend 5,000 gems in the shop.", 400, "gem", lambda f: (f["spent"], 5000))
+    add("spent-50k", "Wealth", "Whale", "Spend 50,000 gems in the shop.", 4000, "gem", lambda f: (f["spent"], 50000))
+    add("earned-25k", "Wealth", "Well paid", "Earn 25,000 gems, all told.", 800, "gem", lambda f: (f["earned"], 25000))
+    add("earned-100k", "Wealth", "Self-made", "Earn 100,000 gems, all told.", 10000, "gem", lambda f: (f["earned"], 100000))
+    add("earned-500k", "Wealth", "Dynasty", "Earn 500,000 gems, all told.", 40000, "gem", lambda f: (f["earned"], 500000))
+    add("friends-5", "Social", "Friendly", "Have 5 friends on the site.", 100, "star", lambda f: (f["friends"], 5))
+    add("friends-20", "Social", "Popular", "Have 20 friends on the site.", 600, "star", lambda f: (f["friends"], 20))
+    add("clan-member", "Clan", "Signed up", "Be in a clan.", 100, "clan", lambda f: (1 if f["clan"] else 0, 1))
+    add("clan-officer", "Clan", "Officer", "Lead or co-lead a clan.", 200, "clan", lambda f: (1 if f["officer"] else 0, 1))
     return out
 
 
@@ -14787,27 +14794,44 @@ def achievements_page():
 # can talk about. Each is (key, what it says, how many, what it pays, the
 # fact it counts). Every fact is read from matches and survival rounds that
 # were already being recorded; none of this adds tracking.
+# The rate after each line is how often a player WITH AN ACCOUNT who played
+# at all that day (or week) already did it, measured over the 28 days to
+# 19 Sep 2026: 335 active player-days, 135 player-weeks. Prices follow those
+# rates and nothing else - roughly 200 a day at one-in-two, 700 at one-in-ten,
+# and four times that for the weekly equivalent. Re-measure before adding to
+# this list; the first version of it was written by feel and priced a
+# one-in-three week (a tier 7 win) above a one-in-thirty one (fifteen wins).
+#
+# Two of the first set are gone: "fly 3 different ships" leant on a ship code
+# that is only recorded for about two thirds of results, and "win a match
+# worth 15 rating" turned out to be the same thing as "win a match" - 56% of
+# days against 58%.
 OBJ_DAILY = [
-    ("d-win3", "Win 3 team matches", 3, 250, "wins"),
-    ("d-play5", "Play 5 team matches", 5, 200, "played"),
-    ("d-score", "Score 8,000 across your matches", 8000, 250, "score"),
-    ("d-surv", "Play a survival round", 1, 150, "surv_rounds"),
-    ("d-survtop", "Finish a survival round in the top 3", 1, 350, "surv_top3"),
-    ("d-t4", "Win flying a tier 4 ship or better", 1, 300, "wins_t4"),
-    ("d-clean", "Win a match losing 2 ships or fewer", 1, 300, "clean_wins"),
-    ("d-big", "Win a match worth 15 rating or more", 1, 300, "big_wins"),
-    ("d-ships3", "Fly 3 different ships", 3, 250, "ships"),
-    ("d-mate", "Win a match alongside a clanmate", 1, 250, "mate_wins"),
+    ("d-win1", "Win a team match", 1, 200, "wins"),                            # 58%
+    ("d-score10", "Score 10,000 across your matches", 10000, 200, "score"),    # 57%
+    ("d-play2", "Play 2 team matches", 2, 300, "played"),                      # 41%
+    ("d-score20", "Score 20,000 across your matches", 20000, 300, "score"),    # 37%
+    ("d-t4", "Win flying a tier 4 ship or better", 1, 400, "wins_t4"),         # 25%
+    ("d-win2", "Win 2 team matches", 2, 400, "wins"),                          # 24%
+    ("d-surv", "Play a survival round", 1, 400, "surv_rounds"),                # 24%
+    ("d-clean", "Win a match without dying more than twice", 1, 600, "clean_wins"),  # 13%
+    ("d-mate", "Win a match alongside a clanmate", 1, 600, "mate_wins"),       # 12%
+    ("d-survtop", "Finish a survival round in the top 3", 1, 600, "surv_top3"),  # 11%
+    ("d-win3", "Win 3 team matches", 3, 700, "wins"),                          # 10%
 ]
 OBJ_WEEKLY = [
-    ("w-win15", "Win 15 team matches", 15, 1500, "wins"),
-    ("w-days4", "Play on 4 different days", 4, 1800, "days"),
-    ("w-survwin", "Win a survival round", 1, 2500, "surv_wins"),
-    ("w-surv10", "Play 10 survival rounds", 10, 1500, "surv_rounds"),
-    ("w-score", "Score 80,000 across the week", 80000, 1800, "score"),
-    ("w-t7", "Win flying a tier 7 ship", 1, 2000, "wins_t7"),
-    ("w-play40", "Play 40 team matches", 40, 1500, "played"),
-    ("w-mate5", "Win 5 matches alongside clanmates", 5, 1800, "mate_wins"),
+    ("w-score40", "Score 40,000 across the week", 40000, 1000, "score"),       # 44%
+    ("w-days3", "Play on 3 different days", 3, 1200, "days"),                  # 33%
+    ("w-t7", "Win flying a tier 7 ship", 1, 1200, "wins_t7"),                  # 33%
+    ("w-play5", "Play 5 team matches", 5, 1200, "played"),                     # 31%
+    ("w-win3", "Win 3 team matches", 3, 1200, "wins"),                         # 31%
+    ("w-mate", "Win a match alongside a clanmate", 1, 1600, "mate_wins"),      # 21%
+    ("w-win5", "Win 5 team matches", 5, 1600, "wins"),                         # 15%
+    ("w-surv5", "Play 5 survival rounds", 5, 2200, "surv_rounds"),             # 12%
+    ("w-days5", "Play on 5 different days", 5, 2200, "days"),                  # 12%
+    ("w-play10", "Play 10 team matches", 10, 2200, "played"),                  # 10%
+    ("w-survwin", "Win a survival round", 1, 3000, "surv_wins"),               # 8%
+    ("w-win10", "Win 10 team matches", 10, 3000, "wins"),                      # 5%
 ]
 OBJ_PER_DAY = 3
 OBJ_PER_WEEK = 3
@@ -15388,7 +15412,7 @@ def shop_page():
 # ownership: it does not count towards collecting them, it cannot be worn
 # once it lapses, and renting for months never adds up to owning the thing.
 # That is the point - it is the part of the economy that runs out.
-RENT_MIN_PRICE = 5000
+RENT_MIN_PRICE = 2500
 RENT_DAYS = 7
 RENT_PC = 10
 RENT_MAX_AHEAD = 28          # you may stack a month, not a year
