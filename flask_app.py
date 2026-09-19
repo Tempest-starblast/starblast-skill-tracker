@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.49.1"
+APP_VERSION = "9.49.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -15379,6 +15379,7 @@ def events_page():
     return render_template('events.html', page='events', version=APP_VERSION,
                            slots=slots, past=past, signed_in=bool(sub_id),
                            named=bool(me), preview=not GEMS_PUBLIC,
+                           is_owner=is_site_owner(),
                            quorum=EVENT_QUORUM, base=EVENT_BASE, field=EVENT_FIELD,
                            clan_share=int(EVENT_CLAN_SHARE * 100),
                            leader_share=int(EVENT_LEADER_SHARE * 100))

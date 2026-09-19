@@ -80,6 +80,19 @@
   </p>
 </div>
 
+{% if is_owner %}
+<div class="card">
+  <h2>Call one on</h2>
+  <p class="desc">Only you can see this. It builds the lobby now, whatever the clock and the
+     turnout say &mdash; for a tournament, or to check the whole chain works.</p>
+  <div class="evrow">
+    <button class="evbtn" data-now="survival">Survival, now</button>
+    <button class="evbtn out" data-now="team">Team, now</button>
+    <span class="evsub" id="nowMsg"></span>
+  </div>
+</div>
+{% endif %}
+
 {% if past %}
 <div class="card">
   <h2>What has run</h2>
@@ -168,6 +181,19 @@
     }catch(e){}
   }
   document.addEventListener('click', function(ev){
+    var n = ev.target.closest && ev.target.closest('[data-now]');
+    if(n){
+      n.disabled = true;
+      fetch('/dev/events/now', {method:'POST', headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify({kind: n.getAttribute('data-now')})})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          document.getElementById('nowMsg').textContent = (j && j.message) || 'Asked for.';
+          n.disabled = false; poll();
+        })
+        .catch(function(){ document.getElementById('nowMsg').textContent = 'Could not reach the site.'; n.disabled = false; });
+      return;
+    }
     var b = ev.target.closest && ev.target.closest('[data-act]');
     if(!b) return;
     b.disabled = true;
