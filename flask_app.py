@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.42.0"
+APP_VERSION = "9.43.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -19430,6 +19430,140 @@ def dev_keys_revoke(kid):
     conn.close()
     _PREVIEW_OK_CACHE.pop(kid, None)
     return redirect('/dev/keys')
+
+
+# What each ledger reason is, in the owner's words, and whether it makes gems
+# or burns them. Anything not named here still shows, under its raw reason.
+GEM_REASON_LABELS = {
+    "win": "Team win", "loss": "Team loss", "daily-win": "First win of the day",
+    "survival-win": "Survival win", "achievement": "Achievement claimed",
+    "backfill": "Backfill (before launch)", "clan-deposit": "Clan treasury, from wins",
+    "clan-officer": "Leader and co-leader cuts", "clan-pay": "Salary paid to a member",
+    "member-pay": "Salary, out of the treasury", "salary": "Free-agent salary",
+    "hire": "Free-agent signing fee", "purchase": "Bought in the shop",
+    "clan-start": "Started a clan", "sandbox": "Test account (not real)",
+    "rent": "Rented a look",
+}
+
+
+def _econ_rows(c, sql, args=()):
+    try:
+        return c.execute(sql, args).fetchall()
+    except sqlite3.Error:
+        return []
+
+
+def economy_snapshot(c, days=14):
+    """What the economy has done. Reads the ledger only - the cached columns
+    on players/clans are derived from it, so the ledger is the truth."""
+    real = "owner NOT LIKE 'test:%' AND reason <> 'sandbox'"
+    snap = {"days": [], "reasons": [], "holders": [], "clans": [], "spenders": [],
+            "bought": [], "held": 0, "held_players": 0, "held_clans": 0,
+            "made": 0, "burned": 0, "made_week": 0, "burned_week": 0,
+            "rows": 0, "since": ""}
+    r = _econ_rows(c, "SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount END), 0), "
+                      "COALESCE(-SUM(CASE WHEN amount < 0 THEN amount END), 0), COUNT(*), "
+                      "COALESCE(MIN(at), '') FROM gem_ledger WHERE " + real)
+    if r:
+        snap["made"], snap["burned"], snap["rows"], snap["since"] = r[0]
+    r = _econ_rows(c, "SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount END), 0), "
+                      "COALESCE(-SUM(CASE WHEN amount < 0 THEN amount END), 0) "
+                      "FROM gem_ledger WHERE " + real + " AND at >= datetime('now', '-7 days')")
+    if r:
+        snap["made_week"], snap["burned_week"] = r[0]
+    for kind, key in (("player", "held_players"), ("clan", "held_clans")):
+        r = _econ_rows(c, "SELECT COALESCE(SUM(amount), 0) FROM gem_ledger WHERE "
+                          + real + " AND owner_kind = ?", (kind,))
+        snap[key] = r[0][0] if r else 0
+    snap["held"] = snap["held_players"] + snap["held_clans"]
+
+    # Day by day, so a change in a rate shows up as a change in the shape.
+    made = {}
+    for day, plus, minus in _econ_rows(
+            c, "SELECT substr(at, 1, 10), COALESCE(SUM(CASE WHEN amount > 0 THEN amount END), 0), "
+               "COALESCE(-SUM(CASE WHEN amount < 0 THEN amount END), 0) FROM gem_ledger "
+               "WHERE " + real + " AND at >= datetime('now', ?) GROUP BY 1 ORDER BY 1",
+            ("-%d days" % days,)):
+        made[day] = (plus, minus)
+    # One enormous day - the backfill, or the week a big clan pays out - would
+    # otherwise squash a fortnight of ordinary play into nothing. Scale to the
+    # ordinary days and cap the spikes, which are marked and still say their
+    # real number on hover.
+    vals = sorted(v for pair in made.values() for v in pair if v > 0)
+    mid = vals[len(vals) // 2] if vals else 0
+    ordinary = [v for v in vals if not mid or v <= mid * 4]
+    top = max(ordinary or vals or [1])
+    for i in range(days - 1, -1, -1):
+        day = time.strftime("%Y-%m-%d", time.gmtime(time.time() - i * 86400))
+        plus, minus = made.get(day, (0, 0))
+        snap["days"].append({"day": day, "short": day[5:], "made": plus, "burned": minus,
+                             "net": plus - minus,
+                             "made_pc": round(min(100.0, 100.0 * plus / top), 1),
+                             "burned_pc": round(min(100.0, 100.0 * minus / top), 1),
+                             "made_over": plus > top, "burned_over": minus > top})
+    snap["scale"] = top
+    snap["capped"] = any(d["made_over"] or d["burned_over"] for d in snap["days"])
+
+    for reason, plus, minus, n in _econ_rows(
+            c, "SELECT reason, COALESCE(SUM(CASE WHEN amount > 0 THEN amount END), 0), "
+               "COALESCE(-SUM(CASE WHEN amount < 0 THEN amount END), 0), COUNT(*) "
+               "FROM gem_ledger WHERE " + real + " GROUP BY reason ORDER BY (COALESCE(SUM(ABS(amount)), 0)) DESC"):
+        snap["reasons"].append({"reason": reason, "label": GEM_REASON_LABELS.get(reason, reason),
+                                "made": plus, "burned": minus, "n": n})
+
+    for owner, bal in _econ_rows(
+            c, "SELECT owner, SUM(amount) b FROM gem_ledger WHERE " + real
+               + " AND owner_kind = 'player' GROUP BY owner ORDER BY b DESC LIMIT 12"):
+        snap["holders"].append({"who": owner, "gems": bal})
+    for owner, bal in _econ_rows(
+            c, "SELECT owner, SUM(amount) b FROM gem_ledger WHERE " + real
+               + " AND owner_kind = 'clan' GROUP BY owner ORDER BY b DESC LIMIT 12"):
+        snap["clans"].append({"who": owner, "gems": bal})
+    for owner, spent in _econ_rows(
+            c, "SELECT owner, -SUM(amount) s FROM gem_ledger WHERE " + real
+               + " AND amount < 0 GROUP BY owner ORDER BY s DESC LIMIT 12"):
+        snap["spenders"].append({"who": owner, "gems": spent})
+
+    # What the gems actually went on, by the thing bought rather than the
+    # kind of buying: this is the list that says whether a price is wrong.
+    for ref, spent, n in _econ_rows(
+            c, "SELECT ref, -SUM(amount) s, COUNT(*) FROM gem_ledger WHERE " + real
+               + " AND amount < 0 AND reason IN ('purchase', 'rent') "
+                 "GROUP BY ref ORDER BY s DESC LIMIT 20"):
+        name = ref
+        if ref.startswith("cos-"):
+            item = COSMETIC_BY_ID.get(ref[4:])
+            name = item["name"] if item else ref
+        elif ref.startswith("ship-"):
+            name = "Ship %s" % ref[5:]
+        elif ref.startswith("citem-"):
+            item = CLAN_ITEM_BY_ID.get(ref[6:])
+            name = "Clan: %s" % (item["name"] if item else ref[6:])
+        snap["bought"].append({"ref": ref, "name": name, "gems": spent, "n": n})
+    return snap
+
+
+@app.route('/dev/economy')
+def dev_economy():
+    """Where the gems come from and where they go. Owner only, and read-only:
+    it changes nothing, it just makes the next price a decision instead of a
+    guess."""
+    if not is_site_owner():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    snap = economy_snapshot(c)
+    conn.close()
+    return render_template('dev_economy.html', page='economy', version=APP_VERSION,
+                           e=snap, rates={
+                               "Team win": GEM_WIN, "Team loss": GEM_LOSS,
+                               "First win of the day": GEM_DAILY_FIRST_WIN,
+                               "Survival win": GEM_SURVIVAL_WIN,
+                               "Clan treasury, per member win": GEM_CLAN_WIN,
+                               "Leader, per member win": GEM_LEADER_WIN,
+                               "Co-leader, per member win": GEM_COLEADER_WIN,
+                               "Starting a clan": -CLAN_START_COST,
+                           })
 
 
 @app.route('/dev/clankeys', methods=['GET', 'POST'])

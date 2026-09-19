@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Economy - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.ecards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 18px}
+.ecard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+.ecard span{display:block;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;
+  color:var(--dim);font-weight:800;margin:0 0 5px}
+.ecard b{font-size:23px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;line-height:1.1}
+.ecard em{display:block;font-style:normal;font-size:12px;color:var(--muted);margin-top:4px}
+.ecard b.up{color:var(--green,#66e6b8)}
+.ecard b.dn{color:#ff8fa3}
+
+.ebars{display:flex;align-items:flex-end;gap:5px;height:150px;padding:6px 2px 0;overflow-x:auto}
+.eday{flex:1 1 0;min-width:22px;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;height:100%}
+.eday .pair{display:flex;align-items:flex-end;gap:2px;height:100%}
+.eday .made,.eday .burned{flex:1;border-radius:3px 3px 0 0;min-height:2px}
+.eday .made{background:linear-gradient(180deg,var(--green,#66e6b8),rgba(102,230,184,.35))}
+.eday .burned{background:linear-gradient(180deg,#ff8fa3,rgba(255,143,163,.3))}
+.eday .lab{font-size:9.5px;color:var(--dim);text-align:center;font-variant-numeric:tabular-nums;
+  white-space:nowrap}
+.eday .made,.eday .burned{position:relative}
+.eday .over::after{content:"";position:absolute;left:50%;top:-7px;transform:translateX(-50%);
+  border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:5px solid currentColor;
+  opacity:.9}
+.eday .made.over{color:var(--green,#66e6b8)}
+.eday .burned.over{color:#ff8fa3}
+.ekey{display:flex;gap:16px;align-items:center;font-size:12px;color:var(--muted);margin:10px 2px 0}
+.ekey i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.ekey .m i{background:var(--green,#66e6b8)}
+.ekey .b i{background:#ff8fa3}
+
+.etable{width:100%;border-collapse:collapse;font-size:13.5px}
+.etable th{text-align:left;font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;
+  color:var(--dim);font-weight:800;padding:0 8px 8px}
+.etable td{padding:8px;border-top:1px solid var(--line);vertical-align:middle}
+.etable td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.etable td.n.up{color:var(--green,#66e6b8)}
+.etable td.n.dn{color:#ff8fa3}
+.etable a{color:inherit;text-decoration:none}
+.etable a:hover{color:var(--green,#66e6b8)}
+.etwo{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.rates{display:flex;flex-wrap:wrap;gap:8px}
+.rates span{font-size:12.5px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted)}
+.rates span b{color:#fff;font-variant-numeric:tabular-nums}
+.rates span.dn b{color:#ff8fa3}
+{% endblock %}
+{% block body %}
+<div class="pagehead" style="--ct:#66e6b8">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Owner</p>
+    <h1 class="phname">Economy</h1>
+    <p class="phsub">Every gem ever made or burned, by where it came from and what it went on.
+      Test accounts are left out. Nothing here changes anything &mdash; it is the instrument for
+      deciding the next price.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>Held now</span><b>{{ '{:,}'.format(e.held) }}</b></div>
+    <div class="phnum"><span>Made</span><b class="green">{{ '{:,}'.format(e.made) }}</b></div>
+    <div class="phnum"><span>Burned</span><b>{{ '{:,}'.format(e.burned) }}</b></div>
+  </div>
+  <p class="phlinks"><a href="/dev/keys">Tester keys</a> &middot; <a href="/dev/clankeys">Clan keys</a>
+    &middot; <a href="/account">Your account</a></p>
+</div>
+
+<div class="ecards">
+  <div class="ecard"><span>Held by players</span><b>{{ '{:,}'.format(e.held_players) }}</b>
+    <em>what could be spent at once</em></div>
+  <div class="ecard"><span>Held by clans</span><b>{{ '{:,}'.format(e.held_clans) }}</b>
+    <em>treasuries</em></div>
+  <div class="ecard"><span>Made this week</span><b class="up">{{ '{:,}'.format(e.made_week) }}</b>
+    <em>{{ '{:,}'.format((e.made_week / 7)|round|int) }} a day</em></div>
+  <div class="ecard"><span>Burned this week</span><b class="dn">{{ '{:,}'.format(e.burned_week) }}</b>
+    <em>{% if e.made_week %}{{ (100 * e.burned_week / e.made_week)|round|int }}% of what was made{% else %}nothing made{% endif %}</em></div>
+  <div class="ecard"><span>Ledger rows</span><b>{{ '{:,}'.format(e.rows) }}</b>
+    <em>since {{ e.since[:10] or '-' }}</em></div>
+</div>
+
+<div class="card">
+  <h2>Made and burned, by day</h2>
+  <div class="ebars">
+    {% for d in e.days %}
+    <div class="eday" title="{{ d.day }}: +{{ '{:,}'.format(d.made) }} / -{{ '{:,}'.format(d.burned) }}">
+      <div class="pair">
+        <div class="made{% if d.made_over %} over{% endif %}" style="height:{{ d.made_pc }}%"></div>
+        <div class="burned{% if d.burned_over %} over{% endif %}" style="height:{{ d.burned_pc }}%"></div>
+      </div>
+      <div class="lab">{{ d.short }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="ekey"><span class="m"><i></i>made</span><span class="b"><i></i>burned</span>
+    <span style="margin-left:auto">A day where the green towers over the pink is a day the
+      economy inflated.{% if e.capped %} &#9650; is a day off the scale &mdash; hover it for the
+      real number.{% endif %}</span></p>
+</div>
+
+<div class="card">
+  <h2>Where it comes from, where it goes</h2>
+  <div class="tablewrap">
+  <table class="etable">
+    <thead><tr><th>Reason</th><th style="text-align:right">Made</th><th style="text-align:right">Burned</th><th style="text-align:right">Times</th></tr></thead>
+    <tbody>
+    {% for r in e.reasons %}
+    <tr>
+      <td>{{ r.label }}{% if r.label != r.reason %} <span style="color:var(--dim);font-size:11.5px">{{ r.reason }}</span>{% endif %}</td>
+      <td class="n up">{{ '{:,}'.format(r.made) if r.made else '' }}</td>
+      <td class="n dn">{{ '{:,}'.format(r.burned) if r.burned else '' }}</td>
+      <td class="n">{{ '{:,}'.format(r.n) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="desc" style="margin-top:12px">The rates behind the top of that list:</p>
+  <div class="rates">
+    {% for name, n in rates.items() %}
+    <span{% if n < 0 %} class="dn"{% endif %}>{{ name }} <b>{{ '{:,}'.format(n) }}</b></span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>What the gems went on</h2>
+  {% if e.bought %}
+  <div class="tablewrap">
+  <table class="etable">
+    <thead><tr><th>Item</th><th style="text-align:right">Burned</th><th style="text-align:right">Bought</th></tr></thead>
+    <tbody>
+    {% for b in e.bought %}
+    <tr><td>{{ b.name }}</td><td class="n dn">{{ '{:,}'.format(b.gems) }}</td><td class="n">{{ b.n }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="empty">Nothing has been bought yet.</p>
+  {% endif %}
+</div>
+
+<div class="etwo">
+  <div class="card">
+    <h2>Biggest balances</h2>
+    {% if e.holders %}
+    <table class="etable"><tbody>
+    {% for h in e.holders %}
+    <tr><td><a href="/player/{{ h.who|urlencode }}">{{ h.who }}</a></td><td class="n">{{ '{:,}'.format(h.gems) }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty">Nobody holds any yet.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Biggest spenders</h2>
+    {% if e.spenders %}
+    <table class="etable"><tbody>
+    {% for h in e.spenders %}
+    <tr><td><a href="/player/{{ h.who|urlencode }}">{{ h.who }}</a></td><td class="n dn">{{ '{:,}'.format(h.gems) }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty">Nothing spent yet.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Treasuries</h2>
+    {% if e.clans %}
+    <table class="etable"><tbody>
+    {% for h in e.clans %}
+    <tr><td><a href="/clan/{{ h.who|urlencode }}">{{ h.who }}</a></td><td class="n">{{ '{:,}'.format(h.gems) }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty">No clan holds any yet.</p>{% endif %}
+  </div>
+</div>
+{% endblock %}
