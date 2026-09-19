@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.46.1"
+APP_VERSION = "9.46.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7106,6 +7106,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.46.2", "at": "2026-09-19T16:00:00Z", "changes": [
+        "<b>Fixed on phones: the replay player was cut off at the right.</b> "
+        "The screen, its header and the transport bar were all laid out at "
+        "488 pixels inside a 335-pixel player, so the speed control, the "
+        "fullscreen button and the end of the scrub bar were off the edge "
+        "with no way to reach them. Everything fits now, and the transport "
+        "wraps onto a second line rather than running off.",
+    ]},
     {"version": "9.46.1", "at": "2026-09-19T14:30:00Z", "changes": [
         "Fixed: the glow behind a rank emblem sat too high and stopped short "
         "of the bottom of its tile, so the ship's nose was lit and its wings "
