@@ -67,6 +67,12 @@
   box-shadow:0 0 0 1px rgba(102,230,184,.25),0 8px 26px rgba(102,230,184,.12)}
 .ach.obj .emb{font-size:21px;opacity:1;filter:none}
 .ach.obj .prog i{background:rgba(240,192,74,.6)}
+.ach.obj .emb.band-easy{color:#66e6b8}
+.ach.obj .emb.band-medium{color:#f0c04a}
+.ach.obj .emb.band-hard{color:#ff8fa3}
+.oband{display:block;margin-top:3px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--dim,#5d7f93);font-weight:700}
+.objnote{margin:0 0 12px;font-size:12.5px;color:var(--muted,#8aa0b0);line-height:1.6}
 .ach.obj.got .emb{opacity:.55}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
   max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
@@ -106,10 +112,11 @@
 {% if signed_in and objectives %}
 {% macro objcard(o) %}
 <div class="ach obj{% if o.claimed %} got{% elif o.ready %} ready{% endif %}" data-okey="{{ o.key }}">
-  <span class="emb">{% if o.kind == 'day' %}&#9201;{% else %}&#128197;{% endif %}</span>
+  <span class="emb band-{{ o.band }}">{% if o.band == 'hard' %}&#9733;{% elif o.band == 'medium' %}&#9670;{% else %}&#9679;{% endif %}</span>
   <span class="body">
     <span class="nm">{{ o.text }}</span>
-    <span class="ds">{% if o.claimed %}Claimed. It comes round again{% if o.kind == 'day' %} tomorrow{% else %} next week{% endif %}.{% elif o.ready %}Done &mdash; take the gems.{% else %}{{ '{:,}'.format(o.have) }} of {{ '{:,}'.format(o.need) }} so far.{% endif %}</span>
+    <span class="ds">{% if o.claimed %}Claimed. A new set lands at midnight UTC.{% elif o.ready %}Done &mdash; take the gems.{% else %}{{ '{:,}'.format(o.have) }} of {{ '{:,}'.format(o.need) }} so far.{% endif %}
+      <span class="oband">{{ o.band }} &middot; {{ o.rate }}% of days</span></span>
     <span class="pay">{{ gem_svg|safe }}{{ '{:,}'.format(o.gems) }}</span>
     {% if o.ready %}
     <span class="achfoot"><button type="button" class="claim" data-oclaim="{{ o.key }}">Claim +{{ '{:,}'.format(o.gems) }}</button></span>
@@ -123,16 +130,13 @@
 </div>
 {% endmacro %}
 <div class="objwrap">
-  {% set days = objectives|selectattr('kind', 'equalto', 'day')|list %}
-  {% set weeks = objectives|selectattr('kind', 'equalto', 'week')|list %}
   <div class="objhead"><h2>Today</h2>
     <span class="clock" data-until="{{ day_resets }}">new set in {{ (day_resets // 3600) }}h</span>
-    <span class="n">{{ days|selectattr('claimed')|list|length }}/{{ days|length }} claimed</span></div>
-  <div class="achgrid">{% for o in days %}{{ objcard(o) }}{% endfor %}</div>
-  <div class="objhead" style="margin-top:18px"><h2>This week</h2>
-    <span class="clock" data-until="{{ week_resets }}">new set in {{ (week_resets // 86400) }}d</span>
-    <span class="n">{{ weeks|selectattr('claimed')|list|length }}/{{ weeks|length }} claimed</span></div>
-  <div class="achgrid">{% for o in weeks %}{{ objcard(o) }}{% endfor %}</div>
+    <span class="n">{{ objectives|selectattr('claimed')|list|length }}/{{ objectives|length }} claimed</span></div>
+  <p class="objnote">Three easy, two harder, one that takes some doing &mdash; the percentage on
+     each is how often it actually gets done in a day, and it is what sets the price. A new six
+     at midnight UTC, from {{ obj_total }} of them.</p>
+  <div class="achgrid">{% for o in objectives %}{{ objcard(o) }}{% endfor %}</div>
 </div>
 {% endif %}
 

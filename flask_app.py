@@ -22,12 +22,13 @@ from datetime import timedelta
 import i18n
 import info_i18n
 import ranks
+import objectives
 import ship_shapes
 import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.47.0"
+APP_VERSION = "9.48.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -14771,14 +14772,14 @@ def achievements_page():
             groups.append({"name": gname, "items": items,
                            "got": sum(1 for i in items if i["claimed"]), "total": len(items)})
     ready = [a for a in st if a["ready"]]
-    objectives = obj_status(c, me[1]) if me else []
+    objs = obj_status(c, me[1]) if me else []
     balance = gem_balance(c, 'player', me[1]) if me else 0
     conn.close()
     return render_template('achievements.html', version=APP_VERSION,
-                           objectives=objectives,
-                           obj_ready=[o for o in objectives if o["ready"]],
-                           day_resets=obj_resets_in("day"),
-                           week_resets=obj_resets_in("week"),
+                           objectives=objs,
+                           obj_ready=[o for o in objs if o["ready"]],
+                           obj_total=len(objectives.CATALOGUE),
+                           day_resets=obj_resets_in(),
                            page='achievements', groups=groups,
                            signed_in=bool(me), me=(me[0] if me else None),
                            have=sum(1 for a in st if a["claimed"]), total=len(st),
@@ -14789,147 +14790,192 @@ def achievements_page():
 
 
 # ------------------------------------------------------------ OBJECTIVES
-# Three a day and three a week, the same three for everybody, drawn from
-# these pools by the date itself - so "today's objectives" is a thing people
-# can talk about. Each is (key, what it says, how many, what it pays, the
-# fact it counts). Every fact is read from matches and survival rounds that
-# were already being recorded; none of this adds tracking.
-# The rate after each line is how often a player WITH AN ACCOUNT who played
-# at all that day (or week) already did it, measured over the 28 days to
-# 19 Sep 2026: 335 active player-days, 135 player-weeks. Prices follow those
-# rates and nothing else - roughly 200 a day at one-in-two, 700 at one-in-ten,
-# and four times that for the weekly equivalent. Re-measure before adding to
-# this list; the first version of it was written by feel and priced a
-# one-in-three week (a tier 7 win) above a one-in-thirty one (fifteen wins).
-#
-# Two of the first set are gone: "fly 3 different ships" leant on a ship code
-# that is only recorded for about two thirds of results, and "win a match
-# worth 15 rating" turned out to be the same thing as "win a match" - 56% of
-# days against 58%.
-OBJ_DAILY = [
-    ("d-win1", "Win a team match", 1, 200, "wins"),                            # 58%
-    ("d-score10", "Score 10,000 across your matches", 10000, 200, "score"),    # 57%
-    ("d-play2", "Play 2 team matches", 2, 300, "played"),                      # 41%
-    ("d-score20", "Score 20,000 across your matches", 20000, 300, "score"),    # 37%
-    ("d-t4", "Win flying a tier 4 ship or better", 1, 400, "wins_t4"),         # 25%
-    ("d-win2", "Win 2 team matches", 2, 400, "wins"),                          # 24%
-    ("d-surv", "Play a survival round", 1, 400, "surv_rounds"),                # 24%
-    ("d-clean", "Win a match without dying more than twice", 1, 600, "clean_wins"),  # 13%
-    ("d-mate", "Win a match alongside a clanmate", 1, 600, "mate_wins"),       # 12%
-    ("d-survtop", "Finish a survival round in the top 3", 1, 600, "surv_top3"),  # 11%
-    ("d-win3", "Win 3 team matches", 3, 700, "wins"),                          # 10%
-]
-OBJ_WEEKLY = [
-    ("w-score40", "Score 40,000 across the week", 40000, 1000, "score"),       # 44%
-    ("w-days3", "Play on 3 different days", 3, 1200, "days"),                  # 33%
-    ("w-t7", "Win flying a tier 7 ship", 1, 1200, "wins_t7"),                  # 33%
-    ("w-play5", "Play 5 team matches", 5, 1200, "played"),                     # 31%
-    ("w-win3", "Win 3 team matches", 3, 1200, "wins"),                         # 31%
-    ("w-mate", "Win a match alongside a clanmate", 1, 1600, "mate_wins"),      # 21%
-    ("w-win5", "Win 5 team matches", 5, 1600, "wins"),                         # 15%
-    ("w-surv5", "Play 5 survival rounds", 5, 2200, "surv_rounds"),             # 12%
-    ("w-days5", "Play on 5 different days", 5, 2200, "days"),                  # 12%
-    ("w-play10", "Play 10 team matches", 10, 2200, "played"),                  # 10%
-    ("w-survwin", "Win a survival round", 1, 3000, "surv_wins"),               # 8%
-    ("w-win10", "Win 10 team matches", 10, 3000, "wins"),                      # 5%
-]
-OBJ_PER_DAY = 3
-OBJ_PER_WEEK = 3
+# Six a day - three easy, two medium, one hard - drawn from objectives.py,
+# whose catalogue is only the ones the board has actually seen done, each
+# with the measured rate that set its price. Everything resets at midnight
+# UTC; there is no weekly set.
+OBJ_EPOCH = 20350        # days since 1970 on the morning this started
 
 
 def obj_day_key(now=None):
     return time.strftime("%Y-%m-%d", time.gmtime(now if now is not None else time.time()))
 
 
-def obj_week_key(now=None):
-    """The ISO week, which is how the week's set is drawn and paid."""
-    return time.strftime("%G-W%V", time.gmtime(now if now is not None else time.time()))
-
-
-def obj_window(kind, now=None):
-    """When the window opened, as the stamp the tables are keyed by. A day
-    starts at UTC midnight; a week starts on Monday."""
-    now = time.time() if now is None else now
-    t = time.gmtime(now)
-    if kind == "week":
-        now -= t.tm_wday * 86400
-        t = time.gmtime(now)
+def obj_window(now=None):
+    """Midnight UTC, as the stamp the tables are keyed by."""
+    t = time.gmtime(now if now is not None else time.time())
     return "%04d-%02d-%02d 00:00:00" % (t.tm_year, t.tm_mon, t.tm_mday)
 
 
-def obj_resets_in(kind, now=None):
-    """Seconds until this set is replaced."""
-    now = time.time() if now is None else now
-    t = time.gmtime(now)
-    day_left = 86400 - (t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec)
-    return day_left if kind == "day" else day_left + (6 - t.tm_wday) * 86400
+def obj_resets_in(now=None):
+    t = time.gmtime(now if now is not None else time.time())
+    return 86400 - (t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec)
 
 
-def objectives_for(kind, now=None):
-    """Today's (or this week's) three, drawn by the date so everyone has the
-    same ones and nobody can reroll them."""
-    pool, count, key = ((OBJ_DAILY, OBJ_PER_DAY, obj_day_key(now)) if kind == "day"
-                        else (OBJ_WEEKLY, OBJ_PER_WEEK, obj_week_key(now)))
-    picks = random.Random("obj:%s:%s" % (kind, key)).sample(pool, min(count, len(pool)))
+def objectives_for(now=None):
+    """Today's six. A band is walked in order, so many at a time, which means
+    every objective in it comes round before any of them comes round twice -
+    and the same six for everybody, so it is worth talking about."""
+    day = int((now if now is not None else time.time()) // 86400) - OBJ_EPOCH
     out = []
-    for okey, text, need, gems, metric in picks:
-        out.append({"key": okey, "kind": kind, "text": text, "need": need,
-                    "gems": gems, "metric": metric, "window": key,
-                    "ref": "%s:%s" % (key, okey)})
+    for band, per in objectives.PER_DAY:
+        pool = objectives.BY_BAND.get(band) or []
+        if not pool:
+            continue
+        for i in range(per):
+            o = pool[(day * per + i) % len(pool)]
+            out.append(dict(o, window=obj_day_key(now),
+                            ref="%s:%s" % (obj_day_key(now), o["key"])))
     return out
 
 
-def _obj_facts(c, nn, kind, now=None):
-    """Everything the pools can ask about, for one window, in three queries."""
-    since = obj_window(kind, now)
-    f = {"played": 0, "wins": 0, "score": 0, "days": 0, "ships": 0, "wins_t4": 0,
-         "wins_t7": 0, "clean_wins": 0, "big_wins": 0, "mate_wins": 0,
-         "surv_rounds": 0, "surv_wins": 0, "surv_top3": 0}
+def _obj_day_facts(c, nn, now=None):
+    """Everything today's objectives can ask about, from the day's own rows.
+    A day is a handful of matches, so this counts them in python rather than
+    asking the database eighteen different questions."""
+    since = obj_window(now)
+    f = {"played": 0, "wins": 0, "score": 0, "best": 0, "deaths": 0, "elo": 0,
+         "mate_wins": 0, "streak": 0, "lossscore": 0, "comeback": 0,
+         "surv_rounds": 0, "surv_wins": 0, "surv_half": 0,
+         "ships": set(), "tiers": set()}
+    for k in ("shipplay", "shipwin", "shipbig", "shipscore", "tierplay", "tierwin",
+              "tierplus", "clean", "big", "region", "regionwin", "hour", "lobby",
+              "surv_place", "surv_bigwin", "surv_bigtop"):
+        f[k] = {}
+
+    def bump(d, key, n=1):
+        d[key] = d.get(key, 0) + n
+
     try:
-        r = c.execute(
-            "SELECT COUNT(*), COALESCE(SUM(mp.won), 0), COALESCE(SUM(mp.score), 0), "
-            "COUNT(DISTINCT substr(m.played_at, 1, 10)), COUNT(DISTINCT mp.ship), "
-            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.ship / 100 >= 4 THEN 1 ELSE 0 END), 0), "
-            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.ship / 100 >= 7 THEN 1 ELSE 0 END), 0), "
-            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.deaths IS NOT NULL AND mp.deaths <= 2 "
-            "THEN 1 ELSE 0 END), 0), "
-            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.delta >= 15 THEN 1 ELSE 0 END), 0) "
+        rows = c.execute(
+            "SELECT mp.won, mp.delta, mp.score, mp.ship, mp.deaths, COALESCE(mp.team, ''), "
+            "mp.match_row, COALESCE(m.region, 'america'), substr(m.played_at, 12, 2) "
             "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
-            "WHERE mp.norm_name = ? AND m.played_at >= ?", (nn, since)).fetchone()
-        if r:
-            (f["played"], f["wins"], f["score"], f["days"], f["ships"], f["wins_t4"],
-             f["wins_t7"], f["clean_wins"], f["big_wins"]) = r
-        r = c.execute("SELECT COUNT(*), COALESCE(SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END), 0), "
-                      "COALESCE(SUM(CASE WHEN place <= 3 THEN 1 ELSE 0 END), 0) "
-                      "FROM survival_round_players WHERE norm_name = ? AND ended_at >= ?",
-                      (nn, since)).fetchone()
-        if r:
-            f["surv_rounds"], f["surv_wins"], f["surv_top3"] = r
+            "WHERE mp.norm_name = ? AND m.played_at >= ? ORDER BY m.id", (nn, since)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    sizes = {}
+    if rows:
+        try:
+            qs = ",".join("?" for _ in rows)
+            sizes = dict(c.execute("SELECT match_row, COUNT(*) FROM match_players "
+                                   "WHERE match_row IN (%s) GROUP BY match_row" % qs,
+                                   [r[6] for r in rows]).fetchall())
+        except sqlite3.Error:
+            sizes = {}
+    tag = None
+    try:
         tag = (c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
                or [None])[0]
-        if tag:
-            # A clanmate on YOUR side of that match, which is what "alongside"
-            # means - the same tag on the other team is an opponent.
-            r = c.execute(
-                "SELECT COUNT(DISTINCT mp.match_row) FROM match_players mp "
-                "JOIN matches m ON m.id = mp.match_row "
-                "JOIN match_players o ON o.match_row = mp.match_row "
-                "  AND o.norm_name <> mp.norm_name "
-                "  AND COALESCE(o.team, '') = COALESCE(mp.team, '') "
-                "JOIN players p ON p.norm_name = o.norm_name "
-                "WHERE mp.norm_name = ? AND m.played_at >= ? AND mp.won = 1 AND p.clan = ?",
-                (nn, since, tag)).fetchone()
-            if r:
-                f["mate_wins"] = r[0]
     except sqlite3.Error:
         pass
+    run, lost_last = 0, False
+    for won, delta, score, ship, deaths, team, mrow, region, hh in rows:
+        score = int(score or 0)
+        delta = float(delta or 0)
+        f["played"] += 1
+        f["score"] += score
+        f["best"] = max(f["best"], score)
+        f["deaths"] += int(deaths or 0)
+        f["elo"] += delta
+        bump(f["region"], region)
+        try:
+            bump(f["hour"], str(int(hh) // 6 * 6))
+        except (TypeError, ValueError):
+            pass
+        for size in objectives.LOBBY_SIZES:
+            if sizes.get(mrow, 0) >= size:
+                bump(f["lobby"], size)
+        tier = (ship // 100) if ship else 0
+        if ship:
+            f["ships"].add(ship)
+            f["tiers"].add(tier)
+            bump(f["shipplay"], ship)
+            bump(f["tierplay"], tier)
+            if score >= 5000:
+                bump(f["shipscore"], ship)
+        if won:
+            if lost_last:
+                f["comeback"] += 1
+            run += 1
+            f["streak"] = max(f["streak"], run)
+            f["wins"] += 1
+            bump(f["regionwin"], region)
+            if ship:
+                bump(f["shipwin"], ship)
+                bump(f["tierwin"], tier)
+                for t in range(1, tier + 1):
+                    bump(f["tierplus"], t)
+                if delta >= 20:
+                    bump(f["shipbig"], ship)
+            if deaths is not None:
+                for cap in objectives.DEATH_CAPS:
+                    if deaths <= cap:
+                        bump(f["clean"], cap)
+            for floor in objectives.RATING_FLOORS:
+                if delta >= floor:
+                    bump(f["big"], floor)
+            if tag:
+                try:
+                    mate = c.execute(
+                        "SELECT 1 FROM match_players o JOIN players p ON p.norm_name = o.norm_name "
+                        "WHERE o.match_row = ? AND o.norm_name <> ? "
+                        "AND COALESCE(o.team, '') = ? AND p.clan = ? LIMIT 1",
+                        (mrow, nn, team, tag)).fetchone()
+                except sqlite3.Error:
+                    mate = None
+                if mate:
+                    f["mate_wins"] += 1
+        else:
+            run = 0
+            f["lossscore"] = max(f["lossscore"], score)
+        lost_last = not won
+    try:
+        srows = c.execute("SELECT place, COALESCE(field, 0) FROM survival_round_players "
+                          "WHERE norm_name = ? AND ended_at >= ?", (nn, since)).fetchall()
+    except sqlite3.Error:
+        srows = []
+    for place, field in srows:
+        f["surv_rounds"] += 1
+        if place == 1:
+            f["surv_wins"] += 1
+        if place and field and place <= (field + 1) // 2:
+            f["surv_half"] += 1
+        for pl in objectives.SURV_PLACES:
+            if place and place <= pl:
+                bump(f["surv_place"], pl)
+        for big in objectives.SURV_FIELDS:
+            if field >= big:
+                if place == 1:
+                    bump(f["surv_bigwin"], big)
+                if place and place <= 3:
+                    bump(f["surv_bigtop"], big)
     return f
 
 
+def obj_have(f, metric, arg):
+    """How far along one objective is, out of the day's facts."""
+    if metric in ("played", "wins", "score", "best", "deaths", "mate_wins", "streak",
+                  "lossscore", "comeback", "surv_rounds", "surv_wins", "surv_half"):
+        return int(f[metric])
+    if metric == "elo":
+        return int(f["elo"])
+    if metric == "ships":
+        return len(f["ships"])
+    if metric == "tiers":
+        return len(f["tiers"])
+    if metric in ("region", "regionwin", "hour"):
+        return int(f[metric].get(arg, 0))
+    if metric in ("tierplay", "tierwin", "tierplus", "clean", "big", "lobby",
+                  "surv_place", "surv_bigwin", "surv_bigtop"):
+        return int(f[metric].get(int(arg), 0))
+    if metric in ("shipplay", "shipwin", "shipbig", "shipscore"):
+        return int(f[metric].get(int(arg), 0))
+    return 0
+
+
 def obj_status(c, nn, now=None):
-    """Today's and this week's six, with how far along and whether the gems
-    for them are still there to take."""
-    out = []
+    """Today's six, with how far along and whether the gems are still there."""
     claimed = set()
     try:
         for (ref,) in c.execute("SELECT ref FROM gem_ledger WHERE owner_kind = 'player' "
@@ -14937,15 +14983,15 @@ def obj_status(c, nn, now=None):
             claimed.add(ref)
     except sqlite3.Error:
         pass
-    for kind in ("day", "week"):
-        facts = _obj_facts(c, nn, kind, now)
-        for o in objectives_for(kind, now):
-            have = int(facts.get(o["metric"], 0) or 0)
-            done = have >= o["need"]
-            got = o["ref"] in claimed
-            out.append(dict(o, have=min(have, o["need"]), raw=have, done=done,
-                            claimed=got, ready=(done and not got),
-                            pc=min(100, int(100.0 * have / (o["need"] or 1)))))
+    facts = _obj_day_facts(c, nn, now)
+    out = []
+    for o in objectives_for(now):
+        have = obj_have(facts, o["metric"], o["arg"])
+        done = have >= o["need"]
+        got = o["ref"] in claimed
+        out.append(dict(o, have=min(have, o["need"]), raw=have, done=done, claimed=got,
+                        ready=(done and not got),
+                        pc=min(100, int(100.0 * have / (o["need"] or 1)))))
     return out
 
 
@@ -22626,8 +22672,8 @@ def home_page():
     cat = ach_status(c, nn)
     have = [a for a in cat if a["claimed"]]
     ready = [a for a in cat if a["ready"]]
-    objectives = obj_status(c, nn)
-    obj_ready = [o for o in objectives if o["ready"]]
+    objs = obj_status(c, nn)
+    obj_ready = [o for o in objs if o["ready"]]
     # The next one to chase: whichever locked achievement you are furthest along.
     locked = [a for a in cat if not a["unlocked"]]
     next_up = (max(locked, key=lambda a: (a["have"] / float(a["need"] or 1), -a["gems"]))
@@ -22649,9 +22695,9 @@ def home_page():
         placements_left=max(0, PROVISIONAL_GAMES - played) if played < PROVISIONAL_GAMES else 0,
         balance=balance, today_gems=today_gems, have=have, next_up=next_up,
         ready=ready, ready_gems=sum(a["gems"] for a in ready),
-        objectives=objectives, obj_ready=obj_ready,
+        objectives=objs, obj_ready=obj_ready,
         obj_gems=sum(o["gems"] for o in obj_ready),
-        day_resets=obj_resets_in("day"),
+        day_resets=obj_resets_in(),
         cos=cosmetic_view(nn, True), cv=(clan_view(clan, True) if clan else {}),
         total_ach=len(cat), recent=recent, preview=not GEMS_PUBLIC,
         emblem=emblem, emblem_color=emblem_color, mythic=mythic)

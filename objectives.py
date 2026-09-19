@@ -16,6 +16,7 @@ cent manage. Every objective is a day's work and resets at midnight UTC.
 """
 
 import ship_shapes
+from objective_rates import RATES, MEASURED_ON, PLAYER_DAYS
 
 REGIONS = (("america", "North America"), ("europe", "Europe"), ("asia", "Asia"))
 DEATH_CAPS = (0, 1, 2, 3)
@@ -231,3 +232,34 @@ def pay_for(rate):
     v = lo + (hi - lo) * f
     step = 50 if v < 1000 else 100
     return int(round(v / step) * step)
+
+
+# ------------------------------------------------------------ the catalogue
+def catalogue():
+    """Every objective the site will actually set: the grid, minus the ones
+    the board has never seen anybody do, each with its measured rate, its
+    band and what it pays."""
+    out = []
+    for key, metric, arg, need in GRID:
+        rate = RATES.get(key)
+        band = band_for(rate) if rate is not None else None
+        if not band:
+            continue
+        out.append({"key": key, "metric": metric, "arg": arg, "need": need,
+                    "text": text_for(metric, arg, need), "rate": rate,
+                    "band": band, "gems": pay_for(rate)})
+    return out
+
+
+CATALOGUE = catalogue()
+BY_KEY = dict((o["key"], o) for o in CATALOGUE)
+BY_BAND = {}
+for _o in CATALOGUE:
+    BY_BAND.setdefault(_o["band"], []).append(_o)
+# Rarest first inside a band, so the rotation walks a band evenly rather than
+# clumping the near-misses together.
+for _b in BY_BAND:
+    BY_BAND[_b].sort(key=lambda o: (o["rate"], o["key"]))
+
+# What a day looks like: three easy, two medium, one hard.
+PER_DAY = (("easy", 3), ("medium", 2), ("hard", 1))

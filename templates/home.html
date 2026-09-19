@@ -140,8 +140,8 @@
     {% if ready %}<a class="gemclaim" href="/achievements">Claim {{ ready|length }} achievement{{ '' if ready|length == 1 else 's' }} &middot; +{{ '{:,}'.format(ready_gems) }}</a>{% endif %}
     {% if obj_ready %}<a class="gemclaim obj" href="/achievements">Claim {{ obj_ready|length }} objective{{ '' if obj_ready|length == 1 else 's' }} &middot; +{{ '{:,}'.format(obj_gems) }}</a>
     {% elif objectives %}<span class="gemobj"><a href="/achievements">Today's objectives</a>:
-      {{ objectives|selectattr('kind', 'equalto', 'day')|selectattr('claimed')|list|length }} of
-      {{ objectives|selectattr('kind', 'equalto', 'day')|list|length }} done &middot; new set in
+      {{ objectives|selectattr('claimed')|list|length }} of
+      {{ objectives|length }} done &middot; new set in
       {{ (day_resets // 3600) }}h</span>{% endif %}
   </div>
 
