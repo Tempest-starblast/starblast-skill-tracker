@@ -307,6 +307,18 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
             onclick="location.href='/auth/discord?mode=link'">Link Discord</button>
   {% endif %}
 </div>
+<div class="card" id="pingCard">
+  <div class="line">
+    <div><b>Discord pings</b><p class="desc" style="margin:4px 0 0">Let the bot
+      <b>@</b> me &mdash; in results, rank-ups and check-in reminders.</p></div>
+    <label class="switch"><input type="checkbox" id="pings" disabled onchange="setPings(this.checked)">
+      <span class="slider"></span></label>
+  </div>
+  <p class="desc" style="margin:12px 0 0">Off, everything still happens and the feeds still
+     name you &mdash; they just stop notifying you, and the bot stops sending you check-in
+     reminders. You can also switch it with <b>/pings</b> in Discord.</p>
+  <p class="msg" id="pingMsg"></p>
+</div>
 <div class="card">
   <h2>{{ t('Language') }}</h2>
   <p class="desc">The site follows the language picker at the top of every page.</p>
@@ -435,6 +447,29 @@ async function post(u,b){
 function say(id, ok, t){ const m=document.getElementById(id); if(!m) return; m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
 function el(t,c,x){ const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e; }
 
+async function loadPings(){
+  try{
+    const d = await (await fetch('/api/my/pings')).json();
+    if(!d.ok) return;
+    const box = document.getElementById('pings');
+    box.checked = !!d.pings; box.disabled = false;
+    if(!d.discord){
+      document.getElementById('pingMsg').textContent =
+        'No Discord linked yet, so there is nothing to ping - this is here for when there is.';
+    }
+  }catch(e){}
+}
+async function setPings(on){
+  const box = document.getElementById('pings'), msg = document.getElementById('pingMsg');
+  box.disabled = true;
+  try{
+    const d = await (await fetch('/api/my/pings', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({pings:on})})).json();
+    msg.textContent = d.message || '';
+    box.checked = !!d.pings;
+  }catch(e){ msg.textContent = 'Could not reach the site.'; }
+  box.disabled = false;
+}
 async function loadMe(){
   try{
     const d=await sbMe();
@@ -678,7 +713,7 @@ async function applyProt(on){
   }catch(e){ say('protMsg',false,'Server connection error.'); }
 }
 
-window.addEventListener('DOMContentLoaded', loadMe);
+window.addEventListener('DOMContentLoaded', function(){ loadMe(); loadPings(); });
 </script>
 {% endif %}
 {% endblock %}

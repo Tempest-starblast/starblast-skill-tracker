@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.51.4"
+APP_VERSION = "9.52.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2818,6 +2818,7 @@ def init_db():
                  "ALTER TABLE players ADD COLUMN clan_joined_at TEXT",
                  # Peak leaderboard rank ever reached (lowest number) and the
                  # highest skill division ever earned, each with when it landed.
+                 "ALTER TABLE players ADD COLUMN no_ping INTEGER DEFAULT 0",
                  "ALTER TABLE players ADD COLUMN peak_rank INTEGER",
                  "ALTER TABLE players ADD COLUMN peak_rank_at TEXT",
                  "ALTER TABLE players ADD COLUMN peak_div TEXT",
@@ -7039,7 +7040,9 @@ def bot_missed_pending():
             "SELECT sub, name, norm, MIN(sys_id), COUNT(*) FROM missed_notices "
             "WHERE status = 'open' AND dm_sent = 0 AND at > ? GROUP BY sub, norm "
             "ORDER BY MIN(id) LIMIT 20", (since,)).fetchall():
-        did = _discord_id_for(c, sub)
+        # A nudge is a direct message, which is the loudest thing the bot
+        # does, so it is the first thing "do not ping me" turns off.
+        did = None if pings_off(c, sub) else _discord_id_for(c, sub)
         if not did or (sub, norm) in seen:
             continue
         seen.add((sub, norm))
@@ -7221,6 +7224,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.52.0", "at": "2026-09-20T01:40:00Z", "changes": [
+        "<b>You can turn off being @-ed by the Discord bot.</b> On your "
+        "account page under Settings, or with <b>/pings</b> in Discord — "
+        "both change the same switch, so it does not matter which you use. "
+        "Off, the match results, the rank-ups and everything else still "
+        "happen and still <i>name</i> you; they stop notifying you, and the "
+        "bot stops sending you check-in reminders. On by default, exactly as "
+        "it has been.",
+    ]},
     {"version": "9.51.4", "at": "2026-09-20T01:10:00Z", "changes": [
         "<b>The sixth tier is <b>Paladin</b>, not Vanguard.</b> Vanguard is a "
         "ship in the game, and a tier sharing its name with a hull is exactly "
@@ -12825,6 +12837,37 @@ def linked_discord_for(c, account_sub):
     return {"id": row[0], "username": row[1], "display": row[2]}
 
 
+def pings_off(c, sub):
+    """Whether this account has asked the bot not to @ them. Anything it
+    cannot answer is False, because the quiet default here is to behave as
+    the site always has."""
+    if not sub:
+        return False
+    try:
+        r = c.execute("SELECT COALESCE(no_ping, 0) FROM players WHERE google_sub = ?",
+                      (sub,)).fetchone()
+    except sqlite3.Error:
+        return False
+    return bool(r and r[0])
+
+
+def set_pings(c, sub, on):
+    """on=True means 'you may @ me'. Returns what it now is."""
+    c.execute("UPDATE players SET no_ping = ? WHERE google_sub = ?",
+              (0 if on else 1, sub))
+    return bool(on)
+
+
+def pingable_discord_id(c, sub):
+    """The snowflake to @, or None - either because there is no Discord
+    account behind this one, or because they have asked us not to. Every
+    feed asks this instead of asking for the id directly, so 'do not ping
+    me' cannot be honoured in one feed and forgotten in the next."""
+    if pings_off(c, sub):
+        return None
+    return discord_id_for_owner(c, sub)
+
+
 def discord_id_for_owner(c, owner_sub):
     """The Discord snowflake to @mention for an account, or None if it has no
     reachable Discord. Covers both ways an account can be on Discord: signed
@@ -13543,6 +13586,62 @@ def dev_actas():
     session.pop('preview', None)
     session['google_sub'] = SANDBOX_SUB
     return jsonify({"ok": True, "mode": mode, "name": name}), 200
+
+
+@app.route('/api/my/pings', methods=['GET', 'POST'])
+def my_pings():
+    """Whether the Discord bot may @ you. GET reads it, POST sets it.
+
+    It does not silence the bot - results, rank-ups and the rest still say
+    what happened, and still name you. It stops them notifying you."""
+    sub = current_user()
+    if not sub:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    conn = db()
+    c = conn.cursor()
+    if request.method == 'GET':
+        on = not pings_off(c, sub)
+        linked = bool(discord_id_for_owner(c, sub))
+        conn.close()
+        return jsonify({"ok": True, "pings": on, "discord": linked}), 200
+    want = bool((request.get_json(silent=True) or {}).get("pings"))
+    set_pings(c, sub, want)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "pings": want,
+                    "message": ("The bot will @ you again." if want
+                                else "The bot will name you without the ping.")}), 200
+
+
+@app.route('/api/bot/pings', methods=['GET', 'POST'])
+def bot_pings():
+    """The same switch, for the bot's own command. Keyed by the Discord id,
+    which is what a command knows about the person who ran it."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    if request.method == 'GET':
+        did = str(request.args.get('discord_id', '')).strip()
+        body = {}
+    else:
+        body = request.get_json(silent=True) or {}
+        did = str(body.get('discord_id', '')).strip()
+    if not did:
+        return jsonify({"error": "Which account?"}), 400
+    conn = db()
+    c = conn.cursor()
+    sub = account_for_discord_id(c, did)
+    has_row = bool(sub and c.execute("SELECT 1 FROM players WHERE google_sub = ?",
+                                     (sub,)).fetchone())
+    if not has_row:
+        conn.close()
+        return jsonify({"ok": False, "linked": False,
+                        "message": "That Discord has no account on the site yet."}), 200
+    if request.method == 'POST' and 'pings' in body:
+        set_pings(c, sub, bool(body.get('pings')))
+        conn.commit()
+    on = not pings_off(c, sub)
+    conn.close()
+    return jsonify({"ok": True, "linked": True, "pings": on}), 200
 
 
 @app.route('/dev/level', methods=['POST'])
@@ -18366,11 +18465,15 @@ def bot_rankroles():
             best[sub] = div
     # Collapse to the Discord snowflake (an account reaches Discord directly or
     # via a link); keep the highest level when two subs resolve to one person.
-    by_did = {}
+    by_did, quiet = {}, set()
     for sub, div in best.items():
         did = discord_id_for_owner(c, sub)
         if not did:
             continue
+        # The role still moves for everybody. It is the shout in #rank-ups
+        # that is optional, not the rank.
+        if pings_off(c, sub):
+            quiet.add(did)
         cur = by_did.get(did)
         if cur is None or div["level"] > cur["level"]:
             by_did[did] = div
@@ -18379,6 +18482,7 @@ def bot_rankroles():
     conn.close()
     members = [{"discord_id": did, "level": div["level"], "key": div["key"],
                 "name": div["name"], "color": div["color"], "band": div["band"],
+                "ping": did not in quiet,
                 "prev": announced.get(did)} for did, div in by_did.items()]
     defs = [{"level": r["level"], "key": r["key"], "name": r["name"],
              "color": r["color"], "band": r["band"]} for r in ranks.RANKS]
@@ -18439,14 +18543,15 @@ def bot_matches_undelivered():
         winners, lose1, lose2 = [], [], []
         for name, nn, won, delta, team in mp_rows:
             e = {"name": name, "delta": round(delta, 2)}
-            # If this name's account is reachable on Discord, hand the bot the
-            # snowflake so it can @mention them in the feed instead of printing
-            # a plain name. Cached per norm_name across the whole batch.
+            # If this name's account is reachable on Discord AND has not
+            # asked us not to, hand the bot the snowflake so it can @mention
+            # them instead of printing a plain name. Cached per norm_name
+            # across the whole batch.
             did = did_cache.get(nn, _MISS)
             if did is _MISS:
                 orow = c.execute("SELECT google_sub FROM players WHERE norm_name = ?",
                                  (nn,)).fetchone()
-                did = discord_id_for_owner(c, orow[0] if orow else None)
+                did = pingable_discord_id(c, orow[0] if orow else None)
                 did_cache[nn] = did
             if did:
                 e["discord_id"] = did
