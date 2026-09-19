@@ -128,7 +128,7 @@
 {% else %}
 
 {% macro emblem(p) -%}
-{% if p.division %}<span class="emb" title="{{ p.division.name }}">{{ rank_emblem(p.emblem or p.division.ship, 34, p.emblem_color or p.division.color, p.division.name, 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}</span>{% else %}<span class="emb blank"></span>{% endif %}
+{% if p.division %}<span class="emb">{{ rank_emblem(p.emblem or p.division.ship, 34, p.emblem_color or p.division.color, p.division.name ~ ' tier', 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}</span>{% else %}<span class="emb blank"></span>{% endif %}
 {%- endmacro %}
 
 {% macro who(p) -%}

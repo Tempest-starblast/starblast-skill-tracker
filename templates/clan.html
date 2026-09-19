@@ -91,7 +91,7 @@
     {%- else %}{{ loop.index }}{% endif -%}
   </td>
   <td class="who"><span class="pn">
-    {%- if m.division %}<span class="remb" title="{{ m.division.name }} {{ t('rank') }}">{{ rank_emblem(m.emblem or m.division.ship, 16, m.emblem_color or m.division.color, m.division.name, 'rank-emblem mythic' if m.mythic else 'rank-emblem')|safe }}</span>{% endif %}
+    {%- if m.division %}<span class="remb">{{ rank_emblem(m.emblem or m.division.ship, 16, m.emblem_color or m.division.color, m.division.name ~ ' tier', 'rank-emblem mythic' if m.mythic else 'rank-emblem')|safe }}</span>{% endif %}
     <a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
     {%- if m.protected %}<span class="lockm" title="Protected - only matches this player checked into count">{{ lock_icon(11)|safe }}</span>
     {%- elif m.has_account %}<span class="ptick" title="Has an account">&#10003;</span>{% endif %}</span></td>
