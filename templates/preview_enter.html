@@ -15,21 +15,14 @@
   <div class="phwho"><div class="phtext">
     <p class="pheye">Preview</p>
     <h1 class="phname">Preview access</h1>
-    <p class="phsub">Enter the key you were given. It puts you on a test account of your own,
-      set up however you like &mdash; nothing you do on it touches the real leaderboard, and
-      none of it is your own account.</p>
+    <p class="phsub">Enter the key you were given. What it opens depends on the key, and it
+      will tell you when you are in.</p>
   </div></div>
 </div>
 <div class="card">
   <form class="pvform" method="post">
     <label>Your key
       <input name="key" type="password" autocomplete="off" autofocus placeholder="sbgem-..."></label>
-    <div class="pvrow">
-      <label>Starting rating
-        <input name="elo" type="number" value="{{ elo }}" min="100" max="4000"></label>
-      <label>Starting balance
-        <input name="gems" type="number" value="{{ gems }}" min="0" max="1000000"></label>
-    </div>
     <button class="primary" type="submit">Enter the preview</button>
   </form>
 </div>
