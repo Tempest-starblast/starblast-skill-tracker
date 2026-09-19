@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.52.0"
+APP_VERSION = "9.52.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -15864,6 +15864,13 @@ def api_bot_events_undelivered():
     c = conn.cursor()
     now = _event_now()
     event_sweep(c)
+    # Sign-ups opening is the announcement that BRINGS people to sign up, so
+    # the slot has to exist before anybody has. The row used to be created by
+    # the first sign-up, which made the "in 20 minutes" post unreachable: it
+    # could only go out once it was no longer needed.
+    _slot = event_slot(now)
+    if event_phase(_slot, now) == "signup":
+        event_row(c, _slot, make=True)
     out = []
     rows = c.execute("SELECT id, kind, start_at, state, link, signups, players, opp_elo, "
                      "prize, pot, COALESCE(ann_open,0), COALESCE(ann_live,0), "
