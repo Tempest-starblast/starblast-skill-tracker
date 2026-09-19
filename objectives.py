@@ -21,6 +21,11 @@ REGIONS = (("america", "North America"), ("europe", "Europe"), ("asia", "Asia"))
 DEATH_CAPS = (0, 1, 2, 3)
 RATING_FLOORS = (10, 15, 20, 25, 30)
 SURV_PLACES = (3, 5, 10)
+# Four parts of the day, UTC, so a set can ask for a match at a time you play.
+HOURS = (("0", "between midnight and 6am UTC"), ("6", "between 6am and noon UTC"),
+         ("12", "between noon and 6pm UTC"), ("18", "between 6pm and midnight UTC"))
+LOBBY_SIZES = (12, 16, 20)
+LOSS_SCORES = (2000, 5000, 10000, 20000)
 SURV_FIELDS = (10, 15, 20)
 
 _N = (1, 2, 3, 4, 5, 6, 8, 10, 12, 15)
@@ -69,7 +74,6 @@ def grid():
         for n in _N[:5]:
             add("tierwin", str(t), n)
             add("tierplay", str(t), n)
-        add("tierclean", str(t), 1)
         if t >= 2:
             for n in _N[:4]:
                 add("tierplus", str(t), n)
@@ -77,8 +81,19 @@ def grid():
         for n in _N[:4]:
             add("shipwin", str(code), n)
             add("shipplay", str(code), n)
-        add("shipclean", str(code), 1)
         add("shipbig", str(code), 1)
+        add("shipscore", str(code), 1)
+    for h, _label in HOURS:
+        for n in _N[:3]:
+            add("hour", h, n)
+    for size in LOBBY_SIZES:
+        for n in _N[:3]:
+            add("lobby", str(size), n)
+    for s_ in LOSS_SCORES:
+        add("lossscore", "", s_)
+    for n in _N[:3]:
+        add("comeback", "", n)
+        add("surv_half", "", n)
     for cap in DEATH_CAPS:
         for n in _N[:4]:
             add("clean", str(cap), n)
@@ -98,6 +113,7 @@ GRID = grid()
 # ------------------------------------------------------------- the words
 _TIERS = dict((t, "tier %d" % t) for t in range(1, 8))
 _REGION_LABEL = dict(REGIONS)
+_HOUR_LABEL = dict(HOURS)
 
 
 def _pl(n, one, many=None):
@@ -148,17 +164,25 @@ def text_for(metric, arg, need):
         return "%s flying a %s ship or better" % (_win(need), _TIERS[int(arg)])
     if metric == "tierplay":
         return "Play %d %s in a %s ship" % (need, _pl(need, "match", "matches"), _TIERS[int(arg)])
-    if metric == "tierclean":
-        return "Win in a %s ship without dying" % _TIERS[int(arg)]
     if metric == "shipwin":
         return "%s flying the %s" % (_win(need), ship_shapes.ship_name(int(arg)))
     if metric == "shipplay":
         return "Fly the %s in %d rated %s" % (ship_shapes.ship_name(int(arg)), need,
                                               _pl(need, "match", "matches"))
-    if metric == "shipclean":
-        return "Win in the %s without dying" % ship_shapes.ship_name(int(arg))
     if metric == "shipbig":
         return "Win a match worth 20+ rating in the %s" % ship_shapes.ship_name(int(arg))
+    if metric == "shipscore":
+        return "Score 5,000 in a match flying the %s" % ship_shapes.ship_name(int(arg))
+    if metric == "hour":
+        return "Play %d %s %s" % (need, _pl(need, "match", "matches"), _HOUR_LABEL[arg])
+    if metric == "lobby":
+        return "Play %d %s in a lobby of %s or more" % (need, _pl(need, "match", "matches"), arg)
+    if metric == "lossscore":
+        return "Score {:,} in a match you lose".format(need)
+    if metric == "comeback":
+        return "Win %d %s straight after losing one" % (need, _pl(need, "match", "matches"))
+    if metric == "surv_half":
+        return "Finish in the top half of %d survival %s" % (need, _pl(need, "round"))
     if metric == "clean":
         cap = int(arg)
         how = "without dying" if cap == 0 else "dying no more than %d %s" % (cap, _pl(cap, "time"))
@@ -175,8 +199,12 @@ def text_for(metric, arg, need):
 # ------------------------------------------------------------- the money
 # Three bands by measured completion rate. A day's set is three easy, two
 # medium and one hard, so the bands are what the rotation draws from.
-EASY, MEDIUM, HARD = 25.0, 8.0, 0.3
-BANDS = (("easy", EASY, 200, 350), ("medium", MEDIUM, 450, 800), ("hard", HARD, 1000, 2500))
+# Where the bands sit is itself a measured decision: half of all player-days
+# are a single match, so "one in four days" would leave only a couple of dozen
+# easy objectives and the same three would come round every week. One in
+# twelve is the honest line for easy here.
+EASY, MEDIUM, HARD = 8.0, 1.0, 0.05
+BANDS = (("easy", EASY, 200, 400), ("medium", MEDIUM, 500, 900), ("hard", HARD, 1100, 2500))
 RATE_CEILING = 80.0       # above this it is not an objective, it is a formality
 
 
