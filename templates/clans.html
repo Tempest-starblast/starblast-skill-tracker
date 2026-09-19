@@ -124,6 +124,24 @@
   <p class="msg" id="reqMsg"></p>
 </div>
 
+<div class="card" id="startCard" style="display:none">
+  <h2>Start one now</h2>
+  <p class="desc">Given a key by {{ contact }}? Paste it with the tag you want and the clan is
+     yours straight away &mdash; no waiting.{% if gems_on %} Without a key it costs
+     <b>{{ '{:,}'.format(clan_cost) }}</b> gems.{% endif %} Either way it starts empty: nobody
+     joins a clan without being asked, so you invite your players from Your clan.</p>
+  <div class="row">
+    <input type="text" id="startTag" placeholder="Tag you want, e.g. [COV]"
+           maxlength="32" autocomplete="off">
+  </div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="startKey" placeholder="Key from {{ contact }} (sbclan-...)"
+           maxlength="80" autocomplete="off">
+    <button class="primary" onclick="startClan()">Start it</button>
+  </div>
+  <p class="msg" id="startMsg"></p>
+</div>
+
 <div class="card" id="stateCard" style="display:none">
   <h2>{{ t('Your request') }}</h2>
   <p class="desc" id="stateText"></p>
@@ -220,6 +238,22 @@ async function requestMoreTag(){
     if (d.ok) setTimeout(function(){ location.reload(); }, 1500);
   }catch(e){ say('moreMsg', false, 'Server connection error.'); }
 }
+async function startClan(){
+  const tag = document.getElementById('startTag').value.trim();
+  const key = document.getElementById('startKey').value.trim();
+  if (!tag) return say('startMsg', false, 'Type the tag you want first.');
+{%- if gems_on %}
+  // Gems only leave an account on purpose. A key costs nothing, so it asks
+  // nothing; paying is a spend, and a spend gets a question first.
+  if (!key && !confirm('Start ' + tag + ' for {{ "{:,}".format(clan_cost) }} gems?'
+                       + ' That cannot be undone.')) return;
+{%- endif %}
+  try{
+    const [r, d] = await post('/clan/create', {tag: tag, key: key});
+    say('startMsg', r.ok, d.message);
+    if (r.ok) setTimeout(function(){ location.reload(); }, 1600);
+  }catch(e){ say('startMsg', false, 'Server connection error.'); }
+}
 async function claimApproved(i){
   const r0 = tagRequests[i];
   if (!r0) return;
@@ -273,6 +307,8 @@ function applyClanCards(){
   // note under the form says the last answer was no.
   show('requestCard', signedIn && !myClan
                       && (leaderState === 'none' || leaderState === 'denied'));
+  // A key works whatever the request says - including while one is waiting.
+  show('startCard', signedIn && !myClan && !approved);
   show('stateCard', signedIn && !myClan && leaderState === 'pending');
   show('claimCard', wants);
   show('claimSignedIn', wants);

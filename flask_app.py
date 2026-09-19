@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.40.1"
+APP_VERSION = "9.41.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -198,6 +198,110 @@ def preview_key_rows(c):
                     "expires": (exp or "")[:10], "state": state, "uses": uses,
                     "last": (last or "")[:16]})
     return out
+
+# ----------------------------------------------------------- CLAN KEYS
+# What it costs to start a clan once the economy is public. A tag is a claim
+# on a name the whole site can see, and a price makes starting one a decision
+# rather than something to collect. Nobody is locked out by it: the older way
+# in - ask, and the site owner says yes - still works and still costs nothing.
+CLAN_START_COST = 25000
+# A key from the owner IS that yes, handed over directly: it skips the wait
+# and the price, for exactly one clan.
+CLAN_KEY_PREFIX = "sbclan"
+CLAN_KEY_DAYS = (7, 30, 90, 365)
+CLAN_KEY_DEFAULT_DAYS = 90
+CLAN_KEY_USES_MAX = 20
+CLAN_KEY_LABEL_MAX = 40
+
+
+def _clan_key_hash(plain):
+    return hashlib.sha256(("starblast-clan|" + str(plain or "")).encode("utf-8")).hexdigest()
+
+
+def clan_key_make(c, label, days, uses, by):
+    """Mint a clan key, store only its hash, hand the plain one back to be
+    shown once. Returns (id, plain)."""
+    plain = "%s-%s" % (CLAN_KEY_PREFIX, secrets.token_urlsafe(24))
+    label = " ".join(str(label or "").split())[:CLAN_KEY_LABEL_MAX] or "A clan"
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = CLAN_KEY_DEFAULT_DAYS
+    days = days if days in CLAN_KEY_DAYS else CLAN_KEY_DEFAULT_DAYS
+    try:
+        uses = max(1, min(CLAN_KEY_USES_MAX, int(uses)))
+    except (TypeError, ValueError):
+        uses = 1
+    c.execute("INSERT INTO clan_keys (label, key_hash, created_at, created_by, expires_at, "
+              "max_uses) VALUES (?, ?, ?, ?, datetime('now', ?), ?)",
+              (label, _clan_key_hash(plain), _stamp(), str(by or "")[:80],
+               "+%d days" % days, uses))
+    return c.lastrowid, plain
+
+
+def clan_key_match(c, plain):
+    """The id of the live clan key this plain text is, or None. Used up,
+    revoked and expired keys are not live."""
+    if not plain:
+        return None
+    want = _clan_key_hash(plain)
+    try:
+        rows = c.execute("SELECT id, key_hash FROM clan_keys WHERE revoked_at IS NULL "
+                         "AND expires_at > ? AND COALESCE(uses, 0) < COALESCE(max_uses, 1)",
+                         (_stamp(),)).fetchall()
+    except sqlite3.Error:
+        return None
+    for kid, kh in rows:
+        if hmac.compare_digest(str(kh), want):
+            return kid
+    return None
+
+
+def clan_key_burn(c, kid, sub_id, tag):
+    """Count the use, and remember what it was spent on - the owner's page
+    shows which clan came out of which key."""
+    c.execute("UPDATE clan_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ?, "
+              "used_by = COALESCE(NULLIF(used_by, ''), ?), "
+              "used_tag = TRIM(COALESCE(used_tag || ', ', '') || ?) WHERE id = ?",
+              (_stamp(), str(sub_id or "")[:80], tag, kid))
+
+
+def clan_key_rows(c):
+    """Every clan key the owner has made, newest first, for the page."""
+    out = []
+    try:
+        rows = c.execute("SELECT id, label, created_at, expires_at, revoked_at, "
+                         "COALESCE(uses, 0), COALESCE(max_uses, 1), COALESCE(used_tag, ''), "
+                         "COALESCE(last_used_at, '') FROM clan_keys ORDER BY id DESC").fetchall()
+    except sqlite3.Error:
+        return out
+    now = _stamp()
+    for kid, label, made, exp, revoked, uses, cap, tags, last in rows:
+        if revoked:
+            state = "revoked"
+        elif uses >= cap:
+            state = "used up"
+        elif (exp or "") <= now:
+            state = "expired"
+        else:
+            state = "live"
+        out.append({"id": kid, "label": label, "made": (made or "")[:10],
+                    "expires": (exp or "")[:10], "state": state, "uses": uses,
+                    "cap": cap, "tags": tags, "last": (last or "")[:16]})
+    return out
+
+
+def account_norm_for(c, sub_id):
+    """The norm_name this account plays under - the name the gem ledger is
+    kept against. Same deterministic pick as account_name_for."""
+    if not sub_id:
+        return None
+    c.execute("SELECT norm_name FROM players WHERE google_sub = ? "
+              "ORDER BY (COALESCE(wins, 0) + COALESCE(losses, 0)) DESC, name LIMIT 1",
+              (sub_id,))
+    row = c.fetchone()
+    return row[0] if row else None
+
 
 # The throwaway account the owner impersonates for testing. Never a
 # real person; its rows are wiped on entry so each test starts blank.
@@ -3394,6 +3498,20 @@ def init_db():
                     expires_at TEXT,
                     revoked_at TEXT,
                     uses INTEGER DEFAULT 0,
+                    last_used_at TEXT
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT,
+                    key_hash TEXT UNIQUE NOT NULL,
+                    created_at TEXT,
+                    created_by TEXT,
+                    expires_at TEXT,
+                    revoked_at TEXT,
+                    uses INTEGER DEFAULT 0,
+                    max_uses INTEGER DEFAULT 1,
+                    used_by TEXT,
+                    used_tag TEXT,
                     last_used_at TEXT
                 )''')
     c.execute('''CREATE TABLE IF NOT EXISTS merge_requests (
@@ -6953,6 +7071,18 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.41.0", "at": "2026-09-19T20:00:00Z", "changes": [
+        "<b>A new clan now starts empty.</b> Claiming a tag used to sweep in "
+        "every unclaimed player already playing under it, which meant taking "
+        "a tag handed you their record as well. Now nobody joins a clan "
+        "without being asked: the message after you claim says how many "
+        "players are out there wearing your tag, and you add them from Your "
+        "clan - a player with an account is invited and decides for "
+        "themselves, exactly as before.",
+        "If the site owner gave you a key for a clan, there is now a box for "
+        "it on the Clans page: paste it with the tag you want and the clan is "
+        "yours straight away, with no waiting for approval.",
+    ]},
     {"version": "9.39.0", "at": "2026-09-19T09:00:00Z", "changes": [
         "<b>Fixed: merging a name could wipe the record it was meant to save.</b> "
         "When the name being merged into was not itself on the board, every "
@@ -19221,6 +19351,44 @@ def dev_keys_revoke(kid):
     return redirect('/dev/keys')
 
 
+@app.route('/dev/clankeys', methods=['GET', 'POST'])
+def dev_clan_keys():
+    """Make and take back the keys that let somebody start a clan without
+    paying for it. Shown once, stored only as a hash."""
+    if not is_site_owner():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    made = None
+    if request.method == 'POST':
+        _kid, made = clan_key_make(c, request.form.get('label'), request.form.get('days'),
+                                   request.form.get('uses'), current_user())
+        conn.commit()
+    rows = clan_key_rows(c)
+    conn.close()
+    return render_template('dev_clan_keys.html', page='clankeys', version=APP_VERSION,
+                           keys=rows, made=made, days=CLAN_KEY_DAYS,
+                           default_days=CLAN_KEY_DEFAULT_DAYS,
+                           uses_max=CLAN_KEY_USES_MAX,
+                           cost=CLAN_START_COST,
+                           label_max=CLAN_KEY_LABEL_MAX)
+
+
+@app.route('/dev/clankeys/<int:kid>/revoke', methods=['POST'])
+def dev_clan_keys_revoke(kid):
+    """Take a clan key back. Clans already started with it stay - what is
+    stopped is the next use."""
+    if not is_site_owner():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE clan_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+              (_stamp(), kid))
+    conn.commit()
+    conn.close()
+    return redirect('/dev/clankeys')
+
+
 @app.route('/dev/merges')
 def dev_merges():
     if not is_site_owner():
@@ -19500,9 +19668,11 @@ def clan_create():
         return jsonify({"message": "Sign in first."}), 401
     conn = db()
     c = conn.cursor()
+    body = request.json or {}
     status, payload = perform_clan_create(
-        c, sub_id, (request.json or {}).get('tag'),
-        trusted=api_key_ok(request.headers.get('X-API-Key')))
+        c, sub_id, body.get('tag'),
+        trusted=api_key_ok(request.headers.get('X-API-Key')),
+        key=body.get('key'), can_pay=gems_visible())
     if status == 200:
         conn.commit()
     conn.close()
@@ -19636,12 +19806,11 @@ def worn_tags(name):
     return {t for t in out if t}
 
 
-def absorb_unowned(c, tag):
-    """Give a new clan every unowned player already wearing its tag.
-
-    An unowned name has no account behind it, so there is nobody to ask,
-    and the tag is genuinely in the name the tracker read. Players WITH
-    accounts are never swept in - they get an invitation and accept it.
+def unowned_wearing(c, tag):
+    """The unowned names already wearing a tag. READ ONLY: since 9.41.0 a
+    new clan starts empty, so this only tells its admin who is out there to
+    add from Your clan - one at a time, deliberately. Buying or claiming a
+    tag must never buy the record of everyone already wearing it.
 
     Two kinds of evidence. A tag standing alone as a word, in brackets or
     as the whole name, anywhere in the name. And - only for a clan that
@@ -19662,9 +19831,6 @@ def absorb_unowned(c, tag):
     for (nm,) in c.fetchall():
         if tag in worn_tags(nm) or (styled and nm.startswith(styled)):
             taken.append(nm)
-    for nm in taken:
-        c.execute("UPDATE players SET clan = ? WHERE name = ?", (tag, nm))
-        strip_tag_on_join(c, nm, tag)
     return taken
 
 
@@ -19677,8 +19843,15 @@ CLAN_TAG_MIN_LEN = 2
 CLAN_TAG_MAX_LEN = 16
 
 
-def perform_clan_create(c, sub_id, raw_tag, trusted=False):
-    """Claim a clan tag. Shared by the website and the bot. Does NOT commit."""
+def perform_clan_create(c, sub_id, raw_tag, trusted=False, key=None, can_pay=False):
+    """Claim a clan tag. Shared by the website and the bot. Does NOT commit.
+
+    Three ways in, and they are checked in that order: a key from the site
+    owner (their yes, handed over, for one clan), an approval asked for and
+    granted the older way, or paying CLAN_START_COST out of your own gems.
+    `can_pay` is the caller saying the economy is visible to this person -
+    the bot never pays.
+    """
     tag = clean_clan_tag(raw_tag)
     if not CLAN_TAG_MIN_LEN <= len(tag) <= CLAN_TAG_MAX_LEN:
         return 400, {"ok": False,
@@ -19694,21 +19867,47 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     if c.fetchone():
         return 400, {"ok": False, "message": f"{tag} has already been claimed."}
 
+    # A key from the site owner is checked first: it is the owner's yes in a
+    # string, so it stands in for the approval, the price and the wait.
+    given = str(key or "").strip()
+    kid = clan_key_match(c, given) if given else None
+    if given and not kid:
+        return 400, {"ok": False, "bad_key": True,
+                     "message": "That key does not work. It may have been used already, "
+                                "or run out, or been taken back - ask the site owner."}
+
     # Running a clan is a permission, granted once by the site owner, not
     # something a name can prove on its own. It is checked before anything
     # else because it is about the person rather than the tag.
-    if not trusted:
+    paying = False
+    if not trusted and not kid:
         state = clan_leader_state(c, sub_id)
         if state != 'approved':
-            return 403, {"ok": False, "leader_state": state,
-                         "message": {
-                             'pending': "Your request to run a clan is still waiting to be "
-                                        "looked at. You will hear as soon as it is decided.",
-                             'denied': f"Your request to run a clan was turned down. Ask "
-                                       f"{CONTACT_HANDLE} on Discord if that was a mistake.",
-                         }.get(state,
-                               "You need to be approved to run a clan first. Ask for it "
-                               "and the site owner decides.")}
+            asked = {
+                'pending': "Your request to run a clan is still waiting to be "
+                           "looked at. You will hear as soon as it is decided.",
+                'denied': f"Your request to run a clan was turned down. Ask "
+                          f"{CONTACT_HANDLE} on Discord if that was a mistake.",
+            }.get(state,
+                  "You need to be approved to run a clan first. Ask for it "
+                  "and the site owner decides.")
+            if not can_pay:
+                return 403, {"ok": False, "leader_state": state, "message": asked}
+            # The economy is open to this person, so there is a second way:
+            # pay for it. Their own gems, once, and nothing is taken until
+            # everything else about the tag has passed.
+            nn = account_norm_for(c, sub_id)
+            if not nn:
+                return 400, {"ok": False, "need_name": True,
+                             "message": "Set your account name first - the clan page shows "
+                                        "who runs it by that name."}
+            have = gem_balance(c, "player", nn)
+            if have < CLAN_START_COST:
+                return 403, {"ok": False, "leader_state": state, "short": True,
+                             "message": "Starting a clan costs %s gems and you have %s. "
+                                        "%s" % (format(CLAN_START_COST, ","),
+                                                format(have, ","), asked)}
+            paying = True
 
     # A name before a clan. The clan page names its leader by their
     # leaderboard name; without one the clan reads as run by nobody, and
@@ -19722,8 +19921,10 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     # The first tag comes with being approved to run a clan. Every tag
     # after that is its own request (owner's rule, 22 Aug 2026): the
     # leader asks from the Clans page, the owner decides, and claiming
-    # consumes the approval so one yes grants exactly one tag.
-    if not trusted:
+    # consumes the approval so one yes grants exactly one tag. A key is a
+    # yes for this tag, so it passes; gems are not - money must not buy a
+    # collection of tags.
+    if not trusted and not kid:
         c.execute("SELECT COUNT(*) FROM clans WHERE created_by = ?", (sub_id,))
         if c.fetchone()[0] >= 1:
             c.execute("SELECT id, tag FROM clan_leader_requests "
@@ -19743,6 +19944,16 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
                       (rid,))
 
     now = time.strftime('%Y-%m-%d %H:%M:%S')
+    if paying:
+        # Last thing before the clan exists, so a refusal anywhere above
+        # costs nothing. The ref carries the time as well as the tag: a tag
+        # that is given up and claimed again is a second, separate charge.
+        spent = gem_charge(c, nn, CLAN_START_COST, "clan-start", "%s@%s" % (tag, now))
+        if spent != "ok":
+            return 403, {"ok": False, "short": True,
+                         "message": "Starting a clan costs %s gems, and that did not go "
+                                    "through. Check your balance and try again."
+                                    % format(CLAN_START_COST, ",")}
     shown = ' '.join(str(raw_tag or '').split())[:32]
     c.execute("INSERT INTO clans (tag, display_tag, created_by, created_at) "
               "VALUES (?, ?, ?, ?)",
@@ -19752,11 +19963,15 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     tag_cache_reset()
     c.execute("INSERT OR IGNORE INTO clan_admins (clan, google_sub, created_at) VALUES (?, ?, ?)",
               (tag, sub_id, now))
+    if kid:
+        clan_key_burn(c, kid, sub_id, tag)
     joined, elsewhere = join_admin_names(c, sub_id, tag)
-    # Every unowned name already wearing the tag joins on creation - that
-    # is the roster the clan actually has, and nobody has to add them one
-    # at a time.
-    absorbed = absorb_unowned(c, tag)
+    # A new clan starts EMPTY (owner's rule, 18 Sep 2026). Players already
+    # wearing the tag used to be swept in on creation, which meant claiming
+    # a tag handed you their record as well - the one thing a clan should
+    # have to play for. They are listed here instead, and the admin adds
+    # them from Your clan.
+    wearing = unowned_wearing(c, tag)
     c.execute("SELECT COUNT(*) FROM players WHERE google_sub = ?", (sub_id,))
     has_name = (c.fetchone() or [0])[0] > 0
     msg = f"{tag} is yours. You are its admin."
@@ -19765,17 +19980,21 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False):
     elif not has_name:
         msg += (" You have no name on this account yet, so you are not on the roster - "
                 "set one and you will be added automatically.")
-    if absorbed:
-        msg += (f" {len(absorbed)} player{'' if len(absorbed) == 1 else 's'} already "
-                f"playing under {tag} joined automatically.")
-    if absorbed:
-        msg += (f" {len(absorbed)} player{'' if len(absorbed) == 1 else 's'} already "
-                f"playing under {tag} joined automatically.")
+    msg += " It starts empty - nobody joins a clan without being asked."
+    if wearing:
+        msg += (f" {len(wearing)} player{'' if len(wearing) == 1 else 's'} already "
+                f"playing under {tag}: add them from Your clan.")
     if elsewhere:
         msg += " " + ", ".join(elsewhere) + " stayed in their current clan."
+    if paying:
+        msg += " %s gems spent." % format(CLAN_START_COST, ",")
     return 200, {"ok": True, "message": msg, "clan": tag,
                  "admin_on_roster": bool(joined), "admin_has_name": has_name,
-                 "absorbed": absorbed[:25], "absorbed_count": len(absorbed)}
+                 "paid": CLAN_START_COST if paying else 0, "keyed": bool(kid),
+                 "wearing": wearing[:25], "wearing_count": len(wearing),
+                 # Kept so the Discord bot's reply template keeps working;
+                 # nothing is absorbed any more, by design.
+                 "absorbed": [], "absorbed_count": 0}
 
 
 def clan_tagged_name(base, tag):
@@ -20770,6 +20989,7 @@ def clans_page():
         for row in ranked + small:
             row["perks"] = live.get(row["tag"], {})
     return render_template('clans.html', clans=ranked, small=small, featured=featured,
+                           clan_cost=CLAN_START_COST,
                            total=len(rows), rank_min=CLAN_RANK_MIN,
                            version=APP_VERSION, contact=CONTACT_HANDLE,
                            # A clan directory is a ranking: it belongs to the
