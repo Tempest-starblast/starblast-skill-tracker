@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.46.0"
+APP_VERSION = "9.46.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7106,6 +7106,12 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.46.1", "at": "2026-09-19T14:30:00Z", "changes": [
+        "Fixed: the glow behind a rank emblem sat too high and stopped short "
+        "of the bottom of its tile, so the ship's nose was lit and its wings "
+        "were in the dark. It is centred on the emblem now, on the profile "
+        "box, the rank band and the career peaks.",
+    ]},
     {"version": "9.42.0", "at": "2026-09-19T01:10:00Z", "changes": [
         "<b>Live survival now shows the round, not just the server.</b> The "
         "Survival tab was a list of lobbies with a head count; it is now one "

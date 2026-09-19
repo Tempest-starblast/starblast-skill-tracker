@@ -54,9 +54,14 @@
     radial-gradient(120% 140% at 12% 0%,var(--rkglow,rgba(139,148,158,.22)),transparent 60%),
     linear-gradient(180deg,color-mix(in srgb,var(--rk,#8b949e) 10%,#141922),#11151c);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 8px 24px rgba(0,0,0,.35)}
+/* The glow behind an emblem is centred on the tile and fades out just
+   inside its corners. It used to sit at 40% height and stop at 70% of the
+   distance to the far corner, which in a square tile means it ran off the
+   top and sides but died ~5px before the bottom edge - so the ship's nose
+   was lit, its wings were in the dark, and the circle read as half-filled. */
 .rankhero .rankemblem{position:relative;z-index:2;flex:0 0 auto;width:94px;height:94px;
   display:flex;align-items:center;justify-content:center;border-radius:12px;
-  background:radial-gradient(circle at 50% 38%,var(--rkglow,rgba(139,148,158,.25)),transparent 70%)}
+  background:radial-gradient(circle at 50% 50%,var(--rkglow,rgba(139,148,158,.25)),transparent 86%)}
 .rankhero .rankemblem svg{filter:drop-shadow(0 2px 6px var(--rkglow,rgba(0,0,0,.5)))}
 .rankhero .rankmeta{position:relative;z-index:2}
 .rankhero .ranklabel{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;
@@ -95,7 +100,7 @@
 .rankhero.diamond .rankname{background:linear-gradient(120deg,#a8ecff,#e6d4ff,#fff,#c9fff0,#a8ecff);
   background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
   animation:rk-holo 6s linear infinite}
-.rankhero.diamond .rankemblem{background:radial-gradient(circle at 50% 40%,rgba(180,240,255,.5),transparent 70%)}
+.rankhero.diamond .rankemblem{background:radial-gradient(circle at 50% 50%,rgba(180,240,255,.5),transparent 86%)}
 .rankhero.diamond .rankemblem svg{filter:drop-shadow(0 0 8px rgba(180,240,255,.9))}
 .rankhero.diamond::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
   background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.32) 50%,transparent 58%);
@@ -124,7 +129,7 @@
 .peakcard .pk-ic{font-size:18px;color:#e3b341;line-height:1}
 .peakcard .pk-emb{flex:0 0 auto;width:38px;height:38px;display:flex;align-items:center;
   justify-content:center;border-radius:9px;
-  background:radial-gradient(circle at 50% 40%,var(--rkglow,rgba(139,148,158,.3)),transparent 70%)}
+  background:radial-gradient(circle at 50% 50%,var(--rkglow,rgba(139,148,158,.3)),transparent 86%)}
 .peakcard .pk-lbl{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;
   color:var(--muted);font-weight:700}
 .peakcard .pk-val{font-size:19px;font-weight:800;color:#e6edf3;font-variant-numeric:tabular-nums}
@@ -146,7 +151,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
 .pbox-top{display:flex;align-items:center;gap:20px}
 .pbox-emblem{flex:0 0 auto;width:100px;height:100px;display:flex;align-items:center;
   justify-content:center;border-radius:14px;
-  background:radial-gradient(circle at 50% 40%,var(--rkglow,rgba(139,148,158,.28)),transparent 70%)}
+  background:radial-gradient(circle at 50% 50%,var(--rkglow,rgba(139,148,158,.28)),transparent 86%)}
 .pbox-emblem svg{filter:drop-shadow(0 2px 8px var(--rkglow,rgba(0,0,0,.5)))}
 .pbox-id{min-width:0;flex:1}
 .pname2{font-size:25px;font-weight:800;line-height:1.15;margin:0 0 5px;color:#f0f4f8;text-wrap:balance;
@@ -195,7 +200,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
 .pbox.diamond .rk-name{background:linear-gradient(120deg,#a8ecff,#e6d4ff,#fff,#c9fff0,#a8ecff);
   background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
   animation:rk-holo 6s linear infinite}
-.pbox.diamond .pbox-emblem{background:radial-gradient(circle at 50% 40%,rgba(180,240,255,.5),transparent 70%)}
+.pbox.diamond .pbox-emblem{background:radial-gradient(circle at 50% 50%,rgba(180,240,255,.5),transparent 86%)}
 .pbox.diamond .pbox-emblem svg{filter:drop-shadow(0 0 9px rgba(180,240,255,.9))}
 .pbox.diamond::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
   background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.28) 50%,transparent 58%);
