@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.43.0"
+APP_VERSION = "9.44.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -14562,9 +14562,14 @@ def achievements_page():
             groups.append({"name": gname, "items": items,
                            "got": sum(1 for i in items if i["claimed"]), "total": len(items)})
     ready = [a for a in st if a["ready"]]
+    objectives = obj_status(c, me[1]) if me else []
     balance = gem_balance(c, 'player', me[1]) if me else 0
     conn.close()
     return render_template('achievements.html', version=APP_VERSION,
+                           objectives=objectives,
+                           obj_ready=[o for o in objectives if o["ready"]],
+                           day_resets=obj_resets_in("day"),
+                           week_resets=obj_resets_in("week"),
                            page='achievements', groups=groups,
                            signed_in=bool(me), me=(me[0] if me else None),
                            have=sum(1 for a in st if a["claimed"]), total=len(st),
@@ -14572,6 +14577,201 @@ def achievements_page():
                            earned_gems=sum(a["gems"] for a in st if a["claimed"]),
                            possible=sum(a["gems"] for a in st), balance=balance,
                            preview=not GEMS_PUBLIC)
+
+
+# ------------------------------------------------------------ OBJECTIVES
+# Three a day and three a week, the same three for everybody, drawn from
+# these pools by the date itself - so "today's objectives" is a thing people
+# can talk about. Each is (key, what it says, how many, what it pays, the
+# fact it counts). Every fact is read from matches and survival rounds that
+# were already being recorded; none of this adds tracking.
+OBJ_DAILY = [
+    ("d-win3", "Win 3 team matches", 3, 250, "wins"),
+    ("d-play5", "Play 5 team matches", 5, 200, "played"),
+    ("d-score", "Score 8,000 across your matches", 8000, 250, "score"),
+    ("d-surv", "Play a survival round", 1, 150, "surv_rounds"),
+    ("d-survtop", "Finish a survival round in the top 3", 1, 350, "surv_top3"),
+    ("d-t4", "Win flying a tier 4 ship or better", 1, 300, "wins_t4"),
+    ("d-clean", "Win a match losing 2 ships or fewer", 1, 300, "clean_wins"),
+    ("d-big", "Win a match worth 15 rating or more", 1, 300, "big_wins"),
+    ("d-ships3", "Fly 3 different ships", 3, 250, "ships"),
+    ("d-mate", "Win a match alongside a clanmate", 1, 250, "mate_wins"),
+]
+OBJ_WEEKLY = [
+    ("w-win15", "Win 15 team matches", 15, 1500, "wins"),
+    ("w-days4", "Play on 4 different days", 4, 1800, "days"),
+    ("w-survwin", "Win a survival round", 1, 2500, "surv_wins"),
+    ("w-surv10", "Play 10 survival rounds", 10, 1500, "surv_rounds"),
+    ("w-score", "Score 80,000 across the week", 80000, 1800, "score"),
+    ("w-t7", "Win flying a tier 7 ship", 1, 2000, "wins_t7"),
+    ("w-play40", "Play 40 team matches", 40, 1500, "played"),
+    ("w-mate5", "Win 5 matches alongside clanmates", 5, 1800, "mate_wins"),
+]
+OBJ_PER_DAY = 3
+OBJ_PER_WEEK = 3
+
+
+def obj_day_key(now=None):
+    return time.strftime("%Y-%m-%d", time.gmtime(now if now is not None else time.time()))
+
+
+def obj_week_key(now=None):
+    """The ISO week, which is how the week's set is drawn and paid."""
+    return time.strftime("%G-W%V", time.gmtime(now if now is not None else time.time()))
+
+
+def obj_window(kind, now=None):
+    """When the window opened, as the stamp the tables are keyed by. A day
+    starts at UTC midnight; a week starts on Monday."""
+    now = time.time() if now is None else now
+    t = time.gmtime(now)
+    if kind == "week":
+        now -= t.tm_wday * 86400
+        t = time.gmtime(now)
+    return "%04d-%02d-%02d 00:00:00" % (t.tm_year, t.tm_mon, t.tm_mday)
+
+
+def obj_resets_in(kind, now=None):
+    """Seconds until this set is replaced."""
+    now = time.time() if now is None else now
+    t = time.gmtime(now)
+    day_left = 86400 - (t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec)
+    return day_left if kind == "day" else day_left + (6 - t.tm_wday) * 86400
+
+
+def objectives_for(kind, now=None):
+    """Today's (or this week's) three, drawn by the date so everyone has the
+    same ones and nobody can reroll them."""
+    pool, count, key = ((OBJ_DAILY, OBJ_PER_DAY, obj_day_key(now)) if kind == "day"
+                        else (OBJ_WEEKLY, OBJ_PER_WEEK, obj_week_key(now)))
+    picks = random.Random("obj:%s:%s" % (kind, key)).sample(pool, min(count, len(pool)))
+    out = []
+    for okey, text, need, gems, metric in picks:
+        out.append({"key": okey, "kind": kind, "text": text, "need": need,
+                    "gems": gems, "metric": metric, "window": key,
+                    "ref": "%s:%s" % (key, okey)})
+    return out
+
+
+def _obj_facts(c, nn, kind, now=None):
+    """Everything the pools can ask about, for one window, in three queries."""
+    since = obj_window(kind, now)
+    f = {"played": 0, "wins": 0, "score": 0, "days": 0, "ships": 0, "wins_t4": 0,
+         "wins_t7": 0, "clean_wins": 0, "big_wins": 0, "mate_wins": 0,
+         "surv_rounds": 0, "surv_wins": 0, "surv_top3": 0}
+    try:
+        r = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(mp.won), 0), COALESCE(SUM(mp.score), 0), "
+            "COUNT(DISTINCT substr(m.played_at, 1, 10)), COUNT(DISTINCT mp.ship), "
+            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.ship / 100 >= 4 THEN 1 ELSE 0 END), 0), "
+            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.ship / 100 >= 7 THEN 1 ELSE 0 END), 0), "
+            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.deaths IS NOT NULL AND mp.deaths <= 2 "
+            "THEN 1 ELSE 0 END), 0), "
+            "COALESCE(SUM(CASE WHEN mp.won = 1 AND mp.delta >= 15 THEN 1 ELSE 0 END), 0) "
+            "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
+            "WHERE mp.norm_name = ? AND m.played_at >= ?", (nn, since)).fetchone()
+        if r:
+            (f["played"], f["wins"], f["score"], f["days"], f["ships"], f["wins_t4"],
+             f["wins_t7"], f["clean_wins"], f["big_wins"]) = r
+        r = c.execute("SELECT COUNT(*), COALESCE(SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END), 0), "
+                      "COALESCE(SUM(CASE WHEN place <= 3 THEN 1 ELSE 0 END), 0) "
+                      "FROM survival_round_players WHERE norm_name = ? AND ended_at >= ?",
+                      (nn, since)).fetchone()
+        if r:
+            f["surv_rounds"], f["surv_wins"], f["surv_top3"] = r
+        tag = (c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
+               or [None])[0]
+        if tag:
+            # A clanmate on YOUR side of that match, which is what "alongside"
+            # means - the same tag on the other team is an opponent.
+            r = c.execute(
+                "SELECT COUNT(DISTINCT mp.match_row) FROM match_players mp "
+                "JOIN matches m ON m.id = mp.match_row "
+                "JOIN match_players o ON o.match_row = mp.match_row "
+                "  AND o.norm_name <> mp.norm_name "
+                "  AND COALESCE(o.team, '') = COALESCE(mp.team, '') "
+                "JOIN players p ON p.norm_name = o.norm_name "
+                "WHERE mp.norm_name = ? AND m.played_at >= ? AND mp.won = 1 AND p.clan = ?",
+                (nn, since, tag)).fetchone()
+            if r:
+                f["mate_wins"] = r[0]
+    except sqlite3.Error:
+        pass
+    return f
+
+
+def obj_status(c, nn, now=None):
+    """Today's and this week's six, with how far along and whether the gems
+    for them are still there to take."""
+    out = []
+    claimed = set()
+    try:
+        for (ref,) in c.execute("SELECT ref FROM gem_ledger WHERE owner_kind = 'player' "
+                                "AND owner = ? AND reason = 'objective'", (nn,)).fetchall():
+            claimed.add(ref)
+    except sqlite3.Error:
+        pass
+    for kind in ("day", "week"):
+        facts = _obj_facts(c, nn, kind, now)
+        for o in objectives_for(kind, now):
+            have = int(facts.get(o["metric"], 0) or 0)
+            done = have >= o["need"]
+            got = o["ref"] in claimed
+            out.append(dict(o, have=min(have, o["need"]), raw=have, done=done,
+                            claimed=got, ready=(done and not got),
+                            pc=min(100, int(100.0 * have / (o["need"] or 1)))))
+    return out
+
+
+@app.route('/objectives/claim', methods=['POST'])
+def objectives_claim():
+    """Take the gems for an objective you have done - one, or all of them.
+    The ledger's unique index is keyed by the window, so today's pays today
+    and the same objective tomorrow is a different row."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    body = request.get_json(silent=True) or {}
+    key = str(body.get("key") or "").strip()
+    st = obj_status(c, me[1])
+    if body.get("all"):
+        targets = [o for o in st if o["ready"]]
+        if not targets:
+            conn.close()
+            return jsonify({"ok": False, "message": "Nothing to claim yet."}), 200
+    else:
+        o = next((x for x in st if x["key"] == key), None)
+        if not o:
+            conn.close()
+            return jsonify({"ok": False, "message": "That is not one of today's."}), 404
+        if o["claimed"]:
+            conn.close()
+            return jsonify({"ok": False, "message": "Already claimed."}), 200
+        if not o["done"]:
+            conn.close()
+            return jsonify({"ok": False, "message": "Not yet - %s of %s."
+                            % (format(o["have"], ","), format(o["need"], ","))}), 200
+        targets = [o]
+    paid, total = [], 0
+    for o in targets:
+        got = gem_grant(c, "player", me[1], o["gems"], "objective", o["ref"])
+        if got:
+            paid.append(o["text"])
+            total += got
+    conn.commit()
+    balance = gem_balance(c, "player", me[1])
+    conn.close()
+    if not paid:
+        return jsonify({"ok": False, "message": "Already claimed.", "balance": balance}), 200
+    msg = ("%s: +%s gems." % (paid[0], format(total, ","))) if len(paid) == 1 else (
+        "%d objectives claimed: +%s gems." % (len(paid), format(total, ",")))
+    return jsonify({"ok": True, "message": msg, "claimed": paid, "gems": total,
+                    "balance": balance}), 200
 
 
 @app.route('/achievements/claim', methods=['POST'])
@@ -19442,6 +19642,7 @@ GEM_REASON_LABELS = {
     "member-pay": "Salary, out of the treasury", "salary": "Free-agent salary",
     "hire": "Free-agent signing fee", "purchase": "Bought in the shop",
     "clan-start": "Started a clan", "sandbox": "Test account (not real)",
+    "objective": "Daily or weekly objective",
     "rent": "Rented a look",
 }
 
@@ -22014,6 +22215,8 @@ def home_page():
     cat = ach_status(c, nn)
     have = [a for a in cat if a["claimed"]]
     ready = [a for a in cat if a["ready"]]
+    objectives = obj_status(c, nn)
+    obj_ready = [o for o in objectives if o["ready"]]
     # The next one to chase: whichever locked achievement you are furthest along.
     locked = [a for a in cat if not a["unlocked"]]
     next_up = (max(locked, key=lambda a: (a["have"] / float(a["need"] or 1), -a["gems"]))
@@ -22035,6 +22238,9 @@ def home_page():
         placements_left=max(0, PROVISIONAL_GAMES - played) if played < PROVISIONAL_GAMES else 0,
         balance=balance, today_gems=today_gems, have=have, next_up=next_up,
         ready=ready, ready_gems=sum(a["gems"] for a in ready),
+        objectives=objectives, obj_ready=obj_ready,
+        obj_gems=sum(o["gems"] for o in obj_ready),
+        day_resets=obj_resets_in("day"),
         cos=cosmetic_view(nn, True), cv=(clan_view(clan, True) if clan else {}),
         total_ach=len(cat), recent=recent, preview=not GEMS_PUBLIC,
         emblem=emblem, emblem_color=emblem_color, mythic=mythic)

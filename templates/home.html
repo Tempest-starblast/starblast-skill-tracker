@@ -85,6 +85,10 @@
 .achnext b{color:#8ef3ff;font-variant-numeric:tabular-nums}
 /* Done but not collected: the pip is green and says so. */
 .achpip.ready{border-color:rgba(102,230,184,.7);background:rgba(102,230,184,.14);color:#66E6B8}
+.gemclaim.obj{background:rgba(240,192,74,.16);border-color:rgba(240,192,74,.55);color:#f0c04a}
+.gemobj{display:block;font-size:12px;color:var(--muted,#8aa0b0);margin-top:6px}
+.gemobj a{color:#f0c04a;text-decoration:none;font-weight:700}
+.gemobj a:hover{text-decoration:underline}
 .gemclaim{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:8px 12px;border-radius:9px;
   background:var(--green,#66E6B8);color:#04121f;font-weight:800;font-size:12.5px;text-decoration:none;
   box-shadow:0 6px 18px rgba(102,230,184,.3)}
@@ -134,6 +138,11 @@
     <span class="gemsub">{% if today_gems %}<b>+{{ '{:,}'.format(today_gems) }}</b> today &middot; {% endif %}{{ have|length }} of {{ total_ach }} achievements</span>
     <span class="gemgo"><a href="/shop">Shop</a> &middot; <a href="/achievements">Achievements</a></span>
     {% if ready %}<a class="gemclaim" href="/achievements">Claim {{ ready|length }} achievement{{ '' if ready|length == 1 else 's' }} &middot; +{{ '{:,}'.format(ready_gems) }}</a>{% endif %}
+    {% if obj_ready %}<a class="gemclaim obj" href="/achievements">Claim {{ obj_ready|length }} objective{{ '' if obj_ready|length == 1 else 's' }} &middot; +{{ '{:,}'.format(obj_gems) }}</a>
+    {% elif objectives %}<span class="gemobj"><a href="/achievements">Today's objectives</a>:
+      {{ objectives|selectattr('kind', 'equalto', 'day')|selectattr('claimed')|list|length }} of
+      {{ objectives|selectattr('kind', 'equalto', 'day')|list|length }} done &middot; new set in
+      {{ (day_resets // 3600) }}h</span>{% endif %}
   </div>
 
 <div class="profbody">

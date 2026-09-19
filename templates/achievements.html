@@ -51,6 +51,23 @@
 .claim:hover{filter:brightness(1.08)}
 .claim[disabled]{opacity:.5;cursor:default}
 .phcta.claimall{border:0;cursor:pointer;font-family:inherit}
+/* Objectives: the same card, but they expire, so they carry a clock and
+   sit above the ladder that does not. */
+.objwrap{margin:0 0 24px}
+.objhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 11px}
+.objhead h2{margin:0;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#f0c04a}
+.objhead .clock{font-size:12px;color:var(--muted,#8aa0b0);font-variant-numeric:tabular-nums}
+.objhead .n{font-size:12px;color:var(--muted,#8aa0b0);margin-left:auto;font-variant-numeric:tabular-nums}
+.ach.obj{border-color:rgba(240,192,74,.28);
+  background:linear-gradient(160deg,rgba(240,192,74,.06),rgba(240,192,74,.015))}
+.ach.obj.got{border-color:rgba(240,192,74,.5);
+  background:linear-gradient(160deg,rgba(240,192,74,.14),rgba(240,192,74,.03))}
+.ach.obj.ready{border-color:rgba(102,230,184,.7);
+  background:linear-gradient(160deg,rgba(102,230,184,.16),rgba(102,230,184,.03));
+  box-shadow:0 0 0 1px rgba(102,230,184,.25),0 8px 26px rgba(102,230,184,.12)}
+.ach.obj .emb{font-size:21px;opacity:1;filter:none}
+.ach.obj .prog i{background:rgba(240,192,74,.6)}
+.ach.obj.got .emb{opacity:.55}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
   max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
   color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
@@ -73,16 +90,51 @@
   {% if signed_in %}
   <div class="phnums">
     <div class="phnum"><span>Gems</span><b class="blue">{{ '{:,}'.format(balance) }}</b></div>
-    <div class="phnum"><span>Ready to claim</span><b class="green">{{ ready|length }}</b></div>
+    <div class="phnum"><span>Ready to claim</span><b class="green">{{ ready|length + obj_ready|length }}</b></div>
     <div class="phnum"><span>From achievements</span><b>{{ '{:,}'.format(earned_gems) }}<span style="font-size:13px;color:#b9d6e4;letter-spacing:0;text-transform:none"> / {{ '{:,}'.format(possible) }}</span></b></div>
   </div>
-  {% if ready %}
+  {% if ready or obj_ready %}
   <div class="phlinks">
-    <button type="button" class="phcta claimall" id="claimAll" data-claim="*">Claim all {{ ready|length }} &middot; +{{ '{:,}'.format(ready_gems) }}</button>
+    <button type="button" class="phcta claimall" id="claimAll"
+            {% if ready %}data-claim="*"{% endif %}{% if obj_ready %} data-oclaim="*"{% endif %}>Claim all {{ ready|length + obj_ready|length }} &middot;
+      +{{ '{:,}'.format(ready_gems + (obj_ready|sum(attribute='gems'))) }}</button>
   </div>
   {% endif %}
   {% endif %}
 </div>
+
+{% if signed_in and objectives %}
+{% macro objcard(o) %}
+<div class="ach obj{% if o.claimed %} got{% elif o.ready %} ready{% endif %}" data-okey="{{ o.key }}">
+  <span class="emb">{% if o.kind == 'day' %}&#9201;{% else %}&#128197;{% endif %}</span>
+  <span class="body">
+    <span class="nm">{{ o.text }}</span>
+    <span class="ds">{% if o.claimed %}Claimed. It comes round again{% if o.kind == 'day' %} tomorrow{% else %} next week{% endif %}.{% elif o.ready %}Done &mdash; take the gems.{% else %}{{ '{:,}'.format(o.have) }} of {{ '{:,}'.format(o.need) }} so far.{% endif %}</span>
+    <span class="pay">{{ gem_svg|safe }}{{ '{:,}'.format(o.gems) }}</span>
+    {% if o.ready %}
+    <span class="achfoot"><button type="button" class="claim" data-oclaim="{{ o.key }}">Claim +{{ '{:,}'.format(o.gems) }}</button></span>
+    {% elif not o.claimed %}
+    <span class="achfoot">
+      <span class="prog"><i style="width:{{ o.pc }}%"></i></span>
+      <span class="progt">{{ '{:,}'.format(o.have) }} / {{ '{:,}'.format(o.need) }}</span>
+    </span>
+    {% endif %}
+  </span>
+</div>
+{% endmacro %}
+<div class="objwrap">
+  {% set days = objectives|selectattr('kind', 'equalto', 'day')|list %}
+  {% set weeks = objectives|selectattr('kind', 'equalto', 'week')|list %}
+  <div class="objhead"><h2>Today</h2>
+    <span class="clock" data-until="{{ day_resets }}">new set in {{ (day_resets // 3600) }}h</span>
+    <span class="n">{{ days|selectattr('claimed')|list|length }}/{{ days|length }} claimed</span></div>
+  <div class="achgrid">{% for o in days %}{{ objcard(o) }}{% endfor %}</div>
+  <div class="objhead" style="margin-top:18px"><h2>This week</h2>
+    <span class="clock" data-until="{{ week_resets }}">new set in {{ (week_resets // 86400) }}d</span>
+    <span class="n">{{ weeks|selectattr('claimed')|list|length }}/{{ weeks|length }} claimed</span></div>
+  <div class="achgrid">{% for o in weeks %}{{ objcard(o) }}{% endfor %}</div>
+</div>
+{% endif %}
 
 {% for g in groups %}
 <section class="achsec">
@@ -129,20 +181,39 @@
     toast.textContent=t; toast.classList.toggle('bad', !!bad); toast.hidden=false;
     clearTimeout(tt); tt=setTimeout(function(){ toast.hidden=true; }, 3800);
   }
-  document.addEventListener('click', function(ev){
-    var b=ev.target.closest && ev.target.closest('[data-claim]');
-    if(!b) return;
-    var key=b.getAttribute('data-claim');
+  function claim(url, key){
     var body = key==='*' ? {all:true} : {key:key};
+    return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                       body:JSON.stringify(body)}).then(function(r){ return r.json(); });
+  }
+  document.addEventListener('click', function(ev){
+    var b=ev.target.closest && ev.target.closest('[data-claim],[data-oclaim]');
+    if(!b) return;
+    // Claim all is both lists at once, so one press empties the page.
+    var jobs=[];
+    if(b.hasAttribute('data-claim')) jobs.push(claim('/achievements/claim', b.getAttribute('data-claim')));
+    if(b.hasAttribute('data-oclaim')) jobs.push(claim('/objectives/claim', b.getAttribute('data-oclaim')));
     b.disabled=true;
-    fetch('/achievements/claim', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-      .then(function(r){ return r.json(); })
-      .then(function(j){
-        say(j.message||'', !j.ok);
-        if(j.ok) setTimeout(function(){ location.reload(); }, 700); else b.disabled=false;
-      })
-      .catch(function(){ say('Could not reach the site.', true); b.disabled=false; });
+    Promise.all(jobs).then(function(rs){
+      var good=rs.filter(function(j){ return j && j.ok; });
+      say(good.length ? good.map(function(j){ return j.message; }).join(' ')
+                      : ((rs[0] && rs[0].message) || ''), !good.length);
+      if(good.length) setTimeout(function(){ location.reload(); }, 700); else b.disabled=false;
+    }).catch(function(){ say('Could not reach the site.', true); b.disabled=false; });
   });
+  // The clocks tick, because a countdown that never moves reads as broken.
+  (function(){
+    var els=[].slice.call(document.querySelectorAll('.clock[data-until]'));
+    if(!els.length) return;
+    els.forEach(function(el){ el._left=parseInt(el.getAttribute('data-until'), 10) || 0; });
+    setInterval(function(){
+      els.forEach(function(el){
+        el._left=Math.max(0, el._left-1);
+        var s=el._left, d=Math.floor(s/86400), h=Math.floor(s%86400/3600), m=Math.floor(s%3600/60);
+        el.textContent='new set in '+(d ? d+'d '+h+'h' : (h ? h+'h '+m+'m' : m+'m'));
+      });
+    }, 1000);
+  })();
 })();
 </script>
 {% endblock %}
