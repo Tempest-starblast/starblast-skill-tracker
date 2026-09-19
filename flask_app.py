@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.49.0"
+APP_VERSION = "9.49.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -3529,7 +3529,8 @@ def init_db():
                     prize INTEGER DEFAULT 0,
                     pot INTEGER DEFAULT 0,
                     result_key TEXT,
-                    note TEXT
+                    note TEXT,
+                    forced INTEGER DEFAULT 0
                 )''')
     c.execute('''CREATE TABLE IF NOT EXISTS event_signups (
                     event_id INTEGER NOT NULL,
@@ -3541,6 +3542,12 @@ def init_db():
                     PRIMARY KEY (event_id, google_sub)
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_evsign ON event_signups(event_id, last_seen)")
+    # 9.49.1: the owner's own switch. CREATE TABLE IF NOT EXISTS will not add
+    # a column to a table that already exists, and by now the live one does.
+    try:
+        c.execute("ALTER TABLE events ADD COLUMN forced INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS cosmetic_rentals (
                     norm_name TEXT NOT NULL,
                     item TEXT NOT NULL,
@@ -15337,8 +15344,8 @@ def event_sweep(c, now=None):
         if event_phase(start_at, now) != "over":
             continue
         if state in ("open", "wanted"):
-            c.execute("UPDATE events SET state = 'missed', ended_at = ? WHERE id = ?",
-                      (_stamp(), eid))
+            c.execute("UPDATE events SET state = 'missed', ended_at = ? WHERE id = ? "
+                      "AND COALESCE(forced, 0) = 0", (_stamp(), eid))
         elif state == "live" and now - event_when(start_at) > 6 * 3600:
             c.execute("UPDATE events SET state = 'played', ended_at = ? WHERE id = ?",
                       (_stamp(), eid))
@@ -15461,6 +15468,30 @@ def api_events_leave():
     return jsonify({"ok": True}), 200
 
 
+@app.route('/dev/events/now', methods=['POST'])
+def dev_events_now():
+    """Call an event on, now, whatever the clock says. The owner's own
+    switch: for a tournament, or to prove the whole chain works without
+    waiting six hours for the next slot."""
+    if not is_site_owner():
+        abort(404)
+    kind = str((request.get_json(silent=True) or request.form or {}).get("kind") or "survival")
+    if kind not in EVENT_KINDS:
+        kind = "survival"
+    conn = db()
+    c = conn.cursor()
+    start_at = _stamp()
+    c.execute("INSERT OR IGNORE INTO events (kind, start_at, state, opened_at, forced) "
+              "VALUES (?, ?, 'wanted', ?, 1)", (kind, start_at, start_at))
+    c.execute("UPDATE events SET state = 'wanted', forced = 1, kind = ? WHERE start_at = ?",
+              (kind, start_at))
+    row = c.execute("SELECT id FROM events WHERE start_at = ?", (start_at,)).fetchone()
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "event_id": row[0] if row else None, "kind": kind,
+                    "message": "Called on. The host builds it within a few seconds."}), 200
+
+
 @app.route('/api/events/pending')
 def api_events_pending():
     """The droplet host polls this alongside the custom-game one: is an
@@ -15473,10 +15504,17 @@ def api_events_pending():
     event_sweep(c)
     start_at = event_slot(now)
     ev = event_row(c, start_at)
-    wanted = bool(ev) and event_try_go(c, ev, now) and not (ev.get("link") or "")
+    forced = c.execute("SELECT id FROM events WHERE COALESCE(forced, 0) = 1 "
+                       "AND state = 'wanted' AND COALESCE(link, '') = '' "
+                       "ORDER BY id DESC LIMIT 1").fetchone()
+    if forced:
+        ev = c.execute("SELECT start_at FROM events WHERE id = ?", (forced[0],)).fetchone()
+        ev = event_row(c, ev[0]) if ev else None
+        wanted = bool(ev)
+    else:
+        wanted = bool(ev) and event_try_go(c, ev, now) and not (ev.get("link") or "")
     resp = {"wanted": False}
     if wanted:
-        ev = event_row(c, start_at)
         people = event_signups(c, ev["id"], now)
         resp = {"wanted": True, "event_id": ev["id"], "kind": ev["kind"],
                 "start_at": ev["start_at"], "signed": len(people),
