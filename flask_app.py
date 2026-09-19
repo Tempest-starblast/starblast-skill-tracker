@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.49.2"
+APP_VERSION = "9.50.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -91,6 +91,15 @@ PREVIEW_KEY = _load_preview_key()
 # hash - so a leak of the database is not a leak of the keys, and a key is
 # shown once, at the moment it is made.
 PREVIEW_KEY_PREFIX = "sbgem"
+# What a key does when it is used. A sandbox key puts whoever redeems it on a
+# throwaway account of their own - right for poking at the shop, wrong for an
+# event, where a tester has to play as themselves and be paid as themselves.
+PREVIEW_KINDS = ("sandbox", "access")
+# What an access key hands over so a tester can actually see the thing: more
+# gems than the catalogue costs, in one clearly-labelled ledger row, granted
+# once per key per person. It is test money - DELETE FROM gem_ledger WHERE
+# reason = 'preview-credit' takes every penny of it back at release.
+PREVIEW_CREDIT = 1000000
 PREVIEW_KEY_DAYS = (1, 7, 14, 30, 90)
 PREVIEW_KEY_DEFAULT_DAYS = 14
 PREVIEW_KEY_LABEL_MAX = 40
@@ -101,9 +110,10 @@ def _preview_key_hash(plain):
     return hashlib.sha256(("starblast-preview|" + str(plain or "")).encode("utf-8")).hexdigest()
 
 
-def preview_key_make(c, label, days, by):
+def preview_key_make(c, label, days, by, kind="sandbox"):
     """Mint a key, store only its hash, and hand the plain one back to be
     shown once. Returns (id, plain)."""
+    kind = kind if kind in PREVIEW_KINDS else "sandbox"
     plain = "%s-%s" % (PREVIEW_KEY_PREFIX, secrets.token_urlsafe(24))
     label = " ".join(str(label or "").split())[:PREVIEW_KEY_LABEL_MAX] or "Tester"
     try:
@@ -111,27 +121,28 @@ def preview_key_make(c, label, days, by):
     except (TypeError, ValueError):
         days = PREVIEW_KEY_DEFAULT_DAYS
     days = days if days in PREVIEW_KEY_DAYS else PREVIEW_KEY_DEFAULT_DAYS
-    c.execute("INSERT INTO preview_keys (label, key_hash, created_at, created_by, expires_at) "
-              "VALUES (?, ?, ?, ?, datetime('now', ?))",
-              (label, _preview_key_hash(plain), _stamp(), str(by or "")[:80], "+%d days" % days))
+    c.execute("INSERT INTO preview_keys (label, key_hash, created_at, created_by, expires_at, "
+              "kind) VALUES (?, ?, ?, ?, datetime('now', ?), ?)",
+              (label, _preview_key_hash(plain), _stamp(), str(by or "")[:80],
+               "+%d days" % days, kind))
     return c.lastrowid, plain
 
 
 def preview_key_match(c, plain):
-    """The id of the live key this plain text is, or None. Constant-time
-    against each candidate, and a revoked or expired key is not live."""
+    """(id, kind) of the live key this plain text is, or (None, None).
+    Constant-time against each candidate; revoked and expired are not live."""
     if not plain:
-        return None
+        return None, None
     want = _preview_key_hash(plain)
     try:
-        rows = c.execute("SELECT id, key_hash FROM preview_keys WHERE revoked_at IS NULL "
-                         "AND expires_at > ?", (_stamp(),)).fetchall()
+        rows = c.execute("SELECT id, key_hash, COALESCE(kind, 'sandbox') FROM preview_keys "
+                         "WHERE revoked_at IS NULL AND expires_at > ?", (_stamp(),)).fetchall()
     except sqlite3.Error:
-        return None
-    for kid, kh in rows:
+        return None, None
+    for kid, kh, kind in rows:
         if hmac.compare_digest(str(kh), want):
-            return kid
-    return None
+            return kid, kind
+    return None, None
 
 
 def preview_any_live():
@@ -188,16 +199,17 @@ def preview_key_rows(c):
     out = []
     try:
         rows = c.execute("SELECT id, label, created_at, expires_at, revoked_at, "
-                         "COALESCE(uses, 0), COALESCE(last_used_at, '') FROM preview_keys "
+                         "COALESCE(uses, 0), COALESCE(last_used_at, ''), "
+                         "COALESCE(kind, 'sandbox') FROM preview_keys "
                          "ORDER BY id DESC").fetchall()
     except sqlite3.Error:
         return out
     now = _stamp()
-    for kid, label, made, exp, revoked, uses, last in rows:
+    for kid, label, made, exp, revoked, uses, last, kind in rows:
         state = "revoked" if revoked else ("expired" if (exp or "") <= now else "live")
         out.append({"id": kid, "label": label, "made": (made or "")[:10],
                     "expires": (exp or "")[:10], "state": state, "uses": uses,
-                    "last": (last or "")[:16]})
+                    "last": (last or "")[:16], "kind": kind})
     return out
 
 # ----------------------------------------------------------- CLAN KEYS
@@ -3545,9 +3557,19 @@ def init_db():
     # 9.49.1: the owner's own switch. CREATE TABLE IF NOT EXISTS will not add
     # a column to a table that already exists, and by now the live one does.
     try:
+        c.execute("ALTER TABLE preview_keys ADD COLUMN kind TEXT DEFAULT 'sandbox'")
+    except sqlite3.OperationalError:
+        pass
+    try:
         c.execute("ALTER TABLE events ADD COLUMN forced INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    for _col in ("ann_open INTEGER DEFAULT 0", "ann_live INTEGER DEFAULT 0",
+                 "ann_result INTEGER DEFAULT 0"):
+        try:
+            c.execute("ALTER TABLE events ADD COLUMN " + _col)
+        except sqlite3.OperationalError:
+            pass
     c.execute('''CREATE TABLE IF NOT EXISTS cosmetic_rentals (
                     norm_name TEXT NOT NULL,
                     item TEXT NOT NULL,
@@ -3962,7 +3984,9 @@ def inject_auth():
     return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user()),
             "is_owner": current_user() in OWNER_SUBS,
             "dev_testing": bool(session.get("dev_real_owner") or session.get("preview")),
-            "dev_tester": bool(session.get("preview") and not session.get("dev_real_owner")),
+            "dev_tester": bool(session.get("preview") and not session.get("dev_real_owner")
+                               and session.get("preview_kind") != "access"),
+            "dev_access": bool(session.get("preview_kind") == "access"),
             "dev_mode": session.get("dev_mode") or "new",
             "dev_elo": session.get("dev_elo"),
             # The unreleased surfaces (gems, achievements, the profile home).
@@ -13323,11 +13347,32 @@ def dev_preview():
     given = str(body.get('key') or '')
     conn = db()
     c = conn.cursor()
-    kid = preview_key_match(c, given)
+    kid, kind = preview_key_match(c, given)
     master = bool(PREVIEW_KEY and given and hmac.compare_digest(given, PREVIEW_KEY))
     if not kid and not master:
         conn.close()
         abort(404)
+    if kid and kind == "access":
+        # An access key does not move anybody anywhere: it says "this person
+        # may see the unreleased half of the site, as themselves". Everything
+        # they then do is real - real gems, real claims, real events.
+        if not current_user():
+            conn.close()
+            return render_template('preview_enter.html', page='preview', version=APP_VERSION,
+                                   elo=SANDBOX_ELO_DEFAULT, gems=30000,
+                                   need_signin=True), 200
+        c.execute("UPDATE preview_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ? "
+                  "WHERE id = ?", (_stamp(), kid))
+        # Test money, so they can try the whole shop rather than window-shop it.
+        me = my_player(c)
+        if me:
+            gem_grant(c, "player", me[1], PREVIEW_CREDIT, "preview-credit", "key%d" % kid)
+        conn.commit()
+        conn.close()
+        session['preview'] = True
+        session['preview_key'] = kid
+        session['preview_kind'] = 'access'
+        return redirect('/')
     # Each tester key has its own test account, so two testers at once do not
     # wipe each other's ships, gems and clan.
     tester_sub = SANDBOX_SUB if master else ("%s:%d" % (SANDBOX_SUB, kid))
@@ -13344,6 +13389,7 @@ def dev_preview():
     session['google_sub'] = tester_sub
     session['preview'] = True
     session['preview_key'] = kid
+    session['preview_kind'] = 'sandbox'
     if request.is_json:
         return jsonify({"ok": True, "name": name}), 200
     return redirect('/')
@@ -13382,10 +13428,17 @@ def dev_restore():
     test that created it."""
     real = session.pop('dev_real_owner', None)
     was_preview = bool(session.pop('preview', None))
+    was_access = session.pop('preview_kind', None) == 'access'
     mine = session.get('google_sub') or SANDBOX_SUB
     session.pop('preview_key', None)
     session.pop('dev_mode', None)
     session.pop('dev_elo', None)
+    # An access session never moved anybody anywhere: it only lifted the
+    # curtain on their own account. Putting it back is exactly that and
+    # nothing else - no wipe (there is no test account to wipe) and no
+    # sign-out (it is their real one).
+    if was_access:
+        return jsonify({"ok": True}), 200
     if real or was_preview:
         conn = db()
         c = conn.cursor()
@@ -15491,6 +15544,71 @@ def dev_events_now():
     conn.close()
     return jsonify({"ok": True, "event_id": row[0] if row else None, "kind": kind,
                     "message": "Called on. The host builds it within a few seconds."}), 200
+
+
+@app.route('/api/bot/events/undelivered')
+def api_bot_events_undelivered():
+    """What the bot has not announced yet. Key-gated, and it goes to one
+    channel whose id lives on the droplet - so while the economy is
+    unreleased it reaches whatever private server the owner points it at,
+    and nowhere else."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    now = _event_now()
+    event_sweep(c)
+    out = []
+    rows = c.execute("SELECT id, kind, start_at, state, link, signups, players, opp_elo, "
+                     "prize, pot, COALESCE(ann_open,0), COALESCE(ann_live,0), "
+                     "COALESCE(ann_result,0), COALESCE(forced,0) FROM events "
+                     "WHERE start_at > datetime('now', '-1 day') ORDER BY id").fetchall()
+    for (eid, kind, start_at, state, link, signups, players, opp, prize, pot,
+         a_open, a_live, a_result, forced) in rows:
+        phase = event_phase(start_at, now)
+        if not a_open and not forced and phase == "signup":
+            out.append({"id": eid, "what": "open", "kind": kind, "start_at": start_at,
+                        "in_min": max(0, int((event_when(start_at) - now) // 60)),
+                        "quorum": EVENT_QUORUM.get(kind, 0),
+                        "base": EVENT_BASE.get(kind, 0)})
+        if not a_live and state == "live" and link:
+            out.append({"id": eid, "what": "live", "kind": kind, "start_at": start_at,
+                        "link": link, "signed": signups or 0})
+        if not a_result and state == "paid":
+            winners = [r[0] for r in c.execute(
+                "SELECT owner FROM gem_ledger WHERE reason = 'event-win' AND ref LIKE ?",
+                ("e%d:%%" % eid,)).fetchall()]
+            out.append({"id": eid, "what": "result", "kind": kind, "start_at": start_at,
+                        "players": players or 0, "opp": int(opp or 0),
+                        "prize": prize or 0, "pot": pot or 0, "winners": winners[:12]})
+    conn.commit()
+    conn.close()
+    return jsonify({"events": out}), 200
+
+
+@app.route('/api/bot/events/delivered', methods=['POST'])
+def api_bot_events_delivered():
+    """The bot says it posted one, so it is never posted twice."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    done = (request.json or {}).get('done') or []
+    conn = db()
+    c = conn.cursor()
+    n = 0
+    for item in done[:40]:
+        if not isinstance(item, dict):
+            continue
+        col = {"open": "ann_open", "live": "ann_live", "result": "ann_result"}.get(item.get("what"))
+        try:
+            eid = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            eid = 0
+        if col and eid:
+            c.execute("UPDATE events SET " + col + " = 1 WHERE id = ?", (eid,))
+            n += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "marked": n}), 200
 
 
 @app.route('/api/events/pending')
@@ -20626,15 +20744,17 @@ def dev_keys():
         abort(404)
     conn = db()
     c = conn.cursor()
-    made = None
+    made, made_kind = None, "sandbox"
     if request.method == 'POST':
+        made_kind = request.form.get('kind') or "sandbox"
         _kid, made = preview_key_make(c, request.form.get('label'),
-                                      request.form.get('days'), current_user())
+                                      request.form.get('days'), current_user(), made_kind)
         conn.commit()
     rows = preview_key_rows(c)
     conn.close()
     return render_template('dev_keys.html', page='keys', version=APP_VERSION,
-                           keys=rows, made=made, days=PREVIEW_KEY_DAYS,
+                           keys=rows, made=made, made_kind=made_kind, kinds=PREVIEW_KINDS,
+                           days=PREVIEW_KEY_DAYS,
                            default_days=PREVIEW_KEY_DEFAULT_DAYS,
                            label_max=PREVIEW_KEY_LABEL_MAX)
 
@@ -20647,9 +20767,15 @@ def dev_keys_revoke(kid):
         abort(404)
     conn = db()
     c = conn.cursor()
+    kind = (c.execute("SELECT COALESCE(kind, 'sandbox') FROM preview_keys WHERE id = ?",
+                      (kid,)).fetchone() or ["sandbox"])[0]
     c.execute("UPDATE preview_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
               (_stamp(), kid))
-    _wipe_sandbox(c, "%s:%d" % (SANDBOX_SUB, kid))
+    # Only a sandbox key owns an account to clean up. An access key was used
+    # by a real person on their real account - taking the key back must not
+    # touch a single row of theirs.
+    if kind == "sandbox":
+        _wipe_sandbox(c, "%s:%d" % (SANDBOX_SUB, kid))
     conn.commit()
     conn.close()
     _PREVIEW_OK_CACHE.pop(kid, None)
@@ -20666,6 +20792,7 @@ GEM_REASON_LABELS = {
     "member-pay": "Salary, out of the treasury", "salary": "Free-agent salary",
     "hire": "Free-agent signing fee", "purchase": "Bought in the shop",
     "clan-start": "Started a clan", "sandbox": "Test account (not real)",
+    "preview-credit": "Test gems, from an access key",
     "objective": "Daily or weekly objective",
     "contract": "Contract instalment", "contract-refund": "Contract ended early",
     "event-win": "Won a hosted event", "event-clan": "Event prize, to the clan",
@@ -20684,7 +20811,12 @@ def _econ_rows(c, sql, args=()):
 def economy_snapshot(c, days=14):
     """What the economy has done. Reads the ledger only - the cached columns
     on players/clans are derived from it, so the ledger is the truth."""
-    real = "owner NOT LIKE 'test:%' AND reason <> 'sandbox'"
+    # The real economy means real players: a test account, and anybody holding
+    # an access key's test money, are both left out entirely - otherwise one
+    # tester's million would swamp every figure on the page, and the gems they
+    # spent out of it would read as a burn that really happened.
+    real = ("owner NOT LIKE 'test:%' AND reason <> 'sandbox' "
+            "AND owner NOT IN (SELECT owner FROM gem_ledger WHERE reason = 'preview-credit')")
     snap = {"days": [], "reasons": [], "holders": [], "clans": [], "spenders": [],
             "bought": [], "held": 0, "held_players": 0, "held_clans": 0,
             "made": 0, "burned": 0, "made_week": 0, "burned_week": 0,

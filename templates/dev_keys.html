@@ -30,9 +30,11 @@
   <div class="phwho"><div class="phtext">
     <p class="pheye">Owner</p>
     <h1 class="phname">Tester keys</h1>
-    <p class="phsub">A key lets one person see the gem economy before it is released. Each key
-      has its own test account, so two testers never overwrite each other, and a key can be
-      taken back at any time. Send them to <b>/dev/preview</b> with their key.</p>
+    <p class="phsub">A key lets one person see the gem economy before it is released.
+      <b>A test account</b> key gives them a throwaway account of their own, so two testers
+      never overwrite each other. <b>As themselves</b> opens it on their real account with test
+      gems &mdash; the one to use for events, where they have to play and be paid as who they
+      are. Either can be taken back at any time. Send them to <b>/dev/preview</b>.</p>
   </div></div>
   <div class="phnums">
     <div class="phnum"><span>Live</span><b class="green">{{ keys|selectattr('state', 'equalto', 'live')|list|length }}</b></div>
@@ -52,8 +54,10 @@
     <span class="msg" id="copyMsg"></span>
   </div>
   <p class="desc" id="newmsg">Go to {{ request.host_url.rstrip('/') }}/dev/preview and paste this key: {{ made }} &mdash;
-     it puts you on a test account with gems to spend. Nothing you do there touches the real
-     leaderboard.</p>
+     {% if made_kind == 'access' %}it opens the unreleased half of the site on your own
+     account, with {{ '{:,}'.format(1000000) }} test gems to spend. What you buy and win is
+     real, so tell me what you think of it.{% else %}it puts you on a test account with gems
+     to spend. Nothing you do there touches the real leaderboard.{% endif %}</p>
 </div>
 <script>
 function copyKey(id){
@@ -70,6 +74,11 @@ function copyKey(id){
   <form class="kform" method="post">
     <label>Who it is for
       <input name="label" maxlength="{{ label_max }}" placeholder="e.g. niwu" autocomplete="off"></label>
+    <label>What it opens
+      <select name="kind">
+        <option value="sandbox">A test account of their own</option>
+        <option value="access">The site as themselves, with test gems</option>
+      </select></label>
     <label>Good for
       <select name="days">
         {% for d in days %}<option value="{{ d }}"{% if d == default_days %} selected{% endif %}>{{ d }} day{{ '' if d == 1 else 's' }}</option>{% endfor %}
@@ -87,7 +96,7 @@ function copyKey(id){
     <tbody>
     {% for k in keys %}
     <tr>
-      <td><b>{{ k.label }}</b></td>
+      <td><b>{{ k.label }}</b><br><span style="font-size:11px;color:var(--dim)">{{ 'as themselves' if k.kind == 'access' else 'test account' }}</span></td>
       <td><span class="kstate {{ k.state }}">{{ k.state }}</span></td>
       <td>{{ k.made }}</td>
       <td>{{ k.expires }}</td>

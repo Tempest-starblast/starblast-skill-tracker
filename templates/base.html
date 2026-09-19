@@ -548,17 +548,18 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 
 {% if dev_testing %}
 <div class="devbar">
-  🧪 {% if dev_tester %}You are trying the preview on a test account of your own — nothing
+  🧪 {% if dev_access %}You have early access as yourself — the gems are test money, but what you
+      buy, win and claim is real{% elif dev_tester %}You are trying the preview on a test account of your own — nothing
       here touches the real leaderboard{% elif dev_mode == 'account' %}You are testing as a
       signed-in player{% if dev_elo %} rated {{ '{:,}'.format(dev_elo) }}{% endif %} — not your
       real account{% else %}You are testing as a blank sandbox player — not your real
       account{% endif %}.
-  <button onclick="devRestore()">{% if dev_tester %}Leave the preview{% else %}Back to my account{% endif %}</button>
+  <button onclick="devRestore()">{% if dev_access %}Hide it again{% elif dev_tester %}Leave the preview{% else %}Back to my account{% endif %}</button>
 </div>
 <script>
 async function devRestore(){
   try{ await fetch('/dev/restore', {method:'POST'}); }catch(e){}
-  location.href = {{ '"/"' if dev_tester else '"/account"' }};
+  location.href = {{ '"/"' if (dev_tester or dev_access) else '"/account"' }};
 }
 </script>
 {% endif %}
