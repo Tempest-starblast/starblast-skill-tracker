@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Shop - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
-.ship.cos.rented{border-color:rgba(240,192,74,.55)}
-.renttag{position:absolute;top:9px;right:9px;font-size:10px;font-weight:800;letter-spacing:.06em;
-  text-transform:uppercase;padding:2px 7px;border-radius:999px;color:#0b0e13;background:#f0c04a}
-.rentrow{display:flex;gap:7px;flex-wrap:wrap}
-.rentrow .btn{flex:1 1 auto;min-width:96px}
+.wearrow{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 0}
+.wearpill{display:inline-flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel);font-size:12.5px}
+.wearpill b{font-weight:700;color:#fff}
+.wearpill span{color:var(--dim)}
+.wearpill button{border:none;background:rgba(255,255,255,.08);color:var(--muted);cursor:pointer;
+  border-radius:999px;padding:3px 9px;font-size:11.5px;font-weight:700}
+.wearpill button:hover{background:rgba(255,120,140,.2);color:#ffd9df}
 .price.short{white-space:nowrap}
 /* A hangar and a wardrobe. Every ship is drawn in its tier's colour, since
    on the board it wears yours; every look is shown on YOUR name and ship,
@@ -93,7 +96,10 @@
 .mythic .ship .emb{opacity:1}
 @media(prefers-reduced-motion:reduce){.mythic .ship::before{animation:none}}
 .mythic .ship .nm{color:#ff2e4d}
-.mythic .ship .price{color:#ff9fb3}
+/* The price reads like every other price: white when you can afford it,
+   dim when you cannot. It used to be painted crimson with the rest of the
+   mythic tile, which read as "you are short" to everybody who was not. */
+.mythic .ship .price.short{color:var(--dim,#5d7f93)}
 .mythic .why{max-width:26ch;line-height:1.45}
 
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;
@@ -118,7 +124,24 @@
     {% if signed_in %}<div class="phnum"><span>Gems</span><b class="blue big" id="bal">{{ '{:,}'.format(balance) }}</b></div>{% endif %}
     <div class="phnum"><span>Sale resets in</span><b id="resetIn" data-secs="{{ resets_in }}">&hellip;</b></div>
   </div>
+  <p class="phlinks">{% if me_name %}<a href="/player/{{ me_name|urlencode }}">See it on your profile</a> &middot; {% endif %}<a href="/achievements">Achievements</a>{% if signed_in %} &middot; <a href="/account">Your account</a>{% endif %}</p>
 </div>
+
+{% if wearing %}
+<div class="card">
+  <h2>Wearing now</h2>
+  <p class="desc">Everything you have on, in one place. Taking something off costs nothing and
+    it stays yours.</p>
+  <div class="wearrow">
+    {% for w in wearing %}
+    <span class="wearpill"{% if w.item %} data-item="{{ w.item }}" data-slot="{{ w.slot }}"{% else %} data-code="{{ w.code }}"{% endif %}>
+      <span>{{ w.label }}</span><b>{{ w.name }}</b>
+      <button type="button" data-act="unequip">{{ 'Back to your tier' if w.code else 'Take it off' }}</button>
+    </span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% macro price_of(i) -%}
   {% if i.sale %}<span class="price sale{% if not i.can %} short{% endif %}"><s>{{ '{:,}'.format(i.sale.was) }}</s>{{ gem_svg|safe }}{{ '{:,}'.format(i.sale.price) }}<span class="off">-{{ i.sale.off }}%</span></span>
@@ -130,19 +153,25 @@
   {% if i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
   <span class="emb">{{ rank_emblem(i.code, 72, (mythic_color if i.mythic else i.color), i.name, 'rank-emblem mythic' if i.mythic else 'rank-emblem')|safe }}</span>
   <span class="nm">{{ i.name }}</span>
-  {% if i.mythic %}
-    <span class="why">{{ '{:,}'.format(i.price) }} gems &mdash; or yours for having been the best player on the board.</span>
-  {% elif i.own == 'rank' %}<span class="why rank">Yours &mdash; {{ i.unlock_rank.name }} rank</span>
-  {% elif i.own == 'best' %}<span class="why rank">Yours &mdash; best player</span>
+  {% if i.own == 'rank' %}<span class="why rank">Yours &mdash; {{ i.unlock_rank.name }}</span>
   {% elif i.own == 'bought' %}<span class="why rank">Yours</span>
-  {% elif i.unlock_rank %}<span class="why">Free at {{ i.unlock_rank.name }}</span>
+  {% elif i.mythic %}<span class="why">Yours the day you finish number one on the board &mdash; or {{ '{:,}'.format(i.price) }} gems once you are {{ i.need_rank.name }}.</span>
+  {% elif i.earn_only %}<span class="why">Not for sale &mdash; reach {{ i.unlock_rank.name }} and it is yours.</span>
+  {% elif not i.may_buy %}<span class="why">{{ i.need_rank.name }} tier flies this hull.</span>
   {% elif i.premium %}<span class="why">Premium hull</span>
   {% else %}<span class="why"></span>{% endif %}
   <span class="buy">
   {% if i.own %}
     {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
-      <button type="button" class="btn quiet" data-act="unequip">Back to rank&#39;s ship</button>
+      <button type="button" class="btn quiet" data-act="unequip">Back to tier&#39;s ship</button>
     {% else %}<button type="button" class="btn" data-act="equip">Wear it</button>{% endif %}
+  {% elif i.earn_only %}
+    <span class="price short">Earned, not sold</span>
+    <button type="button" class="btn quiet" disabled>Reach {{ i.unlock_rank.name }}</button>
+  {% elif not i.may_buy %}
+    {{ price_of(i) }}
+    <button type="button" class="btn quiet" disabled
+            title="A hull is flown by the tier it belongs to. Climb to {{ i.need_rank.name }} and it is on sale to you.">Locked &middot; {{ i.need_rank.name }}</button>
   {% else %}
     {{ price_of(i) }}
     <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
@@ -152,16 +181,15 @@
 {% endmacro %}
 
 {% macro ctile(i) %}
-<div class="ship cos{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}{% if i.rented_days %} rented{% endif %}" data-item="{{ i.id }}" data-slot="{{ i.slot }}" data-name="{{ i.name }}">
-  {% if i.rented_days %}<span class="renttag">{{ i.rented_days }}d left</span>
-  {% elif i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
+<div class="ship cos{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-item="{{ i.id }}" data-slot="{{ i.slot }}" data-name="{{ i.name }}">
+  {% if i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
   <span class="cprev{% if i.slot == 'banner' %} cosb {{ i.cls }}{% elif i.slot == 'frame' %} cosf {{ i.cls }}{% endif %}">
     {%- if i.slot == 'name' %}<span class="cosn {{ i.cls }}">{{ me_name or 'Your name' }}</span>
     {%- elif i.slot == 'fx' %}<span class="cosx {{ i.cls }}">{{ rank_emblem(prev_ship, 40, rank_color, i.name)|safe }}</span>
     {%- elif i.slot == 'title' %}<span class="cost{% if i.via %} earned{% endif %}">{{ i.name }}</span>{% endif -%}
   </span>
   <span class="nm">{{ i.name }}</span>
-  <span class="why{% if i.via %} earnedby{% endif %}">{% if i.via %}Earned: <a href="/achievements">{{ i.via_name }}</a>{% else %}{{ i.desc }}{% endif %}</span>
+  <span class="why{% if i.via %} earnedby{% endif %}">{% if i.via %}Earned: <a href="/achievements#a-{{ i.via }}">{{ i.via_name }}</a>{% else %}{{ i.desc }}{% endif %}</span>
   <span class="buy">
   {% if i.own %}
     {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
@@ -170,23 +198,9 @@
   {% elif i.via %}
     <span class="price short">Not for sale</span>
     <button type="button" class="btn quiet" disabled>Earn it</button>
-  {% elif i.rented_days %}
-    <span class="price short">Rented &middot; {{ i.rented_days }} day{{ '' if i.rented_days == 1 else 's' }} left</span>
-    <span class="rentrow">
-      <button type="button" class="btn quiet" data-act="rent"{% if not signed_in or not i.can_rent %} disabled{% endif %}>+{{ rent_days }} days &middot; {{ '{:,}'.format(i.rent) }}</button>
-      <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy it outright</button>
-    </span>
   {% else %}
     {{ price_of(i) }}
-    {% if i.rentable %}
-    <span class="rentrow">
-      <button type="button" class="btn quiet" data-act="rent"{% if not signed_in or not i.can_rent %} disabled{% endif %}
-              title="A week of it. Rent never adds up to owning it.">Rent a week &middot; {{ '{:,}'.format(i.rent) }}</button>
-      <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
-    </span>
-    {% else %}
     <button type="button" class="btn" data-act="buy"{% if not signed_in or not i.can %} disabled{% endif %}>Buy</button>
-    {% endif %}
   {% endif %}
   </span>
 </div>
@@ -291,7 +305,7 @@
     var tile=b.closest('[data-code],[data-item],[data-citem]'); if(!tile) return;
     var code=tile.getAttribute('data-code'), item=tile.getAttribute('data-item'), citem=tile.getAttribute('data-citem'),
         slot=tile.getAttribute('data-slot'), act=b.getAttribute('data-act');
-    var url = act==='buy' ? '/shop/buy' : (act==='rent' ? '/shop/rent' : '/shop/equip'), body;
+    var url = act==='buy' ? '/shop/buy' : '/shop/equip', body;
     if(citem){ url = act==='buy' ? '/clan/shop/buy' : '/clan/shop/equip';
                body = act==='unequip' ? {clan:CLAN, slot:slot, item:null} : {clan:CLAN, item:citem}; }
     else if(item){ body = act==='unequip' ? {slot:slot, item:null} : {item:item}; }

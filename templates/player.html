@@ -84,7 +84,7 @@
   radial-gradient(120% 140% at 12% 0%,var(--rkglow),transparent 60%),
   linear-gradient(180deg,color-mix(in srgb,var(--rk) 14%,#16110a),#12100a)}
 .rankhero.flair-6 .rankname{text-shadow:0 0 16px var(--rkglow)}
-/* f7 Marauder prestige - animated shine sweep + strong glow */
+/* f7 Warden prestige - animated shine sweep + strong glow */
 .rankhero.flair-7{border-color:color-mix(in srgb,var(--rk) 65%,transparent);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 10px 30px var(--rkglow)}
 .rankhero.flair-7 .rankname{text-shadow:0 0 22px var(--rkglow)}
@@ -214,6 +214,32 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
     radial-gradient(1.5px 1.5px at 60% 46%,#fff,transparent),
     radial-gradient(1.5px 1.5px at 32% 88%,#cfe9ff,transparent);
   animation:rk-twinkle 2.4s ease-in-out infinite}
+/* f9 Mythos - number one on the board, ever. The only crimson card there
+   is, and the only one with the Odyssey on it. */
+.pbox.flair-9{border:1px solid transparent;
+  background:linear-gradient(#120a0d,#0d0709) padding-box,
+    linear-gradient(120deg,#ff2e4d,#ff8fa3,#fff,#ff6b8a,#ff2e4d) border-box;
+  box-shadow:0 0 0 1px rgba(255,46,77,.28),0 14px 40px rgba(255,46,77,.32)}
+.pbox.flair-9 .rk-name{background:linear-gradient(120deg,#ff5f78,#ffd2da,#fff,#ff8fa3,#ff5f78);
+  background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:rk-holo 5s linear infinite}
+.pbox.flair-9 .pbox-emblem{background:radial-gradient(circle at 50% 50%,rgba(255,46,77,.45),transparent 86%)}
+.pbox.flair-9 .pbox-emblem svg{filter:drop-shadow(0 0 10px rgba(255,80,110,.95))}
+.pbox.flair-9::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(115deg,transparent 42%,rgba(255,180,195,.3) 50%,transparent 58%);
+  transform:translateX(-120%);animation:rk-sheen 3.2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.pbox.flair-9 .rk-name{animation:none;background-position:0 50%}}
+/* The hull actually being flown, said in words - the emblem is drawn in the
+   tier's colour, so the shape alone was never enough to name it. */
+.pbox-rank .rk-hull{font-size:12px;color:var(--muted);letter-spacing:.2px}
+.pbox-rank .rk-hull b{color:#dfe8f0;font-weight:700}
+.pachrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pachpip{display:inline-flex;align-items:center;gap:7px;padding:6px 11px 6px 7px;border-radius:999px;
+  border:1px solid rgba(142,243,255,.3);background:rgba(142,243,255,.07);font-size:12px;
+  font-weight:700;color:#dff6ff;text-decoration:none}
+.pachpip .emb{width:22px;height:22px;display:flex;align-items:center;justify-content:center}
+.pachpip .emb svg{display:block}
+.pachpip time{color:var(--dim);font-weight:600}
 .pbox.placements{border-color:#2b3038;background:linear-gradient(180deg,#161a20,#12151b)}
 .pbox.placements .rk-name{color:#c9d1d9}
 @media (prefers-reduced-motion:reduce){.pbox::before,.pbox .sparkles{animation:none}
@@ -229,7 +255,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
 <div class="pbox{% if d %} flair-{{ d.flair }}{% if d.diamond %} diamond{% endif %}{% elif player.placements_left %} placements{% endif %}{% if pc.banner %} cosb {{ pc.banner.cls }}{% endif %}{% if pc.frame %} cosf {{ pc.frame.cls }}{% endif %}"{% if d %} style="--rk:{{ d.color }};--rkglow:{{ d.glow }}"{% endif %}>
   {% if d and d.diamond %}<div class="sparkles" aria-hidden="true"></div>{% endif %}
   <div class="pbox-top">
-    <div class="pbox-emblem{% if pc.fx %} cosx {{ pc.fx.cls }}{% endif %}">{% if d %}{{ rank_emblem(player.emblem or d.ship, 88, player.emblem_color or d.color, d.name, 'rank-emblem mythic' if player.mythic else 'rank-emblem')|safe }}{% elif player.emblem %}{{ rank_emblem(player.emblem, 74, player.emblem_color or '#8b949e', 'Unranked', 'rank-emblem mythic' if player.mythic else 'rank-emblem')|safe }}{% else %}{{ rank_emblem(101, 74, '#8b949e', 'Fly')|safe }}{% endif %}</div>
+    <div class="pbox-emblem{% if pc.fx %} cosx {{ pc.fx.cls }}{% endif %}">{% if d %}{{ rank_emblem(player.emblem or d.ship, 88, player.emblem_color or d.color, player.emblem_name or d.name, 'rank-emblem mythic' if player.mythic else 'rank-emblem')|safe }}{% elif player.emblem %}{{ rank_emblem(player.emblem, 74, player.emblem_color or '#8b949e', player.emblem_name or 'Unranked', 'rank-emblem mythic' if player.mythic else 'rank-emblem')|safe }}{% else %}{{ rank_emblem(101, 74, '#8b949e', 'Fly')|safe }}{% endif %}</div>
     <div class="pbox-id">
       <h1 class="pname2">{% if player.clan %}<a class="badge{% if player.cv and player.cv.tag %} cbadge {{ player.cv.tag }}{% endif %}" href="/clan/{{ player.clan }}">{{ player.clan_display or player.clan }}</a>{% endif %}<span class="{% if pc.name %}cosn {{ pc.name.cls }}{% endif %}">{{ player.display }}</span>{% if pc.title %}<span class="cost{% if pc.title.earned %} earned{% endif %}">{{ pc.title.text }}</span>{% endif %}{%- for tag in player.admin_of %}<a class="leads" href="/clan/{{ tag }}" title="Runs the {{ tag }} clan">&#9812; runs {{ tag }}</a>{% endfor %}<span id="invSlot"></span>{#
   Add a friend sits in the heading beside Invite, and wears the same chip:
@@ -239,9 +265,10 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
     data-state="{{ friend_state }}"></span>{% endif %}</h1>
 <p class="frmsg" id="frMsg"></p>
       <div class="pbox-rank">
-        {%- if d %}<span class="rk-name" title="Your skill rank: one of seven, named after the game&#39;s ships from Fly up to Shadow X-3, from where you sit on the leaderboard. It is not the ship you fly - see Ships flown further down.">{{ d.name }}</span><span class="rk-band" title="Your skill rank: one of seven, named after the game&#39;s ships from Fly up to Shadow X-3, from where you sit on the leaderboard. It is not the ship you fly - see Ships flown further down.">{{ t('Skill rank') }} &middot; {{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>
+        {%- if d %}<span class="rk-name" title="Your skill tier: where you sit on the leaderboard, from Drifter at the bottom up to Archon for the top half percent - and Mythos for anyone who has finished a day at number one. It is not the ship you fly - see Ships flown further down.">{{ d.name }}</span><span class="rk-band" title="Your skill tier: where you sit on the leaderboard, from Drifter at the bottom up to Archon for the top half percent - and Mythos for anyone who has finished a day at number one. It is not the ship you fly - see Ships flown further down.">{{ t('Skill rank') }} &middot; {{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>
         {%- elif player.placements_left %}<span class="rk-name">{{ t('In placements') }}</span><span class="rk-band">{{ player.placements_left }} {{ t('more to earn a rank') }}</span>
         {%- else %}<span class="rk-band">Rank #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>{% endif %}
+        {%- if player.emblem_name %}<span class="rk-hull" title="The hull they have chosen to wear. The colour of the emblem is their tier, not the hull.">Flying the <b>{{ player.emblem_name }}</b></span>{% endif %}
       </div>
       <p class="msg" id="invMsg"></p>
     </div>
@@ -262,6 +289,20 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
   {% endif %}
   <p class="pbox-foot"><a href="/">&larr; {{ t('Leaderboard') }}</a></p>
 </div>
+
+{% if gems_on and earned %}
+<div class="card">
+  <h2>Achievements</h2>
+  <p class="desc" style="margin:-4px 0 12px">{{ earned|length }} earned{% if player.is_me %} &mdash; <a href="/achievements" style="color:var(--green,#66e6b8)">see the rest</a>{% endif %}.</p>
+  <div class="pachrow">
+    {% for a in earned %}
+    <span class="pachpip" title="{{ a.desc }}">
+      <span class="emb">{% if a.rank %}{{ rank_emblem(a.rank.ship, 22, a.rank.color, a.rank.name)|safe }}{% else %}<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/></svg>{% endif %}</span>{{ a.name }}{% if a.at %} <time>{{ a.at }}</time>{% endif %}
+    </span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% if player.bio or player.is_me %}
 <div class="card bio-card">
@@ -521,7 +562,7 @@ document.getElementById('cmpWho').addEventListener('keydown',function(e){
 {% if custom_games %}
 <div class="card">
   <h2>Custom games</h2>
-  <p class="empty" style="margin:-4px 0 10px">Unrated games from the Marauder custom lobby &mdash; they don&rsquo;t affect the rating.</p>
+  <p class="empty" style="margin:-4px 0 10px">Unrated games from the Warden custom lobby &mdash; they don&rsquo;t affect the rating.</p>
   <div class="tablewrap">
   <table>
     <thead><tr><th>When</th><th>Game</th><th>Team</th><th>Result</th><th class="num">Score</th><th class="num">Played</th></tr></thead>

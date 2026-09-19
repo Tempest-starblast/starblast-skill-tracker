@@ -330,6 +330,11 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
   color:#8ef3ff;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;flex-shrink:0}
 .gchip:hover{background:rgba(142,243,255,.16);border-color:rgba(142,243,255,.6)}
 .gchip svg{width:13px;height:13px;flex:none}
+/* The chip carries your balance, but pressing it goes to the achievements
+   that pay it - so it says so, on anything wider than a phone. */
+.gchip i{font-style:normal;font-weight:700;font-size:12px;letter-spacing:.2px;opacity:.85;
+  padding-left:2px;border-left:1px solid rgba(142,243,255,.28);margin-left:2px}
+@media (max-width:900px){.gchip i{display:none}}
 {% include "_cosmetics_css.html" %}
 {%- endif %}
 /* The red counter: invitations waiting plus decisions not yet seen. */
@@ -463,6 +468,9 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 .devbar button{background:#1a1305;color:#ffe4a0;border:none;border-radius:3px;
   padding:6px 14px;font-weight:700;cursor:pointer}
 .devbar button:hover{background:#000}
+.devtier{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12.5px}
+.devtier select{background:#1a1305;color:#ffe4a0;border:1px solid rgba(255,228,160,.35);
+  border-radius:3px;padding:5px 8px;font-weight:700;font-size:12.5px}
 @media (hover:none){
   .tabmore:hover:not(.open) .tabmenu{opacity:0;visibility:hidden;pointer-events:none}
 }
@@ -554,12 +562,26 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
       signed-in player{% if dev_elo %} rated {{ '{:,}'.format(dev_elo) }}{% endif %} — not your
       real account{% else %}You are testing as a blank sandbox player — not your real
       account{% endif %}.
+  <label class="devtier">Looking as
+    <select id="devTier" onchange="devLevel(this.value)">
+      <option value="0"{% if not dev_level %} selected{% endif %}>the tier I have earned</option>
+      {% for lvl, nm in dev_tiers %}<option value="{{ lvl }}"{% if dev_level == lvl %} selected{% endif %}>{{ nm }}</option>{% endfor %}
+    </select>
+  </label>
   <button onclick="devRestore()">{% if dev_access %}Hide it again{% elif dev_tester %}Leave the preview{% else %}Back to my account{% endif %}</button>
 </div>
 <script>
 async function devRestore(){
   try{ await fetch('/dev/restore', {method:'POST'}); }catch(e){}
   location.href = {% if dev_tester or dev_access %}"/"{% else %}"/account"{% endif %};
+}
+// Which tier the shop and the hangar should treat you as. Your own session
+// only - nobody else's page changes, and your record on the board is not
+// touched.
+async function devLevel(v){
+  try{ await fetch('/dev/level', {method:'POST', headers:{'Content-Type':'application/json'},
+                                  body:JSON.stringify({level: parseInt(v,10)||0})}); }catch(e){}
+  location.reload();
 }
 </script>
 {% endif %}
@@ -610,10 +632,11 @@ async function devRestore(){
         </a>
         {%- endif %}
         {%- if gems_on %}
-        <a class="gchip" id="gchip" href="/achievements" style="display:none" aria-label="Your gems"
-           title="Your gems">
+        <a class="gchip" id="gchip" href="/achievements" style="display:none"
+           aria-label="Your gems - go to achievements"
+           title="Your gems. Press for the achievements that pay them.">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".9"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".8"/></svg>
-          <span id="gchipN"></span>
+          <span id="gchipN"></span><i>Achievements</i>
         </a>
         {%- endif %}
         <button id="authOutBtn" onclick="sbSignOut()">Sign out</button>

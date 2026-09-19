@@ -1,5 +1,5 @@
 from flask import (Flask, request, jsonify, render_template, session, redirect, url_for,
-                   abort)
+                   abort, g, has_request_context)
 import re
 import bisect
 import html
@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.50.2"
+APP_VERSION = "9.51.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -370,28 +370,34 @@ GEM_WIN_MILESTONES = [
 # you went through them to get there. Steep on purpose: the top division is
 # half a percent of the board and should be worth more than grinding.
 GEM_DIVISION_AWARD = {1: 50, 2: 100, 3: 200, 4: 400,
-                      5: 800, 6: 1400, 7: 2400, 8: 4000}
+                      5: 800, 6: 1400, 7: 2400, 8: 4000, 9: 10000}
 
 
 # ---- The ship shop ---------------------------------------------------
 # What a ship costs, by tier (the hundreds digit of its code). Dearer as the
-# hull gets bigger; a top-tier hull costs more than a Shadow X-3 rank pays.
+# hull gets bigger; a top-tier hull costs more than the top tier pays.
 # A week of ordinary play is ~620 gems, a good week ~1,740. So: tier 1 is a
 # night, tier 4 a fortnight, tier 7 a month or two of real play.
 SHIP_TIER_PRICE = {1: 150, 2: 400, 3: 800, 4: 1500, 5: 2500, 6: 4000, 7: 6000}
-# Which ship each division hands you on arrival. Level 7 is the Marauder,
-# matching ranks.py; the Odyssey is nobody's rank ship - it is the mythic.
-SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7, 702: 8}
+# Which ship each tier hands you on arrival, matching ranks.py. The Odyssey
+# belongs to Mythos: finish a day at number one and it is yours, free.
+SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7,
+                    702: 8, 701: 9}
+# The tier you must have reached to BUY a hull, where that is not simply the
+# hull's own tier. A tier ship is not on sale at all - reach the tier and it
+# is handed to you - and the Odyssey may be bought by the top climbable tier
+# (Archon) although only Mythos is given it.
+SHIP_BUY_LEVEL = {701: ranks.TOP_CLIMBABLE}
 # Priced by hand rather than by tier.
 SHIP_SPECIAL_PRICE = {703: 8000, 704: 10000, 701: 25000}
 MYTHIC_SHIP = 701                       # the Odyssey
-MYTHIC_COLOR = "#ff2e4d"                # crimson, whatever your rank - and apart from Marauder orange
+MYTHIC_COLOR = "#ff2e4d"                # crimson, whatever your tier - and apart from Warden orange
 MYTHIC_GLOW = "rgba(255,46,77,.6)"
 
 
 def ship_catalog():
     """Every ship you could wear, cheapest first within a tier. Each carries
-    the colour of the rank its tier stands for - the Shadow X-3 its own,
+    the colour of the tier it stands for - the Shadow X-3 its own,
     the Odyssey the mythic red - which is how the shop draws it; on the
     board a ship always wears its owner's rank colour."""
     by_level = {r["level"]: r["color"] for r in ranks.RANKS}
@@ -407,10 +413,18 @@ def ship_catalog():
     for code in sorted(ship_shapes.ship_codes()):
         tier = code // 100
         tier_color = by_level.get(tier_level.get(tier, 0), "#8b949e")
+        unlock = SHIP_RANK_UNLOCK.get(code)
         out.append({
             "code": code, "name": ship_shapes.ship_name(code), "tier": tier,
             "price": SHIP_SPECIAL_PRICE.get(code, SHIP_TIER_PRICE.get(tier, 0)),
-            "unlock_level": SHIP_RANK_UNLOCK.get(code),
+            "unlock_level": unlock,
+            # A tier's hulls are for the people who have reached that tier.
+            # Where a hull is a tier's own reward, the gate IS the reward, so
+            # it never appears for sale: you earn it or you do not have it.
+            "buy_level": SHIP_BUY_LEVEL.get(code, unlock or tier),
+            # true when reaching the tier IS how you get it, so the shop and
+            # the buy route say "earn it" rather than "come back richer".
+            "earn_only_gate": bool(unlock) and code not in SHIP_BUY_LEVEL,
             "mythic": code == MYTHIC_SHIP,
             "premium": code in (703, 704),
             "tier_color": tier_color,
@@ -434,12 +448,19 @@ def owned_ships(c, nn):
                 own.setdefault(int(ref[5:]), "bought")
             except ValueError:
                 pass
-        r = c.execute("SELECT peak_rank FROM players WHERE norm_name = ?", (nn,)).fetchone()
-        if r and r[0] == 1:
-            own.setdefault(MYTHIC_SHIP, "best")
     except sqlite3.Error:
         pass
     return own
+
+
+def ship_buyable(c, nn, item, lvl=None):
+    """Whether this player has earned the right to buy this hull, and the
+    tier they would need. A hull a tier hands out is never for sale."""
+    need = int(item.get("buy_level") or 0)
+    if not need:
+        return True, None
+    lvl = gem_peak_level(c, nn) if lvl is None else lvl
+    return lvl >= need, ranks.RANK_BY_LEVEL.get(need)
 
 
 def gem_charge(c, nn, amount, reason, ref):
@@ -572,69 +593,69 @@ COSMETIC_NOTES = {
 }
 COSMETICS = [
     # banners
-    ("b-dark", "banner", "Dark", 250, "Lights off."),
-    ("b-starfield", "banner", "Starfield", 500, "Deep space, a few stars."),
-    ("b-grid", "banner", "Grid", 750, "Radar lines across the card."),
-    ("b-deepsea", "banner", "Deep sea", 750, "Blue, all the way down."),
-    ("b-laser", "banner", "Laser", 750, "Pink beams across the dark."),
-    ("b-ember", "banner", "Ember", 1000, "A glow from underneath."),
-    ("b-nebula", "banner", "Nebula", 1000, "Violet and rose cloud."),
-    ("b-aurora", "banner", "Aurora", 1250, "Green and blue light, folded."),
-    ("b-void", "banner", "Void", 1500, "Black, with something purple below."),
-    ("b-plasma", "banner", "Plasma", 2500, "Magenta, cyan and violet, swirling."),
-    ("b-bloodmoon", "banner", "Blood moon", 2500, "A red moon in the corner."),
-    ("b-goldleaf", "banner", "Gold leaf", 4000, "Gold, hammered flat."),
+    ("b-dark", "banner", "Dark", 700, "Lights off."),
+    ("b-starfield", "banner", "Starfield", 1200, "Deep space, a few stars."),
+    ("b-grid", "banner", "Grid", 1600, "Radar lines across the card."),
+    ("b-deepsea", "banner", "Deep sea", 1600, "Blue, all the way down."),
+    ("b-laser", "banner", "Laser", 1600, "Pink beams across the dark."),
+    ("b-ember", "banner", "Ember", 2600, "A glow from underneath."),
+    ("b-nebula", "banner", "Nebula", 2600, "Violet and rose cloud."),
+    ("b-aurora", "banner", "Aurora", 3200, "Green and blue light, folded."),
+    ("b-void", "banner", "Void", 4000, "Black, with something purple below."),
+    ("b-plasma", "banner", "Plasma", 6500, "Magenta, cyan and violet, swirling."),
+    ("b-bloodmoon", "banner", "Blood moon", 6500, "A red moon in the corner."),
+    ("b-goldleaf", "banner", "Gold leaf", 13000, "Gold, hammered flat."),
     ("b-immortal", "banner", "Immortal", 0, "Gold on black. One thousand wins.", "wins-1000"),
     # name styles
-    ("n-neon", "name", "Neon", 500, "Your name in cyan light."),
-    ("n-ice", "name", "Ice", 750, "Pale blue, cold glow."),
-    ("n-toxic", "name", "Toxic", 750, "Acid green."),
-    ("n-violet", "name", "Violet", 750, "Purple glow."),
-    ("n-shadow", "name", "Shadow", 1000, "Dark letters with a light edge."),
-    ("n-blood", "name", "Blood", 1250, "Crimson."),
-    ("n-fire", "name", "Fire", 1250, "Yellow into red."),
-    ("n-chrome", "name", "Chrome", 1500, "Brushed metal."),
-    ("n-gold", "name", "Gold", 2500, "Gold, with a shine."),
-    ("n-rainbow", "name", "Rainbow", 5000, "Every colour, moving."),
+    ("n-neon", "name", "Neon", 1200, "Your name in cyan light."),
+    ("n-ice", "name", "Ice", 1600, "Pale blue, cold glow."),
+    ("n-toxic", "name", "Toxic", 1600, "Acid green."),
+    ("n-violet", "name", "Violet", 1600, "Purple glow."),
+    ("n-shadow", "name", "Shadow", 2600, "Dark letters with a light edge."),
+    ("n-blood", "name", "Blood", 3200, "Crimson."),
+    ("n-fire", "name", "Fire", 3200, "Yellow into red."),
+    ("n-chrome", "name", "Chrome", 4000, "Brushed metal."),
+    ("n-gold", "name", "Gold", 6500, "Gold, with a shine."),
+    ("n-rainbow", "name", "Rainbow", 16000, "Every colour, moving."),
     # frames
-    ("f-frost", "frame", "Frost", 750, "A white double ring."),
-    ("f-hazard", "frame", "Hazard", 750, "Amber warning ring."),
-    ("f-neon", "frame", "Neon edge", 1000, "Cyan light round the edge."),
-    ("f-crimson", "frame", "Crimson", 1000, "Red light round the edge."),
-    ("f-emerald", "frame", "Emerald", 1000, "Green light round the edge."),
-    ("f-circuit", "frame", "Circuit", 1250, "Dashed, like a trace on a board."),
-    ("f-gold", "frame", "Gold ring", 2000, "Gold, thin, bright."),
-    ("f-diamond", "frame", "Diamond", 0, "White light. Shadow X-3 only.", "div-shadowx3"),
+    ("f-frost", "frame", "Frost", 1600, "A white double ring."),
+    ("f-hazard", "frame", "Hazard", 1600, "Amber warning ring."),
+    ("f-neon", "frame", "Neon edge", 2600, "Cyan light round the edge."),
+    ("f-crimson", "frame", "Crimson", 2600, "Red light round the edge."),
+    ("f-emerald", "frame", "Emerald", 2600, "Green light round the edge."),
+    ("f-circuit", "frame", "Circuit", 3200, "Dashed, like a trace on a board."),
+    ("f-gold", "frame", "Gold ring", 5000, "Gold, thin, bright."),
+    ("f-diamond", "frame", "Diamond", 0, "White light. Archon only.", "div-shadowx3"),
     # emblem effects
-    ("x-halo", "fx", "Halo", 1000, "A soft white light behind your ship."),
-    ("x-spark", "fx", "Spark", 1500, "Sparks around the hull."),
-    ("x-flame", "fx", "Flame", 3500, "It burns."),
-    ("x-pulse", "fx", "Pulse", 2000, "The ship breathes."),
-    ("x-orbit", "fx", "Orbit", 3000, "A ring that never stops turning."),
+    ("x-halo", "fx", "Halo", 2600, "A soft white light behind your ship."),
+    ("x-spark", "fx", "Spark", 4000, "Sparks around the hull."),
+    ("x-flame", "fx", "Flame", 10000, "It burns."),
+    ("x-pulse", "fx", "Pulse", 5000, "The ship breathes."),
+    ("x-orbit", "fx", "Orbit", 8000, "A ring that never stops turning."),
     ("x-crown", "fx", "Crown", 0, "Golden light. One hundred survival wins.", "surv-100"),
     # titles you can buy
-    ("t-rookie", "title", "Rookie", 100, "Everyone starts somewhere."),
-    ("t-pilot", "title", "Pilot", 300, "A word under your name."),
-    ("t-nomad", "title", "Nomad", 250, "No clan needed."),
-    ("t-ace", "title", "Ace", 800, "For the ones who win."),
-    ("t-hunter", "title", "Hunter", 800, "Always looking for the next one."),
-    ("t-ghost", "title", "Ghost", 800, "Never seen coming."),
-    ("t-veteran", "title", "Veteran", 800, "Been here a while."),
-    ("t-outlaw", "title", "Outlaw", 500, "Plays by different rules."),
-    ("t-menace", "title", "Menace", 500, "A problem for everyone else."),
-    ("t-sentinel", "title", "Sentinel", 500, "Holds the line."),
-    ("t-warlord", "title", "Warlord", 750, "Runs the fight."),
-    ("t-grinder", "title", "Grinder", 1000, "Match after match."),
-    ("t-sharpshooter", "title", "Sharpshooter", 1250, "Every shot counts."),
-    ("t-champion", "title", "Champion", 1500, "The one to beat."),
-    ("t-reaper", "title", "Reaper", 2000, "Nothing gets away."),
-    ("t-legend", "title", "Legend", 2500, "Talked about."),
-    ("t-kingpin", "title", "Kingpin", 3000, "Runs the server."),
-    ("t-overlord", "title", "Overlord", 4000, "Above it all."),
-    ("t-baller", "title", "Baller", 6000, "Gems to spare."),
-    ("t-highroller", "title", "High roller", 12000, "Bets big."),
-    ("t-mogul", "title", "Mogul", 25000, "A fortune in gems."),
-    ("t-tycoon", "title", "Tycoon", 60000, "Owns the sector."),
+    ("t-rookie", "title", "Rookie", 500, "Everyone starts somewhere."),
+    ("t-pilot", "title", "Pilot", 900, "A word under your name."),
+    ("t-nomad", "title", "Nomad", 700, "No clan needed."),
+    ("t-ace", "title", "Ace", 2000, "For the ones who win."),
+    ("t-hunter", "title", "Hunter", 2000, "Always looking for the next one."),
+    ("t-ghost", "title", "Ghost", 2000, "Never seen coming."),
+    ("t-veteran", "title", "Veteran", 2000, "Been here a while."),
+    ("t-outlaw", "title", "Outlaw", 1200, "Plays by different rules."),
+    ("t-menace", "title", "Menace", 1200, "A problem for everyone else."),
+    ("t-sentinel", "title", "Sentinel", 1200, "Holds the line."),
+    ("t-warlord", "title", "Warlord", 1600, "Runs the fight."),
+    ("t-grinder", "title", "Grinder", 2600, "Match after match."),
+    ("t-sharpshooter", "title", "Sharpshooter", 3200, "Every shot counts."),
+    ("t-champion", "title", "Champion", 4000, "The one to beat."),
+    ("t-reaper", "title", "Reaper", 5000, "Nothing gets away."),
+    ("t-legend", "title", "Legend", 6500, "Talked about."),
+    ("t-kingpin", "title", "Kingpin", 8000, "Runs the server."),
+    ("t-overlord", "title", "Overlord", 13000, "Above it all."),
+    ("t-baller", "title", "Baller", 20000, "Gems to spare."),
+    ("t-highroller", "title", "High roller", 26000, "Bets big."),
+    ("t-mogul", "title", "Mogul", 34000, "A fortune in gems."),
+    ("t-tycoon", "title", "Tycoon", 45000, "Owns the sector."),
     ("t-millionaire", "title", "Millionaire", 1000000, "One million gems, gone."),
     ("t-billionaire", "title", "Billionaire", 1000000000, "Nobody will ever own this. Prove us wrong."),
     # titles you can only earn
@@ -645,17 +666,17 @@ COSMETICS = [
     ("t-survivor", "title", "Survivor", 0, "Ten survival wins.", "surv-10"),
     ("t-apex", "title", "Apex", 0, "Fifty survival wins.", "surv-50"),
     ("t-untouchable", "title", "Untouchable", 0, "One hundred survival wins.", "surv-100"),
-    ("t-marauder", "title", "Marauder", 0, "Reached the Marauder division.", "div-odyssey"),
-    ("t-elite", "title", "Elite", 0, "Reached Shadow X-3 - the top half percent.", "div-shadowx3"),
-    ("t-highscore", "title", "High score", 0, "100,000 points in one match.", "score-100k"),
+    ("t-marauder", "title", "Marauder", 0, "Reached the Warden tier.", "div-odyssey"),
+    ("t-elite", "title", "Elite", 0, "Reached Archon - the top half percent.", "div-shadowx3"),
+    ("t-highscore", "title", "High score", 0, "60,000 points in one match.", "score-60k"),
     ("t-phoenix", "title", "Phoenix", 0, "Died 500 times and kept coming back.", "deaths-500"),
     ("t-oldguard", "title", "Old guard", 0, "One thousand matches played.", "games-1000"),
     ("t-devoted", "title", "Devoted", 0, "A win on a hundred different days.", "days-100"),
     ("t-globetrotter", "title", "Globetrotter", 0, "Played in every region.", "regions-3"),
     ("t-admiral", "title", "Admiral", 0, "Owns every ship.", "hull-all"),
     ("t-completionist", "title", "Completionist", 0, "Owns every look.", "cos-all"),
-    ("t-whale", "title", "Whale", 0, "Spent 100,000 gems.", "spent-100k"),
-    ("t-selfmade", "title", "Self-made", 0, "Earned a million gems.", "earned-1m"),
+    ("t-whale", "title", "Whale", 0, "Spent 50,000 gems.", "spent-50k"),
+    ("t-selfmade", "title", "Self-made", 0, "Earned half a million gems.", "earned-500k"),
     ("t-popular", "title", "Popular", 0, "Twenty friends.", "friends-20"),
     ("t-commander", "title", "Commander", 0, "Leads or co-leads a clan.", "clan-officer"),
 ]
@@ -725,10 +746,6 @@ def cosmetic_map():
     m = {}
     try:
         conn = db(timeout=3)
-        # A rental that has run out comes off everybody's card here, within
-        # the minute, whether or not its owner ever opens the site again.
-        if rental_sweep(conn.cursor()):
-            conn.commit()
         for nn, raw in conn.execute("SELECT norm_name, cosmetics FROM players "
                                     "WHERE cosmetics IS NOT NULL AND cosmetics != ''").fetchall():
             worn = _worn_cosmetics(raw)
@@ -808,10 +825,10 @@ ACH_UNLOCKS = {
     "wins-1000": ("t-immortal", "b-immortal"),
     "surv-10": ("t-survivor",), "surv-50": ("t-apex",), "surv-100": ("t-untouchable", "x-crown"),
     "div-odyssey": ("t-marauder",), "div-shadowx3": ("t-elite", "f-diamond"),
-    "score-100k": ("t-highscore",), "deaths-500": ("t-phoenix",),
+    "score-60k": ("t-highscore",), "deaths-500": ("t-phoenix",),
     "games-1000": ("t-oldguard",), "days-100": ("t-devoted",), "regions-3": ("t-globetrotter",),
-    "hull-all": ("t-admiral",), "cos-all": ("t-completionist",), "spent-100k": ("t-whale",),
-    "earned-1m": ("t-selfmade",), "friends-20": ("t-popular",), "clan-officer": ("t-commander",),
+    "hull-all": ("t-admiral",), "cos-all": ("t-completionist",), "spent-50k": ("t-whale",),
+    "earned-500k": ("t-selfmade",), "friends-20": ("t-popular",), "clan-officer": ("t-commander",),
 }
 
 
@@ -889,8 +906,11 @@ def gem_achievement_catalog():
     for r in sorted(ranks.RANKS, key=lambda x: x["level"]):
         out.append({
             "key": "div-%s" % r["key"], "group": "Ranks", "name": r["name"],
-            "desc": "Reach the %s division \u2014 %s of the board."
-                    % (r["name"], (r.get("band") or "").replace("Top ", "the top ")),
+            "desc": ("Finish a day at number one on the board. Yours for ever "
+                     "after, with the Odyssey."
+                     if r.get("mythic") else
+                     "Reach the %s tier \u2014 %s of the board."
+                     % (r["name"], (r.get("band") or "").replace("Top ", "the top "))),
             "gems": GEM_DIVISION_AWARD.get(r["level"], 100), "rank": r, "icon": "rank",
         })
     for key, name, desc, _need, amount in GEM_WIN_MILESTONES:
@@ -986,6 +1006,25 @@ def ach_status(c, nn):
         d["ready"] = d["unlocked"] and not d["claimed"]
         d["unlock_items"] = [COSMETIC_BY_ID[i] for i in a.get("unlocks", ()) if i in COSMETIC_BY_ID]
         out.append(d)
+    return out
+
+
+def ach_earned(c, nn):
+    """The achievements this player has claimed, newest first. Read off the
+    ledger alone - no facts recomputed - because a profile only needs to
+    know what was earned, not how close anything else is."""
+    got = {}
+    try:
+        for ref, at in c.execute("SELECT ref, at FROM gem_ledger WHERE owner_kind = 'player' "
+                                 "AND owner = ? AND reason = 'achievement'", (nn,)).fetchall():
+            got[ref] = at or ""
+    except sqlite3.Error:
+        return []
+    if not got:
+        return []
+    out = [dict(a, at=got[a["key"]][:10]) for a in gem_achievement_catalog()
+           if a["key"] in got]
+    out.sort(key=lambda a: a["at"], reverse=True)
     return out
 
 
@@ -3570,14 +3609,6 @@ def init_db():
             c.execute("ALTER TABLE events ADD COLUMN " + _col)
         except sqlite3.OperationalError:
             pass
-    c.execute('''CREATE TABLE IF NOT EXISTS cosmetic_rentals (
-                    norm_name TEXT NOT NULL,
-                    item TEXT NOT NULL,
-                    until TEXT NOT NULL,
-                    started_at TEXT,
-                    PRIMARY KEY (norm_name, item)
-                )''')
-    c.execute("CREATE INDEX IF NOT EXISTS idx_rent_until ON cosmetic_rentals(until)")
     c.execute('''CREATE TABLE IF NOT EXISTS contract_escrow (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     clan TEXT NOT NULL,
@@ -3638,9 +3669,9 @@ def init_db():
                 )''')
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_recredit_once "
               "ON recredits(match_row, norm_name)")
-    # The current scheduled Marauder-only custom lobby (single row, id=1). The
+    # The current scheduled Warden-only custom lobby (single row, id=1). The
     # droplet host reports the fresh join link here every re-host; the /customgame
-    # page shows it ONLY to verified Marauder-rank players.
+    # page shows it ONLY to verified Warden-tier players.
     c.execute('''CREATE TABLE IF NOT EXISTS custom_game (
                     id INTEGER PRIMARY KEY,
                     link TEXT, sid INTEGER, region TEXT,
@@ -3988,6 +4019,8 @@ def inject_auth():
                                and session.get("preview_kind") != "access"),
             "dev_access": bool(session.get("preview_kind") == "access"),
             "dev_mode": session.get("dev_mode") or "new",
+            "dev_level": session.get("preview_level") or 0,
+            "dev_tiers": [(r["level"], r["name"]) for r in ranks.RANKS],
             "dev_elo": session.get("dev_elo"),
             # The unreleased surfaces (gems, achievements, the profile home).
             # False for everyone but the owner until GEMS_PUBLIC flips, and
@@ -7184,6 +7217,23 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.51.0", "at": "2026-09-19T21:30:00Z", "changes": [
+        "<b>The skill ranks are now tiers with names of their own.</b> They "
+        "used to be named after the ships whose silhouettes they wear, which "
+        "made a rank and a hull sound like the same thing. From the bottom "
+        "up they are now <b>Drifter, Scout, Raider, Warrior, Guard, "
+        "Vanguard, Warden</b> and <b>Archon</b>. Nothing moved: the "
+        "thresholds, the emblems and the colours are exactly as they were, "
+        "and everyone is in the tier they were in this morning.",
+        "<b>And a ninth above them all: Mythos.</b> It is not a share of the "
+        "board like the others — it is for anyone who has finished a day "
+        "at <b>number one</b>, and once it is won it is never lost, however "
+        "far they slide afterwards. It is the only crimson card on the site. "
+        "Six players have it.",
+        "The custom lobby named after the seventh tier follows it: it is the "
+        "<b>Warden lobby</b> now, on the same rung, with the same rule about "
+        "who may join.",
+    ]},
     {"version": "9.46.2", "at": "2026-09-19T16:00:00Z", "changes": [
         "<b>Fixed on phones: the replay player was cut off at the right.</b> "
         "The screen, its header and the transport bar were all laid out at "
@@ -9823,6 +9873,11 @@ def player_profile(name):
     (player["emblem"], player["emblem_color"],
      player["mythic"]) = worn_emblem(normalize_name(stored_name), display_ship_map(),
                                      gems_visible())
+    # The emblem is drawn in the tier's colour by design - that is how a
+    # board reads at a glance - but it was also LABELLED with the tier's
+    # name, so a bought Aries introduced itself as "Warden". It says what
+    # it is now, and the card says it in words too.
+    player["emblem_name"] = ship_shapes.ship_name(player["emblem"]) if player["emblem"] else None
     player["cos"] = cosmetic_view(normalize_name(stored_name), gems_visible())
     player["cv"] = clan_view(clan, gems_visible()) if clan else {}
     # The clan and the role in it, as a stat - the heading's badge says the
@@ -9857,8 +9912,16 @@ def player_profile(name):
         _cc.close()
     except Exception:
         _fs = 'none'
+    earned = []
+    if gems_visible():
+        try:
+            _cc = db()
+            earned = ach_earned(_cc.cursor(), normalize_name(stored_name))
+            _cc.close()
+        except sqlite3.Error:
+            earned = []
     return render_template('player.html', player=player, friend_state=_fs,
-                           custom_games=custom_games,
+                           custom_games=custom_games, earned=earned,
                            region_ranks=region_ranks, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='players', history=history,
                            ts_history=ts_history,
@@ -10372,6 +10435,11 @@ def division_map():
     # the #N of total a profile shows); here they are just looked up.
     by_key = {r["key"]: r for r in ranks.RANKS}
     m = {nn: by_key[k] for nn, k in (b.get("divs") or {}).items() if k in by_key}
+    # Mythos sits over the percentiles: anyone who has ever finished a day at
+    # number one keeps it, wherever they sit today. Read once per rebuild of
+    # the map, not per page.
+    for nn in _ever_number_one():
+        m[nn] = ranks.MYTHOS
     entries = b.get("entries") or []
     _DIV_CACHE["ts"] = now
     _DIV_CACHE["map"] = m
@@ -10385,6 +10453,18 @@ def division_map():
         threading.Thread(target=_record_peaks, args=(entries,),
                          daemon=True).start()
     return m
+
+
+def _ever_number_one():
+    """Every player whose career-best board position is #1. A handful of
+    names; best-effort, because a tier is not worth breaking a page over."""
+    try:
+        conn = db(timeout=4)
+        rows = conn.execute("SELECT norm_name FROM players WHERE peak_rank = 1").fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except sqlite3.Error:
+        return []
 
 
 def _record_peaks(entries):
@@ -13390,6 +13470,10 @@ def dev_preview():
     session['preview'] = True
     session['preview_key'] = kid
     session['preview_kind'] = 'sandbox'
+    # A test account has no history, so it has reached no tier, so the hangar
+    # would be shut to it. A sandbox is for looking at everything: it starts
+    # at the top tier you can climb to, and the bar's picker moves it.
+    session['preview_level'] = ranks.TOP_CLIMBABLE
     if request.is_json:
         return jsonify({"ok": True, "name": name}), 200
     return redirect('/')
@@ -13420,6 +13504,29 @@ def dev_actas():
     return jsonify({"ok": True, "mode": mode, "name": name}), 200
 
 
+@app.route('/dev/level', methods=['POST'])
+def dev_level():
+    """A tester chooses the tier their session looks at the site from. Only
+    inside a preview, only their own account, and 0 puts it back to whatever
+    they have actually earned."""
+    if not preview_session_ok() and current_user() not in OWNER_SUBS:
+        abort(404)
+    try:
+        lvl = int((request.get_json(silent=True) or {}).get("level") or 0)
+    except (TypeError, ValueError):
+        lvl = 0
+    if lvl and not ranks.RANK_BY_LEVEL.get(lvl):
+        return jsonify({"ok": False, "message": "No such tier."}), 400
+    if lvl:
+        session["preview_level"] = lvl
+    else:
+        session.pop("preview_level", None)
+    r = ranks.RANK_BY_LEVEL.get(lvl)
+    return jsonify({"ok": True, "level": lvl,
+                    "message": ("Looking at the site as %s." % r["name"]) if r
+                               else "Back to the tier you have earned."}), 200
+
+
 @app.route('/dev/restore', methods=['POST'])
 def dev_restore():
     """Return to the real owner account. Safe by construction: it only
@@ -13433,6 +13540,7 @@ def dev_restore():
     session.pop('preview_key', None)
     session.pop('dev_mode', None)
     session.pop('dev_elo', None)
+    session.pop('preview_level', None)
     # An access session never moved anybody anywhere: it only lifted the
     # curtain on their own account. Putting it back is exactly that and
     # nothing else - no wipe (there is no test account to wipe) and no
@@ -13683,7 +13791,7 @@ def me():
     _nav = []
     if _custom_now or _owner_now:
         _nav.append({"t": "a", "href": "/customgame", "id": "customTab",
-                     "label": "Marauder lobby", "badge": "NEW", "colour": "#ff7b53"})
+                     "label": "Warden lobby", "badge": "NEW", "colour": "#ff7b53"})
     if _owner_now:
         _nav.append({"t": "a", "href": "/mymaps", "id": "mapsTab",
                      "label": "My Maps", "badge": "NEW", "colour": "#ff7b53"})
@@ -14495,13 +14603,58 @@ def gem_clan_leader(c, tag):
 # on its page (achievements_claim). Nothing hands out gems on its own.
 
 
-def gem_peak_level(c, nn):
-    """The level of the highest division this player has ever held."""
+def _my_norm_name():
+    """The signed-in player's norm_name, once per request. None when nobody
+    is signed in, or outside a request."""
     try:
-        r = c.execute("SELECT peak_div FROM players WHERE norm_name = ?", (nn,)).fetchone()
+        if not has_request_context():
+            return None
+        if not hasattr(g, "_my_nn"):
+            sub = current_user()
+            g._my_nn = None
+            if sub:
+                conn = db(timeout=4)
+                r = conn.execute("SELECT norm_name FROM players WHERE google_sub = ?",
+                                 (sub,)).fetchone()
+                conn.close()
+                g._my_nn = r[0] if r else None
+        return g._my_nn
+    except (sqlite3.Error, RuntimeError):
+        return None
+
+
+def preview_level_for(nn):
+    """The tier a tester has asked to look at the site from, if this is that
+    tester's own account. 0 otherwise - including for every other player on
+    the site, who are never affected by somebody else's preview."""
+    try:
+        if not has_request_context() or not session.get("preview"):
+            return 0
+        lvl = int(session.get("preview_level") or 0)
+    except (RuntimeError, ValueError, TypeError):
+        return 0
+    if lvl <= 0 or not nn:
+        return 0
+    return lvl if nn == _my_norm_name() else 0
+
+
+def gem_peak_level(c, nn):
+    """The level of the highest tier this player has ever held. Having once
+    been number one on the board is Mythos, and outranks any percentile -
+    it is never lost, however far they slide afterwards."""
+    pv = preview_level_for(nn)
+    if pv:
+        return pv
+    try:
+        r = c.execute("SELECT peak_div, peak_rank FROM players WHERE norm_name = ?",
+                      (nn,)).fetchone()
     except sqlite3.Error:
         return 0
-    if not r or not r[0]:
+    if not r:
+        return 0
+    if r[1] == 1:
+        return ranks.MYTHOS_LEVEL
+    if not r[0]:
         return 0
     return ranks.RANK_BY_KEY.get(r[0], {}).get("level", 0)
 
@@ -16063,12 +16216,8 @@ def shop_page():
     c = conn.cursor()
     me = my_player(c)
     own, worn, balance, division, owned_cos, worn_cos = {}, None, 0, None, set(), {}
-    rented = {}
+    my_level = 0
     if me:
-        # A lapsed rental comes off here as well as on the clock, so the
-        # shop never offers to sell you something you appear to be wearing.
-        if rental_sweep(c):
-            conn.commit()
         own = owned_ships(c, me[1])
         r = c.execute("SELECT display_ship, COALESCE(wins,0)+COALESCE(losses,0), cosmetics "
                       "FROM players WHERE norm_name = ?", (me[1],)).fetchone()
@@ -16077,8 +16226,8 @@ def shop_page():
             division = division_map().get(me[1])
         worn_cos = _worn_cosmetics(r[2]) if r else {}
         owned_cos = owned_cosmetics(c, me[1])
-        rented = rentals_of(c, me[1])
         balance = gem_balance(c, "player", me[1])
+        my_level = gem_peak_level(c, me[1])
     # The clan's shop, for whoever runs one: bought from the treasury, on
     # the same page as everything else so there is one place to spend.
     clan_shop, clan_tag, clan_disp, clan_theme_color, clan_cap = None, None, None, "", CLAN_COLEADER_MAX
@@ -16096,7 +16245,7 @@ def shop_page():
     conn.close()
     sale_map, _day = featured_today()
     sale_order = {k: i for i, k in enumerate(sale_map)}
-    by_level = {r["level"]: r for r in ranks.RANKS}
+    by_level = ranks.RANK_BY_LEVEL
     tiers, featured = {}, []
     for item in ship_catalog():
         item["own"] = own.get(item["code"])
@@ -16105,6 +16254,12 @@ def shop_page():
         item["pay"] = item["sale"]["price"] if item["sale"] else item["price"]
         item["can"] = balance >= item["pay"]
         item["unlock_rank"] = by_level.get(item["unlock_level"]) if item["unlock_level"] else None
+        # A hull a tier hands out is never on sale: reaching the tier IS how
+        # you get it. Everything else needs its own tier flown first.
+        item["earn_only"] = bool(item["unlock_level"]) and \
+            item["buy_level"] == item["unlock_level"] and not item["mythic"]
+        item["may_buy"] = my_level >= item["buy_level"]
+        item["need_rank"] = by_level.get(item["buy_level"])
         tiers.setdefault(item["tier"], []).append(item)
         if item["sale"]:
             featured.append({"kind": "ship", "item": item, "o": sale_order[("ship", item["code"])]})
@@ -16123,16 +16278,26 @@ def shop_page():
             ci["sale"] = sale_map.get(("cos", ci["id"]))
             ci["pay"] = ci["sale"]["price"] if ci["sale"] else ci["price"]
             ci["can"] = balance >= ci["pay"]
-            ci["rentable"] = rentable(ci) and not ci["own"]
-            ci["rent"] = rent_price(ci) if ci["rentable"] else 0
-            ci["can_rent"] = ci["rentable"] and balance >= ci["rent"]
-            ci["rented_days"] = rent_days_left(rented[ci["id"]]) if ci["id"] in rented else 0
             items.append(ci)
             if ci["sale"]:
                 featured.append({"kind": "cos", "item": ci, "o": sale_order[("cos", ci["id"])]})
         cos_sections.append({"slot": slot, "label": label, "items": items,
                              "note": COSMETIC_NOTES.get(slot, "")})
     featured.sort(key=lambda f: f["o"])
+    # Everything worn, in one strip at the top, so taking a look back off
+    # does not mean hunting the catalogue for the tile it came from.
+    wearing = []
+    if worn:
+        _sn = next((i["name"] for i in ship_catalog() if i["code"] == worn), None)
+        if _sn:
+            wearing.append({"label": "Hull", "name": _sn, "code": worn, "item": None,
+                            "slot": "ship"})
+    for _slot, _lab in COSMETIC_SLOTS:
+        _id = worn_cos.get(_slot)
+        _it = COSMETIC_BY_ID.get(_id) if _id else None
+        if _it:
+            wearing.append({"label": _lab.rstrip("s"), "name": _it["name"],
+                            "code": None, "item": _it["id"], "slot": _slot})
     rank_color = division["color"] if division else "#8b949e"
     return render_template('shop.html', version=APP_VERSION, page='shop',
                            signed_in=bool(me), me_name=(me[0] if me else None),
@@ -16142,162 +16307,12 @@ def shop_page():
                            mythic_color=MYTHIC_COLOR, mythic_glow=MYTHIC_GLOW,
                            rank_color=rank_color,
                            prev_ship=worn or (division["ship"] if division else 101),
-                           cos_sections=cos_sections, featured=featured,
+                           cos_sections=cos_sections, featured=featured, wearing=wearing,
                            resets_in=featured_resets_in(),
-                           rent_days=RENT_DAYS,
                            clan_shop=clan_shop, clan_tag=clan_tag, clan_display=clan_disp,
                            clan_theme_color=clan_theme_color, coleader_cap=clan_cap,
                            slots_max=CLAN_COLEADER_SLOTS_MAX)
 
-
-
-# --------------------------------------------------------------- RENTALS
-# Only the dear end of the catalogue, and only by the week. A rental is not
-# ownership: it does not count towards collecting them, it cannot be worn
-# once it lapses, and renting for months never adds up to owning the thing.
-# That is the point - it is the part of the economy that runs out.
-RENT_MIN_PRICE = 2500
-RENT_DAYS = 7
-RENT_PC = 10
-RENT_MAX_AHEAD = 28          # you may stack a month, not a year
-
-
-def rent_price(item):
-    """A week of it: a tenth of the price, to the nearest hundred."""
-    price = int(item.get("price") or 0)
-    return max(100, int(round(price * RENT_PC / 100.0 / 100.0)) * 100)
-
-
-def rentable(item):
-    """Dear enough to be worth renting, and not one an achievement hands
-    out - those are earned, never rented."""
-    return bool(item) and not item.get("via") and int(item.get("price") or 0) >= RENT_MIN_PRICE
-
-
-def rentals_of(c, nn):
-    """{item id: when it runs out} for the rentals this player still has."""
-    out = {}
-    if not nn:
-        return out
-    try:
-        for item, until in c.execute(
-                "SELECT item, until FROM cosmetic_rentals WHERE norm_name = ? AND until > ?",
-                (nn, _stamp())).fetchall():
-            if item in COSMETIC_BY_ID:
-                out[item] = until
-    except sqlite3.Error:
-        pass
-    return out
-
-
-def held_cosmetics(c, nn):
-    """What this player may wear: what they own, plus what they are renting
-    while it lasts."""
-    return owned_cosmetics(c, nn) | set(rentals_of(c, nn))
-
-
-def rental_sweep(c, now=None):
-    """Take off and clear every rental that has run out. Cheap and usually a
-    no-op: one indexed read, and writes only when something has lapsed."""
-    now = now or _stamp()
-    try:
-        gone = c.execute("SELECT norm_name, item FROM cosmetic_rentals WHERE until <= ?",
-                         (now,)).fetchall()
-    except sqlite3.Error:
-        return 0
-    if not gone:
-        return 0
-    by_player = {}
-    for nn, item in gone:
-        by_player.setdefault(nn, set()).add(item)
-    for nn, items in by_player.items():
-        row = c.execute("SELECT cosmetics FROM players WHERE norm_name = ?", (nn,)).fetchone()
-        worn = _worn_cosmetics(row[0] if row else None)
-        left = {k: v for k, v in worn.items() if v not in items}
-        if left != worn:
-            c.execute("UPDATE players SET cosmetics = ? WHERE norm_name = ?",
-                      (json.dumps(left) if left else None, nn))
-    c.execute("DELETE FROM cosmetic_rentals WHERE until <= ?", (now,))
-    _COS_CACHE["ts"] = 0.0
-    return len(gone)
-
-
-def rent_days_left(until, now=None):
-    """Whole days remaining, rounded up, so 'runs out today' is 1 and never 0."""
-    try:
-        end = calendar.timegm(time.strptime(until, "%Y-%m-%d %H:%M:%S"))
-    except (ValueError, TypeError):
-        return 0
-    left = end - (now or time.time())
-    return max(0, int((left + 86399) // 86400))
-
-
-@app.route('/shop/rent', methods=['POST'])
-def shop_rent():
-    """Rent a look for a week, or add another week to one you are already
-    renting. Wearing it comes with the rental - there is no second press."""
-    if not gems_visible():
-        abort(404)
-    conn = db()
-    c = conn.cursor()
-    me = my_player(c)
-    if not me:
-        conn.close()
-        return jsonify({"ok": False, "message": "Sign in first."}), 401
-    rental_sweep(c)
-    item = COSMETIC_BY_ID.get(str((request.get_json(silent=True) or {}).get("item") or ""))
-    if not item:
-        conn.close()
-        return jsonify({"ok": False, "message": "No such item."}), 404
-    if not rentable(item):
-        conn.close()
-        return jsonify({"ok": False,
-                        "message": "%s is not for rent - it is %s."
-                                   % (item["name"], "earned" if item["via"] else "yours to buy")}), 200
-    nn = me[1]
-    if item["id"] in owned_cosmetics(c, nn):
-        conn.close()
-        return jsonify({"ok": False, "message": "You already own %s." % item["name"]}), 200
-    have = rentals_of(c, nn).get(item["id"])
-    if have and rent_days_left(have) > RENT_MAX_AHEAD - RENT_DAYS:
-        conn.close()
-        return jsonify({"ok": False,
-                        "message": "You have %s for another %d days - that is as far ahead "
-                                   "as it goes." % (item["name"], rent_days_left(have))}), 200
-    price = rent_price(item)
-    # Work out when it would run to BEFORE charging, and key the charge on
-    # that: a retry of the same press computes the same end and is swallowed,
-    # while a deliberate second week is a different end and is a new charge.
-    if have:
-        until = c.execute("SELECT datetime(?, '+%d days')" % RENT_DAYS, (have,)).fetchone()[0]
-    else:
-        until = c.execute("SELECT datetime('now', '+%d days')" % RENT_DAYS).fetchone()[0]
-    got = gem_charge(c, nn, price, "rent", "rent-%s:%s" % (item["id"], until))
-    if got == "short":
-        balance = gem_balance(c, "player", nn)
-        conn.close()
-        return jsonify({"ok": False, "balance": balance,
-                        "message": "A week of %s is %s gems and you have %s."
-                                   % (item["name"], format(price, ","), format(balance, ","))}), 200
-    if got == "duplicate":
-        conn.close()
-        return jsonify({"ok": False, "message": "Already done."}), 200
-    c.execute("INSERT INTO cosmetic_rentals (norm_name, item, until, started_at) "
-              "VALUES (?,?,?,?) ON CONFLICT(norm_name, item) DO UPDATE SET until = excluded.until",
-              (nn, item["id"], until, _stamp()))
-    # Renting is wearing it - nobody rents a look to leave it in a drawer.
-    row = c.execute("SELECT cosmetics FROM players WHERE norm_name = ?", (nn,)).fetchone()
-    worn = _worn_cosmetics(row[0] if row else None)
-    worn[item["slot"]] = item["id"]
-    c.execute("UPDATE players SET cosmetics = ? WHERE norm_name = ?", (json.dumps(worn), nn))
-    conn.commit()
-    balance = gem_balance(c, "player", nn)
-    conn.close()
-    _COS_CACHE["ts"] = 0.0
-    days = rent_days_left(until)
-    return jsonify({"ok": True, "balance": balance, "until": until, "days": days,
-                    "message": "%s is yours for %d day%s - and you are wearing it."
-                               % (item["name"], days, "" if days == 1 else "s")}), 200
 
 
 @app.route('/shop/buy', methods=['POST'])
@@ -16342,6 +16357,17 @@ def shop_buy():
         if code in owned_ships(c, me[1]):
             conn.close()
             return jsonify({"ok": False, "message": "You already have the %s." % item["name"]}), 200
+        may, need = ship_buyable(c, me[1], item)
+        if not may:
+            conn.close()
+            if item.get("earn_only_gate"):
+                return jsonify({"ok": False,
+                                "message": "The %s is not for sale - reach %s and it is "
+                                           "yours." % (item["name"], need["name"])}), 200
+            return jsonify({"ok": False,
+                            "message": "The %s is flown by the %s tier. Climb to it and "
+                                       "it is on sale to you."
+                                       % (item["name"], need["name"])}), 200
         pay, _sale = shop_price("ship", code, item["price"])
         got = gem_charge(c, me[1], pay, "purchase", "ship-%d" % code)
         name = "the " + item["name"]
@@ -16390,7 +16416,7 @@ def shop_equip():
             if not ci:
                 conn.close()
                 return jsonify({"ok": False, "message": "No such item."}), 404
-            if ci["id"] not in held_cosmetics(c, me[1]):
+            if ci["id"] not in owned_cosmetics(c, me[1]):
                 conn.close()
                 return jsonify({"ok": False, "message": "You do not have %s." % ci["name"]}), 200
             worn[ci["slot"]] = ci["id"]

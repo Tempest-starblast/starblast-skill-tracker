@@ -78,6 +78,12 @@
   max-width:min(520px,calc(100% - 32px));padding:11px 18px;border-radius:10px;font-size:13.5px;
   color:#04121f;background:#66E6B8;box-shadow:0 10px 30px rgba(0,0,0,.45);font-weight:700}
 .toast.bad{background:#ff9a9a}
+.ach.pointed{animation:achring 2.4s ease-out 1}
+@keyframes achring{
+  0%{box-shadow:0 0 0 0 rgba(142,243,255,.9);border-color:#8ef3ff}
+  70%{box-shadow:0 0 0 12px rgba(142,243,255,0);border-color:#8ef3ff}
+  100%{box-shadow:0 0 0 0 rgba(142,243,255,0)}}
+@media(prefers-reduced-motion:reduce){.ach.pointed{animation:none;border-color:#8ef3ff}}
 {% endblock %}
 {% block body %}
 {% set gem_svg %}<svg class="gem" viewBox="0 0 24 24" aria-hidden="true"><path
@@ -107,6 +113,7 @@
   </div>
   {% endif %}
   {% endif %}
+  <p class="phlinks"><a href="/shop">Spend them in the shop</a>{% if me %} &middot; <a href="/player/{{ me|urlencode }}">Your profile</a>{% endif %}{% if signed_in %} &middot; <a href="/account">Your account</a>{% endif %}</p>
 </div>
 
 {% if signed_in and objectives %}
@@ -146,7 +153,7 @@
     {% if signed_in %}<span class="n">{{ g.got }}/{{ g.total }}</span>{% endif %}</div>
   <div class="achgrid">
     {% for a in g['items'] %}
-    <div class="ach{% if a.claimed %} got{% elif a.ready %} ready{% endif %}" data-key="{{ a.key }}">
+    <div class="ach{% if a.claimed %} got{% elif a.ready %} ready{% endif %}" id="a-{{ a.key }}" data-key="{{ a.key }}">
       <span class="emb">
         {%- if a.rank %}{{ rank_emblem(a.rank.ship, 38, a.rank.color, a.rank.name)|safe }}
         {%- elif a.icon and a.icon.startswith('ship:') %}{{ rank_emblem(a.icon[5:]|int, 38, '#8ef3ff', a.name)|safe }}
@@ -177,6 +184,25 @@
 {% endfor %}
 
 <div class="toast" id="toast" hidden></div>
+<script>
+// Arriving from the shop's "Earned: <name>" link: scroll the achievement it
+// named into the middle of the screen and ring it, because a page of a
+// hundred cards is no place to go hunting.
+(function(){
+  function point(){
+    var id = (location.hash || "").slice(1);
+    if(!id || id.indexOf("a-") !== 0) return;
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.scrollIntoView({block:"center", behavior:"smooth"});
+    el.classList.remove("pointed");
+    void el.offsetWidth;
+    el.classList.add("pointed");
+  }
+  window.addEventListener("hashchange", point);
+  point();
+})();
+</script>
 <script>
 (function(){
   var toast=document.getElementById('toast'), tt=0;
