@@ -24,6 +24,58 @@
 .rlmode button.on{background:rgba(102,230,184,.16);color:var(--green,#66e6b8);font-weight:700}
 .rl-surv{max-width:820px;margin:0 auto}
 .rl-survnote{font-size:12.5px;color:var(--dim,#8aa0b0);line-height:1.55;margin:0 0 12px}
+.rl-survpick{display:flex;gap:8px;overflow-x:auto;padding:0 0 12px;scrollbar-width:none}
+.rl-survpick::-webkit-scrollbar{width:0;height:0}
+.rl-survpick button{flex:0 0 auto;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
+  padding:8px 13px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);
+  color:var(--muted);display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.rl-survpick button:hover{color:var(--text)}
+.rl-survpick button.on{background:rgba(240,192,74,.14);border-color:rgba(240,192,74,.5);color:#f0c04a}
+.rl-survpick .pdot{width:7px;height:7px;border-radius:50%;background:var(--green,#66e6b8);flex:none}
+.rl-survpick .pdot.off{background:rgba(255,199,87,.75)}
+.rl-survone{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px 16px;
+  backdrop-filter:var(--blur)}
+.rl-survone .sh{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin:0 0 4px}
+.rl-survone .sh h3{margin:0;font-size:17px}
+.rl-survone .sh .meta{color:var(--dim,#8aa0b0);font-size:12.5px}
+.rl-survone .sh a.ci{margin-left:auto;font-size:12px;color:var(--green,#66e6b8);text-decoration:none;
+  white-space:nowrap;font-weight:700}
+.rl-survone .phase{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:10px 0 2px;
+  font-size:13px;color:#cfe3ee}
+.rl-survone .phase b{color:#fff}
+.rl-survone .chip{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  padding:3px 9px;border-radius:999px}
+.rl-survone .chip.fill{background:rgba(153,221,255,.12);color:#99ddff}
+.rl-survone .chip.elim{background:rgba(240,192,74,.15);color:#f0c04a}
+.rl-survone .chip.cold{background:rgba(140,160,180,.12);color:var(--dim,#8aa0b0)}
+.sv-rows{margin:12px 0 0}
+.sv-row{display:grid;grid-template-columns:34px minmax(90px,1.3fr) 3fr 70px;gap:12px;align-items:center;
+  padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+.sv-row:first-child{border-top:none}
+.sv-place{color:var(--dim,#8aa0b0);font-variant-numeric:tabular-nums;text-align:right;font-weight:600}
+.sv-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sv-name a{color:var(--text);text-decoration:none}
+.sv-name a:hover{color:var(--green,#66e6b8)}
+.sv-track{position:relative;height:15px;border-radius:8px;background:rgba(140,160,180,.09)}
+.sv-bar{position:absolute;left:0;top:0;bottom:0;border-radius:8px;min-width:4px;
+  background:linear-gradient(90deg,rgba(102,230,184,.35),var(--green,#66e6b8))}
+.sv-dot{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;transform:translate(50%,-50%);
+  right:0;background:#0b0e13;border:2px solid var(--green,#66e6b8);box-shadow:0 0 0 2px var(--panel)}
+.sv-right{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;white-space:nowrap}
+.sv-row.out{opacity:.45}
+.sv-row.out .sv-bar{background:linear-gradient(90deg,rgba(255,122,122,.25),rgba(255,122,122,.75))}
+.sv-row.out .sv-dot{background:#ff7a7a;border-color:#ff7a7a}
+.sv-row.alive .sv-right{color:var(--green,#66e6b8);font-weight:700}
+.sv-names{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+.sv-names a{font-size:12.5px;padding:4px 9px;border-radius:999px;text-decoration:none;
+  border:1px solid var(--line);color:#cfe3ee;background:rgba(255,255,255,.02)}
+.sv-names a:hover{color:#fff;border-color:rgba(102,230,184,.5)}
+.sv-note{color:var(--muted);font-size:12px;margin:12px 0 0;line-height:1.6}
+@media (max-width:640px){
+  .sv-row{grid-template-columns:26px minmax(70px,1fr) 1.6fr 68px;gap:7px;font-size:12.5px}
+  .sv-right{font-size:11.5px}
+  .rl-survone .sh a.ci{margin-left:0}
+}
 .rl-survlist{list-style:none;margin:0;padding:0}
 .rl-survlist li{display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:center;padding:11px 12px;
   border:1px solid rgba(153,221,255,.14);border-radius:10px;margin-bottom:8px;background:rgba(2,6,12,.35);font-size:13px}
@@ -120,7 +172,8 @@ body.mini .radarmap{width:100%;height:auto;margin:0;border:none;border-radius:0}
 <div class="rl-wrap" id="rlWrap"></div>
 <div class="rl-empty" id="rlEmpty" style="display:none">No lobbies being watched right now.</div>
 <div class="rl-surv" id="rlSurv" style="display:none">
-  <ul class="rl-survlist" id="rlSurvList"></ul>
+  <div class="rl-survpick" id="rlSurvPick" role="tablist" aria-label="Survival lobbies"></div>
+  <div class="rl-survone" id="rlSurvOne"></div>
   <div class="rl-empty" id="rlSurvEmpty" style="display:none">No survival lobbies right now.</div>
 </div>
 
@@ -584,7 +637,7 @@ body.mini .radarmap{width:100%;height:auto;margin:0;border:none;border-radius:0}
   var rlMini = !!new URLSearchParams(location.search).get('mini');
   var rlMode='team';
   try{ rlMode = (!rlMini && localStorage.getItem('rl_mode')==='survival') ? 'survival' : 'team'; }catch(e){}
-  var survWrap=document.getElementById('rlSurv'), survList=document.getElementById('rlSurvList'),
+  var survWrap=document.getElementById('rlSurv'), survList=null,
       survEmpty=document.getElementById('rlSurvEmpty'), modeEl=document.getElementById('rlMode');
   function setMode(m){
     rlMode = (m==='survival' && !rlMini) ? 'survival' : 'team';
@@ -599,18 +652,106 @@ body.mini .radarmap{width:100%;height:auto;margin:0;border:none;border-radius:0}
     status.textContent='Connecting\u2026';
   }
   if(modeEl) modeEl.querySelectorAll('button').forEach(function(b){ b.addEventListener('click', function(){ setMode(b.getAttribute('data-m')); }); });
+  // ---- survival: one round at a time, read the way its replay reads ----
+  var survPick=document.getElementById('rlSurvPick'), survOne=document.getElementById('rlSurvOne');
+  var survSid=null;
+  try{ survSid = sessionStorage.getItem('sb_surv_sid'); }catch(e){}
+  survSid = survSid ? parseInt(survSid, 10) : null;
+  if(survPick) survPick.addEventListener('click', function(ev){
+    var b=ev.target.closest('button[data-sid]'); if(!b) return;
+    survSid=parseInt(b.getAttribute('data-sid'), 10);
+    try{ sessionStorage.setItem('sb_surv_sid', String(survSid)); }catch(e){}
+    survTick();
+  });
+  function mmss(n, tight){ n=Math.max(0, n|0); var m=Math.floor(n/60);
+    if(!m) return n+'s';
+    // On a phone the seconds are what pushes this column past its width, and
+    // "10m ago" says the same thing as "10m 40s ago".
+    return (tight && window.innerWidth < 640) ? (m+'m') : (m+'m '+('0'+(n%60)).slice(-2)+'s');
+  }
+  function survRows(l){
+    // Alive at the top with no placement yet, then the eliminated in the order
+    // they went out - newest first, which is also best-placed first. The bar is
+    // how far into the elimination each of them got.
+    var span=Math.max(1, l.elim_age|0), alive=(l.alive||[]).slice();
+    var out=(l.out||[]).slice().sort(function(a, b){ return (b.at|0)-(a.at|0); });
+    var field=Math.max(l.field|0, alive.length+out.length), rows=[];
+    alive.forEach(function(nm){
+      rows.push('<div class="sv-row alive"><span class="sv-place">&mdash;</span>'
+        +'<span class="sv-name"><a href="/player/'+encodeURIComponent(nm)+'">'+esc(nm)+'</a></span>'
+        +'<span class="sv-track"><span class="sv-bar" style="width:100%"><span class="sv-dot"></span></span></span>'
+        +'<span class="sv-right">still in</span></div>');
+    });
+    out.forEach(function(e, i){
+      var place=alive.length+i+1, w=Math.max(2, Math.min(100, 100*(e.at|0)/span));
+      rows.push('<div class="sv-row out"><span class="sv-place">'+place+'</span>'
+        +'<span class="sv-name"><a href="/player/'+encodeURIComponent(e.name)+'">'+esc(e.name)+'</a></span>'
+        +'<span class="sv-track"><span class="sv-bar" style="width:'+w.toFixed(1)+'%"><span class="sv-dot"></span></span></span>'
+        +'<span class="sv-right">'+mmss(span-(e.at|0), true)+' ago</span></div>');
+    });
+    return {html: rows.join(''), field: field, left: alive.length};
+  }
+  function survRender(l){
+    if(!l){ survOne.innerHTML=''; survOne.style.display='none'; return; }
+    survOne.style.display='';
+    var r=survRows(l), head=''
+      +'<div class="sh"><h3>'+esc(l.name||('Lobby '+l.id))+'</h3>'
+      +'<span class="meta">'+esc(l.region_label||l.region||'')+' &middot; '+(l.players|0)+' in the lobby'
+      +(l.mins ? ' &middot; '+(l.mins|0)+' min' : '')+'</span>'
+      +(l.can_checkin ? '<a class="ci" href="/play">Check in &rarr;</a>' : '')+'</div>';
+    var phase;
+    if(l.elim){
+      phase='<div class="phase"><span class="chip elim">Elimination</span>'
+        +'<span><b>'+r.left+'</b> still in of <b>'+r.field+'</b></span>'
+        +'<span>running '+mmss(l.elim_age|0)+'</span></div>';
+    } else if(l.watching){
+      phase='<div class="phase"><span class="chip fill">Filling up</span>'
+        +'<span>The round has not locked yet &mdash; <b>'+(l.alive||[]).length+'</b> on the field.</span></div>';
+    } else {
+      phase='<div class="phase"><span class="chip cold">Not watched yet</span>'
+        +'<span>Nobody is on this lobby, so there are no names from it.</span></div>';
+    }
+    var body;
+    if(l.elim || (l.out||[]).length){
+      body='<div class="sv-rows">'+r.html+'</div>';
+    } else if((l.alive||[]).length){
+      body='<div class="sv-names">'+(l.alive||[]).map(function(nm){
+        return '<a href="/player/'+encodeURIComponent(nm)+'">'+esc(nm)+'</a>'; }).join('')+'</div>';
+    } else {
+      body='<p class="sv-note">No roster from this lobby yet.</p>';
+    }
+    survOne.innerHTML = head+phase+body
+      +'<p class="sv-note">A survival round shares no positions with a watcher, only who is '
+      +'present &mdash; so this is the field shrinking, refreshed every few seconds, not a radar. '
+      +'When it ends it becomes a replay on the <a href="/replays?mode=survival">replays page</a>.</p>';
+  }
   async function survTick(){
     try{
-      var r=await fetch('/api/live_lobbies',{cache:'no-store'});
+      var r=await fetch('/api/survival/live',{cache:'no-store'});
       var d=await r.json();
-      var ls=(d.lobbies||[]).filter(function(l){ return l.mode==='survival'; });
-      survList.innerHTML = ls.map(function(l){
-        return '<li><span class="nm">'+esc(l.name||('Lobby '+l.id))+'</span>'
-          +'<span class="rg">'+esc(l.region_label||l.region||'')+' \u00b7 '+(l.players|0)+' player'+((l.players|0)===1?'':'s')+' \u00b7 '+(l.mins|0)+' min</span>'
-          +'<span class="st '+(l.watching?'watching':'waiting')+'">'+(l.watching?'Being watched':'Not watched yet')+'</span>'
-          +(l.can_checkin ? '<a class="ci" href="/play">Check in \u2192</a>' : '<span></span>')
-          +'</li>'; }).join('');
+      var ls=d.lobbies||[];
       survEmpty.style.display = ls.length ? 'none' : '';
+      // Keep whatever the reader picked. Only choose for them when their lobby
+      // is gone, or on the first look: a list that re-picks itself mid-round
+      // moves the round out from under them.
+      if(!ls.some(function(l){ return l.id===survSid; })){
+        var first=ls.filter(function(l){ return l.watching; })[0] || ls[0];
+        survSid = first ? first.id : null;
+      }
+      // Only rebuild the chips when the list itself changes. Rewriting them on
+      // every poll would replace the button under a finger already on it.
+      var sig = ls.map(function(l){ return l.id+':'+(l.players|0)+':'+(l.watching?1:0); }).join(',')
+                + '|' + survSid;
+      if(sig !== survPick._sig){
+        survPick._sig = sig;
+        survPick.innerHTML = ls.map(function(l){
+          return '<button type="button" role="tab" data-sid="'+l.id+'"'
+            +(l.id===survSid?' class="on" aria-selected="true"':'')+'>'
+            +'<span class="pdot'+(l.watching?'':' off')+'"></span>'+esc(l.name||('Lobby '+l.id))
+            +' <span style="opacity:.7">'+(l.players|0)+'</span></button>'; }).join('');
+      }
+      survPick.style.display = ls.length > 1 ? '' : 'none';
+      survRender(ls.filter(function(l){ return l.id===survSid; })[0] || null);
       var now=new Date(), w=ls.filter(function(l){ return l.watching; }).length;
       status.innerHTML=ls.length+' survival lobb'+(ls.length===1?'y':'ies')+(ls.length?' \u00b7 '+w+' being watched':'')
         +' \u00b7 updated '+('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);

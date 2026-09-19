@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.41.0"
+APP_VERSION = "9.42.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -3710,6 +3710,14 @@ def init_db():
         c.execute("ALTER TABLE live_lobbies ADD COLUMN names TEXT")
     except sqlite3.OperationalError:
         pass
+    # ...and, since 9.42.0, the rest of the live picture for a survival round:
+    # whether the elimination has started, how big the field was when it did,
+    # and who has gone out since, in order. That is what the live view needs to
+    # show a round the way its replay shows it.
+    try:
+        c.execute("ALTER TABLE live_lobbies ADD COLUMN state TEXT")
+    except sqlite3.OperationalError:
+        pass
     if 'strict_mode' not in existing_cols:
         # Off by default on purpose: registering a name must NOT quietly
         # change how it is rated. Protection is something a player turns
@@ -7071,6 +7079,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.42.0", "at": "2026-09-19T01:10:00Z", "changes": [
+        "<b>Live survival now shows the round, not just the server.</b> The "
+        "Survival tab was a list of lobbies with a head count; it is now one "
+        "round at a time - pick a lobby and you get its field the way its "
+        "replay shows it: who is still in, who has gone out and in what "
+        "order, how far into the elimination each of them got, and how long "
+        "it has been running. Lobbies that are still filling up show who is "
+        "on the field instead. It keeps up by itself, every few seconds.",
+    ]},
     {"version": "9.41.0", "at": "2026-09-19T20:00:00Z", "changes": [
         "<b>A new clan now starts empty.</b> Claiming a tag used to sweep in "
         "every unclaimed player already playing under it, which meant taking "
@@ -11041,19 +11058,83 @@ def survival_lobbies_push():
             _nm = l.get('names')
             _nm = json.dumps([str(x)[:32] for x in _nm[:60]]) \
                 if isinstance(_nm, list) and _nm else None
+            # The round as it stands. Older watchers send none of this, so
+            # every field is optional and the view copes without it.
+            _out = []
+            for e in (l.get('out') or [])[:80]:
+                if isinstance(e, (list, tuple)) and e and e[0]:
+                    _out.append([str(e[0])[:32], int(e[1] or 0) if len(e) > 1 else 0])
+            _st = json.dumps({"elim": 1 if l.get('elim') else 0,
+                              "elim_age": int(l.get('elim_age') or 0),
+                              "field": int(l.get('field') or 0),
+                              "out": _out}, ensure_ascii=False) if (
+                l.get('elim') or _out or l.get('field')) else None
             c.execute("INSERT OR REPLACE INTO live_lobbies "
-                      "(sys_id, name, players, age, updated_at, watching, region, mode, names) "
-                      "VALUES (?,?,?,?,?,?,?, 'survival', ?)",
+                      "(sys_id, name, players, age, updated_at, watching, region, mode, names, "
+                      "state) VALUES (?,?,?,?,?,?,?, 'survival', ?, ?)",
                       (int(l['id']), str(l.get('name') or ('Lobby %s' % l['id']))[:64],
                        int(l.get('players') or 0), int(l.get('age') or 0), now,
                        1 if l.get('watching') else 0, str(l.get('region') or 'america')[:16],
-                       _nm))
+                       _nm, _st))
         conn.commit()
     except (sqlite3.Error, TypeError, ValueError) as e:
         conn.close()
         return jsonify({"error": str(e)[:120]}), 500
     conn.close()
     return jsonify({"ok": True, "count": len(rows[:40])}), 200
+
+
+@app.route('/api/survival/live')
+def survival_live_feed():
+    """Every survival lobby the watcher can see, each with its round as it
+    stands: who is still in, and who has gone out since the elimination
+    started, in placement order. Public - a survival roster is what anyone
+    who joins the lobby can read anyway. Who has CHECKED IN is not here, and
+    must not be: that would tell an impersonator where to sit."""
+    conn = db()
+    c = conn.cursor()
+    rows = c.execute(
+        "SELECT sys_id, name, players, age, COALESCE(watching, 0), "
+        "COALESCE(region, 'america'), names, state FROM live_lobbies "
+        "WHERE updated_at > datetime('now', '-5 minutes') AND mode = 'survival' "
+        "ORDER BY watching DESC, players DESC").fetchall()
+    conn.close()
+    out = []
+    for sid, nm, players, age, watching, region, names_json, state_json in rows:
+        try:
+            alive = [n for n in (json.loads(names_json) if names_json else [])
+                     if n and not is_observer_name(n)]
+        except (TypeError, ValueError):
+            alive = []
+        try:
+            st = json.loads(state_json) if state_json else {}
+        except (TypeError, ValueError):
+            st = {}
+        gone, seen = [], set()
+        for e in (st.get("out") or []):
+            who = str(e[0] if isinstance(e, (list, tuple)) else e or "")
+            when = int(e[1]) if isinstance(e, (list, tuple)) and len(e) > 1 else 0
+            k = normalize_name(who)
+            if not k or k in seen or is_observer_name(who):
+                continue
+            seen.add(k)
+            gone.append({"name": who, "at": when})
+        # Newest out first, which is also best-placed first - the order the
+        # view reads them in, so the API is not a pile the client must sort.
+        gone.sort(key=lambda g: -g["at"])
+        elim = bool(st.get("elim"))
+        elim_age = int(st.get("elim_age") or 0)
+        field = int(st.get("field") or 0) or (len(alive) + len(gone))
+        out.append({
+            "id": sid, "name": nm or ("Lobby %d" % sid),
+            "region": region, "region_label": REGION_LABELS.get(region, region),
+            "players": players or 0, "age": age or 0, "mins": int((age or 0) // 60),
+            "watching": bool(watching), "can_checkin": not watching,
+            "elim": elim, "elim_age": elim_age, "field": field,
+            "alive": alive, "out": gone,
+            "left": len(alive) if alive else max(0, field - len(gone)),
+        })
+    return jsonify({"lobbies": out, "at": int(time.time())})
 
 
 @app.route('/api/survival/push', methods=['POST'])
