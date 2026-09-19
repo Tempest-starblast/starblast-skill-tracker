@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.51.1"
+APP_VERSION = "9.51.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7221,6 +7221,17 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.51.2", "at": "2026-09-20T00:05:00Z", "changes": [
+        "<b>The Discord rank roles follow the new tier names.</b> The bot knew "
+        "one old name and the rename changed eight, so it made a fresh set and "
+        "left the ship-named ones behind &mdash; members were wearing two rank "
+        "roles at once and the member list had seventeen groups in it. The "
+        "superseded roles are gone, everyone is on the right one, and the bot "
+        "now knows every name a tier has ever had so the next rename renames.",
+        "A profile said <b>Skill rank</b> under a tier name and <b>Highest "
+        "rank</b> over a tier emblem. Both say <i>tier</i> now, in all nine "
+        "languages.",
+    ]},
     {"version": "9.51.1", "at": "2026-09-19T23:10:00Z", "changes": [
         "<b>Fixed: a profile&#39;s rating chart could fail to load.</b> The table "
         "holding a match&#39;s frozen score trajectory was created by whichever "
@@ -15616,6 +15627,7 @@ def events_page():
                            named=bool(me), preview=not GEMS_PUBLIC,
                            is_owner=is_site_owner(),
                            quorum=EVENT_QUORUM, base=EVENT_BASE, field=EVENT_FIELD,
+                           every_h=EVENT_EVERY_H, a_day=len(EVENT_HOURS),
                            clan_share=int(EVENT_CLAN_SHARE * 100),
                            leader_share=int(EVENT_LEADER_SHARE * 100))
 
