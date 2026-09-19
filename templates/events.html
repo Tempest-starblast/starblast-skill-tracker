@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Events - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.previewbar{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:10px 14px;
+  border-radius:10px;border:1px solid rgba(216,160,42,.45);background:rgba(216,160,42,.10);
+  color:var(--amber,#d8a02a);font-size:13px;font-weight:700}
+.evnow{position:relative;overflow:hidden;margin:0 0 18px;padding:18px 20px;border-radius:14px;
+  border:1px solid var(--line);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--ct,#f0c04a) 22%,rgba(6,10,18,.62)),rgba(4,8,14,.74) 62%)}
+.evnow::after{content:"";position:absolute;inset:-40% -10% auto auto;width:45%;height:180%;pointer-events:none;
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--ct,#f0c04a) 24%,transparent),transparent 70%)}
+.evnow > *{position:relative;z-index:1}
+.evkind{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:800;
+  letter-spacing:1.6px;text-transform:uppercase;color:#0b0e13;background:var(--ct,#f0c04a);
+  padding:3px 10px;border-radius:999px}
+.evwhen{margin:10px 0 2px;font-size:30px;font-weight:900;line-height:1.1;color:#fff;
+  font-variant-numeric:tabular-nums}
+.evsub{margin:0;font-size:13.5px;color:#cfe3ee;line-height:1.6}
+.evsub b{color:#fff}
+.evbar{margin:14px 0 0;height:8px;border-radius:5px;background:rgba(255,255,255,.1);overflow:hidden}
+.evbar i{display:block;height:100%;border-radius:5px;background:var(--green,#66e6b8);transition:width .3s}
+.evbar.short i{background:var(--ct,#f0c04a)}
+.evrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0 0}
+.evbtn{font:inherit;font-size:14px;font-weight:800;border:0;border-radius:10px;padding:11px 20px;
+  cursor:pointer;color:#04121f;background:var(--green,#66e6b8)}
+.evbtn:hover{filter:brightness(1.07)}
+.evbtn.out{background:rgba(255,255,255,.09);color:#cfe3ee}
+.evbtn[disabled]{opacity:.5;cursor:default}
+.evlink{display:inline-flex;align-items:center;gap:8px;font-size:15px;font-weight:800;
+  padding:12px 22px;border-radius:10px;text-decoration:none;color:#04121f;
+  background:var(--green,#66e6b8);box-shadow:0 8px 24px rgba(102,230,184,.3)}
+.evwho{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
+.evwho span{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);
+  color:#cfe3ee;background:rgba(255,255,255,.03)}
+.evgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin:0 0 20px}
+.evcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+.evcard .k{font-size:10.5px;letter-spacing:1.3px;text-transform:uppercase;font-weight:800;
+  color:var(--dim)}
+.evcard .t{font-size:17px;font-weight:800;color:#fff;margin:5px 0 2px;font-variant-numeric:tabular-nums}
+.evcard .s{font-size:12.5px;color:var(--muted)}
+.evtable{width:100%;border-collapse:collapse;font-size:13.5px}
+.evtable th{text-align:left;font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;
+  color:var(--dim);font-weight:800;padding:0 8px 8px}
+.evtable td{padding:8px;border-top:1px solid var(--line)}
+.evtable td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.evtable .paid{color:var(--green,#66e6b8)}
+.evtable .missed{color:var(--dim)}
+.evrules{font-size:13px;color:var(--muted);line-height:1.75}
+.evrules b{color:#cfe3ee}
+{% endblock %}
+{% block body %}
+{% if preview %}<div class="previewbar">🔒 Not released &mdash; only you can see this page.</div>{% endif %}
+
+<div class="pagehead" style="--ct:#f0c04a">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Events</p>
+    <h1 class="phname">Four a day, hosted</h1>
+    <p class="phsub">A survival round and a team match, alternating, every six hours. Say you are
+      in before it starts; when enough people are standing here the lobby goes up and the link
+      lands on this page. The prize scales with how many turn up and how strong they are.</p>
+  </div></div>
+</div>
+
+<div id="evNow"></div>
+
+<div class="evgrid" id="evNext"></div>
+
+<div class="card">
+  <h2>How it pays</h2>
+  <p class="evrules">
+    <b>Survival</b> needs {{ quorum.survival }} people. The last one standing takes
+    <b>{{ base.survival }}</b> gems at a normal field of {{ field.survival }} against normal
+    opposition &mdash; more for a bigger or stronger field, less against newcomers.<br>
+    <b>Team</b> needs {{ quorum.team }}. Every player on the winning side takes
+    <b>{{ base.team }}</b> on the same terms.<br>
+    Whatever a winner takes, their clan takes <b>{{ clan_share }}%</b> of it again, and whoever
+    runs that clan takes <b>{{ leader_share }}%</b> of the clan's share.<br>
+    Only players the recorder actually saw play are paid. Signing up and not turning up pays
+    nothing.
+  </p>
+</div>
+
+{% if past %}
+<div class="card">
+  <h2>What has run</h2>
+  <div class="tablewrap">
+  <table class="evtable">
+    <thead><tr><th>When</th><th>Mode</th><th></th><th style="text-align:right">Players</th><th style="text-align:right">Opposition</th><th style="text-align:right">Each</th><th style="text-align:right">Paid out</th></tr></thead>
+    <tbody>
+    {% for e in past %}
+    <tr>
+      <td><time class="lt" datetime="{{ e.start_at|replace(' ', 'T') }}Z">{{ e.start_at[:16] }}</time></td>
+      <td style="text-transform:capitalize">{{ e.kind }}</td>
+      <td class="{{ 'paid' if e.state == 'paid' else 'missed' }}">{{ 'paid' if e.state == 'paid' else ('nobody turned up' if e.state == 'missed' else 'played') }}</td>
+      <td class="n">{{ e.players or '' }}</td>
+      <td class="n">{{ e.opp_elo or '' }}</td>
+      <td class="n">{{ '{:,}'.format(e.prize) if e.prize else '' }}</td>
+      <td class="n paid">{{ '{:,}'.format(e.pot) if e.pot else '' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function(){
+  var now = document.getElementById('evNow'), next = document.getElementById('evNext');
+  var SIGNED = {{ 'true' if signed_in else 'false' }}, NAMED = {{ 'true' if named else 'false' }};
+  var slots = [], tick = 0;
+  function esc(s){ var d = document.createElement('span'); d.textContent = String(s == null ? '' : s); return d.innerHTML; }
+  function clock(s){
+    s = Math.max(0, s|0);
+    var h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+    return (h ? h+':' : '') + ('0'+m).slice(-2) + ':' + ('0'+x).slice(-2);
+  }
+  function draw(){
+    var s = slots[0];
+    if(!s){ now.innerHTML = ''; return; }
+    var pc = Math.min(100, Math.round(100 * s.signed / Math.max(1, s.quorum)));
+    var head = '<span class="evkind">' + esc(s.kind) + '</span>';
+    var body, action;
+    if(s.phase === 'later'){
+      body = '<p class="evwhen">' + clock(s.in_s) + '</p>'
+           + '<p class="evsub">until the next one. Sign-ups open ' + {{ '20' }} + ' minutes before.</p>';
+      action = '';
+    } else if(s.phase === 'signup'){
+      body = '<p class="evwhen">' + clock(s.in_s) + '</p>'
+           + '<p class="evsub"><b>' + s.signed + '</b> of <b>' + s.quorum + '</b> in'
+           + (s.short ? ' &middot; ' + s.short + ' more and it happens' : ' &middot; it is on')
+           + ' &middot; about <b>' + s.prize.toLocaleString() + '</b> gems to a winner</p>';
+      action = s.me
+        ? '<button class="evbtn out" data-act="leave">I am out</button><span class="evsub">Keep this page open &mdash; the link lands here.</span>'
+        : '<button class="evbtn" data-act="join"' + (SIGNED && NAMED ? '' : ' disabled') + '>I am in</button>'
+          + (SIGNED ? (NAMED ? '' : '<span class="evsub">Set your account name first.</span>')
+                    : '<span class="evsub">Sign in to join.</span>');
+    } else if(s.link){
+      body = '<p class="evwhen">It is up</p><p class="evsub">Join now &mdash; a lobby with nobody in it closes in three minutes.</p>';
+      action = '<a class="evlink" href="' + esc(s.link) + '" target="_blank" rel="noopener">Join the game &rarr;</a>';
+    } else if(s.phase === 'go' || s.phase === 'join'){
+      body = s.signed >= s.quorum
+        ? '<p class="evwhen">Building it&hellip;</p><p class="evsub">' + s.signed + ' in. The link appears here in a moment.</p>'
+        : '<p class="evwhen">Not this time</p><p class="evsub">' + s.signed + ' of ' + s.quorum
+          + ' turned up, so there is no lobby. The next one is in a few hours.</p>';
+      action = '';
+    } else {
+      body = '<p class="evwhen">Done</p><p class="evsub">The next one is below.</p>';
+      action = '';
+    }
+    var who = s.names && s.names.length
+      ? '<div class="evwho">' + s.names.map(function(n){ return '<span>' + esc(n) + '</span>'; }).join('') + '</div>' : '';
+    now.innerHTML = '<div class="evnow">' + head + body
+      + '<div class="evbar' + (s.short ? ' short' : '') + '"><i style="width:' + pc + '%"></i></div>'
+      + '<div class="evrow">' + action + '</div>' + who + '</div>';
+    next.innerHTML = slots.slice(1).map(function(x){
+      return '<div class="evcard"><div class="k">' + esc(x.kind) + '</div>'
+        + '<div class="t">' + clock(x.in_s) + '</div>'
+        + '<div class="s">needs ' + x.quorum + ' &middot; ' + x.start_at.slice(11,16) + ' UTC</div></div>';
+    }).join('');
+  }
+  async function poll(){
+    try{
+      var r = await fetch('/api/events/state', {cache:'no-store'});
+      var d = await r.json();
+      slots = d.slots || [];
+      draw();
+    }catch(e){}
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest && ev.target.closest('[data-act]');
+    if(!b) return;
+    b.disabled = true;
+    fetch('/api/events/' + b.getAttribute('data-act'), {method:'POST',
+          headers:{'Content-Type':'application/json'}, body:'{}'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(j && j.message && !j.ok) alert(j.message); poll(); })
+      .catch(function(){ b.disabled = false; });
+  });
+  // Every second for the clock; the server is asked every five, and being
+  // asked is what keeps a sign-up alive.
+  setInterval(function(){
+    tick++;
+    slots.forEach(function(s){ s.in_s = Math.max(0, s.in_s - 1); });
+    draw();
+    if(tick % 5 === 0) poll();
+  }, 1000);
+  poll();
+})();
+</script>
+{% endblock %}

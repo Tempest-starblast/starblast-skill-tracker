@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.48.0"
+APP_VERSION = "9.49.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -3512,6 +3512,35 @@ def init_db():
                     uses INTEGER DEFAULT 0,
                     last_used_at TEXT
                 )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT NOT NULL,
+                    start_at TEXT NOT NULL UNIQUE,
+                    state TEXT NOT NULL DEFAULT 'open',
+                    sid INTEGER,
+                    addr TEXT,
+                    link TEXT,
+                    opened_at TEXT,
+                    live_at TEXT,
+                    ended_at TEXT,
+                    signups INTEGER DEFAULT 0,
+                    players INTEGER DEFAULT 0,
+                    opp_elo REAL DEFAULT 0,
+                    prize INTEGER DEFAULT 0,
+                    pot INTEGER DEFAULT 0,
+                    result_key TEXT,
+                    note TEXT
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS event_signups (
+                    event_id INTEGER NOT NULL,
+                    google_sub TEXT NOT NULL,
+                    norm_name TEXT,
+                    name TEXT,
+                    at TEXT,
+                    last_seen TEXT,
+                    PRIMARY KEY (event_id, google_sub)
+                )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_evsign ON event_signups(event_id, last_seen)")
     c.execute('''CREATE TABLE IF NOT EXISTS cosmetic_rentals (
                     norm_name TEXT NOT NULL,
                     item TEXT NOT NULL,
@@ -6320,6 +6349,16 @@ def game_end():
                                or _ships_by_name.get(pname),
                                _deaths_by_name.get(played_as)
                                or _deaths_by_name.get(pname)))
+
+    # ---- A hosted event -------------------------------------------------
+    # If this match was the event lobby we put up, the winning side is paid
+    # here, from the rows just written, in the same transaction as the
+    # rating. Not an event: costs one indexed lookup and does nothing.
+    try:
+        if mrow:
+            event_settle_team(c, mrow[0], sys_id)
+    except (sqlite3.Error, TypeError, ValueError, KeyError):
+        pass
 
     # ---- Gems -----------------------------------------------------------
     # Paid from `applied`, the same list the rating was just written from, and
@@ -11228,6 +11267,12 @@ def survival_push():
                 apply_survival_round(c, key, r.get('ended_at'), r)
             except Exception:
                 pass
+            # ...and if it was the event lobby, pay the last one standing.
+            try:
+                event_settle_survival(c, key, r.get('sid'), w,
+                                      int(r.get('elim_field_size') or 0))
+            except (sqlite3.Error, TypeError, ValueError, KeyError):
+                pass
         except (sqlite3.Error, TypeError, ValueError):
             continue
     conn.commit()
@@ -13595,6 +13640,8 @@ def me():
                      "label": "Shop", "badge": "NEW", "colour": "#8ef3ff"})
         _nav.append({"t": "a", "href": "/agents", "id": "agentsTab",
                      "label": "Free agents", "badge": "NEW", "colour": "#8ef3ff"})
+        _nav.append({"t": "a", "href": "/events", "id": "eventsTab", "top": True,
+                     "label": "Events", "badge": "NEW", "colour": "#f0c04a"})
         try:
             _c5 = db()
             _gems = gem_balance(_c5.cursor(), "player", normalize_name(account_name))
@@ -14789,6 +14836,147 @@ def achievements_page():
                            preview=not GEMS_PUBLIC)
 
 
+
+# --------------------------------------------------------------- EVENTS
+# Four a day, alternating, on the quarter-days UTC. A modding lobby with
+# nobody in it closes in about three minutes, so the lobby is NOT built on
+# the clock: sign-ups open twenty minutes before, and the host only builds
+# the game once the quorum is standing there with the page open. No quorum,
+# no lobby - which is also exactly the owner's rule about minimum turnout.
+def _event_now():
+    """The event system's clock, in one place: the schedule, the phases and
+    the sign-up freshness all read it, so a test can move time without any
+    of them behaving differently than they do live."""
+    return time.time()
+
+
+EVENT_HOURS = (0, 6, 12, 18)
+EVENT_KINDS = ("survival", "team")
+EVENT_SIGNUP_MIN = 20          # sign-ups open this many minutes before
+EVENT_JOIN_MIN = 6             # how long the link stays the thing to do
+EVENT_ALIVE_S = 150            # a sign-up goes stale without a heartbeat
+EVENT_QUORUM = {"survival": 6, "team": 15}
+# The prize. Measured 19 Sep 2026: a survival field is 13 at the median, a
+# team match 16, and a typical field averages 1,125 rating. So a median
+# field at a median strength pays the base, and it scales from there with
+# how many turned up and how strong the opposition was.
+EVENT_BASE = {"survival": 800, "team": 250}
+EVENT_FIELD = {"survival": 13, "team": 16}
+EVENT_CAP = {"survival": 2500, "team": 800}
+EVENT_FACTOR_LO, EVENT_FACTOR_HI = 0.5, 2.0
+EVENT_REGION = "America"       # where the event lobby is hosted
+EVENT_CLAN_SHARE = 1.0         # the winner's clan gets the same again
+EVENT_LEADER_SHARE = 0.5       # and the leader half of that
+
+
+def event_options(kind):
+    """What the host builds. A team event is a plain team game - every
+    setting default - so the ordinary recorder rates it exactly like any
+    other match. A survival event locks its build phase down to ten minutes
+    so an event does not take an hour to reach the elimination."""
+    if kind == "survival":
+        return {"root_mode": "survival", "survival_time": 10, "survival_level": 8,
+                "map_size": 60, "max_players": 60}
+    return {"root_mode": "team", "friendly_colors": 3, "map_size": 80, "max_players": 60}
+
+
+def event_kind_for(start_at):
+    """Which mode a slot is. Alternating, counted from the epoch so the
+    pattern never drifts: survival at midnight, team at six, and so on."""
+    try:
+        t = time.strptime(start_at, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return EVENT_KINDS[0]
+    idx = int(calendar.timegm(t) // 3600 // 6)
+    return EVENT_KINDS[idx % len(EVENT_KINDS)]
+
+
+def event_slot(now=None, ahead=0):
+    """The stamp of a scheduled slot: the one running now or next, plus
+    `ahead` slots after it."""
+    now = _event_now() if now is None else now
+    slot = (int(now) // (6 * 3600)) * (6 * 3600)
+    if now > slot + EVENT_JOIN_MIN * 60:
+        slot += 6 * 3600                      # this one has been and gone
+    slot += ahead * 6 * 3600
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(slot))
+
+
+def event_when(start_at):
+    try:
+        return calendar.timegm(time.strptime(start_at, "%Y-%m-%d %H:%M:%S"))
+    except (TypeError, ValueError):
+        return 0
+
+
+def event_phase(start_at, now=None):
+    """Where a slot is in its life, in words: 'later', 'signup', 'go',
+    'join' or 'over'."""
+    now = _event_now() if now is None else now
+    when = event_when(start_at)
+    if now < when - EVENT_SIGNUP_MIN * 60:
+        return "later"
+    if now < when:
+        return "signup"
+    if now < when + 60:
+        return "go"
+    if now < when + EVENT_JOIN_MIN * 60:
+        return "join"
+    return "over"
+
+
+def event_factor(value, reference):
+    """How much bigger (or smaller) than the usual, held between half and
+    double so one freak lobby cannot print gems."""
+    if not reference:
+        return 1.0
+    return max(EVENT_FACTOR_LO, min(EVENT_FACTOR_HI, float(value) / float(reference)))
+
+
+def event_prize(kind, players, opp_elo):
+    """What one winner takes: the base, scaled by how many turned up and by
+    how strong the people they beat were. Beating a lobby of newcomers pays
+    a fraction; beating a strong, full field pays double."""
+    if kind not in EVENT_BASE:
+        return 0
+    turnout = event_factor(players, EVENT_FIELD[kind])
+    strength = event_factor(opp_elo or STARTING_ELO, STARTING_ELO)
+    return int(min(EVENT_CAP[kind],
+                   round(EVENT_BASE[kind] * turnout * strength / 10.0) * 10))
+
+
+def event_row(c, start_at, make=False):
+    """The row for a slot, made when its sign-ups open."""
+    r = c.execute("SELECT id, kind, start_at, state, sid, addr, link, signups, players, "
+                  "opp_elo, prize, pot, result_key, note FROM events WHERE start_at = ?",
+                  (start_at,)).fetchone()
+    if not r and make:
+        c.execute("INSERT OR IGNORE INTO events (kind, start_at, state, opened_at) "
+                  "VALUES (?, ?, 'open', ?)",
+                  (event_kind_for(start_at), start_at, _stamp()))
+        r = c.execute("SELECT id, kind, start_at, state, sid, addr, link, signups, players, "
+                      "opp_elo, prize, pot, result_key, note FROM events WHERE start_at = ?",
+                      (start_at,)).fetchone()
+    if not r:
+        return None
+    keys = ("id", "kind", "start_at", "state", "sid", "addr", "link", "signups",
+            "players", "opp_elo", "prize", "pot", "result_key", "note")
+    return dict(zip(keys, r))
+
+
+def event_signups(c, event_id, now=None):
+    """Who is standing there right now - a sign-up goes stale without a
+    heartbeat, so a tab left open overnight does not hold a place."""
+    now = _event_now() if now is None else now
+    cut = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now - EVENT_ALIVE_S))
+    try:
+        rows = c.execute("SELECT google_sub, name, norm_name, last_seen FROM event_signups "
+                         "WHERE event_id = ? AND last_seen >= ? ORDER BY at", (event_id, cut)).fetchall()
+    except sqlite3.Error:
+        return []
+    return [{"sub": r[0], "name": r[1], "norm": r[2], "seen": r[3]} for r in rows]
+
+
 # ------------------------------------------------------------ OBJECTIVES
 # Six a day - three easy, two medium, one hard - drawn from objectives.py,
 # whose catalogue is only the ones the board has actually seen done, each
@@ -14993,6 +15181,359 @@ def obj_status(c, nn, now=None):
                         ready=(done and not got),
                         pc=min(100, int(100.0 * have / (o["need"] or 1)))))
     return out
+
+
+
+
+def clan_leader_norm(c, tag):
+    """The leaderboard name of whoever runs a clan, or None."""
+    if not tag:
+        return None
+    try:
+        r = c.execute("SELECT p.norm_name FROM clan_admins a JOIN players p "
+                      "ON p.google_sub = a.google_sub WHERE a.clan = ? "
+                      "AND COALESCE(a.role, 'leader') = 'leader' "
+                      "AND COALESCE(p.norm_name, '') <> '' LIMIT 1", (tag,)).fetchone()
+    except sqlite3.Error:
+        return None
+    return r[0] if r else None
+
+
+def event_settle(c, ev, winners, players, opp_elo, result_key=""):
+    """Pay one event, once.
+
+    Each winner takes the prize; their clan takes the same again; whoever
+    runs that clan takes half of the clan's share. Every line is its own
+    ledger row keyed by the event and the winner, so settling twice - a
+    re-pushed round, a replayed result - pays nothing the second time.
+    """
+    if not ev or ev.get("state") == "paid":
+        return 0
+    prize = event_prize(ev["kind"], players, opp_elo)
+    pot = 0
+    for nn in winners:
+        if not nn:
+            continue
+        got = gem_grant(c, "player", nn, prize, "event-win", "e%d:%s" % (ev["id"], nn))
+        pot += got
+        row = c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
+        tag = (row[0] if row else None) or ""
+        if not tag:
+            continue
+        share = int(round(prize * EVENT_CLAN_SHARE))
+        pot += gem_grant(c, "clan", tag, share, "event-clan", "e%d:%s" % (ev["id"], nn))
+        boss = clan_leader_norm(c, tag)
+        if boss:
+            pot += gem_grant(c, "player", boss, int(round(share * EVENT_LEADER_SHARE)),
+                             "event-leader", "e%d:%s" % (ev["id"], nn))
+    c.execute("UPDATE events SET state = 'paid', players = ?, opp_elo = ?, prize = ?, "
+              "pot = ?, result_key = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?",
+              (int(players), float(opp_elo or 0), prize, pot, str(result_key or ""),
+               _stamp(), ev["id"]))
+    return pot
+
+
+def event_live_row(c, sid, now=None):
+    """The event a lobby belongs to, if this sid is one we put up."""
+    if not sid:
+        return None
+    try:
+        r = c.execute("SELECT id, kind, start_at, state, sid, addr, link, signups, players, "
+                      "opp_elo, prize, pot, result_key, note FROM events "
+                      "WHERE sid = ? AND state IN ('live', 'played') "
+                      "ORDER BY id DESC LIMIT 1", (int(sid),)).fetchone()
+    except (sqlite3.Error, TypeError, ValueError):
+        return None
+    if not r:
+        return None
+    keys = ("id", "kind", "start_at", "state", "sid", "addr", "link", "signups",
+            "players", "opp_elo", "prize", "pot", "result_key", "note")
+    return dict(zip(keys, r))
+
+
+def event_settle_team(c, match_row, sys_id):
+    """A team event's game just landed. Pay the winning side."""
+    ev = event_live_row(c, sys_id)
+    if not ev or ev["kind"] != "team":
+        return 0
+    rows = c.execute("SELECT mp.norm_name, mp.won, COALESCE(p.elo, ?) FROM match_players mp "
+                     "LEFT JOIN players p ON p.norm_name = mp.norm_name "
+                     "WHERE mp.match_row = ?", (STARTING_ELO, match_row)).fetchall()
+    if not rows:
+        return 0
+    winners = [r[0] for r in rows if r[1]]
+    losers = [float(r[2]) for r in rows if not r[1]]
+    if not winners or not losers:
+        return 0
+    opp = sum(losers) / len(losers)
+    return event_settle(c, ev, winners, len(rows), opp, "m:%s" % sys_id)
+
+
+def event_settle_survival(c, key, sid, winner, field):
+    """A survival event's round just landed. Pay whoever is last standing."""
+    ev = event_live_row(c, sid)
+    if not ev or ev["kind"] != "survival":
+        return 0
+    nn = normalize_name(winner or "")
+    if not nn:
+        return 0
+    rows = c.execute("SELECT s.norm_name, COALESCE(p.elo, ?) FROM survival_round_players s "
+                     "LEFT JOIN players p ON p.norm_name = s.norm_name "
+                     "WHERE s.round_key = ?", (STARTING_ELO, key)).fetchall()
+    others = [float(e) for n, e in rows if n != nn]
+    opp = (sum(others) / len(others)) if others else STARTING_ELO
+    return event_settle(c, ev, [nn], int(field or len(rows) or 0), opp, key)
+
+
+def event_view(c, start_at, sub_id=None, now=None):
+    """Everything a page needs about one slot."""
+    now = time.time() if now is None else now
+    phase = event_phase(start_at, now)
+    ev = event_row(c, start_at, make=(phase in ("signup", "go", "join")))
+    kind = ev["kind"] if ev else event_kind_for(start_at)
+    quorum = EVENT_QUORUM[kind]
+    people = event_signups(c, ev["id"], now) if ev else []
+    return {
+        "id": (ev or {}).get("id"),
+        "kind": kind, "start_at": start_at, "phase": phase,
+        "in_s": int(event_when(start_at) - now),
+        "state": (ev or {}).get("state") or "open",
+        "quorum": quorum, "signed": len(people),
+        "short": max(0, quorum - len(people)),
+        "names": [q["name"] for q in people if q["name"]][:40],
+        "me": bool(sub_id) and any(q["sub"] == sub_id for q in people),
+        "link": ((ev or {}).get("link") or "") if phase in ("go", "join") else "",
+        "prize": event_prize(kind, max(len(people), quorum), STARTING_ELO),
+        "base": EVENT_BASE[kind], "field": EVENT_FIELD[kind],
+    }
+
+
+def event_try_go(c, ev, now=None):
+    """At the hour, with the quorum standing there, ask the host for a
+    lobby. Idempotent: the host clears `wanted` by answering with a link."""
+    if not ev or ev["state"] not in ("open", "wanted"):
+        return False
+    if event_phase(ev["start_at"], now) not in ("go", "join"):
+        return False
+    people = event_signups(c, ev["id"], now)
+    if len(people) < EVENT_QUORUM[ev["kind"]]:
+        return False
+    if ev["state"] != "wanted":
+        c.execute("UPDATE events SET state = 'wanted', signups = ? WHERE id = ?",
+                  (len(people), ev["id"]))
+    return True
+
+
+def event_sweep(c, now=None):
+    """Close off anything whose moment has passed: a slot nobody turned up
+    for, or a lobby that was never reported as ended."""
+    now = time.time() if now is None else now
+    try:
+        rows = c.execute("SELECT id, start_at, state FROM events "
+                         "WHERE state IN ('open', 'wanted', 'live')").fetchall()
+    except sqlite3.Error:
+        return
+    for eid, start_at, state in rows:
+        if event_phase(start_at, now) != "over":
+            continue
+        if state in ("open", "wanted"):
+            c.execute("UPDATE events SET state = 'missed', ended_at = ? WHERE id = ?",
+                      (_stamp(), eid))
+        elif state == "live" and now - event_when(start_at) > 6 * 3600:
+            c.execute("UPDATE events SET state = 'played', ended_at = ? WHERE id = ?",
+                      (_stamp(), eid))
+
+
+@app.route('/events')
+def events_page():
+    """What is on, when, and who is in."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    sub_id = current_user()
+    event_sweep(c)
+    now = _event_now()
+    slots = [event_view(c, event_slot(now, i), sub_id, now) for i in range(4)]
+    for sl in slots[:1]:
+        if sl["id"]:
+            ev = event_row(c, sl["start_at"])
+            if event_try_go(c, ev, now):
+                sl["state"] = "wanted"
+    me = my_player(c)
+    past = []
+    for r in c.execute("SELECT kind, start_at, state, players, opp_elo, prize, pot "
+                       "FROM events WHERE state IN ('paid', 'played', 'missed') "
+                       "ORDER BY start_at DESC LIMIT 8").fetchall():
+        past.append({"kind": r[0], "start_at": r[1], "state": r[2], "players": r[3],
+                     "opp_elo": int(r[4] or 0), "prize": r[5], "pot": r[6]})
+    conn.commit()
+    conn.close()
+    return render_template('events.html', page='events', version=APP_VERSION,
+                           slots=slots, past=past, signed_in=bool(sub_id),
+                           named=bool(me), preview=not GEMS_PUBLIC,
+                           quorum=EVENT_QUORUM, base=EVENT_BASE, field=EVENT_FIELD,
+                           clan_share=int(EVENT_CLAN_SHARE * 100),
+                           leader_share=int(EVENT_LEADER_SHARE * 100))
+
+
+@app.route('/api/events/state')
+def api_events_state():
+    """The page polls this. Polling IS the heartbeat: it is what keeps a
+    sign-up alive, so a tab left open in another room does not hold a
+    place in the lobby."""
+    if not gems_visible():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    sub_id = current_user()
+    now = _event_now()
+    event_sweep(c)
+    slots = [event_view(c, event_slot(now, i), sub_id, now) for i in range(4)]
+    if sub_id and slots and slots[0]["id"] and slots[0]["me"]:
+        c.execute("UPDATE event_signups SET last_seen = ? WHERE event_id = ? AND google_sub = ?",
+                  (_stamp(), slots[0]["id"], sub_id))
+        slots[0] = event_view(c, slots[0]["start_at"], sub_id, now)
+    if slots and slots[0]["id"]:
+        ev = event_row(c, slots[0]["start_at"])
+        if event_try_go(c, ev, now):
+            slots[0]["state"] = "wanted"
+    conn.commit()
+    conn.close()
+    return jsonify({"slots": slots, "at": int(now)}), 200
+
+
+@app.route('/api/events/join', methods=['POST'])
+def api_events_join():
+    """Say you are in for the next one. You need a name on the board: the
+    payout is to a name, and the recorder can only credit one."""
+    if not gems_visible():
+        abort(404)
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "Set your account name first - the prize "
+                                                "is paid to a name on the board."}), 200
+    now = _event_now()
+    start_at = event_slot(now)
+    view = event_view(c, start_at, sub_id, now)
+    if view["phase"] == "later":
+        conn.close()
+        return jsonify({"ok": False, "message": "Sign-ups open %d minutes before it starts."
+                                                % EVENT_SIGNUP_MIN}), 200
+    if view["phase"] == "over":
+        conn.close()
+        return jsonify({"ok": False, "message": "That one is done. The next is in a few hours."}), 200
+    ev = event_row(c, start_at, make=True)
+    c.execute("INSERT INTO event_signups (event_id, google_sub, norm_name, name, at, last_seen) "
+              "VALUES (?,?,?,?,?,?) ON CONFLICT(event_id, google_sub) DO UPDATE SET "
+              "last_seen = excluded.last_seen, name = excluded.name, norm_name = excluded.norm_name",
+              (ev["id"], sub_id, me[1], me[0], _stamp(), _stamp()))
+    event_try_go(c, event_row(c, start_at), now)
+    conn.commit()
+    out = event_view(c, start_at, sub_id, now)
+    conn.close()
+    return jsonify({"ok": True, "slot": out,
+                    "message": "You are in. Keep this page open - the link lands here."}), 200
+
+
+@app.route('/api/events/leave', methods=['POST'])
+def api_events_leave():
+    if not gems_visible():
+        abort(404)
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False}), 401
+    conn = db()
+    c = conn.cursor()
+    start_at = event_slot()
+    ev = event_row(c, start_at)
+    if ev:
+        c.execute("DELETE FROM event_signups WHERE event_id = ? AND google_sub = ?",
+                  (ev["id"], sub_id))
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/api/events/pending')
+def api_events_pending():
+    """The droplet host polls this alongside the custom-game one: is an
+    event lobby wanted? Key-gated."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    now = _event_now()
+    event_sweep(c)
+    start_at = event_slot(now)
+    ev = event_row(c, start_at)
+    wanted = bool(ev) and event_try_go(c, ev, now) and not (ev.get("link") or "")
+    resp = {"wanted": False}
+    if wanted:
+        ev = event_row(c, start_at)
+        people = event_signups(c, ev["id"], now)
+        resp = {"wanted": True, "event_id": ev["id"], "kind": ev["kind"],
+                "start_at": ev["start_at"], "signed": len(people),
+                "region": EVENT_REGION,
+                "options": event_options(ev["kind"])}
+    conn.commit()
+    conn.close()
+    return jsonify(resp), 200
+
+
+@app.route('/api/events/set', methods=['POST'])
+def api_events_set():
+    """The host reports the lobby it just built (or that it could not)."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    try:
+        eid = int(d.get('event_id') or 0)
+    except (TypeError, ValueError):
+        eid = 0
+    link = str(d.get('link') or '')[:200]
+    if not eid:
+        conn.close()
+        return jsonify({"ok": False, "error": "no event"}), 400
+    if link:
+        c.execute("UPDATE events SET state = 'live', sid = ?, addr = ?, link = ?, live_at = ? "
+                  "WHERE id = ?", (d.get('sid'), str(d.get('addr') or '')[:64], link,
+                                   _stamp(), eid))
+    else:
+        c.execute("UPDATE events SET state = 'missed', note = ?, ended_at = ? WHERE id = ?",
+                  (str(d.get('error') or 'the host could not build it')[:200], _stamp(), eid))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
+
+
+@app.route('/api/events/ended', methods=['POST'])
+def api_events_ended():
+    """The host says the lobby closed. The result may still be on its way,
+    so this only moves it out of 'live'."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    d = request.json or {}
+    conn = db()
+    c = conn.cursor()
+    try:
+        eid = int(d.get('event_id') or 0)
+    except (TypeError, ValueError):
+        eid = 0
+    if eid:
+        c.execute("UPDATE events SET state = 'played', ended_at = ?, link = '' "
+                  "WHERE id = ? AND state = 'live'", (_stamp(), eid))
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 200
 
 
 @app.route('/objectives/claim', methods=['POST'])
@@ -20088,6 +20629,8 @@ GEM_REASON_LABELS = {
     "clan-start": "Started a clan", "sandbox": "Test account (not real)",
     "objective": "Daily or weekly objective",
     "contract": "Contract instalment", "contract-refund": "Contract ended early",
+    "event-win": "Won a hosted event", "event-clan": "Event prize, to the clan",
+    "event-leader": "Event prize, the leader's share",
     "rent": "Rented a look (a week)",
 }
 
