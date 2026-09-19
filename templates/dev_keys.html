@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Tester keys - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.kmade{margin:0 0 18px;padding:14px 16px;border-radius:12px;border:1px solid rgba(102,230,184,.5);
+  background:rgba(102,230,184,.10)}
+.kmade h2{margin:0 0 6px;font-size:12.5px;letter-spacing:1.3px;text-transform:uppercase;color:#66e6b8}
+.kmade .kval{display:flex;gap:10px;align-items:center;margin:8px 0 0;flex-wrap:wrap}
+.kmade code{font-size:15px;font-weight:700;color:#eaf8ff;background:rgba(0,0,0,.45);
+  border:1px solid var(--line);border-radius:8px;padding:9px 12px;overflow-wrap:anywhere}
+.kmade .desc{margin:8px 0 0}
+.kform{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.kform label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);font-weight:600}
+.kform input,.kform select{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;
+  color:inherit;padding:9px 11px;font:inherit;font-size:13.5px}
+.ktable{width:100%;border-collapse:collapse;font-size:13.5px}
+.ktable th{text-align:left;font-size:11px;letter-spacing:1.1px;text-transform:uppercase;
+  color:var(--dim);font-weight:700;padding:0 8px 8px}
+.ktable td{padding:9px 8px;border-top:1px solid var(--line);vertical-align:middle}
+.kstate{font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+  padding:2px 8px;border-radius:999px}
+.kstate.live{color:#66e6b8;background:rgba(102,230,184,.12);border:1px solid rgba(102,230,184,.45)}
+.kstate.revoked{color:#ff8fa3;background:rgba(255,86,112,.12);border:1px solid rgba(255,86,112,.45)}
+.kstate.expired{color:var(--dim);border:1px solid var(--line)}
+.ktable button{font-family:inherit;font-size:12px;font-weight:700;border-radius:8px;cursor:pointer;
+  padding:6px 12px;border:1px solid rgba(255,86,112,.5);color:#ff8fa3;background:rgba(255,86,112,.08)}
+.ktable button:hover{background:rgba(255,86,112,.18);color:#fff}
+{% endblock %}
+{% block body %}
+<div class="pagehead" style="--ct:#8ef3ff">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Owner</p>
+    <h1 class="phname">Tester keys</h1>
+    <p class="phsub">A key lets one person see the gem economy before it is released. Each key
+      has its own test account, so two testers never overwrite each other, and a key can be
+      taken back at any time. Send them to <b>/dev/preview</b> with their key.</p>
+  </div></div>
+  <div class="phnums">
+    <div class="phnum"><span>Live</span><b class="green">{{ keys|selectattr('state', 'equalto', 'live')|list|length }}</b></div>
+    <div class="phnum"><span>All</span><b>{{ keys|length }}</b></div>
+  </div>
+</div>
+
+{% if made %}
+<div class="kmade">
+  <h2>Copy this now</h2>
+  <p class="desc" style="margin:0">This is the only time it is shown. The site keeps a hash, not
+     the key, so it cannot be looked up again &mdash; if it is lost, revoke it and make another.</p>
+  <div class="kval">
+    <code id="newkey">{{ made }}</code>
+    <button type="button" class="primary" onclick="copyKey('newkey')">Copy the key</button>
+    <button type="button" onclick="copyKey('newmsg')">Copy the whole message</button>
+    <span class="msg" id="copyMsg"></span>
+  </div>
+  <p class="desc" id="newmsg">Go to {{ request.host_url.rstrip('/') }}/dev/preview and paste this key: {{ made }} &mdash;
+     it puts you on a test account with gems to spend. Nothing you do there touches the real
+     leaderboard.</p>
+</div>
+<script>
+function copyKey(id){
+  var t = document.getElementById(id).textContent.trim().replace(/\s+/g, ' ');
+  var said = function (m){ document.getElementById('copyMsg').textContent = m; };
+  navigator.clipboard.writeText(t).then(function(){ said('Copied.'); },
+                                       function(){ said('Select it and copy by hand.'); });
+}
+</script>
+{% endif %}
+
+<div class="card">
+  <h2>Make a key</h2>
+  <form class="kform" method="post">
+    <label>Who it is for
+      <input name="label" maxlength="{{ label_max }}" placeholder="e.g. niwu" autocomplete="off"></label>
+    <label>Good for
+      <select name="days">
+        {% for d in days %}<option value="{{ d }}"{% if d == default_days %} selected{% endif %}>{{ d }} day{{ '' if d == 1 else 's' }}</option>{% endfor %}
+      </select></label>
+    <button class="primary" type="submit">Make it</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Keys</h2>
+  {% if keys %}
+  <div class="tablewrap">
+  <table class="ktable">
+    <thead><tr><th>For</th><th>State</th><th>Made</th><th>Until</th><th>Used</th><th>Last used</th><th></th></tr></thead>
+    <tbody>
+    {% for k in keys %}
+    <tr>
+      <td><b>{{ k.label }}</b></td>
+      <td><span class="kstate {{ k.state }}">{{ k.state }}</span></td>
+      <td>{{ k.made }}</td>
+      <td>{{ k.expires }}</td>
+      <td>{{ k.uses }}</td>
+      <td>{{ k.last or '&mdash;'|safe }}</td>
+      <td>{% if k.state == 'live' %}
+        <form method="post" action="/dev/keys/{{ k.id }}/revoke" style="margin:0">
+          <button type="submit" onclick="return confirm('Revoke this key? The test account behind it, and everything bought on it, goes too.')">Revoke</button>
+        </form>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="empty">No keys yet. Make one above and send it to whoever is testing.</p>
+  {% endif %}
+</div>
+{% endblock %}

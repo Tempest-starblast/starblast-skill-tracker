@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Preview - Starblast Skill Leaderboard{% endblock %}
+{% block css %}
+.pvwrap{max-width:480px;margin:0 auto}
+.pvform{display:flex;flex-direction:column;gap:12px;margin-top:4px}
+.pvform label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted);font-weight:600}
+.pvform input{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;color:inherit;
+  padding:10px 12px;font:inherit;font-size:14px}
+.pvrow{display:flex;gap:12px}
+.pvrow label{flex:1}
+{% endblock %}
+{% block body %}
+<div class="pvwrap">
+<div class="pagehead" style="--ct:#8ef3ff">
+  <div class="phwho"><div class="phtext">
+    <p class="pheye">Preview</p>
+    <h1 class="phname">Try the gem economy</h1>
+    <p class="phsub">Enter the key you were given. You get a test account of your own with
+      gems to spend &mdash; nothing you do here touches the real leaderboard, and nothing you
+      do here is your own account.</p>
+  </div></div>
+</div>
+<div class="card">
+  <form class="pvform" method="post">
+    <label>Your key
+      <input name="key" type="password" autocomplete="off" autofocus placeholder="sbgem-..."></label>
+    <div class="pvrow">
+      <label>Rating to start with
+        <input name="elo" type="number" value="{{ elo }}" min="100" max="4000"></label>
+      <label>Gems to start with
+        <input name="gems" type="number" value="{{ gems }}" min="0" max="1000000"></label>
+    </div>
+    <button class="primary" type="submit">Enter the preview</button>
+  </form>
+</div>
+</div>
+{% endblock %}

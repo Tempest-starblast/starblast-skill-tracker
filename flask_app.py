@@ -27,7 +27,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.39.1"
+APP_VERSION = "9.40.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -86,6 +86,119 @@ def _load_preview_key():
 
 
 PREVIEW_KEY = _load_preview_key()
+# Keys the owner hands to testers. The key itself is never stored - only a
+# hash - so a leak of the database is not a leak of the keys, and a key is
+# shown once, at the moment it is made.
+PREVIEW_KEY_PREFIX = "sbgem"
+PREVIEW_KEY_DAYS = (1, 7, 14, 30, 90)
+PREVIEW_KEY_DEFAULT_DAYS = 14
+PREVIEW_KEY_LABEL_MAX = 40
+_PREVIEW_OK_CACHE = {}
+
+
+def _preview_key_hash(plain):
+    return hashlib.sha256(("starblast-preview|" + str(plain or "")).encode("utf-8")).hexdigest()
+
+
+def preview_key_make(c, label, days, by):
+    """Mint a key, store only its hash, and hand the plain one back to be
+    shown once. Returns (id, plain)."""
+    plain = "%s-%s" % (PREVIEW_KEY_PREFIX, secrets.token_urlsafe(24))
+    label = " ".join(str(label or "").split())[:PREVIEW_KEY_LABEL_MAX] or "Tester"
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = PREVIEW_KEY_DEFAULT_DAYS
+    days = days if days in PREVIEW_KEY_DAYS else PREVIEW_KEY_DEFAULT_DAYS
+    c.execute("INSERT INTO preview_keys (label, key_hash, created_at, created_by, expires_at) "
+              "VALUES (?, ?, ?, ?, datetime('now', ?))",
+              (label, _preview_key_hash(plain), _stamp(), str(by or "")[:80], "+%d days" % days))
+    return c.lastrowid, plain
+
+
+def preview_key_match(c, plain):
+    """The id of the live key this plain text is, or None. Constant-time
+    against each candidate, and a revoked or expired key is not live."""
+    if not plain:
+        return None
+    want = _preview_key_hash(plain)
+    try:
+        rows = c.execute("SELECT id, key_hash FROM preview_keys WHERE revoked_at IS NULL "
+                         "AND expires_at > ?", (_stamp(),)).fetchall()
+    except sqlite3.Error:
+        return None
+    for kid, kh in rows:
+        if hmac.compare_digest(str(kh), want):
+            return kid
+    return None
+
+
+def preview_any_live():
+    """Is there any way in at all - the master key or a live tester key? The
+    door is hidden when there is not, so it cannot be found by guessing."""
+    if PREVIEW_KEY:
+        return True
+    try:
+        conn = db(timeout=3)
+        r = conn.execute("SELECT 1 FROM preview_keys WHERE revoked_at IS NULL "
+                         "AND expires_at > ? LIMIT 1", (_stamp(),)).fetchone()
+        conn.close()
+        return bool(r)
+    except sqlite3.Error:
+        return False
+
+
+def preview_key_live(kid):
+    """Is this key still good? Checked on every request that shows the
+    preview, through a short cache, so revoking one takes effect at once
+    rather than whenever the tester happens to sign in again."""
+    if not kid:
+        return False
+    now = time.time()
+    hit = _PREVIEW_OK_CACHE.get(kid)
+    if hit and now - hit[0] < 30:
+        return hit[1]
+    ok = False
+    try:
+        conn = db(timeout=3)
+        r = conn.execute("SELECT 1 FROM preview_keys WHERE id = ? AND revoked_at IS NULL "
+                         "AND expires_at > ?", (kid, _stamp())).fetchone()
+        conn.close()
+        ok = bool(r)
+    except sqlite3.Error:
+        ok = False
+    _PREVIEW_OK_CACHE[kid] = (now, ok)
+    return ok
+
+
+def preview_session_ok():
+    """Whether THIS session may see the unreleased surfaces: the key it came
+    in on is still live (or it came in on the master key in the file)."""
+    if not session.get("preview"):
+        return False
+    kid = session.get("preview_key")
+    if not kid:
+        return True
+    return preview_key_live(kid)
+
+
+def preview_key_rows(c):
+    """Every key the owner has made, newest first, for the page."""
+    out = []
+    try:
+        rows = c.execute("SELECT id, label, created_at, expires_at, revoked_at, "
+                         "COALESCE(uses, 0), COALESCE(last_used_at, '') FROM preview_keys "
+                         "ORDER BY id DESC").fetchall()
+    except sqlite3.Error:
+        return out
+    now = _stamp()
+    for kid, label, made, exp, revoked, uses, last in rows:
+        state = "revoked" if revoked else ("expired" if (exp or "") <= now else "live")
+        out.append({"id": kid, "label": label, "made": (made or "")[:10],
+                    "expires": (exp or "")[:10], "state": state, "uses": uses,
+                    "last": (last or "")[:16]})
+    return out
+
 # The throwaway account the owner impersonates for testing. Never a
 # real person; its rows are wiped on entry so each test starts blank.
 # ---------------------------------------------------------------- GEMS
@@ -754,7 +867,9 @@ SANDBOX_SUB = "test:sandbox"
 # query that counts them, so every such query carries this and leaves it out:
 # the board, the search index, a clan's roster and a clan's averages. Written
 # once, here, so the list of places is greppable rather than remembered.
-NOT_SANDBOX = "COALESCE(google_sub, '') != '%s'" % SANDBOX_SUB
+# Every test account, the owner's and each tester's (test:sandbox:<key>),
+# is kept off the board, out of clan averages and out of every listing.
+NOT_SANDBOX = "COALESCE(google_sub, '') NOT LIKE '%s%%'" % SANDBOX_SUB
 
 # One name per Google account. A network was never a person - everyone
 # behind one home, school or mobile connection shared a single address, so
@@ -3270,6 +3385,17 @@ def init_db():
     # please fold its record into mine." Owner-approved by hand with uploaded
     # proof, because nothing in-game can tell a real owner from an impersonator
     # and this MOVES a whole record. proof is the screenshot/PDF, kept in-row.
+    c.execute('''CREATE TABLE IF NOT EXISTS preview_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT,
+                    key_hash TEXT UNIQUE NOT NULL,
+                    created_at TEXT,
+                    created_by TEXT,
+                    expires_at TEXT,
+                    revoked_at TEXT,
+                    uses INTEGER DEFAULT 0,
+                    last_used_at TEXT
+                )''')
     c.execute('''CREATE TABLE IF NOT EXISTS merge_requests (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     google_sub TEXT NOT NULL,
@@ -3639,6 +3765,7 @@ def inject_auth():
     return {"client_id": GOOGLE_CLIENT_ID, "signed_in": bool(current_user()),
             "is_owner": current_user() in OWNER_SUBS,
             "dev_testing": bool(session.get("dev_real_owner") or session.get("preview")),
+            "dev_tester": bool(session.get("preview") and not session.get("dev_real_owner")),
             "dev_mode": session.get("dev_mode") or "new",
             "dev_elo": session.get("dev_elo"),
             # The unreleased surfaces (gems, achievements, the profile home).
@@ -12790,10 +12917,12 @@ SANDBOX_GAMES_DEFAULT = 20
 SANDBOX_NAME = "SANDBOX"
 
 
-def _wipe_sandbox(c):
-    """Everything the sandbox owns. It is never a real person, so this is
-    always safe - and it runs on the way in AND on the way out, so a test
-    account with a rating never outlives the test that made it."""
+def _wipe_sandbox(c, sub=None):
+    """Everything one test account owns. It is never a real person, so this
+    is always safe - and it runs on the way in AND on the way out, so a test
+    account with a rating never outlives the test that made it. Each tester
+    key has its own account, so wiping one never touches another's."""
+    SANDBOX_SUB = sub or globals()["SANDBOX_SUB"]
     # Its gems and purchases too, or a later sandbox under the same name
     # inherits ships it never bought this time round.
     try:
@@ -12831,9 +12960,11 @@ def _sandbox_free_name(c):
     return "%s%d" % (SANDBOX_NAME, int(time.time()) % 100000)
 
 
-def _enter_sandbox(c, body):
-    """Wipe the sandbox and, in account mode, give it a name, a rating and -
-    optionally - some gems so the shop can be tried. Returns (mode, name)."""
+def _enter_sandbox(c, body, sub=None):
+    """Wipe this test account and, in account mode, give it a name, a rating
+    and - optionally - some gems so the shop can be tried. Returns
+    (mode, name)."""
+    SANDBOX_SUB = sub or globals()["SANDBOX_SUB"]
     mode = 'account' if str(body.get('mode') or 'new') == 'account' else 'new'
 
     def _num(key, default, lo, hi):
@@ -12842,7 +12973,7 @@ def _enter_sandbox(c, body):
         except (TypeError, ValueError):
             return default
 
-    _wipe_sandbox(c)
+    _wipe_sandbox(c, SANDBOX_SUB)
     name = None
     if mode == 'account':
         elo = _num('elo', SANDBOX_ELO_DEFAULT, SANDBOX_ELO_MIN, SANDBOX_ELO_MAX)
@@ -12868,32 +12999,39 @@ def _enter_sandbox(c, body):
 def dev_preview():
     """A preview-key session: the sandbox account with the unreleased
     surfaces visible, and nothing an owner can do. GET is a bare form so the
-    key travels in a POST body, never a URL. 404 unless a key is configured;
-    a wrong key is also a 404, so the route does not confirm it exists."""
-    if not PREVIEW_KEY:
+    key travels in a POST body, never a URL. 404 unless some key can open
+    it; a wrong key is also a 404, so the route never confirms it exists."""
+    if not preview_any_live():
         abort(404)
     if request.method == 'GET':
-        return ('<!doctype html><title>Preview</title><form method="post" '
-                'style="font:15px system-ui;margin:40px">'
-                '<label>Preview key <input name="key" type="password" autofocus></label> '
-                '<label>Rating <input name="elo" type="number" value="1400" style="width:6em"></label> '
-                '<label>Gems <input name="gems" type="number" value="30000" style="width:7em"></label> '
-                '<button>Enter</button></form>'), 200
+        return render_template('preview_enter.html', page='preview',
+                               version=APP_VERSION,
+                               elo=SANDBOX_ELO_DEFAULT, gems=30000), 200
     body = request.get_json(silent=True) or request.form or {}
     given = str(body.get('key') or '')
-    if not given or not hmac.compare_digest(given, PREVIEW_KEY):
-        abort(404)
     conn = db()
     c = conn.cursor()
+    kid = preview_key_match(c, given)
+    master = bool(PREVIEW_KEY and given and hmac.compare_digest(given, PREVIEW_KEY))
+    if not kid and not master:
+        conn.close()
+        abort(404)
+    # Each tester key has its own test account, so two testers at once do not
+    # wipe each other's ships, gems and clan.
+    tester_sub = SANDBOX_SUB if master else ("%s:%d" % (SANDBOX_SUB, kid))
     mode, name = _enter_sandbox(c, {"mode": "account",
                                     "elo": body.get("elo", SANDBOX_ELO_DEFAULT),
                                     "games": body.get("games", SANDBOX_GAMES_DEFAULT),
-                                    "gems": body.get("gems", 30000)})
+                                    "gems": body.get("gems", 30000)}, tester_sub)
+    if kid:
+        c.execute("UPDATE preview_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ? "
+                  "WHERE id = ?", (_stamp(), kid))
     conn.commit()
     conn.close()
     session.pop('dev_real_owner', None)      # never an owner, whatever was there
-    session['google_sub'] = SANDBOX_SUB
+    session['google_sub'] = tester_sub
     session['preview'] = True
+    session['preview_key'] = kid
     if request.is_json:
         return jsonify({"ok": True, "name": name}), 200
     return redirect('/')
@@ -12932,12 +13070,15 @@ def dev_restore():
     test that created it."""
     real = session.pop('dev_real_owner', None)
     was_preview = bool(session.pop('preview', None))
+    mine = session.get('google_sub') or SANDBOX_SUB
+    session.pop('preview_key', None)
     session.pop('dev_mode', None)
     session.pop('dev_elo', None)
     if real or was_preview:
         conn = db()
         c = conn.cursor()
-        _wipe_sandbox(c)
+        # Only this tester's account, never everyone's.
+        _wipe_sandbox(c, mine if str(mine).startswith(SANDBOX_SUB) else SANDBOX_SUB)
         conn.commit()
         conn.close()
     if real:
@@ -13431,7 +13572,7 @@ def gem_grant(c, kind, owner, amount, reason, ref=""):
 def gems_visible():
     """Whether the person looking is allowed to see any of this yet: everyone
     once released; until then the owner, or a preview-key session."""
-    return GEMS_PUBLIC or is_site_owner() or bool(session.get("preview"))
+    return GEMS_PUBLIC or is_site_owner() or preview_session_ok()
 
 
 def gem_balance(c, kind, owner):
@@ -14257,15 +14398,24 @@ def achievements_claim():
                             % (format(a["have"], ","), format(a["need"], ","))}), 200
         targets = [a]
     paid, total, unlocked = [], 0, []
-    for a in targets:
-        got = gem_grant(c, "player", me[1], a["gems"], "achievement", a["key"])
-        if got:
-            paid.append(a["name"])
-            total += got
-            # The looks come with the gems, in the same transaction.
-            for item_id in a.get("unlocks", ()):
-                if cosmetic_unlock(c, me[1], item_id):
-                    unlocked.append(COSMETIC_BY_ID[item_id]["name"])
+    # Claiming can hand over a look, and a look can complete a "collect N
+    # looks" achievement, so Claim all goes round again until a pass adds
+    # nothing. The cap only stops a future catalogue loop spinning forever.
+    for _round in range(6 if body.get("all") else 1):
+        for a in targets:
+            got = gem_grant(c, "player", me[1], a["gems"], "achievement", a["key"])
+            if got:
+                paid.append(a["name"])
+                total += got
+                # The looks come with the gems, in the same transaction.
+                for item_id in a.get("unlocks", ()):
+                    if cosmetic_unlock(c, me[1], item_id):
+                        unlocked.append(COSMETIC_BY_ID[item_id]["name"])
+        if not body.get("all"):
+            break
+        targets = [a for a in ach_status(c, me[1]) if a["ready"]]
+        if not targets:
+            break
     conn.commit()
     balance = gem_balance(c, "player", me[1])
     conn.close()
@@ -19031,6 +19181,44 @@ def merge_proof(rid):
         return ("No proof on file", 404)
     from flask import Response
     return Response(bytes(row[0]), mimetype=(row[1] or 'application/octet-stream'))
+
+
+@app.route('/dev/keys', methods=['GET', 'POST'])
+def dev_keys():
+    """Make and take back the keys that let a tester see the gem preview.
+    A new key is shown once, here, and never stored in a readable form."""
+    if not is_site_owner():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    made = None
+    if request.method == 'POST':
+        _kid, made = preview_key_make(c, request.form.get('label'),
+                                      request.form.get('days'), current_user())
+        conn.commit()
+    rows = preview_key_rows(c)
+    conn.close()
+    return render_template('dev_keys.html', page='keys', version=APP_VERSION,
+                           keys=rows, made=made, days=PREVIEW_KEY_DAYS,
+                           default_days=PREVIEW_KEY_DEFAULT_DAYS,
+                           label_max=PREVIEW_KEY_LABEL_MAX)
+
+
+@app.route('/dev/keys/<int:kid>/revoke', methods=['POST'])
+def dev_keys_revoke(kid):
+    """Take a key back. The tester's session stops seeing the preview within
+    half a minute, and their test account is left to be cleaned up."""
+    if not is_site_owner():
+        abort(404)
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE preview_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+              (_stamp(), kid))
+    _wipe_sandbox(c, "%s:%d" % (SANDBOX_SUB, kid))
+    conn.commit()
+    conn.close()
+    _PREVIEW_OK_CACHE.pop(kid, None)
+    return redirect('/dev/keys')
 
 
 @app.route('/dev/merges')
