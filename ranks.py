@@ -31,7 +31,7 @@ RANKS = [
     {"level": 7, "key": "odyssey",  "name": "Warden",   "ship": 603,
      "cut": 0.03, "band": "Top 3%", "flair": 7,
      "color": "#ff7b53", "glow": "rgba(255,123,83,.48)"},
-    {"level": 6, "key": "advanced", "name": "Vanguard", "ship": 601,
+    {"level": 6, "key": "advanced", "name": "Paladin",  "ship": 601,
      "cut": 0.10, "band": "Top 10%", "flair": 6,
      "color": "#e3b341", "glow": "rgba(227,179,65,.42)"},
     {"level": 5, "key": "usniper",  "name": "Guard",    "ship": 501,

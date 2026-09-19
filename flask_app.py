@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.51.3"
+APP_VERSION = "9.51.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7221,6 +7221,12 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.51.4", "at": "2026-09-20T01:10:00Z", "changes": [
+        "<b>The sixth tier is <b>Paladin</b>, not Vanguard.</b> Vanguard is a "
+        "ship in the game, and a tier sharing its name with a hull is exactly "
+        "what renaming the ladder was meant to stop. Everything else is "
+        "unchanged, and no tier is named after a ship now.",
+    ]},
     {"version": "9.51.3", "at": "2026-09-20T00:40:00Z", "changes": [
         "The tier emblem beside a name on the leaderboard, a clan page and "
         "Social carried its name twice &mdash; once as the tooltip and again "
