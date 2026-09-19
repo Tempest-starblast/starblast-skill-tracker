@@ -559,7 +559,7 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);
 <script>
 async function devRestore(){
   try{ await fetch('/dev/restore', {method:'POST'}); }catch(e){}
-  location.href = {{ '"/"' if (dev_tester or dev_access) else '"/account"' }};
+  location.href = {% if dev_tester or dev_access %}"/"{% else %}"/account"{% endif %};
 }
 </script>
 {% endif %}
