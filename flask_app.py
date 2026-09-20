@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.52.1"
+APP_VERSION = "9.53.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5507,6 +5507,9 @@ def my_held_results():
         'resurgence': ("The team that won this match had collapsed to almost nobody "
                        "and then filled back up and came back. You were fighting the "
                        "other side by then, so this one is not counted against you."),
+        'flood-cut': ("This match was swarmed by a flood of scripted ships. It is "
+                      "rated as it stood when the swarm arrived, and the sides the "
+                      "swarm landed on take no loss for it."),
         'joined-too-late': ("You checked in less than ten minutes before this match "
                             "ended. A few minutes at the end is not a match, so it "
                             "counts neither way."),
@@ -6068,6 +6071,18 @@ def game_end():
             # A binding is proof of ownership (it comes from a check-in),
             # so the duplicate-name drop no longer applies to these.
             checked_in |= _bound_keys
+
+    # A match the watcher cut at a flood (owner's rule, 20 Sep 2026): the
+    # side that was ahead when the swarm arrived is paid, and every side it
+    # landed on is excused. Sixty scripted ships arriving at once is not
+    # something anyone could answer, so losing to one is not a result a
+    # player earned - while the winners did beat what was in front of them
+    # before it came, which is exactly what the cut scores. Set here rather
+    # than by the tracker so it holds for every path a cut result arrives by.
+    if isinstance(data.get('flood_cut'), dict) and data.get('flood_cut'):
+        dominance_exempt = set(dominance_exempt) | {normalize_name(n)
+                                                    for n in losing_all}
+        _exempt_reason = 'flood-cut'
 
     def protected_without_checkin(player_name):
         key = normalize_name(player_name)
@@ -7224,6 +7239,19 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.53.0", "at": "2026-09-20T05:10:00Z", "changes": [
+        "<b>Losing to a bot storm no longer costs you rating.</b> When a "
+        "flood of scripted ships swarms a match, the result is already taken "
+        "from the moment before the swarm arrived — but the sides it "
+        "landed on were still charged for losing. They are not any more: the "
+        "team that was ahead is paid as before, and every side the swarm "
+        "landed on takes no loss, the same way a flipped match sets its "
+        "losers aside. Nobody can answer sixty ships arriving at once.",
+        "<b>And the matches this already happened in have been corrected.</b> "
+        "Twenty swarmed matches, 147 results, put back where they were. If "
+        "one of them was yours it is on your account now, and the match still "
+        "shows you played it — with no change against your name.",
+    ]},
     {"version": "9.52.0", "at": "2026-09-20T01:40:00Z", "changes": [
         "<b>You can turn off being @-ed by the Discord bot.</b> On your "
         "account page under Settings, or with <b>/pings</b> in Discord — "
