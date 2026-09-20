@@ -15,14 +15,18 @@ One exception, applied deliberately: a player sitting on the 500 floor was
 never actually charged (the update clamps), so there is nothing to give
 back. They are still excused the loss.
 
-Run with DRY = True first. It writes nothing and prints exactly what it
-would do.
+Run it with no arguments first: it writes nothing and prints exactly what
+it would do. `--apply` is what actually writes.
 """
 import json
 import sqlite3
+import sys
 import time
 
-DRY = True
+# Writes only when asked to, out loud: `python3 flood_refund.py --apply`.
+# Re-running it is harmless - a corrected row has delta 0, and the query
+# only ever looks at rows still carrying a loss.
+DRY = '--apply' not in sys.argv
 DB = '/home/StarblastElo/mysite/players.db'
 FLOOR = 500.0
 LOG = '/home/StarblastElo/flood_refund_log.json'
