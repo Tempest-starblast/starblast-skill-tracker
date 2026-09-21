@@ -83,13 +83,26 @@ print("=== what day one looks like ===")
 accounts = [r[0] for r in c.execute(
     "SELECT norm_name FROM players WHERE google_sub IS NOT NULL "
     "AND COALESCE(wins,0) + COALESCE(losses,0) >= 5")]
+# Worked out against a COPY with the ledger already emptied, because some
+# achievements are about the economy itself - what you have spent, earned,
+# bought, how much of the wardrobe you hold - and those facts come from the
+# ledger. Counting them against today's ledger would promise gems for a
+# fortune that is about to stop existing.
+import os                                                       # noqa: E402
+import tempfile                                                 # noqa: E402
+_tmp = os.path.join(tempfile.gettempdir(), 'gemreset_preview.db')
+shutil.copy(DB, _tmp)
+_pc = sqlite3.connect(_tmp)
+_pc.execute("DELETE FROM gem_ledger")
+_pc.commit()
+_pcc = _pc.cursor()
 claimable, who, broke = 0, [], []
 for nn in accounts:
     # ach_status is the real code path the page uses, so this is what a
-    # player would actually see waiting for them. Anything UNLOCKED counts:
-    # the rows that marked them claimed are the ones being deleted.
+    # player would actually see waiting for them, on the board as it will
+    # be the moment this runs.
     try:
-        st = fa.ach_status(c, nn)
+        st = fa.ach_status(_pcc, nn)
     except Exception as err:
         broke.append((nn, str(err)[:60]))
         continue
@@ -97,6 +110,8 @@ for nn in accounts:
     if owed:
         claimable += owed
         who.append((owed, nn))
+_pc.close()
+os.remove(_tmp)
 who.sort(reverse=True)
 print("   every balance starts at 0")
 print("   %d accounts on the board with 5+ matches" % len(accounts))
