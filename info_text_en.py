@@ -33,7 +33,8 @@ CARDS = [
   ' needs that however early they arrived.</p>'
   '<p>The <a href="/play">Play</a> tab lists every live match and whether the watcher is on'
   ' it yet; a brand-new lobby is picked up within a few seconds. If a match is live, it'
-  ' counts.</p>'),
+  ' counts.</p>'
+  '<p>The time you spend in rated matches is added up on your profile &mdash; all-time, with the last fortnight beside it. The watcher measures it, so it follows the same rules as everything above: an unrated match, or a lobby nobody was watching, counts nothing. The clock started on 21 September 2026.</p>'),
 
  ("Your rating",
   '<p>Everyone starts at <b>[[ELO]]</b>. A match moves you by at most <b>[[K]]</b>'

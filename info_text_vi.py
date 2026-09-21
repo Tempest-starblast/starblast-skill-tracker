@@ -34,7 +34,8 @@ CARDS = [
   ' nhất</b> được tính, và bạn cần khoảng <b>mười phút trong trận</b> để nằm trong số đó'
   ' &mdash; người thắng cũng cần vậy, dù vào sớm đến đâu.</p><p>Thẻ <a href="/play">Chơi</a>'
   ' liệt kê mọi trận đang diễn ra và cho biết trình theo dõi đã vào trận đó chưa; một phòng'
-  ' vừa mới lập sẽ được bắt trong vài giây. Nếu một trận đang diễn ra, nó được tính.</p>'),
+  ' vừa mới lập sẽ được bắt trong vài giây. Nếu một trận đang diễn ra, nó được tính.</p>'
+  '<p>Thời gian bạn chơi trong các trận được tính điểm sẽ được cộng dồn trên hồ sơ của bạn &mdash; tổng từ trước đến nay, kèm hai tuần gần nhất bên cạnh. Trình theo dõi đo thời gian này, nên nó tuân theo cùng những quy tắc ở trên: trận không được tính điểm, hay phòng không ai theo dõi, đều không tính. Đồng hồ bắt đầu chạy từ ngày 21 tháng 9 năm 2026.</p>'),
 
  ("Điểm của bạn",
   '<p>Ai cũng bắt đầu ở <b>[[ELO]]</b>. Một trận làm bạn thay đổi nhiều nhất <b>[[K]]</b>'

@@ -38,7 +38,8 @@ CARDS = [
   ' la partida</b> para ser uno de ellos &mdash; un ganador los necesita por muy pronto que'
   ' haya llegado.</p><p>La pestaña <a href="/play">Jugar</a> muestra cada partida en directo'
   ' y si el observador ya está en ella; una sala recién creada se detecta en unos segundos.'
-  ' Si una partida está en directo, cuenta.</p>'),
+  ' Si una partida está en directo, cuenta.</p>'
+  '<p>El tiempo que pasas en partidas puntuadas se suma en tu perfil &mdash; el total de siempre, con las dos últimas semanas al lado. Lo mide el observador, así que sigue las mismas reglas que todo lo anterior: una partida sin puntuar, o una sala que nadie estaba observando, no cuenta nada. El reloj empezó el 21 de septiembre de 2026.</p>'),
 
  ("Tu puntuación",
   '<p>Todo el mundo empieza en <b>[[ELO]]</b>. Una partida te mueve como mucho <b>[[K]]</b>'

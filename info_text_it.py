@@ -37,7 +37,8 @@ CARDS = [
   ' minuti in partita</b> per essere tra loro &mdash; a un vincitore servono comunque, per'
   ' quanto presto sia arrivato.</p><p>La scheda <a href="/play">Gioca</a> elenca ogni'
   ' partita dal vivo e se l&#39;osservatore è già su di essa; una lobby appena creata viene'
-  ' rilevata in pochi secondi. Se una partita è dal vivo, conta.</p>'),
+  ' rilevata in pochi secondi. Se una partita è dal vivo, conta.</p>'
+  '<p>Il tempo che passi nelle partite valide viene sommato sul tuo profilo &mdash; il totale di sempre, con le ultime due settimane accanto. Lo misura l&rsquo;osservatore, quindi valgono le stesse regole di sopra: una partita non valida, o una lobby che nessuno stava guardando, non conta nulla. Il conteggio è iniziato il 21 settembre 2026.</p>'),
 
  ("Il tuo punteggio",
   '<p>Si parte tutti da <b>[[ELO]]</b>. Una partita ti sposta al massimo di <b>[[K]]</b>'

@@ -39,7 +39,8 @@ CARDS = [
   ' vainqueur en a besoin, si tôt qu&#39;il soit arrivé.</p><p>L&#39;onglet <a'
   ' href="/play">Jouer</a> liste chaque partie en cours et indique si l&#39;observateur y'
   ' est déjà ; un salon tout neuf est repéré en quelques secondes. Si une partie est en'
-  ' cours, elle compte.</p>'),
+  ' cours, elle compte.</p>'
+  '<p>Le temps que vous passez dans les matchs classés est totalisé sur votre profil &mdash; le total de toujours, avec les deux dernières semaines à côté. C&rsquo;est l&rsquo;observateur qui le mesure, donc les mêmes règles s&rsquo;appliquent : un match non classé, ou un salon que personne ne regardait, ne compte pas. Le compteur a démarré le 21 septembre 2026.</p>'),
 
  ("Votre niveau",
   '<p>Tout le monde commence à <b>[[ELO]]</b>. Une partie vous déplace d&#39;au plus'

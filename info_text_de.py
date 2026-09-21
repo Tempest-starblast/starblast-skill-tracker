@@ -39,7 +39,8 @@ CARDS = [
   ' brauchst ungefähr <b>zehn Minuten im Spiel</b>, um dazuzugehören &mdash; ein Gewinner'
   ' braucht das, egal wie früh er kam.</p><p>Der Reiter <a href="/play">Spielen</a> listet'
   ' jedes laufende Spiel auf und ob der Beobachter schon dran ist; eine brandneue Lobby wird'
-  ' innerhalb weniger Sekunden erfasst. Läuft ein Spiel, zählt es.</p>'),
+  ' innerhalb weniger Sekunden erfasst. Läuft ein Spiel, zählt es.</p>'
+  '<p>Die Zeit, die du in gewerteten Spielen verbringst, wird in deinem Profil zusammengezählt &mdash; insgesamt, und daneben die letzten zwei Wochen. Der Beobachter misst sie, also gelten dieselben Regeln wie oben: ein ungewertetes Spiel oder eine Lobby, die niemand beobachtet hat, zählt nicht. Die Uhr läuft seit dem 21. September 2026.</p>'),
 
  ("Deine Wertung",
   '<p>Alle starten bei <b>[[ELO]]</b>. Ein Spiel bewegt dich um höchstens <b>[[K]]</b>'
