@@ -149,8 +149,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
     <div class="mcwho">
       <div class="mcname">
         <a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
-        {%- if m.protected %}<span class="lockm" title="Protected - only matches this player checked into count toward the rating">{{ lock_icon()|safe }}</span>
-        {%- elif m.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}
+        {%- if m.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}
         <button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
                 onclick="roleHelp(this,'{{ m.role or 'player' }}')"
                 title="What this role can do">{{ m.role_label or t('Member') }}</button>

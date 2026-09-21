@@ -93,8 +93,7 @@
   <td class="who"><span class="pn">
     {%- if m.division %}<span class="remb">{{ rank_emblem(m.emblem or m.division.ship, 16, m.emblem_color or m.division.color, m.division.name ~ ' tier', 'rank-emblem mythic' if m.mythic else 'rank-emblem')|safe }}</span>{% endif %}
     <a class="pname{% if m.has_account %} acct{% endif %}" href="/player/{{ m.name|urlencode }}">{{ m.display }}</a>
-    {%- if m.protected %}<span class="lockm" title="Protected - only matches this player checked into count">{{ lock_icon(11)|safe }}</span>
-    {%- elif m.has_account %}<span class="ptick" title="Has an account">&#10003;</span>{% endif %}</span></td>
+    {%- if m.has_account %}<span class="ptick" title="Has an account">&#10003;</span>{% endif %}</span></td>
   <td class="mid"><button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
       onclick="roleHelp(this,'{{ m.role or 'player' }}')" title="What this role can do">{{ m.role_label or t('Member') }}</button></td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
@@ -114,7 +113,7 @@
 <p class="legend">The record is every match the current members have played, added together
   (a match won by two clanmates counts twice); survival is every survival round a member has won.
   A <span class="ptick">&#10003;</span> or green underline means an account; a
-  <span class="lockm">{{ lock_icon(11)|safe }}</span> means a protected rating. Tap a role to see what it can do.
+  Tap a role to see what it can do.
   The # is the member's place within {{ clan.display or clan.tag }}.</p>
 <p class="msg" id="meMsg"></p>
 <p class="foot" style="margin-top:14px">Listed here by mistake? Open your player page and use

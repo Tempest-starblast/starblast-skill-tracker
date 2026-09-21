@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.53.0"
+APP_VERSION = "9.53.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7239,6 +7239,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.53.1", "at": "2026-09-21T02:30:00Z", "changes": [
+        "<b>Whether a rating is protected is no longer shown on anyone else&#39;s "
+        "page.</b> The lock that sat beside names on the leaderboard and on "
+        "clan rosters is gone, and the site will only tell you about your own "
+        "name. It is your setting, on your own account, and it was never "
+        "anybody else&#39;s business. Nothing about how Protection works has "
+        "changed &mdash; only who can see it.",
+    ]},
     {"version": "9.53.0", "at": "2026-09-20T05:10:00Z", "changes": [
         "<b>Losing to a bot storm no longer costs you rating.</b> When a "
         "flood of scripted ships swarms a match, the result is already taken "
@@ -9954,7 +9962,7 @@ def player_profile(name):
               "admin_of": admin_of, "division": division, "peak": peak,
               "placements_left": (max(0, PROVISIONAL_GAMES - played)
                                   if played < PROVISIONAL_GAMES else 0),
-              "owned": bool(owner_sub), "protected": bool(protected),
+              "owned": bool(owner_sub),
               "bio": bio or "", "is_me": is_me}
     (player["emblem"], player["emblem_color"],
      player["mythic"]) = worn_emblem(normalize_name(stored_name), display_ship_map(),
@@ -12134,8 +12142,14 @@ def protection():
         # the toggle was disabled for precisely the players it is meant for.
         owned, _ = owner_check(c, stored_name, reg_ip)
         conn.close()
-        return jsonify({"name": stored_name, "owned": bool(owned),
-                        "enabled": bool(enabled), "hours_left": round(left, 1)}), 200
+        # Only the person it belongs to is told. Anyone could ask this about
+        # any name, which handed over a list of top players whose rating a
+        # result played under their name would still move.
+        out = {"name": stored_name, "owned": bool(owned),
+               "hours_left": round(left, 1)}
+        if owned or is_site_owner():
+            out["enabled"] = bool(enabled)
+        return jsonify(out), 200
 
     ok, err = owner_check(c, stored_name, reg_ip)
     if not ok:
@@ -14087,10 +14101,9 @@ def clan_page(tag):
             "role": _role,
             "role_label": role_label_for(_role, role_labels),
             "role_color": role_colors.get(_role or "player", role_colors["player"]),
-            # a blue dot for anyone with an account; the green protection tick
-            # is separate (they never share a spot on the row).
+            # a blue dot for anyone with an account. Whether their rating is
+            # protected is theirs to know - see the note on /protection.
             "has_account": bool(owner_sub),
-            "protected": bool(protected),
             "contract": contract_until(_cclan, _cuntil, known),
             "elo": f"{elo:.1f}", "wins": wins, "losses": losses,
             "winrate": f"{round(100 * wins / played)}%" if played else "-",
@@ -22651,7 +22664,6 @@ def my_clan_page():
             "is_you": bool(owner_sub) and owner_sub == sub_id,
             # only an account-holder can be given a rank or made leader
             "has_account": bool(owner_sub),
-            "protected": bool(protected),
             "contract": contract_until(_cclan, _cuntil, tag),
             "rate": clan_member_rate(c, tag, normalize_name(name)),
         })
@@ -23840,7 +23852,7 @@ def leaderboard():
             # out of rounds played (losses here is rounds-not-won).
             "record": (f"{wins} / {played}" if mode == 'survival'
                        else f"{wins}-{losses}"),
-            "clan": clan, "protected": protected,
+            "clan": clan,
             # Under five matches the rating is still finding its level - and
             # moves faster to get there. Saying so is honest, and stops a
             # one-game number reading like a settled one.
