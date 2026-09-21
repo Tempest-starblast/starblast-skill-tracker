@@ -80,24 +80,29 @@ print("   worn hulls: %d granted by a tier and kept, %d bought and taken off"
 
 print()
 print("=== what day one looks like ===")
-claimable, who = 0, []
-for (nn,) in c.execute("SELECT norm_name FROM players WHERE google_sub IS NOT NULL "
-                       "AND COALESCE(wins,0) + COALESCE(losses,0) >= 5"):
+accounts = [r[0] for r in c.execute(
+    "SELECT norm_name FROM players WHERE google_sub IS NOT NULL "
+    "AND COALESCE(wins,0) + COALESCE(losses,0) >= 5")]
+claimable, who, broke = 0, [], []
+for nn in accounts:
+    # ach_status is the real code path the page uses, so this is what a
+    # player would actually see waiting for them. Anything UNLOCKED counts:
+    # the rows that marked them claimed are the ones being deleted.
     try:
-        facts = fa._ach_facts(c, nn)
-    except Exception:
+        st = fa.ach_status(c, nn)
+    except Exception as err:
+        broke.append((nn, str(err)[:60]))
         continue
-    owed = 0
-    for a in fa.gem_achievement_catalog():
-        have, need = fa._ach_need(a["key"], facts)
-        if have >= max(1, int(need)):
-            owed += a["gems"]
+    owed = sum(x["gems"] for x in st if x["unlocked"])
     if owed:
         claimable += owed
         who.append((owed, nn))
 who.sort(reverse=True)
 print("   every balance starts at 0")
-print("   %d accounts have a history to claim, worth %s between them"
+print("   %d accounts on the board with 5+ matches" % len(accounts))
+if broke:
+    print("   COULD NOT READ %d of them: %s" % (len(broke), broke[:3]))
+print("   %d of them have a history to claim, worth %s between them"
       % (len(who), format(claimable, ",")))
 for owed, nn in who[:10]:
     print("      %-24s %s" % (nn[:24], format(owed, ",")))
