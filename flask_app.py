@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.55.1"
+APP_VERSION = "9.56.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7402,6 +7402,20 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.56.0", "at": "2026-09-21T20:30:00Z", "changes": [
+        "<b>Joining the winning team late is now half elo even if you "
+        "started the match on one of the losing ones.</b> The late-arrival "
+        "test asked when your name was first seen anywhere in the lobby, so "
+        "a player who spent the opening minutes on another team, left, and "
+        "arrived on the winner near the end counted as having been there "
+        "from the start — and was paid in full. Time on a team that lost "
+        "is not early service to the team that won, and it no longer reads "
+        "as any. Arrival is measured on the winning side’s own roster.",
+        "Nothing changes for anyone who did not switch: if you were on the "
+        "winning team from the start you are still full stake, and a player "
+        "who turns up at the end having never been anywhere else is still "
+        "held to the same ten-minute floor as before.",
+    ]},
     {"version": "9.55.1", "at": "2026-09-21T19:05:00Z", "changes": [
         "The Info page now explains the playtime counter, in all nine "
         "languages — where it comes from, and why an unrated match or an "
