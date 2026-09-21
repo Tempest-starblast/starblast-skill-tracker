@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.54.1"
+APP_VERSION = "9.55.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -852,6 +852,10 @@ def _ach_extra():
     add("days-7", "Milestones", "A week of wins", "Win on 7 different days.", 100, "star", lambda f: (f["days"], 7))
     add("days-30", "Milestones", "A month of wins", "Win on 30 different days.", 600, "star", lambda f: (f["days"], 30))
     add("days-100", "Milestones", "Devoted", "Win on 100 different days.", 2400, "star", lambda f: (f["days"], 100))
+    add("hours-10", "Milestones", "Ten hours", "Spend 10 hours in rated matches.", 200, "star", lambda f: (f["hours"], 10))
+    add("hours-50", "Milestones", "Fifty hours", "Spend 50 hours in rated matches.", 800, "star", lambda f: (f["hours"], 50))
+    add("hours-100", "Milestones", "A hundred hours", "Spend 100 hours in rated matches.", 2400, "star", lambda f: (f["hours"], 100))
+    add("hours-500", "Milestones", "Five hundred hours", "Spend 500 hours in rated matches.", 10000, "star", lambda f: (f["hours"], 500))
     add("regions-3", "Milestones", "Globetrotter", "Play a rated match in every region.", 400, "star", lambda f: (f["regions"], 3))
     add("surv-1", "Survival", "Last one standing", "Win a survival round.", 100, "trophy", lambda f: (f["surv"], 1))
     add("surv-10", "Survival", "Survivor", "Win 10 survival rounds.", 400, "trophy", lambda f: (f["surv"], 10))
@@ -945,7 +949,7 @@ def _ach_facts(c, nn):
     f = {"peak": gem_peak_level(c, nn), "wins": 0, "games": 0, "surv": 0, "ships": set(),
          "bought": 0, "cos": set(), "bought_cos": 0, "worn": 0, "spent": 0, "earned": 0,
          "best": 0, "total": 0, "deaths": 0, "days": 0, "regions": 0, "friends": 0,
-         "clan": False, "officer": False}
+         "clan": False, "officer": False, "hours": 0}
     try:
         r = c.execute("SELECT COALESCE(wins, 0), COALESCE(losses, 0), clan, google_sub, cosmetics, name "
                       "FROM players WHERE norm_name = ?", (nn,)).fetchone()
@@ -980,6 +984,9 @@ def _ach_facts(c, nn):
                        "FROM match_players WHERE norm_name = ?", (nn,)).fetchone()
         f["best"], f["total"], f["deaths"] = int(sc[0] or 0), int(sc[1] or 0), int(sc[2] or 0)
         f["friends"] = len(friends_of(c, nn))
+        # Whole hours only - an achievement that ticks over mid-match reads
+        # as a bug, and nobody counts their playtime in seconds.
+        f["hours"] = played_seconds(c, nn) // 3600
     except sqlite3.Error:
         pass
     return f
@@ -1007,6 +1014,36 @@ def ach_status(c, nn):
         d["unlock_items"] = [COSMETIC_BY_ID[i] for i in a.get("unlocks", ()) if i in COSMETIC_BY_ID]
         out.append(d)
     return out
+
+
+def played_seconds(c, nn, days=None):
+    """Seconds this player has been in rated matches - all of them, or the
+    last `days`. Results from before the watcher reported a duration carry
+    NULL and are simply not counted."""
+    sql = ("SELECT COALESCE(SUM(mp.played_s), 0) FROM match_players mp "
+           "JOIN matches m ON m.id = mp.match_row "
+           "WHERE mp.norm_name = ? AND mp.played_s IS NOT NULL "
+           "AND COALESCE(m.voided, 0) = 0")
+    args = [nn]
+    if days:
+        sql += " AND m.played_at > datetime('now', ?)"
+        args.append('-%d days' % int(days))
+    try:
+        r = c.execute(sql, args).fetchone()
+    except sqlite3.Error:
+        return 0
+    return int(r[0] or 0)
+
+
+def pretty_hours(secs):
+    """'12h 30m', or '45m' under an hour, or '-' for nothing yet."""
+    secs = int(secs or 0)
+    if secs <= 0:
+        return "-"
+    h, m = secs // 3600, (secs % 3600) // 60
+    if h:
+        return "%dh %dm" % (h, m) if m else "%dh" % h
+    return "%dm" % m if m else "under a minute"
 
 
 def ach_earned(c, nn):
@@ -3370,6 +3407,13 @@ def init_db():
                     half INTEGER DEFAULT 0
                 )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_mp_norm ON match_players(norm_name)")
+    # Seconds this player was in this match, from the watcher's own presence
+    # figure. NULL on every result recorded before 9.55.0 - there is no
+    # honest way to invent it, so those simply do not count towards a total.
+    try:
+        c.execute("ALTER TABLE match_players ADD COLUMN played_s INTEGER")
+    except sqlite3.OperationalError:
+        pass
     # The frozen score trajectory of a finished match. Made here with
     # everything else, rather than by whichever match happens to end first.
     c.execute("CREATE TABLE IF NOT EXISTS match_replays ("
@@ -6519,6 +6563,13 @@ def game_end():
                     team_of[normalize_name(_nm)] = 'lose1'
                 for _nm in losing_team_2:
                     team_of[normalize_name(_nm)] = 'lose2'
+                # How long the watcher watched, so each player's share of
+                # it reads as seconds. Absent on an older tracker, and then
+                # nothing is recorded rather than a guess.
+                try:
+                    _watch_s = int(data.get('watch_s') or 0)
+                except (TypeError, ValueError):
+                    _watch_s = 0
                 for pname, won, delta in applied:
                     raw_score = scores.get(pname)
                     try:
@@ -6529,8 +6580,12 @@ def game_end():
                     # answer when no rewrite happened - an unclaimed player
                     # played as exactly who they appear to be.
                     played_as = (data.get('played_as_map') or {}).get(pname) or pname
-                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as, team, ship, deaths) "
-                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    # Anyone absent from the presence map played the whole
+                    # watch - that is what it has always meant (7.0.4).
+                    _share = presence.get(normalize_name(pname), 1.0)
+                    _played = int(round(_watch_s * _share)) if _watch_s else None
+                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as, team, ship, deaths, played_s) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                               (mrow[0], pname, normalize_name(pname), won, delta,
                                1 if normalize_name(pname) in half_elo else 0,
                                raw_score, played_as,
@@ -6539,7 +6594,8 @@ def game_end():
                                _ships_by_name.get(played_as)
                                or _ships_by_name.get(pname),
                                _deaths_by_name.get(played_as)
-                               or _deaths_by_name.get(pname)))
+                               or _deaths_by_name.get(pname),
+                               _played))
 
     # ---- A hosted event -------------------------------------------------
     # If this match was the event lobby we put up, the winning side is paid
@@ -7346,6 +7402,19 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.55.0", "at": "2026-09-21T19:30:00Z", "changes": [
+        "<b>Rated playtime.</b> Your profile now shows how long you have "
+        "actually spent in matches that counted — the career total, with "
+        "the last fortnight beside it. It is time in RATED matches as the "
+        "watcher measured it, not time in the game: an hour in an unwatched "
+        "lobby counts nothing, and the same rules that decide whether a "
+        "match pays you decide whether it times you. Four new Milestones "
+        "pay for the hours: 10, 50, 100 and 500.",
+        "The clock starts today. Old results record who won, not who was "
+        "flying when — so there is no honest way to say how long anyone "
+        "was in a match played in March, and nobody is credited with hours "
+        "the board never measured. Everyone starts at zero.",
+    ]},
     {"version": "9.54.1", "at": "2026-09-21T05:05:00Z", "changes": [
         "<b>Wearing your clan tag with your name written plainly now counts "
         "for your account.</b> A member whose name on the board is written "
@@ -10110,9 +10179,17 @@ def player_profile(name):
     # clan, this says what they are there. And what they have SPENT, never
     # what they have: a balance is nobody's business, a spend is a boast.
     player["clan_role_label"], player["spent"] = "", None
+    player["played"], player["played_2w"] = None, None
     try:
         _cc = db()
         _cx = _cc.cursor()
+        # Time in rated matches. Shown only once there is some, so a board
+        # full of "-" does not appear the day this ships.
+        _pl = played_seconds(_cx, normalize_name(stored_name))
+        if _pl:
+            player["played"] = pretty_hours(_pl)
+            player["played_2w"] = pretty_hours(
+                played_seconds(_cx, normalize_name(stored_name), days=14))
         if clan:
             _role = clan_role(_cx, owner_sub, clan) if owner_sub else ""
             player["clan_role_label"] = role_label_for(_role, clan_custom_labels(_cx, clan)) if _role else "Member"

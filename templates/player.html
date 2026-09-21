@@ -167,6 +167,9 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
 .pstat{flex:1 1 84px;min-width:78px}
 .pst-l{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700}
 .pst-v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:#e6edf3;margin-top:2px}
+/* The fortnight sits beside the career, smaller, the way Steam reads. */
+.pst-sub{display:block;font-size:11px;font-weight:700;color:var(--muted);
+  letter-spacing:.3px;margin-top:1px}
 .pbox-peaks{display:flex;gap:20px;flex-wrap:wrap;margin-top:14px;padding-top:12px;
   border-top:1px solid color-mix(in srgb,var(--rk,#8b949e) 14%,var(--line))}
 .ppk{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
@@ -279,6 +282,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
     <div class="pstat"><div class="pst-l">{{ t('Record') }}</div><div class="pst-v">{{ player.wins }}-{{ player.losses }}</div></div>
     <div class="pstat"><div class="pst-l">{{ t('Plays in') }}</div><div class="pst-v" style="font-size:15px;padding-top:6px">{% if primary %}{{ primary.label }}{% else %}&mdash;{% endif %}</div></div>
     <div class="pstat"><div class="pst-l">{{ t('Clan') }}</div><div class="pst-v" style="font-size:15px;padding-top:6px">{% if player.clan %}<a href="/clan/{{ player.clan|urlencode }}" style="color:inherit;text-decoration:none">{{ player.clan_display or player.clan }}</a>{% if player.clan_role_label %} <span style="color:var(--muted);font-weight:600">&middot; {{ player.clan_role_label }}</span>{% endif %}{% else %}&mdash;{% endif %}</div></div>
+    {% if player.played %}<div class="pstat" title="{{ t('Time spent in rated matches, measured by the watcher. Counted from 21 September 2026 onward - earlier matches were never timed.') }}"><div class="pst-l">{{ t('Playtime') }}</div><div class="pst-v">{{ player.played }}{% if player.played_2w != '-' %}<span class="pst-sub">{{ player.played_2w }} / 2w</span>{% endif %}</div></div>{% endif %}
     {% if gems_on and player.spent is not none %}<div class="pstat" title="Gems spent in the shop - what they have is their own business"><div class="pst-l">Gems spent</div><div class="pst-v" style="color:#f6d77a">{{ '{:,}'.format(player.spent) }}</div></div>{% endif %}
   </div>
   {% if player.peak %}
