@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.53.1"
+APP_VERSION = "9.54.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2023,6 +2023,81 @@ def clean_clan_tag(text):
     # A tag with no Latin letters in it at all - Cyrillic, Chinese - keeps
     # whatever letters it does have rather than becoming nothing.
     return ''.join(ch for ch in raw if ch.isalnum())
+
+
+# Symbols people write Latin letters with, where the reading is not in
+# doubt. Currency signs are not letters to Unicode, so nothing else folds
+# them. Only characters seen on the board are listed, and only where one
+# letter is obviously meant.
+PLAIN_EXTRA = {
+    # currency signs, which are not letters to Unicode so nothing else folds
+    # them - and people spell whole names with them
+    "₳": "A", "₲": "G", "฿": "B", "₥": "M", "₴": "S",
+    "₮": "T", "₭": "K", "₱": "P", "₩": "W", "₹": "R",
+    "₺": "T", "₼": "M", "₸": "T", "₽": "P", "₿": "B",
+    # letters whose Unicode name does not carry the base letter
+    "Ʀ": "R", "ʀ": "R", "ʁ": "R", "Ꝛ": "R", "ꝛ": "R",
+    "Ɛ": "E", "ɛ": "E", "Ƨ": "S", "ƨ": "S", "Ʃ": "S",
+    "ʇ": "T", "ɥ": "H", "ɐ": "A", "ƿ": "W",
+}
+_PLAIN_CACHE = {}
+_PLAIN_PREFIXES = ("LATIN CAPITAL LETTER SMALL CAPITAL ",
+                   "LATIN LETTER SMALL CAPITAL ",
+                   "LATIN CAPITAL LETTER ", "LATIN SMALL LETTER ",
+                   "LATIN LETTER ")
+
+
+def _plain_char(ch):
+    """One character's plain-letter reading, or '' if it has none."""
+    hit = _PLAIN_CACHE.get(ch)
+    if hit is not None:
+        return hit
+    # The character as written is asked about FIRST. Python's upper() can
+    # turn a small-capital letter into a differently NAMED one - 'r' small
+    # capital becomes YR, whose name carries no base letter - so uppercasing
+    # before the lookup lost exactly the letters this exists for.
+    out = None
+    for form in (ch, ch.upper()):
+        out = TAG_FOLD.get(form) or PLAIN_EXTRA.get(form)
+        if out:
+            break
+        k = ''.join(x for x in unicodedata.normalize('NFKD', form)
+                    if x.isascii() and x.isalnum())
+        if k:
+            out = k.upper()
+            break
+        try:
+            nm = unicodedata.name(form)
+        except ValueError:
+            nm = ''
+        for pre in _PLAIN_PREFIXES:
+            if nm.startswith(pre):
+                base = nm[len(pre):].split(" WITH ")[0].strip()
+                if len(base) == 1 and base.isascii() and base.isalpha():
+                    out = base.upper()
+                break
+        if out:
+            break
+    out = out or ''
+    _PLAIN_CACHE[ch] = out
+    return out
+
+
+def plain_reading(text):
+    """A stylised name as plain capitals: \u20a6\u00d8\u00d8\u0e3f\u20a5\u20b3\u20b4\u20ae\u0246\u2c6b -> NOOBMASTER.
+
+    For FINDING a player and for matching a member inside their own clan -
+    never for deciding who somebody is on its own. Two different people can
+    write the same plain letters, so every caller has to handle more than
+    one answer."""
+    out = []
+    for ch in str(text or ''):
+        r = _plain_char(ch)
+        if r:
+            out.append(r)
+        elif ch.isalnum() and not ch.isascii():
+            out.append(ch.upper())          # Cyrillic, Chinese: left as they are
+    return ''.join(out)
 
 
 def canonical_clan_tag(text, tags=None):
@@ -7239,6 +7314,20 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.54.0", "at": "2026-09-21T04:20:00Z", "changes": [
+        "<b>Search finds a stylised name typed in plain capitals.</b> Most "
+        "already worked; the ones that did not were names written with "
+        "small-capital letters, with letters carrying a descender or a tail, "
+        "or with currency signs — so a player calling themselves "
+        "₦ØØ฿₥₳₴₮ɆⱤ "
+        "could not be found by typing NOOBMASTER. They can now. Typing the "
+        "clan tag still finds a clan&#39;s members, and searching the name "
+        "exactly as it is written still works.",
+        "The Mythos card now matches every other rank card in size, glow and "
+        "timing &mdash; its crimson glow was slightly larger than the rest, "
+        "which pushed it past the edge of the page. Only the colour differs "
+        "now.",
+    ]},
     {"version": "9.53.1", "at": "2026-09-21T02:30:00Z", "changes": [
         "<b>Whether a rating is protected is no longer shown on anyone else&#39;s "
         "page.</b> The lock that sat beside names on the leaderboard and on "
@@ -21582,9 +21671,15 @@ def search_key(*parts):
             continue
         raw = normalize_name(str(part))
         folded = clean_clan_tag(part)
+        plain = plain_reading(part)
         out.append(raw)
         if folded and folded != raw:
             out.append(folded)
+        # The generous reading, which reaches small capitals and the
+        # currency signs people spell with - clean_clan_tag cannot, because
+        # it is also the key that says which clan is which.
+        if plain and plain not in (raw, folded):
+            out.append(plain)
     return ''.join(out)
 
 
