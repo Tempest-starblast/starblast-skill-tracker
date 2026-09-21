@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.54.0"
+APP_VERSION = "9.54.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2264,7 +2264,7 @@ def clan_display(c, tag):
     return (row[0] if row and row[0] else tag)
 
 
-_TAG_CACHE = {"ts": 0.0, "styles": {}, "worn": {}, "members": {}}
+_TAG_CACHE = {"ts": 0.0, "styles": {}, "worn": {}, "members": {}, "plain": {}}
 
 
 def tag_cache_reset():
@@ -2287,6 +2287,7 @@ def _tag_cache(c):
     if now - _TAG_CACHE["ts"] < 60:
         return _TAG_CACHE
     styles, worn, members, seen = {}, {}, {}, {}
+    plain, plain_seen = {}, {}
     try:
         default = {r[0]: (r[1] or r[0]) for r in
                    c.execute("SELECT tag, display_tag FROM clans").fetchall()}
@@ -2306,20 +2307,31 @@ def _tag_cache(c):
                 "WHERE clan IS NOT NULL AND clan != '' AND " + NOT_SANDBOX).fetchall():
             shows = [s for _i, s in styles.get(clan, [])] or [default.get(clan) or clan]
             keys = set()
+            pkeys = set()
             for raw in (name, game):
                 if not raw:
                     continue
                 for s in shows:
-                    k = normalize_name(display_name(raw, clan, s))
+                    bare = display_name(raw, clan, s)
+                    k = normalize_name(bare)
                     if k:
                         keys.add(k)
+                    p = plain_reading(bare)
+                    if p:
+                        pkeys.add(p)
             for k in keys:
                 seen.setdefault(clan, {}).setdefault(k, set()).add((sub, name))
+            for k in pkeys:
+                plain_seen.setdefault(clan, {}).setdefault(k, set()).add((sub, name))
         for clan, m in seen.items():
             members[clan] = {k: next(iter(v)) for k, v in m.items() if len(v) == 1}
+        # Same gate: a reading two members share identifies neither.
+        for clan, m in plain_seen.items():
+            plain[clan] = {k: next(iter(v)) for k, v in m.items() if len(v) == 1}
     except sqlite3.Error:
         return _TAG_CACHE
-    _TAG_CACHE.update(ts=now, styles=styles, worn=worn, members=members)
+    _TAG_CACHE.update(ts=now, styles=styles, worn=worn, members=members,
+                      plain=plain)
     return _TAG_CACHE
 
 
@@ -2382,6 +2394,26 @@ def clan_member_for_tagged_name(c, name):
             if rest == name:
                 continue
             key = normalize_name(rest)
+            if not key or key in tried:
+                continue
+            tried.add(key)
+            hit = roster.get(key)
+            if hit:
+                return hit[1]
+    # Nothing matched as written. A member who restyled their name - flying
+    # (Ł7)TEMPEST while the board knows them as Ŧɇmᵽɇsŧ - is still that
+    # member, so the plain reading is tried inside their own clan only.
+    for clan in sorted(members, key=len, reverse=True):
+        roster = cache.get("plain", {}).get(clan) or {}
+        if not roster:
+            continue
+        shows = [s for _i, s in cache["styles"].get(clan, [])] or [clan]
+        tried = set()
+        for shown in shows:
+            rest = display_name(name, clan, shown)
+            if rest == name:
+                continue
+            key = plain_reading(rest)
             if not key or key in tried:
                 continue
             tried.add(key)
@@ -7314,6 +7346,17 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.54.1", "at": "2026-09-21T05:05:00Z", "changes": [
+        "<b>Wearing your clan tag with your name written plainly now counts "
+        "for your account.</b> A member whose name on the board is written "
+        "in stroked or stylised letters, who plays as the plain version with "
+        "the tag on, was not recognised as that member — the tag was "
+        "read, but the name left over matched nobody, so the match landed on "
+        "no account at all. It reaches the right person now. The tag is "
+        "still the evidence: no tag, no attribution, it never reaches into "
+        "another clan, and where two members of a clan read the same way it "
+        "still counts for neither rather than guessing between them.",
+    ]},
     {"version": "9.54.0", "at": "2026-09-21T04:20:00Z", "changes": [
         "<b>Search finds a stylised name typed in plain capitals.</b> Most "
         "already worked; the ones that did not were names written with "
