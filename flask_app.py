@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.56.0"
+APP_VERSION = "9.57.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5661,6 +5661,11 @@ def my_held_results():
         'flood-cut': ("This match was swarmed by a flood of scripted ships. It is "
                       "rated as it stood when the swarm arrived, and the sides the "
                       "swarm landed on take no loss for it."),
+        'duplicate-name': ("Two ships were flying this name at once during this "
+                           "match, so there was no way to tell which one was you. "
+                           "The result is set aside rather than guessed at. Checking "
+                           "in before you play ties the result to your own ship, "
+                           "which avoids this."),
         'joined-too-late': ("You checked in less than ten minutes before this match "
                             "ended. A few minutes at the end is not a match, so it "
                             "counts neither way."),
@@ -6323,6 +6328,31 @@ def game_end():
     # answerable later.
     _held += [(p, 0, _exempt_reason) for p in _in_l
               if skip_reason(p, losing=True) == _exempt_reason]
+    # And a result set aside because two ships were flying one name. This
+    # used to be filed under "genuinely unknowable" and dropped, but
+    # unknowable is not the same as uninteresting: a player who wants a
+    # loss not to land can make themselves unknowable on purpose, and
+    # without a record there is nothing to notice it with.
+    # Only names a registered account owns. Two strangers sharing a
+    # nickname is most of what the flag catches and none of what matters -
+    # an account is the only thing a rating can be sheltered from.
+    _amb = [(p, 1) for p in _in_w if skip_reason(p) == 'duplicate-name']
+    _amb += [(p, 0) for p in _in_l
+             if skip_reason(p, losing=True) == 'duplicate-name']
+    if _amb:
+        _ak = sorted({normalize_name(p) for p, _w in _amb})
+        _owned = set()
+        try:
+            for _i in range(0, len(_ak), 400):
+                _ch = _ak[_i:_i + 400]
+                _owned |= {r[0] for r in c.execute(
+                    "SELECT norm_name FROM players WHERE norm_name IN (%s) "
+                    "AND google_sub IS NOT NULL AND google_sub != ''"
+                    % ",".join("?" * len(_ch)), _ch).fetchall()}
+        except sqlite3.Error:
+            _owned = set()
+        _held += [(p, _w, 'duplicate-name') for p, _w in _amb
+                  if normalize_name(p) in _owned]
     winning_team = [p for p in winning_team if not skip(p)]
     losing_all = [p for p in losing_all if not skip(p, losing=True)]
     # The same name on BOTH the winning and losing side is two different
@@ -7402,6 +7432,18 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.57.0", "at": "2026-09-21T21:00:00Z", "changes": [
+        "<b>A result set aside because two ships were flying one name is "
+        "now written down.</b> It was already not rated — one person "
+        "cannot be two ships, so there is no honest way to say whose result "
+        "it was — but nothing was kept, so the match simply vanished with "
+        "no explanation. It now appears in your held results like any other "
+        "withheld match, with the reason in plain words. Checking in before "
+        "you play ties the result to your own ship and avoids it entirely.",
+        "Only for names that belong to a registered account. Two strangers "
+        "who happen to pick the same nickname is most of what the rule "
+        "catches, and neither of them has a rating for it to matter to.",
+    ]},
     {"version": "9.56.0", "at": "2026-09-21T20:30:00Z", "changes": [
         "<b>Joining the winning team late is now half elo even if you "
         "started the match on one of the losing ones.</b> The late-arrival "
