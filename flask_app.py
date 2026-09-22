@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.57.0"
+APP_VERSION = "9.57.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7432,6 +7432,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.57.1", "at": "2026-09-22T01:10:00Z", "changes": [
+        "The Discord server now wears the leaderboard’s own mark. Its icon "
+        "was still the STML badge from the old Starblast Team League, which "
+        "has not been what this place is for a long time — the server, the "
+        "bot and the website finally look like the same thing.",
+        "Two channel descriptions still called the Warden tier by its old "
+        "name, Odyssey. They say Warden.",
+    ]},
     {"version": "9.57.0", "at": "2026-09-21T21:00:00Z", "changes": [
         "<b>A result set aside because two ships were flying one name is "
         "now written down.</b> It was already not rated — one person "
