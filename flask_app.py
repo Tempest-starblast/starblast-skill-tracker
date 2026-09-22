@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.59.0"
+APP_VERSION = "9.60.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7432,6 +7432,19 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.60.0", "at": "2026-09-22T17:30:00Z", "changes": [
+        "<b>Every result post gets its replay link.</b> The feed announced a "
+        "match the instant it was decided — seconds after the last shot "
+        "— but the replay is stored a minute or so later, so the post went "
+        "out without a link and never got one, even though the replay was "
+        "there and worked. A match now waits a few minutes for its replay "
+        "before being announced, and is announced anyway if none arrives.",
+        "<b>Match length in the results feed was about three times too "
+        "long.</b> It counted each tracked read as ten seconds, the cadence "
+        "of the old browser tracker; the watcher reads about every three. A "
+        "seventy-minute match was announced as 218 minutes. It now uses the "
+        "watch length the result itself carries.",
+    ]},
     {"version": "9.59.0", "at": "2026-09-22T16:10:00Z", "changes": [
         "<b>A hull above your tier can no longer be bought.</b> The rule was "
         "always there, but early-access testers carried the sandbox’s "
@@ -13013,6 +13026,26 @@ def play_name_map(c):
         m[gk] = (sub, name)
     _PLAY_CACHE["ts"], _PLAY_CACHE["map"] = now, m
     return m
+
+
+# The raw observer's read cadence, measured over live watches (1307 reads
+# across 70 minutes, 972 across 53, 797 across 43 - all ~3.2s). Only used to
+# estimate the length of matches recorded before the watch length was stored.
+RAW_READ_SECONDS = 3.2
+# How long a decided match waits for its replay before being announced without
+# one. The scorer is usually a minute or so behind the result.
+REPLAY_GRACE_SECONDS = 360
+
+
+def _fresh_enough(played_at, seconds):
+    """True while `played_at` is less than `seconds` old - i.e. still worth
+    waiting on. Unreadable timestamps are treated as old, so a match is
+    announced rather than held for ever."""
+    try:
+        return (time.time() - calendar.timegm(
+            time.strptime(str(played_at)[:19], '%Y-%m-%d %H:%M:%S'))) < seconds
+    except (ValueError, TypeError):
+        return False
 
 
 def account_for_ingame_name(c, name, sys_id=None):
@@ -18970,7 +19003,16 @@ def bot_matches_undelivered():
                   "WHERE match_id = ? AND reason = 'dominance-flip' "
                   "ORDER BY name", (match_id,))
         exempt = [r[0] for r in c.fetchall()]
-        mins = int(round((treads or 0) * 10 / 60.0))
+        # The watch length, from the result's own seconds where we have them
+        # (match_players.played_s is the share of the watch each rated player
+        # was present for, so the largest is the watch itself). Falling back
+        # to reads x RAW_READ_SECONDS for anything recorded before that.
+        # It used to be reads x 10 - the browser tracker's cadence, retired -
+        # which reported a 70-minute match as 218.
+        _ws = c.execute("SELECT MAX(played_s) FROM match_players "
+                        "WHERE match_row = ?", (mid,)).fetchone()
+        _ws = (_ws[0] if _ws else None) or 0
+        mins = int(round((_ws or (treads or 0) * RAW_READ_SECONDS) / 60.0))
         # The journal replay, when one exists for this match - the bot appends
         # it as a link so the feed is where replays are found. A match is
         # replayable with EITHER a frozen score snapshot (match_replays) OR the
@@ -18989,6 +19031,13 @@ def bot_matches_undelivered():
                 replay_url = "https://starblastelo.pythonanywhere.com/replay/%d" % mid
         except sqlite3.Error:
             pass
+        # The scorer writes the replay a little after it posts the result,
+        # so a match offered the instant it is decided goes out with no link
+        # and never gets one - the post is not edited. Hold it back briefly
+        # rather than announce it linkless; announce it anyway once the grace
+        # period is up, so a match whose replay never arrives is not lost.
+        if replay_url is None and _fresh_enough(played_at, REPLAY_GRACE_SECONDS):
+            continue
         out.append({"id": mid, "match_id": match_id, "region": region,
                     "played_at": played_at, "winners": winners,
                     "losing_teams": losing_teams, "exempt": exempt,
