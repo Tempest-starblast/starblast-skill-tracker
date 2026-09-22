@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.61.0"
+APP_VERSION = "9.61.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5670,7 +5670,8 @@ def my_held_results():
                               "while your team was given less than a one-in-four "
                               "chance of winning. They came back and won it without "
                               "you, so the win went to the players who were still "
-                              "there. It is not counted against you either."),
+                              "there. Had they lost, the loss would still have been "
+                              "yours \u2014 leaving has never been a way out of one."),
         'joined-too-late': ("You checked in less than ten minutes before this match "
                             "ended. A few minutes at the end is not a match, so it "
                             "counts neither way."),
@@ -6345,8 +6346,13 @@ def game_end():
     # beaten and it came back without them. They are already absent from
     # winning_team, so nothing is rated for them either way - this is only so
     # the match does not disappear with no explanation.
+    _rated_now = {normalize_name(p) for p in (_in_w + _in_l)}
     for _p in (data.get('left_losing') or []):
-        if isinstance(_p, str) and _p.strip():
+        # Struck out means struck out. A name still being rated in this match
+        # - which the scorer never sends, but a future one might - keeps its
+        # result and gets no note about losing one.
+        if (isinstance(_p, str) and _p.strip()
+                and normalize_name(_p) not in _rated_now):
             _held.append((_p, 1, 'left-while-losing'))
     _amb = [(p, 1) for p in _in_w if skip_reason(p) == 'duplicate-name']
     _amb += [(p, 0) for p in _in_l
@@ -7450,8 +7456,11 @@ CHANGELOG = [
         "while their team was given under a one-in-four chance, is no longer "
         "rated for that match — and the players who stayed are rated as "
         "the smaller, weaker side they actually were, so the win is worth "
-        "what it was really worth. No loss either: the leaver is simply not "
-        "in the match.",
+        "what it was really worth.",
+        "Leaving still costs you the loss. This takes away a win you were "
+        "not there for; it has never been a way out of a defeat, and it is "
+        "not one now \u2014 walk out on a side that goes on to lose and you "
+        "take that loss in full, exactly as before.",
         "It is measured at the moment they left, from the win-probability "
         "model that already runs on every match, and a match the model will "
         "not call never strips anybody. The result still appears in your "
