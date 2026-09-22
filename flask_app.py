@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.58.1"
+APP_VERSION = "9.59.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7432,6 +7432,25 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.59.0", "at": "2026-09-22T16:10:00Z", "changes": [
+        "<b>A hull above your tier can no longer be bought.</b> The rule was "
+        "always there, but early-access testers carried the sandbox’s "
+        "“looking as” tier picker, and the shop asked THAT which tier you "
+        "were — so picking a tier opened its whole hangar, on a real "
+        "account. The picker is gone from early access, the tier you have "
+        "earned is the tier the shop uses, and a tier already chosen in a "
+        "live session stops counting.",
+        "Hulls you have not climbed to are now drawn as locked — dimmed, "
+        "with a padlock — instead of looking ordinary until you press Buy.",
+        "<b>You are no longer told to check in when your name already "
+        "counts.</b> Flying as your clan’s tag plus your own name is "
+        "recognised as you, and has been for a while, but the reminder kept "
+        "its own older rule and warned anyway. It asks the same question the "
+        "scorer asks now. A name that genuinely reaches nobody, and "
+        "Protection, still warn exactly as before.",
+        "The play button on a survival replay is centred. It was drawn as a "
+        "text arrow, which sits wherever the font puts it.",
+    ]},
     {"version": "9.58.1", "at": "2026-09-22T15:20:00Z", "changes": [
         "#rank-ups is read-only now, like every other channel the bot posts "
         "to. It was the one feed anybody could type in.",
@@ -9840,9 +9859,15 @@ def bot_checkin_nudge():
               "WHERE strict_mode = 1 AND google_sub IS NOT NULL "
               "AND google_sub != ''")
     protected_owners = {r[0]: (r[1], r[2], 'protected') for r in c.fetchall() if r[0]}
-    # A saved play name that is not the account name only counts with a
-    # check-in, protection on or off - so a ship under one, with no check-in,
-    # is flying for nothing just the same. Told while it can still be fixed.
+    # A saved play name that does not actually REACH its account - two
+    # accounts having declared the same one, say - is flying for nothing, and
+    # is told while it can still be fixed. Whether it reaches is decided below
+    # by account_for_ingame_name, the same function the scorer uses; this pass
+    # only collects the candidates. It used to warn about every play name that
+    # differed from the account name, which has been wrong since a declared
+    # play name started counting on its own: a clan member flying their own
+    # name behind their own tag was told their match would not count, and it
+    # did.
     c.execute("SELECT game_name, norm_name, google_sub, name FROM players "
               "WHERE google_sub IS NOT NULL AND google_sub != '' "
               "AND game_name IS NOT NULL AND game_name != ''")
@@ -9863,6 +9888,15 @@ def bot_checkin_nudge():
         if not owner:
             continue
         sub, acct, reason = owner
+        # Does this name already land on that account? Protection is the one
+        # thing a check-in is still needed for, so it keeps its warning; for
+        # everything else, if the result will arrive there is nothing to say.
+        if reason != 'protected':
+            try:
+                if account_for_ingame_name(c, seen_name, sys_id):
+                    continue
+            except sqlite3.Error:
+                pass
         c.execute("SELECT 1 FROM checkins WHERE sub = ? AND sys_id = ? "
                   "AND created_at > datetime('now', ?)",
                   (sub, sys_id, '-%d seconds' % CHECKIN_VALID_SECONDS))
@@ -13989,6 +14023,11 @@ def dev_level():
     they have actually earned."""
     if not preview_session_ok() and current_user() not in OWNER_SUBS:
         abort(404)
+    # Not on a real account. See preview_level_for.
+    if (session.get("preview_kind") == "access"
+            and current_user() not in OWNER_SUBS):
+        return jsonify({"ok": False, "message": "Early access shows you the site as "
+                        "yourself - the tier you have earned is the tier you get."}), 403
     try:
         lvl = int((request.get_json(silent=True) or {}).get("level") or 0)
     except (TypeError, ValueError):
@@ -15114,6 +15153,14 @@ def preview_level_for(nn):
         # the bar shows the picker there as well - so it has to work there.
         if not has_request_context() or not (session.get("preview")
                                              or session.get("dev_real_owner")):
+            return 0
+        # An ACCESS key is the person themselves, on their own account, and
+        # what they buy is real. A tier lens there is not a preview, it is a
+        # way to buy above your tier - which is exactly what it was used for.
+        # Checked here rather than only at the picker so a preview_level
+        # already sitting in a live session stops counting the moment this
+        # ships.
+        if session.get("preview_kind") == "access":
             return 0
         lvl = int(session.get("preview_level") or 0)
     except (RuntimeError, ValueError, TypeError):

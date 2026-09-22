@@ -15,7 +15,9 @@
 .transport{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);
   border-radius:10px;padding:9px 14px;margin-bottom:12px;backdrop-filter:var(--blur)}
 .transport button{font:inherit;font-size:15px;cursor:pointer;background:var(--blue,#66e6b8);color:#0b0e13;
-  border:none;border-radius:8px;width:38px;height:34px;flex:0 0 auto;font-weight:700}
+  border:none;border-radius:8px;width:38px;height:34px;flex:0 0 auto;font-weight:700;
+  display:flex;align-items:center;justify-content:center;padding:0;line-height:1}
+.transport button svg{display:block}
 .transport button:active{transform:translateY(1px)}
 .transport input[type=range]{flex:1;accent-color:var(--blue,#66e6b8)}
 .transport .tt{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12.5px;white-space:nowrap;min-width:46px;text-align:right}
@@ -85,7 +87,7 @@
 
 {% if n >= 1 %}
 <div class="transport">
-  <button id="play" type="button" aria-label="Play">&#9654;</button>
+  <button id="play" type="button" aria-label="Play"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7.4 4.9 17.6 12 7.4 19.1Z" fill="currentColor"/></svg></button>
   <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Scrub the round">
   <span class="rem" id="rem">{{ n }} left</span>
   <span class="tt" id="tt">{% if span %}0:00{% else %}start{% endif %}</span>
@@ -174,8 +176,14 @@
   var raf=null, last=0, DUR=9000;
   function step(ts){ if(!last) last=ts; t += (ts-last)/DUR; last=ts;
     if(t>=1){ t=1; render(); stop(); return; } render(); raf=requestAnimationFrame(step); }
-  function play(){ if(t>=1) t=0; last=0; playBtn.innerHTML='&#10073;&#10073;'; raf=requestAnimationFrame(step); }
-  function stop(){ if(raf) cancelAnimationFrame(raf); raf=null; playBtn.innerHTML='&#9654;'; }
+  // Drawn rather than typed: the glyphs U+25B6 and U+2759 each sit at their
+  // own offset inside the box, which is what knocked this askew.
+  var ICON_PLAY = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7.4 4.9 17.6 12 7.4 19.1Z" fill="currentColor"/></svg>';
+  var ICON_PAUSE = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M8 5h3.3v14H8zM12.7 5H16v14h-3.3z" fill="currentColor"/></svg>';
+  function play(){ if(t>=1) t=0; last=0; playBtn.innerHTML=ICON_PAUSE;
+    playBtn.setAttribute('aria-label','Pause'); raf=requestAnimationFrame(step); }
+  function stop(){ if(raf) cancelAnimationFrame(raf); raf=null; playBtn.innerHTML=ICON_PLAY;
+    playBtn.setAttribute('aria-label','Play'); }
   if(playBtn) playBtn.onclick = function(){ raf ? stop() : play(); };
   if(seek) seek.oninput = function(){ stop(); t=(parseInt(seek.value,10)||0)/1000; render(); };
   window.addEventListener('resize', placeHead);

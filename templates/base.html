@@ -585,12 +585,12 @@ window.sbMe = (function(){
       signed-in player{% if dev_elo %} rated {{ '{:,}'.format(dev_elo) }}{% endif %} — not your
       real account{% else %}You are testing as a blank sandbox player — not your real
       account{% endif %}.
-  <label class="devtier">Looking as
+  {% if not dev_access %}<label class="devtier">Looking as
     <select id="devTier" onchange="devLevel(this.value)">
       <option value="0"{% if not dev_level %} selected{% endif %}>the tier I have earned</option>
       {% for lvl, nm in dev_tiers %}<option value="{{ lvl }}"{% if dev_level == lvl %} selected{% endif %}>{{ nm }}</option>{% endfor %}
     </select>
-  </label>
+  </label>{% endif %}
   <button onclick="devRestore()">{% if dev_access %}Hide it again{% elif dev_tester %}Leave the preview{% else %}Back to my account{% endif %}</button>
 </div>
 <script>

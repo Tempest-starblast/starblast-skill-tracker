@@ -35,6 +35,13 @@
 .ship .emb{width:72px;height:72px;display:flex;align-items:center;justify-content:center;
   filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
 .ship:not(.own):not(.cos) .emb{opacity:.42}
+/* Above your tier: dimmed and padlocked, so the hangar reads at a glance
+   as "these are mine, those are not yet" without reading every button. */
+.ship.locked{opacity:.55;filter:saturate(.35)}
+.ship.locked:hover{transform:none;border-color:var(--line,#233)}
+.ship.locked .emb{opacity:.28}
+.ship.locked .lock{position:absolute;top:8px;right:9px;font-size:13px;line-height:1;
+  opacity:.75;filter:grayscale(1)}
 .ship.worn{border-color:rgba(102,230,184,.6);
   background:linear-gradient(160deg,rgba(102,230,184,.14),rgba(102,230,184,.02))}
 .ship .nm{font-size:13.5px;font-weight:800;line-height:1.2}
@@ -149,7 +156,8 @@
 {%- endmacro %}
 
 {% macro tile(i) %}
-<div class="ship{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}" data-code="{{ i.code }}" data-name="{{ i.name }}">
+<div class="ship{% if i.own %} own{% endif %}{% if i.worn %} worn{% endif %}{% if not i.own and (not i.may_buy or i.earn_only) %} locked{% endif %}" data-code="{{ i.code }}" data-name="{{ i.name }}">
+  {% if not i.own and (not i.may_buy or i.earn_only) %}<span class="lock" aria-hidden="true">&#128274;</span>{% endif %}
   {% if i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
   <span class="emb">{{ rank_emblem(i.code, 72, (mythic_color if i.mythic else i.color), i.name, 'rank-emblem mythic' if i.mythic else 'rank-emblem')|safe }}</span>
   <span class="nm">{{ i.name }}</span>
