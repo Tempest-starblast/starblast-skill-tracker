@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.57.1"
+APP_VERSION = "9.58.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7432,6 +7432,16 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.58.0", "at": "2026-09-22T15:40:00Z", "changes": [
+        "<b>Reaching a tier is announced once.</b> The bot was congratulating "
+        "players for the same promotion over and over — one player was "
+        "welcomed to Archon six times in three days without ever settling "
+        "there. Archon is the top half of one percent, so its line moves "
+        "under you when other people’s ratings change; the bot recorded "
+        "each slip back down and re-armed itself for the next crossing. It "
+        "now remembers the highest tier it has ever announced for you and "
+        "never lowers it. Climbing PAST that tier is still announced.",
+    ]},
     {"version": "9.57.1", "at": "2026-09-22T01:10:00Z", "changes": [
         "The Discord server now wears the leaderboard’s own mark. Its icon "
         "was still the STML badge from the old Starblast Team League, which "
@@ -18817,8 +18827,15 @@ def bot_rankroles():
 
 @app.route('/api/bot/rankroles/synced', methods=['POST'])
 def bot_rankroles_synced():
-    """The bot reports the level it has now assigned + announced for each Discord
-    id, so a climb is celebrated exactly once."""
+    """The bot reports the level it has now assigned for each Discord id.
+
+    Stored as a HIGH-WATER MARK, never lowered. The bot announces when the
+    live level beats this one, so if this followed a player back down the
+    ladder it would re-arm itself: anybody hovering on a percentile
+    boundary - and the Archon boundary is half a percent wide, so it moves
+    under people who have not played - gets congratulated for the same
+    tier again and again. Reaching a tier is the thing worth saying, and
+    it happens once."""
     if not api_key_ok(request.headers.get('X-API-Key')):
         return jsonify({"error": "Unauthorized"}), 401
     levels = (request.json or {}).get('levels') or {}
@@ -18833,7 +18850,9 @@ def bot_rankroles_synced():
             continue
         c.execute("INSERT INTO discord_rank_state (discord_id, announced_level, updated_at) "
                   "VALUES (?, ?, ?) ON CONFLICT(discord_id) DO UPDATE SET "
-                  "announced_level=excluded.announced_level, updated_at=excluded.updated_at",
+                  "announced_level=MAX(COALESCE(discord_rank_state.announced_level, -1), "
+                  "                    excluded.announced_level), "
+                  "updated_at=excluded.updated_at",
                   (str(did), lvl, now))
         n += 1
     conn.commit()
