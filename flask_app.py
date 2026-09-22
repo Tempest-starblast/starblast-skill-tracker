@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.58.0"
+APP_VERSION = "9.58.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7432,6 +7432,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.58.1", "at": "2026-09-22T15:20:00Z", "changes": [
+        "#rank-ups is read-only now, like every other channel the bot posts "
+        "to. It was the one feed anybody could type in.",
+        "Fourteen accounts had their recorded tier corrected. The "
+        "announcement bug had quietly filed them BELOW a tier they had "
+        "already been congratulated for, so each was due one more "
+        "duplicate; they are set to what they actually reached instead.",
+    ]},
     {"version": "9.58.0", "at": "2026-09-22T15:40:00Z", "changes": [
         "<b>Reaching a tier is announced once.</b> The bot was congratulating "
         "players for the same promotion over and over — one player was "
