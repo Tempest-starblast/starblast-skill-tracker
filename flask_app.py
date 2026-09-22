@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.60.0"
+APP_VERSION = "9.61.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5666,6 +5666,11 @@ def my_held_results():
                            "The result is set aside rather than guessed at. Checking "
                            "in before you play ties the result to your own ship, "
                            "which avoids this."),
+        'left-while-losing': ("You left this match with more than ten minutes to go, "
+                              "while your team was given less than a one-in-four "
+                              "chance of winning. They came back and won it without "
+                              "you, so the win went to the players who were still "
+                              "there. It is not counted against you either."),
         'joined-too-late': ("You checked in less than ten minutes before this match "
                             "ended. A few minutes at the end is not a match, so it "
                             "counts neither way."),
@@ -5976,7 +5981,7 @@ def game_end():
             return acct
 
         for _key in ('winning_team', 'losing_team_1', 'losing_team_2',
-                     'all_players', 'half_elo', 'ambiguous',
+                     'all_players', 'half_elo', 'ambiguous', 'left_losing',
                      'dominance_exempt'):
             _val = data.get(_key)
             if isinstance(_val, list):
@@ -6336,6 +6341,13 @@ def game_end():
     # Only names a registered account owns. Two strangers sharing a
     # nickname is most of what the flag catches and none of what matters -
     # an account is the only thing a rating can be sheltered from.
+    # Winners the scorer took out because they abandoned a side that looked
+    # beaten and it came back without them. They are already absent from
+    # winning_team, so nothing is rated for them either way - this is only so
+    # the match does not disappear with no explanation.
+    for _p in (data.get('left_losing') or []):
+        if isinstance(_p, str) and _p.strip():
+            _held.append((_p, 1, 'left-while-losing'))
     _amb = [(p, 1) for p in _in_w if skip_reason(p) == 'duplicate-name']
     _amb += [(p, 0) for p in _in_l
              if skip_reason(p, losing=True) == 'duplicate-name']
@@ -7432,6 +7444,19 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.61.0", "at": "2026-09-22T23:40:00Z", "changes": [
+        "<b>Walk out on a side that looks beaten and you do not collect the "
+        "comeback.</b> A winner who left with more than ten minutes to go, "
+        "while their team was given under a one-in-four chance, is no longer "
+        "rated for that match — and the players who stayed are rated as "
+        "the smaller, weaker side they actually were, so the win is worth "
+        "what it was really worth. No loss either: the leaver is simply not "
+        "in the match.",
+        "It is measured at the moment they left, from the win-probability "
+        "model that already runs on every match, and a match the model will "
+        "not call never strips anybody. The result still appears in your "
+        "held results with the reason, so nothing vanishes unexplained.",
+    ]},
     {"version": "9.60.0", "at": "2026-09-22T17:30:00Z", "changes": [
         "<b>Every result post gets its replay link.</b> The feed announced a "
         "match the instant it was decided — seconds after the last shot "
