@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.65.0"
+APP_VERSION = "9.66.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1424,11 +1424,26 @@ def win_probability(counts, scores, elapsed_seconds=None, weights=None,
 _TSR_MIGRATED = False
 
 
+_REPLAY_INDEXES_READY = False
+
+
 def _ensure_replay_indexes(conn, schema=''):
     """The two indexes the Replays listing walks: replays by lobby and end
     time (is this match replayable?) and the no-result rows by end time.
-    Both covering, so the listing never touches the trajectory blobs. Safe
-    to call on every connection; a no-op once they exist."""
+    Both covering, so the listing never touches the trajectory blobs.
+
+    NOT safe to call on every connection, which is what the comment here
+    used to claim. CREATE INDEX IF NOT EXISTS takes the exclusive write
+    lock even when the index already exists and there is nothing to do -
+    measured, on the server, blocking for the whole busy_timeout behind an
+    open writer. Called once per worker for the main database; the
+    attached-schema caller passes its own schema and is rare, so it is
+    left alone."""
+    if not schema:
+        global _REPLAY_INDEXES_READY
+        if _REPLAY_INDEXES_READY:
+            return
+        _REPLAY_INDEXES_READY = True
     for name, cols in (("idx_tsreplay_sys_at", "(sys_id, at)"),
                        ("idx_tsreplay_nr", "(no_result, at)")):
         try:
@@ -1536,16 +1551,16 @@ def replay_db():
     separate from players.db so its large blob writes never lock the board."""
     conn = sqlite3.connect(REPLAY_DB_PATH, timeout=5)
     conn.execute("PRAGMA busy_timeout = 5000")
-    conn.execute("CREATE TABLE IF NOT EXISTS trueskill_replay ("
-                 "match_key TEXT PRIMARY KEY, sys_id INTEGER, at TEXT, "
-                 "region TEXT, first_ts REAL, data BLOB)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tsreplay_sys "
-                 "ON trueskill_replay(sys_id, first_ts)")
-    # A replay that was recorded but never scored carries what the listing
-    # needs to show it beside the scored ones: the lobby name, how many played,
-    # how long, and why it has no result. Migrated once per process.
     global _TSR_MIGRATED
     if not _TSR_MIGRATED:
+        conn.execute("CREATE TABLE IF NOT EXISTS trueskill_replay ("
+                     "match_key TEXT PRIMARY KEY, sys_id INTEGER, at TEXT, "
+                     "region TEXT, first_ts REAL, data BLOB)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tsreplay_sys "
+                     "ON trueskill_replay(sys_id, first_ts)")
+        # A replay that was recorded but never scored carries what the listing
+        # needs to show it beside the scored ones: the lobby name, how many
+        # played, how long, and why it has no result.
         for _col in ("name TEXT", "players INTEGER", "dur_s REAL",
                      "no_result INTEGER DEFAULT 0", "reason TEXT",
                      # Stripped to its record: playable streams gone, score
@@ -1560,9 +1575,19 @@ def replay_db():
     return conn
 
 
+# The live database's schema, declared once per worker rather than on every
+# connection. live_db() is called by every raw-observer ingest - about five
+# thousand an hour - and re-running CREATE INDEX IF NOT EXISTS each time took
+# the exclusive write lock for nothing. 9.66.0.
+_LIVE_SCHEMA_READY = False
+
+
 def live_db():
     conn = sqlite3.connect(LIVE_DB_PATH, timeout=5)
     conn.execute("PRAGMA busy_timeout = 5000")
+    global _LIVE_SCHEMA_READY
+    if _LIVE_SCHEMA_READY:
+        return conn
     conn.execute("CREATE TABLE IF NOT EXISTS live ("
                  "sys_id INTEGER PRIMARY KEY, updated REAL, elapsed REAL, "
                  "region TEXT, name TEXT, payload TEXT)")
@@ -1599,6 +1624,18 @@ def live_db():
     # radar's +/-128 space. 7.6.0.
     conn.execute("CREATE TABLE IF NOT EXISTS asteroids ("
                  "seed INTEGER PRIMARY KEY, data TEXT, baked REAL)")
+    # Every reader of the live feed asks for rows newer than 40-120 seconds.
+    # Without this they scanned the whole table - 4,453 rows and 11 MB on the
+    # live database - to return the six that were current, taking 1.2 s each
+    # time and holding a read lock that blocks the ingest throughout. 9.66.0.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rawlive_updated "
+                 "ON rawlive(updated)")
+    # Same for rawlive_hist, which the ingest prunes on every call with a
+    # WHERE on `updated` alone - (sys_id, updated) cannot serve it.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rawlive_hist_updated "
+                 "ON rawlive_hist(updated)")
+    conn.commit()
+    _LIVE_SCHEMA_READY = True
     return conn
 
 
@@ -4453,6 +4490,15 @@ def rawlive_view():
     return redirect('/live', code=301)
 
 
+# rawlive holds the latest snapshot per lobby, and a lobby that ends simply
+# stops being updated - so without this the table kept every lobby ever seen.
+# It had reached 4,453 rows over 29 days when six were current. Nothing reads
+# past two minutes; a day is kept so recent lobbies can still be looked at.
+_RAWLIVE_KEEP_S = 86400
+_RAWLIVE_PRUNE_EVERY = 600.0
+_RAWLIVE_PRUNE = {"at": 0.0}
+
+
 @app.route('/api/rawlive/state', methods=['POST'])
 def rawlive_ingest():
     """One snapshot from raw_observer for one lobby. Latest wins."""
@@ -4497,6 +4543,13 @@ def rawlive_ingest():
                   (int(d['sid']), _wall, _blob))
         c.execute("DELETE FROM rawlive_hist WHERE updated < ?",
                   (_wall - (RAWLIVE_PUBLIC_DELAY + 90),))
+        # Drop lobbies that stopped reporting a day ago. On a timer, not every
+        # call: the rows being removed are ones nothing has read since they
+        # went stale, so there is no hurry, and a delete holds the write lock.
+        if _wall - _RAWLIVE_PRUNE["at"] > _RAWLIVE_PRUNE_EVERY:
+            _RAWLIVE_PRUNE["at"] = _wall
+            c.execute("DELETE FROM rawlive WHERE updated < ?",
+                      (_wall - _RAWLIVE_KEEP_S,))
         conn.commit(); conn.close()
     except Exception as e:
         return jsonify({"error": str(e)[:120]}), 500
@@ -7560,6 +7613,28 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.66.0", "at": "2026-09-23T08:45:00Z", "changes": [
+        "The site is fast again. Every page had been taking five to "
+        "thirteen seconds, including ones that do no work at all, which "
+        "was the clue: requests were not slow, they were queueing.",
+        "The cause was the live-lobby table. It holds the latest snapshot "
+        "for each lobby, and a lobby that ends simply stops reporting — so "
+        "nothing ever removed it. It had grown to 4,453 lobbies over 29 "
+        "days, 11 MB, of which six were actually live. Every part of the "
+        "site that shows who is playing right now asks the same question — "
+        "anything from the last minute or two — and with no index to go on, "
+        "each one read all 11 MB to find those six rows. That took 1.2 "
+        "seconds a time, and while it ran, the observer's live updates "
+        "(about one a second) had to wait. They backed up, and everything "
+        "else queued behind them.",
+        "Indexed, so those reads go straight to the rows they want, and "
+        "pruned to a day, so the table stops growing without limit.",
+        "Two smaller things found on the way: the rolling-history prune ran "
+        "on an index it could not use, and both the live and replay "
+        "databases re-declared their entire schema on every single "
+        "connection — 23 ms a time, about 11,000 times an hour. Both now "
+        "happen once.",
+    ]},
     {"version": "9.65.0", "at": "2026-09-23T08:00:00Z", "changes": [
         "A tester sandbox now starts with the same million gems an early-"
         "access key grants, instead of thirty thousand. Both exist so "
