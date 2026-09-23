@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.69.0"
+APP_VERSION = "9.70.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1177,6 +1177,13 @@ ABANDON_MAX_REAL_PLAYERS = 10
 
 STARTING_ELO = 1000
 ELO_K = 200    # max elo swing for a single match, approached as the result gets more lopsided
+# A hosted event's match moves everyone in it this much further, both ways
+# (owner's call, 23 Sep 2026; a tester: "as a Starblast player, Elo inspires
+# me more than gems"). Applied to every delta after the balancing, so it
+# neither creates nor destroys rating - the match is simply worth more. 1.5,
+# not the 2 suggested: one twenty-player event lobby should not move ratings
+# twice as far as every other match played that night.
+EVENT_K_MULT = 1.5
 ELO_SCALE = 2000  # rating-gap scale: bigger = ratings must differ more before the odds shift sharply
 
 # A rating means less when it is built on two games than on two hundred,
@@ -6779,17 +6786,28 @@ def game_end():
         else:
             _fl = _tg / _tl
 
+    # A hosted event? Then every delta below is scaled by EVENT_K_MULT -
+    # uniformly, both sides, after the balancing, so the books still close
+    # (RATING_SPEC section 2). The same lookup that pays the event's gems;
+    # not an event costs one indexed read and changes nothing.
+    _ev_mult = 1.0
+    try:
+        if event_live_row(c, sys_id):
+            _ev_mult = EVENT_K_MULT
+    except (sqlite3.Error, TypeError, ValueError):
+        _ev_mult = 1.0
+
     updated_winners, updated_losers = [], []
     for player, _k, _won, _raw, _mult in _pending:
         if _won:
-            gain = _raw * _fg * _mult
+            gain = _raw * _fg * _mult * _ev_mult
             c.execute("UPDATE players SET elo = ROUND(elo + ?, 2), "
                       "wins = wins + 1 WHERE norm_name = ?", (gain, _k))
             if c.rowcount > 0:
                 updated_winners.append(player)
                 applied.append((player, 1, round(gain, 2)))
         else:
-            loss = _raw * _fl * _mult
+            loss = _raw * _fl * _mult * _ev_mult
             c.execute("UPDATE players SET elo = ROUND(MAX(500, elo - ?), 2), "
                       "losses = losses + 1 WHERE norm_name = ?", (loss, _k))
             if c.rowcount > 0:
@@ -7706,6 +7724,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.70.0", "at": "2026-09-23T23:00:00Z", "changes": [
+        "A hosted event's match moves your rating one and a half times as "
+        "far as an ordinary one \u2014 for everyone in it, winners and losers "
+        "alike. It is applied after the balancing that keeps a match from "
+        "creating or destroying rating, so the pool is unchanged; the match "
+        "is simply worth more. A tester said Elo inspires him more than "
+        "gems. Fair enough.",
+    ]},
     {"version": "9.69.0", "at": "2026-09-23T22:00:00Z", "changes": [
         "Reaching a tier no longer hands you its hull. It puts the hull on "
         "sale to you at its tier's price, and the tier's achievement now "

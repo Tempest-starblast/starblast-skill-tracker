@@ -30,9 +30,16 @@ gate below belongs to one or the other, and that is marked.
 | Provisional for the first | **5** matches | `PROVISIONAL_GAMES` |
 | Provisional multiplier | **×1.4** | `PROVISIONAL_K_MULT` |
 | Established multiplier | **×0.8** | `ESTABLISHED_K_MULT` |
+| A hosted event's match, both ways | **×1.5** | `EVENT_K_MULT` |
 
 A new account moves faster so it finds its level quickly; an established one
 moves slower so a single night cannot undo a season.
+
+A match in a **hosted event** is worth one and a half times as much to
+everyone in it — winners and losers alike. The multiplier is applied after the
+balancing in §2, so it neither creates nor destroys rating; the match is simply
+worth more. Whether a lobby is an event is decided by the same lookup that pays
+the event's gems (`event_live_row`).
 
 ## 2. What one match is worth
 
