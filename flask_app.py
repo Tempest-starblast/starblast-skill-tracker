@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.61.1"
+APP_VERSION = "9.62.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1433,6 +1433,99 @@ def _ensure_replay_indexes(conn, schema=''):
             pass
 
 
+# How long a match stays watchable on the site (owner's call, 23 Sep 2026).
+# This was 90 days and had never dropped a single row, because the archive
+# only ever reached back thirty - so the cap never bit and the file grew
+# until it filled the disk and took the site down. Thirty holds the archive
+# at roughly the 581 MB it reached, which the account has room for now that
+# two gigabytes of old database backups are off it.
+REPLAY_KEEP_DAYS = 30
+# And the delete ran on EVERY push, scanning for rows that were not there.
+_REPLAY_PRUNE_EVERY = 3600.0
+_replay_pruned_at = [0.0]
+
+
+# One score frame a minute is plenty to read a match back; the recording
+# itself is about one every twelve seconds.
+_ARCHIVE_FRAME_GAP = 60.0
+
+
+def archive_replay_doc(obj):
+    """Strip a replay down to its record. Returns the smaller document, or
+    None if there is nothing worth keeping.
+
+    Out go the three streams that make it playable - radar positions,
+    station health, win probability - and the score frames are thinned to
+    one a minute. The FIRST and LAST frames are always kept, so the closing
+    scores are exact."""
+    if not isinstance(obj, dict):
+        obj = {"f": obj}
+    frames = obj.get("f")
+    if not isinstance(frames, list) or not frames:
+        return None
+    thin, last_t = [], None
+    for i, fr in enumerate(frames):
+        t = fr[0] if isinstance(fr, list) and fr else None
+        keep = (i == 0 or i == len(frames) - 1 or last_t is None
+                or not isinstance(t, (int, float))
+                or (t - last_t) >= _ARCHIVE_FRAME_GAP)
+        if keep:
+            thin.append(fr)
+            if isinstance(t, (int, float)):
+                last_t = t
+    out = {"f": thin, "archived": 1}
+    # The small, useful things: who was who, and the lobby's own colours.
+    for k in ("nm", "hues", "seed", "gt0", "mt0", "phases"):
+        if k in obj:
+            out[k] = obj[k]
+    return out
+
+
+def prune_replays(conn, force=False):
+    """Archive replays older than REPLAY_KEEP_DAYS: the playback streams are
+    dropped and the score curve thinned, so the match stays readable and
+    downloadable without costing what a full replay costs.
+
+    Runs on the caller's own connection, at most hourly, and never raises -
+    a failed tidy-up must not cost the push that triggered it."""
+    now = time.time()
+    if not force and now - _replay_pruned_at[0] < _REPLAY_PRUNE_EVERY:
+        return 0
+    _replay_pruned_at[0] = now
+    done = 0
+    try:
+        rows = conn.execute(
+            "SELECT match_key, data FROM trueskill_replay "
+            "WHERE at < datetime('now', ?) AND COALESCE(archived, 0) = 0 "
+            "LIMIT 400", ('-%d days' % REPLAY_KEEP_DAYS,)).fetchall()
+        for mk, blob in rows:
+            try:
+                obj = json.loads(zlib.decompress(blob).decode('utf-8'))
+            except Exception:
+                # Unreadable: mark it archived so it is not retried for ever.
+                conn.execute("UPDATE trueskill_replay SET archived = 1 "
+                             "WHERE match_key = ?", (mk,))
+                done += 1
+                continue
+            small = archive_replay_doc(obj)
+            if small is None:
+                conn.execute("DELETE FROM trueskill_replay WHERE match_key = ?", (mk,))
+                done += 1
+                continue
+            conn.execute("UPDATE trueskill_replay SET data = ?, archived = 1 "
+                         "WHERE match_key = ?",
+                         (zlib.compress(json.dumps(small).encode('utf-8')), mk))
+            done += 1
+        if done:
+            conn.commit()
+            print("[replays] archived %d older than %d days"
+                  % (done, REPLAY_KEEP_DAYS), flush=True)
+        return done
+    except sqlite3.Error as err:
+        print("[replays] archive failed: %s" % err, flush=True)
+        return 0
+
+
 def replay_db():
     """Connection to the replay-trajectory database (trueskill_replay), kept
     separate from players.db so its large blob writes never lock the board."""
@@ -1449,7 +1542,10 @@ def replay_db():
     global _TSR_MIGRATED
     if not _TSR_MIGRATED:
         for _col in ("name TEXT", "players INTEGER", "dur_s REAL",
-                     "no_result INTEGER DEFAULT 0", "reason TEXT"):
+                     "no_result INTEGER DEFAULT 0", "reason TEXT",
+                     # Stripped to its record: playable streams gone, score
+                     # curve thinned. See archive_replay_doc.
+                     "archived INTEGER DEFAULT 0"):
             try:
                 conn.execute("ALTER TABLE trueskill_replay ADD COLUMN " + _col)
             except sqlite3.OperationalError:
@@ -4977,16 +5073,25 @@ def replay_data(mid):
 @app.route('/replay/<int:mid>')
 def replay_page(mid):
     """The journal replay: how a finished match unfolded, read by read."""
-    return render_template('replay.html', mid=mid, rkey=None, version=APP_VERSION,
-                           page='replay')
+    return render_template('replay.html', mid=mid, rkey=None, local=False,
+                           version=APP_VERSION, page='replay')
+
+
+@app.route('/replay/local')
+def replay_page_local():
+    """Play a replay saved to your own computer. The site keeps a week; a
+    file you saved keeps for ever, and it is the same document the site
+    would have served, so it plays identically."""
+    return render_template('replay.html', mid=None, rkey=None, local=True,
+                           version=APP_VERSION, page='replay')
 
 
 @app.route('/replay/r/<path:key>')
 def replay_page_unscored(key):
     """A match that was recorded in full but never scored - the scorer could
     not call a winner (no station data, say). The same player, no result."""
-    return render_template('replay.html', mid=None, rkey=key, version=APP_VERSION,
-                           page='replay')
+    return render_template('replay.html', mid=None, rkey=key, local=False,
+                           version=APP_VERSION, page='replay')
 
 
 @app.route('/api/replay/r/<path:key>')
@@ -7450,6 +7555,29 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.62.0", "at": "2026-09-23T00:40:00Z", "changes": [
+        "<b>The site ran out of disk and went down for a while tonight. It "
+        "is back.</b> Replays were never being cleaned up — there was a cap, "
+        "but it was set at ninety days and the archive had only ever reached "
+        "thirty, so it had never once removed anything. The replay file grew "
+        "to 581 MB, the account filled, and the site stopped being able to "
+        "write, then stopped starting at all. Sorry about that.",
+        "<b>Replays are now kept for thirty days, and then shrunk rather "
+        "than thrown away.</b> An old replay loses the three streams that "
+        "make it watchable — ship positions, station health, win chance — "
+        "and its score history is thinned to a point a minute, with the "
+        "first and last kept exactly so the final scores stay true. That is "
+        "about a tenth of the size. You cannot watch it any more, but the "
+        "match is still there to read.",
+        "<b>Save a replay to your own computer.</b> Open any replay and "
+        "press <b>Save this replay</b>. It downloads the whole thing, and "
+        "<a href=\"/replay/local\">open a saved replay</a> plays it back "
+        "exactly as the site would — for ever, long after the match has "
+        "aged out here.",
+        "Honest note: clearing the disk in a hurry meant deleting replays "
+        "older than a week outright, so the archive currently starts seven "
+        "days back rather than thirty. It fills out again from here.",
+    ]},
     {"version": "9.61.0", "at": "2026-09-22T23:40:00Z", "changes": [
         "<b>Walk out on a side that looks beaten and you do not collect the "
         "comeback.</b> A winner who left with more than ten minutes to go, "
@@ -11262,10 +11390,11 @@ def trueskill_replay_push():
                    str(m.get('name') or '')[:64], _players, _dur,
                    1 if m.get('no_result') else 0, str(m.get('reason') or '')[:120]))
         n += 1
-    # Cap the replay DB the way match_replays is capped: drop trajectories
-    # older than the 90-day replay window so it can't grow without bound.
+    # Keep the file to a week. See prune_replays: the old 90-day cap never
+    # removed anything, because the archive never got that old - it filled
+    # the disk first.
     if n:
-        c.execute("DELETE FROM trueskill_replay WHERE at < datetime('now', '-90 days')")
+        prune_replays(conn)
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "count": n}), 200

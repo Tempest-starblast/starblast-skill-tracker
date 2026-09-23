@@ -20,6 +20,12 @@
 .pheye .infobtn{margin-left:8px;vertical-align:middle}
 {% endblock %}
 {% block body %}
+<p class="openlink" style="margin:0 0 12px;font-size:13px;color:var(--muted,#8aa0b0)">
+  Replays stay on the site for thirty days. Want to keep one for good? Open it and
+  press <b>Save this replay</b>, then
+  <a href="/replay/local" style="color:#9bdcfb">open a saved replay</a> whenever you
+  like — it plays just the same.
+</p>
 {% set survival = (mode == 'survival') %}
 {% set mq = '&mode=survival' if survival else '' %}
 {% set info_q = 'replays' %}{% set info_tip = 'How replays work' %}

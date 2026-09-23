@@ -2,6 +2,17 @@
 {% block title %}Match replay - Starblast Skill Leaderboard{% endblock %}
 {% block css %}
 .ptitle{margin:0 0 10px}
+/* Saving a replay before it ages out, and opening one you saved. */
+.openlocal{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin:0 0 14px;backdrop-filter:var(--blur)}
+.openlocal h2{margin:0 0 6px;font-size:17px}
+.openlocal p{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.5}
+.openlocal .err{color:#ff8a8a;margin-top:8px}
+.savebtn{font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
+  background:transparent;color:var(--muted);border:1px solid var(--line);
+  border-radius:8px;padding:5px 11px;margin-left:10px;vertical-align:middle}
+.savebtn:hover{color:#e6edf3;border-color:rgba(153,221,255,.45)}
+.savebtn[disabled]{opacity:.45;cursor:default}
 .rphead{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;margin:0}
 .rphead h2{margin:0;font-size:16px}
 .rphead .sub{color:var(--muted,#8aa0b0);font-size:12px}
@@ -134,7 +145,7 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 <div class="pagehead" style="--ct:#9adcff">
   <div class="phwho"><div class="phtext">
     <p class="pheye"><a href="/replays" style="color:inherit;text-decoration:none">&larr; {{ t('Replays') }}</a></p>
-    <h1 class="phname">Match replay</h1>
+    <h1 class="phname">Match replay<button type="button" class="savebtn" id="saveReplay" hidden>⬇ Save this replay</button></h1>
     <p class="phsub">Score and win chance over the whole match, every ship on the radar, the roster as it was. Scrub, pause, go fullscreen.</p>
   </div></div>
 </div>
@@ -191,6 +202,7 @@ body.mini #radarMap{max-height:100vh;max-width:100vw}
 <script>
 const MID = {{ mid|tojson }};
 const RKEY = {{ rkey|tojson }};   // a recorded-but-unscored replay is addressed by key, not match
+const LOCAL = {{ local|tojson }}; // playing a file from the viewer's own disk
 // Same team palette as the live view (team1 blue, team2 green, team3 gold) so a
 // match looks the SAME in /live and in its replay.
 const COLS = ['#99DDFF', '#66E6B8', '#FFCC66'];
@@ -396,8 +408,68 @@ function buildReplay(ST, RD){
     });
   }
 
-  fetch(MID!=null ? '/api/trueskill/replay?match_row='+MID
-                  : '/api/trueskill/replay?key='+encodeURIComponent(RKEY||'')).then(r=>r.json()).then(function(res){
+  // Where the replay comes from: the site, or a file the viewer saved
+  // while it was still on the site. Either way it is the same document, so
+  // everything below is unchanged.
+  let REPLAY_DOC = null;
+  function replaySource(){
+    if(!LOCAL){
+      return fetch(MID!=null ? '/api/trueskill/replay?match_row='+MID
+                             : '/api/trueskill/replay?key='+encodeURIComponent(RKEY||''))
+        .then(r=>r.json());
+    }
+    return new Promise(function(resolve){
+      const bar = document.createElement('div');
+      bar.className = 'openlocal';
+      bar.innerHTML = '<h2>Open a saved replay</h2>'
+        + '<p>The site keeps thirty days of replays. Pick a <b>.sbreplay</b> file you '
+        + 'saved and it plays exactly as it did here.</p>'
+        + '<input type="file" id="rfile" accept=".sbreplay,.json,application/json">'
+        + '<p class="err" id="rerr" hidden></p>';
+      const host = document.querySelector('.rwrap') || document.body;
+      host.insertBefore(bar, host.firstChild);
+      bar.querySelector('#rfile').addEventListener('change', function(ev){
+        const f = ev.target.files && ev.target.files[0];
+        if(!f) return;
+        const rd = new FileReader();
+        rd.onload = function(){
+          let doc = null;
+          try { doc = JSON.parse(rd.result); } catch(e){ doc = null; }
+          if(!doc || !doc.frames){
+            const e = bar.querySelector('#rerr');
+            e.textContent = 'That file is not a saved replay.';
+            e.hidden = false;
+            return;
+          }
+          bar.remove();
+          resolve(doc);
+        };
+        rd.readAsText(f);
+      });
+    });
+  }
+
+  replaySource().then(function(res){
+    REPLAY_DOC = res;
+    // A replay lives on the site for thirty days. Saving writes out the very
+    // document this page just drew from, so the file plays identically at
+    // /replay/local long after the match has gone.
+    const _sv = document.getElementById('saveReplay');
+    if(_sv && !LOCAL){
+      _sv.hidden = false;
+      _sv.addEventListener('click', function(){
+        try{
+          const blob = new Blob([JSON.stringify(REPLAY_DOC)], {type:'application/json'});
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'starblast-' + (MID!=null ? ('match-'+MID) : (RKEY||'replay')) + '.sbreplay';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+          _sv.textContent = '✓ Saved';
+          _sv.disabled = true;
+        }catch(e){ _sv.textContent = 'Could not save'; }
+      });
+    }
     // The lobby's own team colours, when the match recorded them (the welcome
     // isn't stored for raw-watched matches, so this is where hues arrive).
     applyHues(res.hues);
