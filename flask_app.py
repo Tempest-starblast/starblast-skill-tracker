@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.66.0"
+APP_VERSION = "9.67.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -2603,6 +2603,9 @@ def clan_member_for_tagged_name(c, name):
 # the trial ratings and the survival rounds stay behind under a name that
 # no longer exists. 8.5.6 fixed that for match_players alone, and the
 # Discord rename never got even that.
+# `friends` is deliberately NOT here: it keys a pair across two columns,
+# so it needs move_friendships() rather than a blanket UPDATE. Leaving it
+# out of both is what orphaned every pre-tag-strip friendship (9.67.0).
 RENAME_KEYED_TABLES = (
     "match_players", "held_results", "trueskill_match_players",
     "survival_round_players", "custom_match_players",
@@ -2684,6 +2687,53 @@ def _move_gem_ledger(c, old_key, new_key):
             c.execute("DELETE FROM gem_ledger WHERE id = ?", (rid,))
 
 
+def move_friendships(c, old_key, new_key):
+    """Carry a renamed player's friendships onto the new name.
+
+    friends holds a pair across two columns, sorted by friend_pair, so it
+    cannot ride along in RENAME_KEYED_TABLES with the single-column
+    tables - which is why it was missed entirely until 9.67.0, leaving
+    every friendship made before a clan-tag strip pointing at a name that
+    no longer belonged to anybody.
+
+    Three things can happen when one side of a pair is renamed:
+
+      * the pair re-sorts, so the row has to move to a new (a, b);
+      * a row for the new pair already exists, because the same two
+        people re-friended each other under the new name - the two are
+        merged, and 'accepted' always beats 'pending' so a real
+        friendship is never demoted back to a request;
+      * the other side IS the new name, which would make somebody their
+        own friend - dropped.
+
+    Returns how many rows it touched."""
+    rows = c.execute("SELECT a, b, requester, state, asked_at, acted_at "
+                     "FROM friends WHERE a = ? OR b = ?",
+                     (old_key, old_key)).fetchall()
+    moved = 0
+    for a, b, requester, state, asked_at, acted_at in rows:
+        other = b if a == old_key else a
+        c.execute("DELETE FROM friends WHERE a = ? AND b = ?", (a, b))
+        if other == new_key:                       # self-friendship
+            moved += 1
+            continue
+        na, nb = friend_pair(new_key, other)
+        cur = c.execute("SELECT requester, state, asked_at, acted_at "
+                        "FROM friends WHERE a = ? AND b = ?", (na, nb)).fetchone()
+        if cur:
+            c_req, c_state, c_asked, c_acted = cur
+            if c_state == 'accepted' or state != 'accepted':
+                state, requester = c_state, c_req
+                acted_at = c_acted or acted_at
+            asked_at = min(x for x in (asked_at, c_asked) if x) if (asked_at or c_asked) else asked_at
+        c.execute("INSERT OR REPLACE INTO friends "
+                  "(a, b, requester, state, asked_at, acted_at) VALUES (?,?,?,?,?,?)",
+                  (na, nb, new_key if requester == old_key else requester,
+                   state, asked_at, acted_at))
+        moved += 1
+    return moved
+
+
 def rekey_identity(c, old_name, new_name):
     """Rename one players row and carry everything keyed to it. The name
     each match was flown under (match_players.name) is kept as it was."""
@@ -2700,6 +2750,7 @@ def rekey_identity(c, old_name, new_name):
         _fold_survival_row(c, old_key, new_key, new_name)
         _fold_trueskill_row(c, old_key, new_key, new_name)
         _move_gem_ledger(c, old_key, new_key)
+        move_friendships(c, old_key, new_key)
     try:
         c.execute("UPDATE clan_invites SET name = ? WHERE name = ? AND status = 'pending'",
                   (new_name, old_name))
@@ -7613,6 +7664,31 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.67.0", "at": "2026-09-23T19:00:00Z", "changes": [
+        "Friend lists that looked deleted are back. They were never "
+        "deleted — they were pointing at a name nobody had any more. "
+        "When you join a clan the site takes the tag off your account name, "
+        "and a rename carries every part of your record with it except, it "
+        "turned out, your friendships. Anyone who had made a friend before "
+        "joining their clan lost them. Renames carry friendships now, and "
+        "the ones already broken have been repaired.",
+        "A match in a lobby called '576 Achernalos' was watched for 41 "
+        "minutes and then thrown away. The recorder tracks lobbies by their "
+        "number, and a lobby number is only unique within a region — so "
+        "while europe's #766 was being watched, america's #766 could not get "
+        "in. It only got a look once europe's ended, by which point its own "
+        "match was 15 minutes old and no longer scoreable. Lobbies are now "
+        "tracked by region and number, so one can never lock the other out.",
+        "The recorder will no longer refuse a lobby. It used to stop at 33 "
+        "— never actually reached, since about ten run at once — but a "
+        "lobby nobody is watching means nobody in it gets a result, and that "
+        "should be an error, not a budget. It watches every listed lobby now "
+        "and says so loudly if it ever cannot.",
+        "And it reports what it costs: every restart, and every match lost "
+        "to a late join, is posted to Discord with the lobby names. "
+        "Previously a lost match was silent and the first anyone heard was a "
+        "complaint.",
+    ]},
     {"version": "9.66.0", "at": "2026-09-23T08:45:00Z", "changes": [
         "The site is fast again. Every page had been taking five to "
         "thirteen seconds, including ones that do no work at all, which "
