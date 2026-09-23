@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.62.4"
+APP_VERSION = "9.63.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -19109,6 +19109,96 @@ def bot_rankroles_synced():
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "count": n}), 200
+
+
+# The PythonAnywhere account's disk quota. Going over it is what took the
+# site down on 23 Sep: writes fail, then the app will not start.
+DISK_QUOTA_BYTES = 3 * 1024 * 1024 * 1024
+
+
+def _home_bytes():
+    """How much of the account's disk is used. Walks the home directory the
+    way du does, skipping nothing, because it was a pile of forgotten
+    database backups that filled it."""
+    root = os.path.dirname(BASE_DIR) or BASE_DIR
+    total, seen = 0, 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, fn))
+            except OSError:
+                pass
+            seen += 1
+            if seen > 60000:            # a runaway walk helps nobody
+                return total
+    return total
+
+
+@app.route('/api/bot/health')
+def bot_health():
+    """What the watcher needs to decide whether to wake the owner.
+
+    Deliberately cheap and deliberately honest: if a database cannot be
+    opened, that is the single most useful thing this can say, so it is
+    reported rather than raised."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    out = {"version": APP_VERSION, "ok": True, "problems": []}
+
+    used = _home_bytes()
+    out["disk_used_bytes"] = used
+    out["disk_quota_bytes"] = DISK_QUOTA_BYTES
+    out["disk_pct"] = round(100.0 * used / DISK_QUOTA_BYTES, 1)
+
+    out["databases"] = {}
+    for label, path in (("players", DB_PATH), ("live", LIVE_DB_PATH),
+                        ("replays", REPLAY_DB_PATH)):
+        info = {}
+        try:
+            info["bytes"] = os.path.getsize(path)
+        except OSError:
+            info["bytes"] = 0
+        try:
+            cn = sqlite3.connect(path, timeout=4)
+            cn.execute("SELECT 1").fetchone()
+            cn.close()
+            info["readable"] = True
+        except sqlite3.Error as err:
+            info["readable"] = False
+            out["problems"].append("%s.db unreadable: %s" % (label, str(err)[:80]))
+        out["databases"][label] = info
+
+    # How long since a match was rated. The scorer posts every few minutes at
+    # any hour, so a long gap means the pipeline has stopped, not that the
+    # game is quiet.
+    try:
+        c = db().cursor()
+        row = c.execute("SELECT played_at, "
+                        "CAST((julianday('now') - julianday(played_at)) * 86400 AS INTEGER) "
+                        "FROM matches ORDER BY id DESC LIMIT 1").fetchone()
+        out["last_match_at"] = row[0] if row else None
+        out["last_match_age_s"] = int(row[1]) if row and row[1] is not None else None
+        out["matches_24h"] = c.execute(
+            "SELECT COUNT(*) FROM matches WHERE played_at > datetime('now','-1 day')"
+        ).fetchone()[0]
+    except sqlite3.Error as err:
+        out["problems"].append("match table unreadable: %s" % str(err)[:80])
+        out["last_match_age_s"] = None
+
+    # Can we actually WRITE? This is the failure the disk gave us, and a
+    # read-only check would have sailed straight past it.
+    try:
+        probe = os.path.join(BASE_DIR, '.health_write_probe')
+        with open(probe, 'w') as fh:
+            fh.write('ok')
+        os.remove(probe)
+        out["writable"] = True
+    except OSError as err:
+        out["writable"] = False
+        out["problems"].append("cannot write to disk: %s" % str(err)[:80])
+
+    out["ok"] = not out["problems"]
+    return jsonify(out), 200
 
 
 @app.route('/api/bot/matches/undelivered')
