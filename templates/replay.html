@@ -1440,9 +1440,19 @@ sbMe().then(function(me){
   }
   // A saved file has no match row and no key: there is nothing to ask the
   // server for, and asking fetched the 404 page and tried to parse it as JSON.
-  if(MID==null && !RKEY) return Promise.resolve({local:true});
+  if(MID==null && !RKEY) return Promise.resolve({localonly:true});
   return fetch(MID!=null ? '/api/replay/'+MID : '/api/replay/r/'+encodeURIComponent(RKEY||'')).then(r=>r.json());
 }).then(d=>{
+  // Playing a file from disk: there is no match to describe, and the whole
+  // score-header pipeline below has nothing to work with. Go straight to
+  // buildReplay, which is where the file picker gets wired up - without this
+  // the picker was never attached to anything and the page just sat there.
+  if(d && d.localonly){
+    document.getElementById('rpHead').innerHTML =
+      '<span class="sub">Choose a replay you saved earlier.</span>';
+    buildReplay(null, null);
+    return;
+  }
   applyWelcome(d);
   const head=document.getElementById('rpHead');
   // A hard error still lets the radar arena try (it loads its own trajectory),
