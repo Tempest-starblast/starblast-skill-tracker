@@ -129,7 +129,7 @@ print("\n--- claiming hands the look over ---")
 b0 = q("SELECT COALESCE(gems,0) FROM players WHERE norm_name=?", OWN)[0][0]
 r = app.post("/achievements/claim", json={"key": "wins-100"}).get_json()
 check("Veteran claimed: gems + Centurion", (r["ok"], r.get("unlocked"), "Unlocked: Centurion" in r["message"]), (True, ["Centurion"], True))
-check("gems moved, and the unlock row is worth nothing", (q("SELECT COALESCE(gems,0) FROM players WHERE norm_name=?", OWN)[0][0] - b0, q("SELECT amount FROM gem_ledger WHERE owner=? AND reason='unlock' AND ref='cos-t-centurion'", OWN)), (2500, [(0,)]))
+check("gems moved, and the unlock row is worth nothing", (q("SELECT COALESCE(gems,0) FROM players WHERE norm_name=?", OWN)[0][0] - b0, q("SELECT amount FROM gem_ledger WHERE owner=? AND reason='unlock' AND ref='cos-t-centurion'", OWN)), (next(a['gems'] for a in fa.gem_achievement_catalog() if a['key'] == 'wins-100'), [(0,)]))
 r = app.post("/shop/equip", json={"item": "t-centurion"}).get_json()
 check("now it can be worn", (r["ok"], r["worn"].get("title")), (True, "t-centurion"))
 fa._COS_CACHE["ts"] = 0.0

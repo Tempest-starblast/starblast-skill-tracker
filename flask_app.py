@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.71.0"
+APP_VERSION = "9.72.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -375,12 +375,17 @@ GEM_DAILY_FIRST_WIN = 250
 
 # One-off milestones. The key is what the ledger stores, so these are append
 # only - changing a key hands the achievement out again.
+# Measured 23 Sep 2026, 44 days after the wipe, 19,045 rated players: reached
+# by 10,393 / 1,083 / 68 / 9 / 0. The best real pace is 33 wins a week
+# (SEMNOME, 210 in 44 days); a top-decile regular manages about 6. The pay
+# per win rises with rarity: 100, 25, 30, 40, 48 - and on to 60 and 100 for
+# the two below. A heavy week of play earns about 1,500.
 GEM_WIN_MILESTONES = [
     ("first-win", "First blood", "Win a tracked match.", 1, 100),
     ("wins-10", "Getting somewhere", "Win 10 matches.", 10, 250),
-    ("wins-50", "Regular", "Win 50 matches.", 50, 1000),
-    ("wins-100", "Veteran", "Win 100 matches.", 100, 2500),
-    ("wins-250", "Fixture", "Win 250 matches.", 250, 5000),
+    ("wins-50", "Regular", "Win 50 matches.", 50, 1500),
+    ("wins-100", "Veteran", "Win 100 matches.", 100, 4000),
+    ("wins-250", "Fixture", "Win 250 matches.", 250, 12000),
 ]
 # Reaching a division. Paid on the PEAK, so falling back and climbing again
 # does not pay twice, and a high division pays for the ones underneath it -
@@ -395,8 +400,11 @@ GEM_WIN_MILESTONES = [
 # is lifted to 3,000 so each rank pays more than the last. Archon stays at
 # 4,000 and Mythos at 10,000 - the Odyssey is a 150,000-gem purchase and
 # arriving does not pay half of that.
+# Reached by 5,060 / 4,089 / 3,543 / 3,170 / 2,298 / 1,863 / 847 / 182 / 0 of
+# 19,045 (23 Sep 2026). Mythos - a day at number one - nobody has; it pays a
+# sixth of the Odyssey it unlocks the right to buy.
 GEM_DIVISION_AWARD = {1: 75, 2: 200, 3: 400, 4: 750,
-                      5: 1250, 6: 2000, 7: 3000, 8: 4000, 9: 10000}
+                      5: 1250, 6: 2000, 7: 3000, 8: 4000, 9: 25000}
 
 
 # ---- The ship shop ---------------------------------------------------
@@ -416,7 +424,10 @@ SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7,
 SHIP_BUY_LEVEL = {701: ranks.MYTHOS_LEVEL}
 # Priced by hand rather than by tier. The Odyssey was 25,000 and given away
 # free to Mythos; at that price tier 7 was the end of anyone's spending.
-SHIP_SPECIAL_PRICE = {703: 8000, 704: 10000, 701: 150000}
+# A heavy week of play earns about 1,500 (p50 of weeks with ten or more
+# matches, 23 Sep 2026); the best player about 3,900. Bastion is a couple of
+# months of heavy play, Aries three; the Odyssey is a career - or Immortal.
+SHIP_SPECIAL_PRICE = {703: 12000, 704: 16000, 701: 150000}
 MYTHIC_SHIP = 701                       # the Odyssey
 MYTHIC_COLOR = "#ff2e4d"                # crimson, whatever your tier - and apart from Warden orange
 MYTHIC_GLOW = "rgba(255,46,77,.6)"
@@ -891,30 +902,48 @@ def _ach_extra():
     def add(key, group, name, desc, gems, icon, need):
         out.append((key, group, name, desc, gems, icon, need))
 
-    add("wins-500", "Milestones", "Institution", "Win 500 matches.", 4000, "gem", lambda f: (f["wins"], 500))
-    add("wins-1000", "Milestones", "Immortal", "Win 1,000 matches.", 10000, "gem", lambda f: (f["wins"], 1000))
-    add("games-100", "Milestones", "Committed", "Play 100 rated matches.", 200, "gem", lambda f: (f["games"], 100))
-    add("games-500", "Milestones", "Lifer", "Play 500 rated matches.", 1000, "gem", lambda f: (f["games"], 500))
-    add("games-1000", "Milestones", "Old guard", "Play 1,000 rated matches.", 3200, "gem", lambda f: (f["games"], 1000))
-    add("days-7", "Milestones", "A week of wins", "Win on 7 different days.", 100, "star", lambda f: (f["days"], 7))
-    add("days-30", "Milestones", "A month of wins", "Win on 30 different days.", 600, "star", lambda f: (f["days"], 30))
-    add("days-100", "Milestones", "Devoted", "Win on 100 different days.", 2400, "star", lambda f: (f["days"], 100))
-    add("hours-10", "Milestones", "Ten hours", "Spend 10 hours in rated matches.", 200, "star", lambda f: (f["hours"], 10))
-    add("hours-50", "Milestones", "Fifty hours", "Spend 50 hours in rated matches.", 800, "star", lambda f: (f["hours"], 50))
-    add("hours-100", "Milestones", "A hundred hours", "Spend 100 hours in rated matches.", 2400, "star", lambda f: (f["hours"], 100))
-    add("hours-500", "Milestones", "Five hundred hours", "Spend 500 hours in rated matches.", 10000, "star", lambda f: (f["hours"], 500))
-    add("regions-3", "Milestones", "Globetrotter", "Play a rated match in every region.", 400, "star", lambda f: (f["regions"], 3))
+    # Rescaled 23 Sep 2026 from 44 days of data (see GEM_WIN_MILESTONES for
+    # the win figures). Nobody has reached Institution, Immortal, Lifer, Old
+    # guard, Apex, Untouchable or Ten million; at the best pace anyone has
+    # shown, 1,000 wins is seven months away and two years for a top-decile
+    # regular. A hard daily objective pays up to 2,500 for one afternoon, so
+    # a milestone months away pays a great deal more than that.
+    add("wins-500", "Milestones", "Institution", "Win 500 matches.", 30000, "gem", lambda f: (f["wins"], 500))
+    add("wins-1000", "Milestones", "Immortal", "Win 1,000 matches.", 100000, "gem", lambda f: (f["wins"], 1000))
+    # games: reached by 87 / 0 / 0. Best pace 296 in 44 days, so 1,000 is
+    # five months away for the busiest player on the board.
+    add("games-100", "Milestones", "Committed", "Play 100 rated matches.", 1200, "gem", lambda f: (f["games"], 100))
+    add("games-500", "Milestones", "Lifer", "Play 500 rated matches.", 8000, "gem", lambda f: (f["games"], 500))
+    add("games-1000", "Milestones", "Old guard", "Play 1,000 rated matches.", 25000, "gem", lambda f: (f["games"], 1000))
+    # days-with-a-win has only been counted since 17 Sep; the daily players
+    # go 7 for 7. A month of them is a month of showing up; a hundred is a
+    # season.
+    add("days-7", "Milestones", "A week of wins", "Win on 7 different days.", 300, "star", lambda f: (f["days"], 7))
+    add("days-30", "Milestones", "A month of wins", "Win on 30 different days.", 3000, "star", lambda f: (f["days"], 30))
+    add("days-100", "Milestones", "Devoted", "Win on 100 different days.", 15000, "star", lambda f: (f["days"], 100))
+    # hours counted since 21 Sep; the heaviest players put in 3-6 a day, so
+    # 500 is three to six months of that.
+    add("hours-10", "Milestones", "Ten hours", "Spend 10 hours in rated matches.", 300, "star", lambda f: (f["hours"], 10))
+    add("hours-50", "Milestones", "Fifty hours", "Spend 50 hours in rated matches.", 2000, "star", lambda f: (f["hours"], 50))
+    add("hours-100", "Milestones", "A hundred hours", "Spend 100 hours in rated matches.", 5000, "star", lambda f: (f["hours"], 100))
+    add("hours-500", "Milestones", "Five hundred hours", "Spend 500 hours in rated matches.", 40000, "star", lambda f: (f["hours"], 500))
+    add("regions-3", "Milestones", "Globetrotter", "Play a rated match in every region.", 400, "star", lambda f: (f["regions"], 3))   # 357 have
+    # survival: 598 / 17 / 0 / 0; the best has 23 in 44 days.
     add("surv-1", "Survival", "Last one standing", "Win a survival round.", 100, "trophy", lambda f: (f["surv"], 1))
-    add("surv-10", "Survival", "Survivor", "Win 10 survival rounds.", 400, "trophy", lambda f: (f["surv"], 10))
-    add("surv-50", "Survival", "Apex", "Win 50 survival rounds.", 2000, "trophy", lambda f: (f["surv"], 50))
-    add("surv-100", "Survival", "Untouchable", "Win 100 survival rounds.", 4800, "trophy", lambda f: (f["surv"], 100))
+    add("surv-10", "Survival", "Survivor", "Win 10 survival rounds.", 1500, "trophy", lambda f: (f["surv"], 10))
+    add("surv-50", "Survival", "Apex", "Win 50 survival rounds.", 12000, "trophy", lambda f: (f["surv"], 50))
+    add("surv-100", "Survival", "Untouchable", "Win 100 survival rounds.", 30000, "trophy", lambda f: (f["surv"], 100))
+    # score: 1,714 / 104 / 27 have; the all-time best match is 65,499, so
+    # 60,000 sits just under the ceiling.
     add("score-25k", "Combat", "Big game", "Score 25,000 in one rated match.", 200, "gem", lambda f: (f["best"], 25000))
-    add("score-50k", "Combat", "Huge game", "Score 50,000 in one rated match.", 600, "gem", lambda f: (f["best"], 50000))
-    add("score-60k", "Combat", "High score", "Score 60,000 in one rated match.", 2000, "gem", lambda f: (f["best"], 60000))
-    add("total-1m", "Combat", "A million points", "Score 1,000,000 across all your rated matches.", 1000, "gem", lambda f: (f["total"], 1000000))
-    add("total-10m", "Combat", "Ten million", "Score 10,000,000 across all your rated matches.", 6000, "gem", lambda f: (f["total"], 10000000))
+    add("score-50k", "Combat", "Huge game", "Score 50,000 in one rated match.", 1500, "gem", lambda f: (f["best"], 50000))
+    add("score-60k", "Combat", "High score", "Score 60,000 in one rated match.", 5000, "gem", lambda f: (f["best"], 60000))
+    # lifetime score: 100 have a million; nobody has ten (best 4.66M).
+    add("total-1m", "Combat", "A million points", "Score 1,000,000 across all your rated matches.", 1500, "gem", lambda f: (f["total"], 1000000))
+    add("total-10m", "Combat", "Ten million", "Score 10,000,000 across all your rated matches.", 15000, "gem", lambda f: (f["total"], 10000000))
+    # deaths: 349 / 5.
     add("deaths-100", "Combat", "Respawner", "Die 100 times in rated matches.", 100, "gem", lambda f: (f["deaths"], 100))
-    add("deaths-500", "Combat", "Phoenix", "Die 500 times and keep coming back.", 800, "gem", lambda f: (f["deaths"], 500))
+    add("deaths-500", "Combat", "Phoenix", "Die 500 times and keep coming back.", 3000, "gem", lambda f: (f["deaths"], 500))
     add("hull-first", "Hangar", "First hull", "Buy a ship from the shop.", 100, "ship:201", lambda f: (f["bought"], 1))
     add("hulls-5", "Hangar", "Small fleet", "Own 5 ships, bought or earned.", 200, "ship:302", lambda f: (len(f["ships"]), 5))
     add("hulls-10", "Hangar", "Squadron", "Own 10 ships.", 600, "ship:403", lambda f: (len(f["ships"]), 10))
@@ -7724,6 +7753,21 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.72.0", "at": "2026-09-24T00:00:00Z", "changes": [
+        "Achievements pay what they are worth. Measured over the 44 days "
+        "since the wipe: nobody has 500 wins, or 1,000 games, or 50 survival "
+        "wins, or ten million points \u2014 the best player on the board wins "
+        "33 a week and would need seven more months for Immortal, which was "
+        "paying 10,000. Ten gems a win. Meanwhile a hard daily objective "
+        "pays up to 2,500 for an afternoon. The long ones now pay like the "
+        "rare things they are: Institution 30,000, Immortal 100,000, Old "
+        "guard 25,000, Untouchable 30,000, Ten million 15,000, Five hundred "
+        "hours 40,000, Devoted 15,000. The short ones barely moved. Mythos "
+        "pays 25,000.",
+        "Bastion is 12,000 and Aries 16,000 \u2014 two and three months of heavy "
+        "play. They were priced when the Odyssey was 25,000 and looked "
+        "cheap beside 150,000.",
+    ]},
     {"version": "9.71.0", "at": "2026-09-23T23:30:00Z", "changes": [
         "The shop no longer says a tier hands you its ship; it has not since "
         "this afternoon. The Info page no longer lists the Discord roles from "

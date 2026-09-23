@@ -103,7 +103,7 @@ for lvl in range(1, 7):
 check("Warden pays more than Paladin", fa.GEM_DIVISION_AWARD[7] > fa.GEM_DIVISION_AWARD[6], True)
 check("  and at least half its hull", fa.GEM_DIVISION_AWARD[7] >= fa.SHIP_TIER_PRICE[6] // 2, True)
 check("Archon kept at 4,000", fa.GEM_DIVISION_AWARD[8], 4000)
-check("Mythos kept at 10,000", fa.GEM_DIVISION_AWARD[9], 10000)
+check("Mythos pays a sixth of the Odyssey (9.72.0)", fa.GEM_DIVISION_AWARD[9], 25000)
 check("each tier pays more than the one below",
       [fa.GEM_DIVISION_AWARD[l] for l in range(1, 10)]
       == sorted(fa.GEM_DIVISION_AWARD[l] for l in range(1, 10)), True)
