@@ -1697,7 +1697,13 @@ sbMe().then(function(me){
     if(!isNaN(t)){ seek.value=Math.min(Math.max(0,t),+seek.max); seek.dispatchEvent(new Event('input')); } });
   // Pin stays ON; base.html hides it on the replay's own page (pathname match),
   // and shows the still-playing mini on every other page until it is dismissed.
-  function save(){ var t=curFrame();
+  function save(){
+    // /replay/local with no file chosen yet has nothing to pin: pinning it
+    // sent a mini-player round the site saying "Pick a saved replay above."
+    // Once a file is loaded the picker hides and this becomes a real replay.
+    var picker = document.getElementById('openlocal');
+    if(picker && !picker.hidden) return;
+    var t=curFrame();
     try{ sessionStorage.setItem('sbmini', JSON.stringify({full:full,t:t,url:full+'?mini=1&t='+t,on:true})); }catch(e){} }
   save();
   setInterval(save, 2000);
