@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.64.1"
+APP_VERSION = "9.65.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -99,6 +99,11 @@ PREVIEW_KINDS = ("sandbox", "access")
 # gems than the catalogue costs, in one clearly-labelled ledger row, granted
 # once per key per person. It is test money - DELETE FROM gem_ledger WHERE
 # reason = 'preview-credit' takes every penny of it back at release.
+# Test money, for anyone let in early: an access key grants it to their real
+# account, and a sandbox account is created holding it. The same figure on
+# purpose - a tester is there to try the whole shop, and a tier-7 hull alone
+# is 6,000 before any of the wardrobe. The sandbox default used to be 30,000,
+# which quietly made the sandbox a worse preview than the access key.
 PREVIEW_CREDIT = 1000000
 PREVIEW_KEY_DAYS = (1, 7, 14, 30, 90)
 PREVIEW_KEY_DEFAULT_DAYS = 14
@@ -7555,6 +7560,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.65.0", "at": "2026-09-23T08:00:00Z", "changes": [
+        "A tester sandbox now starts with the same million gems an early-"
+        "access key grants, instead of thirty thousand. Both exist so "
+        "somebody can try the whole shop before it opens, and a tier-7 hull "
+        "alone is 6,000 — the smaller figure quietly made the throwaway "
+        "account a worse preview than the real one. They read the same "
+        "number now rather than two that had drifted apart.",
+    ]},
     {"version": "9.62.0", "at": "2026-09-23T00:40:00Z", "changes": [
         "<b>The site ran out of disk and went down for a while tonight. It "
         "is back.</b> Replays were never being cleaned up — there was a cap, "
@@ -14074,7 +14087,7 @@ def dev_preview():
     if request.method == 'GET':
         return render_template('preview_enter.html', page='preview',
                                version=APP_VERSION,
-                               elo=SANDBOX_ELO_DEFAULT, gems=30000), 200
+                               elo=SANDBOX_ELO_DEFAULT, gems=PREVIEW_CREDIT), 200
     body = request.get_json(silent=True) or request.form or {}
     given = str(body.get('key') or '')
     conn = db()
@@ -14091,7 +14104,7 @@ def dev_preview():
         if not current_user():
             conn.close()
             return render_template('preview_enter.html', page='preview', version=APP_VERSION,
-                                   elo=SANDBOX_ELO_DEFAULT, gems=30000,
+                                   elo=SANDBOX_ELO_DEFAULT, gems=PREVIEW_CREDIT,
                                    need_signin=True), 200
         c.execute("UPDATE preview_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ? "
                   "WHERE id = ?", (_stamp(), kid))
@@ -14111,7 +14124,8 @@ def dev_preview():
     mode, name = _enter_sandbox(c, {"mode": "account",
                                     "elo": body.get("elo", SANDBOX_ELO_DEFAULT),
                                     "games": body.get("games", SANDBOX_GAMES_DEFAULT),
-                                    "gems": body.get("gems", 30000)}, tester_sub)
+                                    "gems": body.get("gems", PREVIEW_CREDIT)},
+                                   tester_sub)
     if kid:
         c.execute("UPDATE preview_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ? "
                   "WHERE id = ?", (_stamp(), kid))
