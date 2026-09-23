@@ -113,9 +113,8 @@ seed(peak_div="advanced")
 cn = conn()
 own = fa.owned_ships(cn.cursor(), "OWNERGUY")
 cn.close()
-check("Advanced-Fighter peak owns six rank ships", sorted(k for k, v in own.items() if v == "rank"),
-      [101, 201, 301, 406, 501, 601])
-check("...not the Marauder yet", 603 in own, False)
+check("a rank hands out no hull at all (9.69.0)", any(v == "rank" for v in own.values()), False)
+check("...so a Paladin peak owns nothing unbought", own, {})
 check("...and never the Odyssey by rank", 701 in own, False)
 
 print("\n--- the best player gets the mythic ---")
@@ -124,7 +123,7 @@ cn = conn()
 own = fa.owned_ships(cn.cursor(), "OWNERGUY")
 cn.close()
 check("peak rank #1 is NOT handed the Odyssey (9.68.0)", 701 in own, False)
-check("but owns all eight climbable tier ships", sum(1 for v in own.values() if v == "rank"), 8)
+check("nor any other hull (9.69.0)", sum(1 for v in own.values() if v == "rank"), 0)
 seed(peak_div="shadowx3", peak_rank=2)
 cn = conn()
 check("peak rank #2 does not", 701 in fa.owned_ships(cn.cursor(), "OWNERGUY"), False)
@@ -147,8 +146,8 @@ r = cl.post("/shop/buy", json={"code": 704}).get_json()          # Aries: dearer
 check("too dear is refused", r.get("ok"), False)
 check("...and costs nothing", bal(), 5000 - TRIDENT)
 check("ledger still agrees", ledger(), 5000 - TRIDENT)
-r = cl.post("/shop/buy", json={"code": 101}).get_json()          # Fly: already yours by rank
-check("buying a ship you already own by rank is refused", r.get("ok"), False)
+r = cl.post("/shop/buy", json={"code": 101}).get_json()          # Fly: tier 1, on sale to anyone
+check("a tier's own hull is for sale now (9.69.0)", r.get("ok"), True)
 r = cl.post("/shop/buy", json={"code": 999}).status_code
 check("an unknown ship is 404", r, 404)
 
@@ -166,10 +165,11 @@ check("balance is zero, not negative", bal(), 0)
 cn.close()
 
 print("\n--- wearing ---")
-seed(gems=0, peak_div="usniper")
+seed(gems=1000, peak_div="usniper")
 cl = client(OWNER)
+cl.post("/shop/buy", json={"code": 101})                          # nothing is handed out now
 r = cl.post("/shop/equip", json={"code": 101}).get_json()
-check("wearing a rank ship you own", r.get("ok"), True)
+check("wearing a ship you bought", r.get("ok"), True)
 cn = conn()
 check("it is recorded", cn.execute("SELECT display_ship FROM players WHERE norm_name='OWNERGUY'").fetchone()[0], 101)
 cn.close()
@@ -182,8 +182,9 @@ check("it is cleared", cn.execute("SELECT display_ship FROM players WHERE norm_n
 cn.close()
 
 print("\n--- the worn ship is drawn only for a viewer who may see it ---")
-seed(gems=0, peak_div="usniper")
+seed(gems=1000, peak_div="usniper")
 cl = client(OWNER)
+cl.post("/shop/buy", json={"code": 101})                          # nothing is handed out now
 cl.post("/shop/equip", json={"code": 101})
 fa._SHIP_CACHE["ts"] = 0.0
 m = fa.display_ship_map()

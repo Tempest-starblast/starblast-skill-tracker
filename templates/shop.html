@@ -163,10 +163,8 @@
   {% if i.sale and not i.own %}<span class="saletag">Sale</span>{% endif %}
   <span class="emb">{{ rank_emblem(i.code, 72, (mythic_color if i.mythic else i.color), i.name, 'rank-emblem mythic' if i.mythic else 'rank-emblem')|safe }}</span>
   <span class="nm">{{ i.name }}</span>
-  {% if i.own == 'rank' %}<span class="why rank">Yours &mdash; {{ i.unlock_rank.name }}</span>
-  {% elif i.own == 'bought' %}<span class="why rank">Yours</span>
+  {% if i.own %}<span class="why rank">Yours</span>
   {% elif i.mythic %}<span class="why">Finish a day at number one to unlock it &mdash; then {{ '{:,}'.format(i.price) }} gems.</span>
-  {% elif i.earn_only %}<span class="why">Not for sale &mdash; reach {{ i.unlock_rank.name }} and it is yours.</span>
   {% elif not i.may_buy %}<span class="why">{{ i.need_rank.name }} tier flies this hull.</span>
   {% elif i.premium %}<span class="why">Premium hull</span>
   {% else %}<span class="why"></span>{% endif %}
@@ -175,9 +173,6 @@
     {% if i.worn %}<span class="wornlbl">&#10003; Wearing</span>
       <button type="button" class="btn quiet" data-act="unequip">Back to tier&#39;s ship</button>
     {% else %}<button type="button" class="btn" data-act="equip">Wear it</button>{% endif %}
-  {% elif i.earn_only %}
-    <span class="price short">Earned, not sold</span>
-    <button type="button" class="btn quiet" disabled>Reach {{ i.unlock_rank.name }}</button>
   {% elif not i.may_buy %}
     {{ price_of(i) }}
     <button type="button" class="btn quiet" disabled

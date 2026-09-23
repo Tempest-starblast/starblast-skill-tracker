@@ -81,6 +81,7 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 
 <nav class="subtabs" id="subtabs" aria-label="Sections" data-default="{{ 'overview' if acct else 'names' }}">
   <a href="#overview" data-panel="overview">Overview<span class="n hot" id="tabInbox" style="display:none"></span></a>
+  {% if wardrobe %}<a href="#wardrobe" data-panel="wardrobe">Wardrobe</a>{% endif %}
   <a href="#names" data-panel="names">Names</a>
   <a href="#protection" data-panel="protection">Protection</a>
   <a href="#settings" data-panel="settings">{{ t('Settings') }}</a>
@@ -88,6 +89,82 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 </nav>
 
 {# ---------------------------------------------------------- overview #}
+{% if wardrobe %}
+<section class="panel" data-panel="wardrobe" hidden>
+<style>
+.wd .card{margin-bottom:14px}
+.wd h2{margin:0 0 4px}
+.wd .note{color:var(--muted);font-size:13px;margin:0 0 12px}
+.wd .row{display:flex;flex-wrap:wrap;gap:10px}
+.wd .it{display:flex;align-items:center;gap:10px;padding:8px 12px 8px 8px;border-radius:12px;
+  border:1px solid rgba(140,170,200,.25);background:rgba(255,255,255,.03);min-width:220px}
+.wd .it.on{border-color:rgba(102,230,184,.6);background:rgba(102,230,184,.07)}
+.wd .it .nm{flex:1;font-weight:600}
+.wd .it .emb{width:44px;height:44px;display:grid;place-items:center}
+.wd .it .emb svg{width:44px;height:44px}
+.wd .it button{border:1px solid rgba(140,170,200,.4);background:transparent;color:var(--text);
+  border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
+.wd .it button:hover{border-color:#66E6B8;color:#66E6B8}
+.wd .it.on button{color:var(--muted)}
+.wd .empty{color:var(--muted)}
+.wd .msg{min-height:1.2em;color:var(--muted);font-size:13px;margin:6px 0 0}
+</style>
+<div class="wd">
+<div class="card">
+  <h2>Hulls</h2>
+  <p class="note">Every ship you have bought. One is worn on the board and your profile; the rest wait here.</p>
+  {% if wardrobe.hulls %}
+  <div class="row">
+  {% for h in wardrobe.hulls %}
+    <div class="it{% if h.worn %} on{% endif %}" data-code="{{ h.code }}">
+      <span class="emb">{{ rank_emblem(h.code, 44, h.color, h.name, 'rank-emblem mythic' if h.mythic else 'rank-emblem')|safe }}</span>
+      <span class="nm">{{ h.name }}</span>
+      {% if h.worn %}<button type="button" data-wact="unequip-hull">Wearing &middot; take off</button>
+      {% else %}<button type="button" data-wact="equip-hull">Wear</button>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  {% else %}<p class="empty">No hulls yet. Reach a tier and its hull goes on sale to you in the <a href="/shop">shop</a>.</p>{% endif %}
+</div>
+{% for s in wardrobe.slots %}
+<div class="card">
+  <h2>{{ s.label }}</h2>
+  {% if s['items'] %}
+  <div class="row">
+  {% for it in s['items'] %}
+    <div class="it{% if it.worn %} on{% endif %}" data-item="{{ it.id }}" data-slot="{{ s.slot }}">
+      <span class="nm{% if s.slot == 'name' and it.cls %} cosn {{ it.cls }}{% endif %}">{{ it.name }}</span>
+      {% if it.worn %}<button type="button" data-wact="unequip-cos">Wearing &middot; take off</button>
+      {% else %}<button type="button" data-wact="equip-cos">Wear</button>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  {% else %}<p class="empty">Nothing here yet &mdash; the <a href="/shop#{{ s.slot }}">shop</a> has {{ s.label|lower }}.</p>{% endif %}
+</div>
+{% endfor %}
+<p class="msg" id="wdmsg"></p>
+</div>
+<script>
+(function(){
+  var msg=document.getElementById('wdmsg');
+  document.addEventListener('click', function(ev){
+    var b=ev.target.closest && ev.target.closest('[data-wact]');
+    if(!b) return;
+    var it=b.closest('.it'), act=b.getAttribute('data-wact'), body;
+    if(act==='equip-hull') body={code:parseInt(it.getAttribute('data-code'),10)};
+    else if(act==='unequip-hull') body={code:null};
+    else if(act==='equip-cos') body={item:it.getAttribute('data-item')};
+    else body={slot:it.getAttribute('data-slot'), item:null};
+    b.disabled=true;
+    fetch('/shop/equip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(msg) msg.textContent=j.message||''; if(j.ok) setTimeout(function(){ location.reload(); }, 350); else b.disabled=false; })
+      .catch(function(){ if(msg) msg.textContent='Could not reach the site.'; b.disabled=false; });
+  });
+})();
+</script>
+</section>
+{% endif %}
 <section class="panel" data-panel="overview" hidden>
 {% if acct and acct.wipe_available %}
 <div class="card" style="border-color:rgba(216,160,42,.5)">

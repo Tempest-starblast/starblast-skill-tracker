@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.68.0"
+APP_VERSION = "9.69.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -197,6 +197,18 @@ def preview_session_ok():
     if not kid:
         return True
     return preview_key_live(kid)
+
+
+def _preview_key_used(c, kid):
+    """Count a use. Bookkeeping: if the database is locked at that instant
+    the door still opens. On 23 Sep the disk was full, this UPDATE raised
+    'database is locked', and the tester got a blank 500 for a key that was
+    perfectly good."""
+    try:
+        c.execute("UPDATE preview_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ? "
+                  "WHERE id = ?", (_stamp(), kid))
+    except sqlite3.OperationalError:
+        pass
 
 
 def preview_key_rows(c):
@@ -374,8 +386,17 @@ GEM_WIN_MILESTONES = [
 # does not pay twice, and a high division pays for the ones underneath it -
 # you went through them to get there. Steep on purpose: the top division is
 # half a percent of the board and should be worth more than grinding.
-GEM_DIVISION_AWARD = {1: 50, 2: 100, 3: 200, 4: 400,
-                      5: 800, 6: 1400, 7: 2400, 8: 4000, 9: 10000}
+# What reaching a tier pays, on claim. Levels 1-6: half the price of the
+# tier's own hull (SHIP_TIER_PRICE by the hull's hundreds digit), which
+# since 9.69.0 is on sale to you rather than handed over - so arriving pays
+# for half of it and a bit more play pays the rest, or you spend it on
+# something else. Warden's hull (603) is a tier-6 hull like Paladin's, so
+# a literal half would pay Warden the same 2,000 as the rank below it; it
+# is lifted to 3,000 so each rank pays more than the last. Archon stays at
+# 4,000 and Mythos at 10,000 - the Odyssey is a 150,000-gem purchase and
+# arriving does not pay half of that.
+GEM_DIVISION_AWARD = {1: 75, 2: 200, 3: 400, 4: 750,
+                      5: 1250, 6: 2000, 7: 3000, 8: 4000, 9: 10000}
 
 
 # ---- The ship shop ---------------------------------------------------
@@ -424,13 +445,12 @@ def ship_catalog():
             "code": code, "name": ship_shapes.ship_name(code), "tier": tier,
             "price": SHIP_SPECIAL_PRICE.get(code, SHIP_TIER_PRICE.get(tier, 0)),
             "unlock_level": unlock,
-            # A tier's hulls are for the people who have reached that tier.
-            # Where a hull is a tier's own reward, the gate IS the reward, so
-            # it never appears for sale: you earn it or you do not have it.
+            # A tier's hulls are for the people who have reached that tier -
+            # the tier's own hull included, since 9.69.0. Reach it and it is
+            # on sale to you; nothing is handed over.
             "buy_level": SHIP_BUY_LEVEL.get(code, unlock or tier),
-            # true when reaching the tier IS how you get it, so the shop and
-            # the buy route say "earn it" rather than "come back richer".
-            "earn_only_gate": bool(unlock) and code not in SHIP_BUY_LEVEL,
+            # Kept for the templates that read it; nothing is earn-only now.
+            "earn_only_gate": False,
             "mythic": code == MYTHIC_SHIP,
             "premium": code in (703, 704),
             "tier_color": tier_color,
@@ -440,12 +460,14 @@ def ship_catalog():
 
 
 def owned_ships(c, nn):
-    """The set of ship codes this player may wear, and why each is theirs."""
+    """The set of ship codes this player may wear, and why each is theirs.
+
+    Bought, only. Until 9.69.0 reaching a tier handed you its hull
+    (`"rank"` ownership); now reaching a tier puts the hull on sale to you,
+    and the tier achievement pays half its price. The reason is what a
+    tester said: with the best hull free at the top, nobody at the top has
+    anything to spend on."""
     own = {}
-    lvl = gem_peak_level(c, nn)
-    for code, need in SHIP_RANK_UNLOCK.items():
-        if lvl >= need:
-            own[code] = "rank"
     try:
         for (ref,) in c.execute("SELECT ref FROM gem_ledger WHERE owner_kind = 'player' "
                                 "AND owner = ? AND reason = 'purchase' "
@@ -936,7 +958,7 @@ def gem_achievement_catalog():
         out.append({
             "key": "div-%s" % r["key"], "group": "Tiers", "name": r["name"],
             "desc": ("Finish a day at number one on the board. Yours for ever "
-                     "after, with the Odyssey."
+                     "after \u2014 and the right to buy the Odyssey."
                      if r.get("mythic") else
                      "Reach the %s tier \u2014 %s of the board."
                      % (r["name"], (r.get("band") or "").replace("Top ", "the top "))),
@@ -7684,6 +7706,26 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.69.0", "at": "2026-09-23T22:00:00Z", "changes": [
+        "Reaching a tier no longer hands you its hull. It puts the hull on "
+        "sale to you at its tier's price, and the tier's achievement now "
+        "pays half of that when you claim it \u2014 so ranking up is a click "
+        "and a choice, not a silent gift. The reason, from a tester: with "
+        "the best hull free at the top, nobody at the top had anything left "
+        "to spend on. Four people were wearing a hull they had been handed; "
+        "those go back to the division emblem until bought.",
+        "What a tier pays on claim, now: Drifter 75, Scout 200, Raider 400, "
+        "Warrior 750, Guard 1,250, Paladin 2,000, Warden 3,000. Archon stays "
+        "at 4,000 and Mythos at 10,000.",
+        "A Wardrobe on your account page: every hull and look you own, what "
+        "you are wearing, and wear or take off right there. The shop is for "
+        "buying; this is for getting dressed.",
+        "When a page breaks you now get a page that says so, not a white "
+        "screen. A tester used his key during the disk-full outage, the "
+        "database could not be written, and all he saw was blank. The key "
+        "door also no longer fails if its use-counter cannot be written at "
+        "that instant.",
+    ]},
     {"version": "9.68.0", "at": "2026-09-23T21:00:00Z", "changes": [
         "Search finds everyone as you type. The box filtered the fifty "
         "players on screen; the whole-board search was there, but only "
@@ -14269,6 +14311,52 @@ def _enter_sandbox(c, body, sub=None):
     return mode, name
 
 
+def wardrobe_view(c, name):
+    """Everything this player owns and could wear, for the account page:
+    the hulls, and each look by slot, with what is on marked. Equipping
+    goes through /shop/equip like it does from the shop; this is the same
+    facts in the place people look for them (a tester found the shop a
+    clunky place to get dressed). 9.69.0."""
+    nn = normalize_name(name)
+    own = owned_ships(c, nn)
+    r = c.execute("SELECT display_ship, cosmetics FROM players WHERE norm_name = ?",
+                  (nn,)).fetchone()
+    worn_code = int(r[0]) if r and r[0] else None
+    worn_cos = _worn_cosmetics(r[1]) if r else {}
+    hulls = [{"code": i["code"], "name": i["name"], "color": i["color"],
+              "mythic": i["mythic"], "worn": i["code"] == worn_code}
+             for i in ship_catalog() if i["code"] in own]
+    owned = owned_cosmetics(c, nn)
+    slots = []
+    for slot, label in COSMETIC_SLOTS:
+        items = [{"id": ci["id"], "name": ci["name"], "cls": ci.get("cls"),
+                  "worn": worn_cos.get(slot) == ci["id"]}
+                 for ci in cosmetic_catalog() if ci["slot"] == slot and ci["id"] in owned]
+        slots.append({"slot": slot, "label": label, "items": items,
+                      "worn": worn_cos.get(slot)})
+    return {"hulls": hulls, "worn_code": worn_code, "slots": slots,
+            "anything": bool(hulls) or any(s["items"] for s in slots)}
+
+
+@app.errorhandler(500)
+def error_500(err):
+    """A page, not a blank one. On 23 Sep a tester used his key while the
+    disk was full, the database could not be written, and what he saw was
+    Flask's empty white screen - which he reasonably took for the site
+    refusing him. Say what happened and what to do."""
+    return ('<!doctype html><meta charset="utf-8"><title>Something broke</title>'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;'
+            'background:#070d16;color:#dfe8f0;font:16px/1.5 system-ui,sans-serif}'
+            'main{max-width:34rem;padding:2rem}h1{font-size:1.4rem;margin:0 0 .5rem}'
+            'p{color:#9fb0c3;margin:.4rem 0}a{color:#66e6b8}</style>'
+            '<main><h1>Something broke on our side.</h1>'
+            '<p>Not you. The page hit an error while it was being built.</p>'
+            '<p>Give it a minute and <a href="javascript:location.reload()">try again</a>, '
+            'or go <a href="/">back to the board</a>. If it keeps happening, say so in '
+            '#bug-reports on Discord and the owner will see it.</p></main>'), 500
+
+
 @app.route('/dev/preview', methods=['GET', 'POST'])
 def dev_preview():
     """A preview-key session: the sandbox account with the unreleased
@@ -14299,8 +14387,7 @@ def dev_preview():
             return render_template('preview_enter.html', page='preview', version=APP_VERSION,
                                    elo=SANDBOX_ELO_DEFAULT, gems=PREVIEW_CREDIT,
                                    need_signin=True), 200
-        c.execute("UPDATE preview_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ? "
-                  "WHERE id = ?", (_stamp(), kid))
+        _preview_key_used(c, kid)
         # Test money, so they can try the whole shop rather than window-shop it.
         me = my_player(c)
         if me:
@@ -14320,8 +14407,7 @@ def dev_preview():
                                     "gems": body.get("gems", PREVIEW_CREDIT)},
                                    tester_sub)
     if kid:
-        c.execute("UPDATE preview_keys SET uses = COALESCE(uses, 0) + 1, last_used_at = ? "
-                  "WHERE id = ?", (_stamp(), kid))
+        _preview_key_used(c, kid)
     conn.commit()
     conn.close()
     session.pop('dev_real_owner', None)      # never an owner, whatever was there
@@ -17224,10 +17310,9 @@ def shop_page():
         item["pay"] = item["sale"]["price"] if item["sale"] else item["price"]
         item["can"] = balance >= item["pay"]
         item["unlock_rank"] = by_level.get(item["unlock_level"]) if item["unlock_level"] else None
-        # A hull a tier hands out is never on sale: reaching the tier IS how
-        # you get it. Everything else needs its own tier flown first.
-        item["earn_only"] = bool(item["unlock_level"]) and \
-            item["buy_level"] == item["unlock_level"] and not item["mythic"]
+        # Nothing is earn-only since 9.69.0: every hull is for sale to the
+        # tier it belongs to. Kept so the template need not change shape.
+        item["earn_only"] = False
         item["may_buy"] = my_level >= item["buy_level"]
         item["need_rank"] = by_level.get(item["buy_level"])
         tiers.setdefault(item["tier"], []).append(item)
@@ -17330,10 +17415,6 @@ def shop_buy():
         may, need = ship_buyable(c, me[1], item)
         if not may:
             conn.close()
-            if item.get("earn_only_gate"):
-                return jsonify({"ok": False,
-                                "message": "The %s is not for sale - reach %s and it is "
-                                           "yours." % (item["name"], need["name"])}), 200
             return jsonify({"ok": False,
                             "message": "The %s is flown by the %s tier. Climb to it and "
                                        "it is on sale to you."
@@ -23774,8 +23855,10 @@ def account_page():
         ld = linked_discord_for(c, sub_id) if sub_id else None
         discord_link = ({"handle": ld.get('display') or ld.get('username') or '',
                          "own": False} if ld else None)
+    wardrobe = wardrobe_view(c, account_name) if (account_name and gems_visible()) else None
     conn.close()
     return render_template('account.html', version=APP_VERSION,
+                           wardrobe=wardrobe,
                            contact=CONTACT_HANDLE, client_id=GOOGLE_CLIENT_ID,
                            account_name=account_name, signed_in=bool(sub_id),
                            acct=acct, page='account',
