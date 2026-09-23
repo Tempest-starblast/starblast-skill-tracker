@@ -145,6 +145,8 @@
       {{ (day_resets // 3600) }}h</span>{% endif %}
   </div>
 
+{% include '_event_strip.html' %}
+
 <div class="profbody">
 <section class="sec">
   <div class="sechead"><h2>Achievements</h2><span class="n">{{ have|length }}/{{ total_ach }}</span>

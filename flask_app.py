@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.67.0"
+APP_VERSION = "9.68.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -385,16 +385,17 @@ GEM_DIVISION_AWARD = {1: 50, 2: 100, 3: 200, 4: 400,
 # night, tier 4 a fortnight, tier 7 a month or two of real play.
 SHIP_TIER_PRICE = {1: 150, 2: 400, 3: 800, 4: 1500, 5: 2500, 6: 4000, 7: 6000}
 # Which ship each tier hands you on arrival, matching ranks.py. The Odyssey
-# belongs to Mythos: finish a day at number one and it is yours, free.
+# is not here any more: nobody is handed it (9.68.0, owner's call).
 SHIP_RANK_UNLOCK = {101: 1, 201: 2, 301: 3, 406: 4, 501: 5, 601: 6, 603: 7,
-                    702: 8, 701: 9}
+                    702: 8}
 # The tier you must have reached to BUY a hull, where that is not simply the
 # hull's own tier. A tier ship is not on sale at all - reach the tier and it
-# is handed to you - and the Odyssey may be bought by the top climbable tier
-# (Archon) although only Mythos is given it.
-SHIP_BUY_LEVEL = {701: ranks.TOP_CLIMBABLE}
-# Priced by hand rather than by tier.
-SHIP_SPECIAL_PRICE = {703: 8000, 704: 10000, 701: 25000}
+# is handed to you. The Odyssey is the exception both ways: finishing a day
+# at number one (Mythos) earns the RIGHT to buy it, and nothing else does.
+SHIP_BUY_LEVEL = {701: ranks.MYTHOS_LEVEL}
+# Priced by hand rather than by tier. The Odyssey was 25,000 and given away
+# free to Mythos; at that price tier 7 was the end of anyone's spending.
+SHIP_SPECIAL_PRICE = {703: 8000, 704: 10000, 701: 150000}
 MYTHIC_SHIP = 701                       # the Odyssey
 MYTHIC_COLOR = "#ff2e4d"                # crimson, whatever your tier - and apart from Warden orange
 MYTHIC_GLOW = "rgba(255,46,77,.6)"
@@ -403,8 +404,8 @@ MYTHIC_GLOW = "rgba(255,46,77,.6)"
 def ship_catalog():
     """Every ship you could wear, cheapest first within a tier. Each carries
     the colour of the tier it stands for - the Shadow X-3 its own,
-    the Odyssey the mythic red - which is how the shop draws it; on the
-    board a ship always wears its owner's rank colour."""
+    the Odyssey the mythic red - which is how the shop draws it, and since
+    9.68.0 how the board and the profile draw it too (see ship_color)."""
     by_level = {r["level"]: r["color"] for r in ranks.RANKS}
     by_ship = {r["ship"]: r["color"] for r in ranks.RANKS}
     # A tier's colour is that of the lowest rank whose own ship sits in it
@@ -567,10 +568,27 @@ def display_ship_map():
     return m
 
 
+_SHIP_COLOR = {}
+
+
+def ship_color(code):
+    """The colour the shop draws this hull in. Static - it comes from the
+    tier table - so it is built once and kept."""
+    if not _SHIP_COLOR:
+        for i in ship_catalog():
+            _SHIP_COLOR[i["code"]] = i["color"]
+    return _SHIP_COLOR.get(int(code), "#8b949e")
+
+
 def worn_emblem(nn, shipmap, allowed):
-    """(ship code, colour override, is_mythic) for a player - or (None, None,
-    False) meaning draw the division's own. `allowed` is whether the viewer
-    may see any of this; while unreleased that is only the owner."""
+    """(ship code, colour, is_mythic) for a player - or (None, None, False)
+    meaning draw the division's own. `allowed` is whether the viewer may
+    see any of this; while unreleased that is only the owner.
+
+    The colour is the hull's own - the one the shop shows it in - so a hull
+    looks the same wherever it is seen. It used to come back None and the
+    page fell back to the wearer's division colour, which for anyone not
+    yet ranked is grey; a tester saw his new hull in grey and asked why."""
     if not allowed or not nn:
         return None, None, False
     code = shipmap.get(nn)
@@ -578,7 +596,7 @@ def worn_emblem(nn, shipmap, allowed):
         return None, None, False
     if code == MYTHIC_SHIP:
         return code, MYTHIC_COLOR, True
-    return code, None, False
+    return code, ship_color(code), False
 
 
 # ---- Cosmetics --------------------------------------------------------
@@ -781,7 +799,7 @@ def cosmetic_view(nn, allowed):
 # ---- Featured: today's sale ------------------------------------------
 # A few things at a discount, the same few for everyone, chosen from the
 # date - so the set changes at midnight UTC and nothing has to be stored.
-FEATURED_COUNT = 4
+FEATURED_COUNT = 5              # five sits in one row; four left a gap
 FEATURED_OFF = (25, 30, 40, 50)
 # Never on sale: looks an achievement hands out, and the absurdly priced titles.
 FEATURED_MAX_PRICE = 500000
@@ -791,8 +809,10 @@ def featured_today(day=None):
     """{(kind, key): {kind, key, name, off, was, price}} for the day (UTC),
     plus the day itself. Kind is 'ship' (key = code) or 'cos' (key = id)."""
     day = day or time.strftime('%Y-%m-%d', time.gmtime())
+    # The mythic is never discounted: it is the one thing the shop sells
+    # that is meant to stay hard to reach.
     pool = [("ship", i["code"], i["price"], i["name"]) for i in ship_catalog()
-            if i["price"] < FEATURED_MAX_PRICE]
+            if i["price"] < FEATURED_MAX_PRICE and not i["mythic"]]
     pool += [("cos", i["id"], i["price"], i["name"]) for i in cosmetic_catalog()
              if not i["via"] and 0 < i["price"] < FEATURED_MAX_PRICE]
     rng = random.Random("featured:%s" % day)
@@ -7664,6 +7684,28 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.68.0", "at": "2026-09-23T21:00:00Z", "changes": [
+        "Search finds everyone as you type. The box filtered the fifty "
+        "players on screen; the whole-board search was there, but only "
+        "behind the button, and nobody pressed it. Now two letters in, a "
+        "list of matches from all nineteen thousand players drops down "
+        "under the box, with their tier and rating, and a click opens the "
+        "profile. The button still does what it did.",
+        "A hull you wear is drawn in its own colour \u2014 the one the shop "
+        "shows it in \u2014 everywhere it appears. It used to take your "
+        "division's colour, which for anyone not yet ranked is grey.",
+        "The Odyssey is 150,000 gems and on sale only to Mythos: finish a "
+        "day at number one and you have earned the right to buy it. Nobody "
+        "is handed it any more. It never goes on the featured strip.",
+        "Five things on the featured strip instead of four, in one row.",
+        "A hosted event every eight hours instead of six \u2014 three a day, "
+        "at 00:00, 08:00 and 16:00 UTC.",
+        "The next event shows on the home page: what it is, how long until "
+        "it starts, how many have signed up. One tap to sign up.",
+        "Claiming an achievement now looks like something happened: the "
+        "gems leave the card and land in your balance, which counts up. "
+        "Off if your device asks for reduced motion.",
+    ]},
     {"version": "9.67.0", "at": "2026-09-23T19:00:00Z", "changes": [
         "Friend lists that looked deleted are back. They were never "
         "deleted — they were pointing at a name nobody had any more. "
@@ -15958,7 +16000,7 @@ def _event_now():
 
 # One number sets the schedule. EVENT_HOURS is derived from it, so the
 # hours a page prints can never disagree with the slots the code computes.
-EVENT_EVERY_H = 6
+EVENT_EVERY_H = 8               # three a day; the start times drift round the clock
 EVENT_HOURS = tuple(range(0, 24, EVENT_EVERY_H))
 EVENT_PERIOD_S = EVENT_EVERY_H * 3600
 EVENT_KINDS = ("survival", "team")
@@ -16416,6 +16458,29 @@ def event_view(c, start_at, sub_id=None, now=None):
         "prize": event_prize(kind, max(len(people), quorum), STARTING_ELO),
         "base": EVENT_BASE[kind], "field": EVENT_FIELD[kind],
     }
+
+
+def event_peek(sub_id=None):
+    """The next slot, for the home page. Read-only: never creates the row,
+    which event_view does during sign-up so the events page can take
+    names. None when nothing can be said."""
+    try:
+        conn = db(timeout=3)
+        c = conn.cursor()
+        now = _event_now()
+        start_at = event_slot(now, 0)
+        phase = event_phase(start_at, now)
+        ev = event_row(c, start_at, make=False)
+        kind = ev["kind"] if ev else event_kind_for(start_at)
+        people = event_signups(c, ev["id"], now) if ev else []
+        conn.close()
+    except (sqlite3.Error, KeyError, TypeError):
+        return None
+    return {"kind": kind, "start_at": start_at, "phase": phase,
+            "in_s": int(event_when(start_at) - now),
+            "signed": len(people), "quorum": EVENT_QUORUM[kind],
+            "me": bool(sub_id) and any(q.get("sub") == sub_id for q in people),
+            "link": ((ev or {}).get("link") or "") if phase in ("go", "join") else ""}
 
 
 def event_try_go(c, ev, now=None):
@@ -24461,6 +24526,7 @@ def home_page():
     conn.close()
     return render_template(
         'home.html', version=APP_VERSION, page='home', name=name,
+        next_event=event_peek(current_user()),
         elo=elo, wins=wins, losses=losses, played=played,
         winrate=("%d%%" % round(100.0 * wins / played)) if played else None,
         rank=rank, rank_of=rank_of, division=division, peak_division=peak_division,
@@ -24706,7 +24772,10 @@ def leaderboard():
                    if normalize_name(_p['name']) not in _shownset]
     _wt, _ws = watched_totals()
     _lt, _ls = last_watched()
+    # The next hosted event, on the page people actually open (9.68.0).
+    _next_event = event_peek(_sub) if _ships_ok else None
     return render_template('index.html', leaderboard=leaderboard_data,
+                           next_event=_next_event,
                            last_ago=ago_text(_ls if mode == 'survival' else _lt),
                            periods=PERIODS, regions=REGION_CHOICES,
                            period=period, region=region, gain=gain,

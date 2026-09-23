@@ -204,9 +204,54 @@
   point();
 })();
 </script>
+<style>
+/* Claiming: the gems leave the card and land on the balance (9.68.0). */
+.gfly{position:fixed;z-index:9999;width:18px;height:18px;pointer-events:none;
+  will-change:transform,opacity;transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .9s}
+.gfly svg{width:18px;height:18px;filter:drop-shadow(0 0 6px rgba(142,243,255,.9))}
+#gchip.gpop{animation:gpop .45s ease-out}
+@keyframes gpop{0%{transform:scale(1)}40%{transform:scale(1.18)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.gfly{transition:none}#gchip.gpop{animation:none}}
+</style>
 <script>
 (function(){
   var toast=document.getElementById('toast'), tt=0;
+  var GEM='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12l4 7-10 13L2 9z" fill="#8ef3ff" opacity=".95"/><path d="M6 2h12l-2 7H8z" fill="#cdf6ff" opacity=".85"/></svg>';
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Gems fly from the button to the balance, then the balance counts up to
+  // what the server says it is. Returns how long to wait before reloading.
+  function celebrate(fromEl, gained, balance){
+    var chip=document.getElementById('gchip'), n=document.getElementById('gchipN');
+    if(!chip || !n || chip.style.display==='none') return 700;
+    var a=fromEl.getBoundingClientRect(), b=chip.getBoundingClientRect();
+    var count=reduced ? 0 : Math.min(14, 4 + Math.floor(gained / 400));
+    for(var i=0;i<count;i++){
+      var g=document.createElement('span'); g.className='gfly'; g.innerHTML=GEM;
+      var sx=a.left + a.width/2 + (Math.random()*40-20), sy=a.top + a.height/2 + (Math.random()*16-8);
+      g.style.left=sx+'px'; g.style.top=sy+'px'; g.style.opacity='1';
+      document.body.appendChild(g);
+      (function(g, i){
+        setTimeout(function(){
+          g.style.transform='translate('+(b.left + b.width/2 - sx)+'px,'+(b.top + b.height/2 - sy)+'px) scale(.5)';
+          g.style.opacity='.15';
+        }, 30 + i*45);
+        setTimeout(function(){ g.remove(); }, 1000 + i*45);
+      })(g, i);
+    }
+    var start=parseInt((n.textContent||'0').replace(/[^0-9]/g,''),10)||0, end=balance!=null?balance:start+gained;
+    var t0=null, dur=reduced?0:700, delay=reduced?0:520;
+    setTimeout(function(){
+      chip.classList.remove('gpop'); void chip.offsetWidth; chip.classList.add('gpop');
+      function step(ts){
+        if(t0===null) t0=ts;
+        var k=dur?Math.min(1,(ts-t0)/dur):1; k=1-Math.pow(1-k,3);
+        n.textContent=Math.round(start+(end-start)*k).toLocaleString();
+        if(k<1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }, delay);
+    return reduced ? 500 : 1500 + count*45;
+  }
   function say(t, bad){
     if(!toast||!t) return;
     toast.textContent=t; toast.classList.toggle('bad', !!bad); toast.hidden=false;
@@ -229,7 +274,12 @@
       var good=rs.filter(function(j){ return j && j.ok; });
       say(good.length ? good.map(function(j){ return j.message; }).join(' ')
                       : ((rs[0] && rs[0].message) || ''), !good.length);
-      if(good.length) setTimeout(function(){ location.reload(); }, 700); else b.disabled=false;
+      if(good.length){
+        var gained=0, bal=null;
+        good.forEach(function(j){ gained += (j.gems||0); if(j.balance!=null) bal=j.balance; });
+        var wait = gained ? celebrate(b, gained, bal) : 700;
+        setTimeout(function(){ location.reload(); }, wait);
+      } else b.disabled=false;
     }).catch(function(){ say('Could not reach the site.', true); b.disabled=false; });
   });
   // The clocks tick, because a countdown that never moves reads as broken.

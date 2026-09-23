@@ -1,0 +1,38 @@
+{#- The next hosted event, on both front pages: the board and a signed-in
+    player's own home page. Needs `next_event` from event_peek(); shows
+    nothing without it. 9.68.0. -#}
+{% if next_event %}
+<style>
+.evstrip{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 14px;
+  padding:11px 16px;border-radius:12px;text-decoration:none;color:var(--text);
+  border:1px solid rgba(102,230,184,.35);
+  background:linear-gradient(120deg,rgba(102,230,184,.12),rgba(102,230,184,.03))}
+.evstrip:hover{border-color:rgba(102,230,184,.7)}
+.evstrip .evk{font-weight:700;color:#66E6B8;letter-spacing:.2px}
+.evstrip .evt{font-variant-numeric:tabular-nums;color:var(--muted)}
+.evstrip .evn{color:var(--muted)}
+.evstrip .evgo{margin-left:auto;font-weight:600;color:#66E6B8;white-space:nowrap}
+.evstrip.go .evk,.evstrip.join .evk,.evstrip.go .evgo,.evstrip.join .evgo{color:#ffd166}
+.evstrip.go,.evstrip.join{border-color:rgba(255,209,102,.5)}
+</style>
+<a class="evstrip {{ next_event.phase }}" href="/events" id="evstrip" data-in="{{ next_event.in_s }}">
+  <span class="evk">{{ 'Team' if next_event.kind == 'team' else 'Survival' }} event</span>
+  <span class="evt" id="evt">{% if next_event.phase in ('go', 'join') %}live now{% else %}starts in {{ next_event.in_s // 3600 }} h {{ (next_event.in_s % 3600) // 60 }} m{% endif %}</span>
+  <span class="evn">{{ next_event.signed }} of {{ next_event.quorum }} signed up</span>
+  <span class="evgo">{% if next_event.phase in ('go', 'join') %}Join &rarr;{% elif next_event.me %}You are in &rarr;{% elif next_event.phase == 'signup' %}Sign up &rarr;{% else %}Details &rarr;{% endif %}</span>
+</a>
+<script>
+(function(){
+  var el = document.getElementById('evstrip'), t = document.getElementById('evt');
+  if(!el || !t) return;
+  var left = parseInt(el.getAttribute('data-in'), 10);
+  if(isNaN(left) || el.classList.contains('go') || el.classList.contains('join')) return;
+  setInterval(function(){
+    left -= 1;
+    if(left <= 0){ t.textContent = 'starting now'; return; }
+    var h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
+    t.textContent = 'starts in ' + (h ? h + ' h ' + m + ' m' : m + ' m ' + (s < 10 ? '0' : '') + s + ' s');
+  }, 1000);
+})();
+</script>
+{% endif %}

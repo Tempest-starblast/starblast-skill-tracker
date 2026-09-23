@@ -90,6 +90,8 @@
   background:linear-gradient(160deg,rgba(102,230,184,.10),rgba(102,230,184,.02))}
 .featured .sechead h2{color:#66E6B8}
 .featured .ship{border-color:rgba(102,230,184,.35)}
+/* Five, in one row, once there is room - auto-fill would wrap four and one. */
+@media (min-width:900px){.featured .hangar{grid-template-columns:repeat(5,1fr)}}
 
 /* The mythic. One hull, its own colour, its own section, its own light. */
 .mythic .ship{border-color:rgba(255,46,77,.6);
@@ -163,7 +165,7 @@
   <span class="nm">{{ i.name }}</span>
   {% if i.own == 'rank' %}<span class="why rank">Yours &mdash; {{ i.unlock_rank.name }}</span>
   {% elif i.own == 'bought' %}<span class="why rank">Yours</span>
-  {% elif i.mythic %}<span class="why">Yours the day you finish number one on the board &mdash; or {{ '{:,}'.format(i.price) }} gems once you are {{ i.need_rank.name }}.</span>
+  {% elif i.mythic %}<span class="why">Finish a day at number one to unlock it &mdash; then {{ '{:,}'.format(i.price) }} gems.</span>
   {% elif i.earn_only %}<span class="why">Not for sale &mdash; reach {{ i.unlock_rank.name }} and it is yours.</span>
   {% elif not i.may_buy %}<span class="why">{{ i.need_rank.name }} tier flies this hull.</span>
   {% elif i.premium %}<span class="why">Premium hull</span>

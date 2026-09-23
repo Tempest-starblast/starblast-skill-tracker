@@ -100,10 +100,11 @@ check("Aries costs more than the top rank pays", by[704]["price"] > fa.GEM_DIVIS
 check("Bastion too", by[703]["price"] > fa.GEM_DIVISION_AWARD[8], True)
 check("neither premium hull is mythic", by[703]["mythic"] or by[704]["mythic"], False)
 check("level 7 unlocks the Marauder", by[603]["unlock_level"], 7)
-# 9.51.0: the Odyssey IS a tier's ship now - Mythos's, which is not a
-# percentile but the mark of having finished a day at number one.
-check("the Odyssey belongs to Mythos", by[701]["unlock_level"], 9)
-check("and the top tier you can climb to may buy it", by[701]["buy_level"], 8)
+# 9.68.0: the Odyssey is nobody's gift. Finishing a day at number one
+# (Mythos) earns the RIGHT to buy it, at a price that makes it the goal.
+check("the Odyssey is handed to no tier", by[701]["unlock_level"], None)
+check("only Mythos may buy it", by[701]["buy_level"], fa.ranks.MYTHOS_LEVEL)
+check("and it costs 150,000", by[701]["price"], 150000)
 check("dearer by tier", [fa.SHIP_TIER_PRICE[t] for t in range(1, 8)]
       == sorted(fa.SHIP_TIER_PRICE[t] for t in range(1, 8)), True)
 
@@ -122,8 +123,8 @@ seed(peak_div="shadowx3", peak_rank=1)
 cn = conn()
 own = fa.owned_ships(cn.cursor(), "OWNERGUY")
 cn.close()
-check("peak rank #1 owns the Odyssey", own.get(701), "rank")
-check("and all nine tier ships", sum(1 for v in own.values() if v == "rank"), 9)
+check("peak rank #1 is NOT handed the Odyssey (9.68.0)", 701 in own, False)
+check("but owns all eight climbable tier ships", sum(1 for v in own.values() if v == "rank"), 8)
 seed(peak_div="shadowx3", peak_rank=2)
 cn = conn()
 check("peak rank #2 does not", 701 in fa.owned_ships(cn.cursor(), "OWNERGUY"), False)
@@ -190,7 +191,8 @@ check("the map knows the choice", m.get("OWNERGUY"), 101)
 check("allowed viewer: worn ship", fa.worn_emblem("OWNERGUY", m, True)[0], 101)
 check("disallowed viewer: the division's own", fa.worn_emblem("OWNERGUY", m, False), (None, None, False))
 check("the mythic carries its colour", fa.worn_emblem("X", {"X": 701}, True), (701, fa.MYTHIC_COLOR, True))
-check("an ordinary ship carries none", fa.worn_emblem("X", {"X": 202}, True), (202, None, False))
+check("an ordinary ship carries its own colour, the shop's (9.68.0)",
+      fa.worn_emblem("X", {"X": 202}, True), (202, fa.ship_color(202), False))
 h = client().get("/leaderboard").get_data(as_text=True)
 check("a stranger's board has no mythic class and no worn hull", "mythic" in h, False)
 

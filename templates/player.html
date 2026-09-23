@@ -232,8 +232,8 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
   background:linear-gradient(115deg,transparent 42%,rgba(255,180,195,.28) 50%,transparent 58%);
   transform:translateX(-120%);animation:rk-sheen 3.8s ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){.pbox.flair-9 .rk-name{animation:none;background-position:0 50%}}
-/* The hull actually being flown, said in words - the emblem is drawn in the
-   tier's colour, so the shape alone was never enough to name it. */
+/* The hull actually being flown, said in words - a shape alone is not
+   always enough to name it. Drawn in the hull's own colour since 9.68.0. */
 .pbox-rank .rk-hull{font-size:12px;color:var(--muted);letter-spacing:.2px}
 .pbox-rank .rk-hull b{color:#dfe8f0;font-weight:700}
 .pachrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -271,7 +271,7 @@ body.pg-players .card{border-color:color-mix(in srgb,var(--rk,#8b949e) 16%,var(-
         {%- if d %}<span class="rk-name" title="Your skill tier: where you sit on the leaderboard, from Drifter at the bottom up to Archon for the top half percent - and Mythos for anyone who has finished a day at number one. It is not the ship you fly - see Ships flown further down.">{{ d.name }}</span><span class="rk-band" title="Your skill tier: where you sit on the leaderboard, from Drifter at the bottom up to Archon for the top half percent - and Mythos for anyone who has finished a day at number one. It is not the ship you fly - see Ships flown further down.">{{ t('Skill tier') }} &middot; {{ d.band }} &middot; #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>
         {%- elif player.placements_left %}<span class="rk-name">{{ t('In placements') }}</span><span class="rk-band">{{ player.placements_left }} {{ t('more to earn a rank') }}</span>
         {%- else %}<span class="rk-band">Rank #{{ player.rank }} {{ t('of') }} {{ player.rank_of }}</span>{% endif %}
-        {%- if player.emblem_name %}<span class="rk-hull" title="The hull they have chosen to wear. The colour of the emblem is their tier, not the hull.">Flying the <b>{{ player.emblem_name }}</b></span>{% endif %}
+        {%- if player.emblem_name %}<span class="rk-hull" title="The hull they have chosen to wear, in its own colour.">Flying the <b>{{ player.emblem_name }}</b></span>{% endif %}
       </div>
       <p class="msg" id="invMsg"></p>
     </div>

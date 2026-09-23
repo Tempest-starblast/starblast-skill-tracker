@@ -338,16 +338,32 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
   </div>
 </div>
 
-<div class="card">
+{% include '_event_strip.html' %}
+
+<style>
+#qcard{position:relative}
+.qdd{position:absolute;left:16px;right:16px;top:calc(100% - 8px);z-index:30;
+  background:var(--card,#0d1826);border:1px solid rgba(140,170,200,.35);border-radius:10px;
+  box-shadow:0 10px 30px rgba(0,0,0,.45);overflow:hidden}
+.qdd a{display:flex;align-items:baseline;gap:10px;padding:9px 14px;text-decoration:none;color:var(--text)}
+.qdd a:hover,.qdd a.sel{background:rgba(102,230,184,.12)}
+.qdd .qn{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qdd .qc{color:var(--muted);font-size:12px}
+.qdd .qe{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;white-space:nowrap}
+.qdd .qmore{padding:7px 14px;color:var(--muted);font-size:12px;border-top:1px solid rgba(140,170,200,.2)}
+</style>
+<div class="card" id="qcard">
   <form class="row" method="get" action="/">
     {% if mode == 'survival' %}<input type="hidden" name="mode" value="survival">{% endif %}
     <input type="hidden" name="period" value="{{ period }}">
     <input type="hidden" name="region" value="{{ region }}">
     <input type="text" id="q" name="q" value="{{ q }}"
-           placeholder="{{ t('Player') }}..." autocomplete="off" oninput="filter()">
+           placeholder="{{ t('Player') }}..." autocomplete="off" oninput="filter();suggest()"
+           onkeydown="qkey(event)" onfocus="suggest()">
     <button type="submit" class="ghost">{{ t('Search all') }}</button>
     <a class="ghost" href="{{ board(1, term='') }}">{{ t('Clear') }}</a>
   </form>
+  <div class="qdd" id="qdd" hidden></div>
   <p class="msg" id="count"></p>
   {% if q %}<p class="msg">{{ found }} player{{ '' if found == 1 else 's' }} on the whole board match &quot;{{ q }}&quot;.</p>{% endif %}
 </div>
@@ -440,6 +456,55 @@ function closeDD(){
 document.addEventListener('click', closeDD);
 document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeDD(); });
 function key(s){ return (s||'').toUpperCase().replace(/[^\p{L}\p{N}]/gu,''); }
+// Search as you type (9.68.0). The on-page filter above still runs; this
+// asks the server for the best eight from the whole board and drops them
+// under the box. Debounced so a fast typist sends one request, not ten;
+// a reply for an older query than the one in the box is thrown away.
+var _qt = 0, _qseq = 0, _qsel = -1;
+function suggest(){
+  var box = document.getElementById('q'), dd = document.getElementById('qdd');
+  var raw = (box.value || '').trim();
+  clearTimeout(_qt);
+  if(raw.length < 2){ dd.hidden = true; dd.innerHTML = ''; _qsel = -1; return; }
+  _qt = setTimeout(function(){
+    var seq = ++_qseq;
+    fetch('/api/players/search?q=' + encodeURIComponent(raw))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(seq !== _qseq) return;
+        var ps = (d && d.players) || [];
+        if(!ps.length){ dd.hidden = true; dd.innerHTML = ''; _qsel = -1; return; }
+        dd.innerHTML = ps.map(function(p){
+          var el = p.elo != null ? Math.round(p.elo) : '';
+          return '<a href="/player/' + encodeURIComponent(p.name) + '">'
+               + '<span class="qn">' + esc(p.display || p.name) + '</span>'
+               + (p.clan ? '<span class="qc">' + esc(p.clan) + '</span>' : '')
+               + '<span class="qe">' + el + (p.played ? ' &middot; ' + p.played + ' played' : '') + '</span>'
+               + '</a>';
+        }).join('') + '<div class="qmore">Enter searches the whole board</div>';
+        dd.hidden = false; _qsel = -1;
+      }).catch(function(){ dd.hidden = true; });
+  }, 250);
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); }
+function qkey(e){
+  var dd = document.getElementById('qdd');
+  if(dd.hidden) return;
+  var items = dd.querySelectorAll('a');
+  if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    _qsel = e.key === 'ArrowDown' ? Math.min(_qsel + 1, items.length - 1) : Math.max(_qsel - 1, -1);
+    items.forEach(function(a, i){ a.classList.toggle('sel', i === _qsel); });
+  } else if(e.key === 'Enter' && _qsel >= 0){
+    e.preventDefault(); items[_qsel].click();
+  } else if(e.key === 'Escape'){
+    dd.hidden = true; _qsel = -1;
+  }
+}
+document.addEventListener('click', function(e){
+  var dd = document.getElementById('qdd');
+  if(dd && !e.target.closest('#qcard')) dd.hidden = true;
+});
 function filter(){
   var q = key(document.getElementById('q').value);
   var rows = document.querySelectorAll('tbody tr[data-key]');
