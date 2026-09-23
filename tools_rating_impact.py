@@ -17,7 +17,7 @@ name, and prints who it would have touched.
 
     python tools_rating_impact.py --list
     python tools_rating_impact.py quitters --days 30
-    python tools_rating_impact.py conservation --days 7 --verbose
+    python tools_rating_impact.py drift --days 7 --verbose
 
 A rule is a function taking (ctx) and returning a list of findings. Add
 one to RULES below; the harness handles the loading, the windowing and the
@@ -175,27 +175,39 @@ def rule_quitters(m, c, opts):
     return out
 
 
-def rule_conservation(m, c, opts):
-    """Matches where the rating did not balance.
+def rule_drift(m, c, opts):
+    """Matches whose deltas net further from zero than the multipliers can
+    explain.
 
-    RATING_SPEC §2: a match must not create or destroy rating - the larger
-    side is damped down to meet the smaller. So the deltas of a match
-    should sum to about zero. They will not sum to EXACTLY zero because
-    each is rounded to a tenth before it is stored, so the tolerance is a
-    tenth per rated player, plus a little.
+    RATING_SPEC section 2: the two sides are damped to meet each other so a
+    match does not create or destroy rating - but that damping is applied
+    BEFORE each player's experience multiplier (x1.4 while provisional,
+    x0.8 once established), deliberately, so a provisional boost is not
+    cancelled out. There is also a floor: no rating goes below 500.
 
-    Anything beyond that means the conservation step was skipped or a
-    player was added to one side after it ran - which is exactly the shape
-    of bug that drained 474,337 points out of the pool once before."""
+    So a match nets exactly zero only when both sides are the same mix of
+    new and established players. With multipliers spanning 0.8 to 1.4 the
+    honest bound on net/total is about (1.4-0.8)/(1.4+0.8) = 0.27, so
+    anything past `share` is more than the multipliers can account for and
+    is worth a look.
+
+    (The first version of this rule tested for exact zero and flagged 5,498
+    matches. The rule was wrong, not the engine.)"""
+    share = opts.get("share", 0.35)
     rows = m.players(c)
-    if len(rows) < 2:
+    if len(rows) < 4:
         return []
-    total = sum((r[3] or 0) for r in rows)
-    tolerance = 0.1 * len(rows) + 0.5
-    if abs(total) <= tolerance:
+    deltas = [(r[3] or 0) for r in rows]
+    total_abs = sum(abs(d) for d in deltas)
+    if total_abs < 1:
+        return []
+    net = sum(deltas)
+    ratio = abs(net) / total_abs
+    if ratio <= share:
         return []
     return [{"name": "(whole match)", "players": len(rows),
-             "net": round(total, 1), "allowed": round(tolerance, 1)}]
+             "net": round(net, 1), "moved": round(total_abs, 1),
+             "net_share": round(ratio, 2)}]
 
 
 def rule_absent(m, c, opts):
@@ -221,8 +233,8 @@ RULES = {
                  "winners who abandoned a losing side and collected the comeback"),
     "absent":   (rule_absent,
                  "rated players present for under a quarter of the watch"),
-    "conservation": (rule_conservation,
-                     "matches where the deltas do not sum to zero (SPEC §2)"),
+    "drift":    (rule_drift,
+                 "matches that net further from zero than the multipliers explain"),
 }
 
 

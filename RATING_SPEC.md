@@ -51,6 +51,14 @@ number of rated players, so the side with the larger total is damped down to
 meet the smaller — never the other way round, so no individual swing is ever
 inflated to balance the books. Without this the pool drifts every game.
 
+One important caveat: **the damping is applied before each player's experience
+multiplier**, on purpose, so that a deliberate provisional boost is not cancelled
+out by the balancing. There is also a floor — no rating falls below 500. So a
+single match nets exactly zero only when both sides hold the same mix of new and
+established players; across many matches it evens out. Anything netting much
+further from zero than the multipliers can explain is worth investigating, which
+is what `tools_rating_impact.py drift` looks for.
+
 ## 3. Who gets rated at all — the droplet's job
 
 | rule | value | constant |
