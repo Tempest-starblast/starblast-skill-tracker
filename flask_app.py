@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.70.0"
+APP_VERSION = "9.71.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7724,13 +7724,19 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.71.0", "at": "2026-09-23T23:30:00Z", "changes": [
+        "The shop no longer says a tier hands you its ship; it has not since "
+        "this afternoon. The Info page no longer lists the Discord roles from "
+        "Shadow X-3 down to Fly \u2014 those tiers were renamed months ago; it "
+        "is Mythos down to Drifter. A few sentences elsewhere were shortened "
+        "to what they meant.",
+    ]},
     {"version": "9.70.0", "at": "2026-09-23T23:00:00Z", "changes": [
         "A hosted event's match moves your rating one and a half times as "
         "far as an ordinary one \u2014 for everyone in it, winners and losers "
         "alike. It is applied after the balancing that keeps a match from "
         "creating or destroying rating, so the pool is unchanged; the match "
-        "is simply worth more. A tester said Elo inspires him more than "
-        "gems. Fair enough.",
+        "is simply worth more.",
     ]},
     {"version": "9.69.0", "at": "2026-09-23T22:00:00Z", "changes": [
         "Reaching a tier no longer hands you its hull. It puts the hull on "
@@ -7744,8 +7750,7 @@ CHANGELOG = [
         "Warrior 750, Guard 1,250, Paladin 2,000, Warden 3,000. Archon stays "
         "at 4,000 and Mythos at 10,000.",
         "A Wardrobe on your account page: every hull and look you own, what "
-        "you are wearing, and wear or take off right there. The shop is for "
-        "buying; this is for getting dressed.",
+        "you are wearing, and wear or take off right there.",
         "When a page breaks you now get a page that says so, not a white "
         "screen. A tester used his key during the disk-full outage, the "
         "database could not be written, and all he saw was blank. The key "
@@ -14377,10 +14382,10 @@ def error_500(err):
             'main{max-width:34rem;padding:2rem}h1{font-size:1.4rem;margin:0 0 .5rem}'
             'p{color:#9fb0c3;margin:.4rem 0}a{color:#66e6b8}</style>'
             '<main><h1>Something broke on our side.</h1>'
-            '<p>Not you. The page hit an error while it was being built.</p>'
+            '<p>The page hit an error while it was being built. That is on us, not you.</p>'
             '<p>Give it a minute and <a href="javascript:location.reload()">try again</a>, '
             'or go <a href="/">back to the board</a>. If it keeps happening, say so in '
-            '#bug-reports on Discord and the owner will see it.</p></main>'), 500
+            '#bug-reports on Discord.</p></main>'), 500
 
 
 @app.route('/dev/preview', methods=['GET', 'POST'])

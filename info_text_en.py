@@ -20,7 +20,7 @@ CARDS = [
   '<li>Press <b>Play</b>. Your name is copied, ready to paste into Starblast.</li>'
   '<li>Play the game. When it ends, the result appears here within a minute.</li>'
   '</ol>'
-  '<p>That is all that is required. Signing in is optional and only needed for the extras'
+  '<p>That is all it takes. Signing in is optional and only needed for the extras'
   ' below.</p>'),
 
  ("Which games count",
@@ -190,12 +190,12 @@ CARDS = [
   ' they are moving, the stations, and how strong the players on each side are &mdash; and it'
   ' is retrained every night on the matches played since.</p>'
   '<p>It is a forecast, not a verdict. When it says 70%, that side wins about seven times in'
-  ' ten, which is also to say it is wrong the other three.</p>'),
+  ' ten and loses the other three.</p>'),
 
  ("Ranks on Discord",
   '<p>In the Discord server the bot gives you a coloured role for your division and keeps it'
-  ' in step as you move. The roles are hoisted, so the member list reads from Shadow X-3 at'
-  ' the top down to Fly, and reaching a new one is announced in the server.</p>'
+  ' in step as you move. The roles are hoisted, so the member list reads from Mythos at the'
+  ' top down to Drifter, and reaching a new one is announced in the server.</p>'
   '<p>Ask [[CONTACT]] for an invite.</p>'),
  ("Friends and clanmates",
   '<p>Send a friend request from anyone&rsquo;s profile, or by name on the'
