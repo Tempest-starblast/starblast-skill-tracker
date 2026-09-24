@@ -11,3 +11,6 @@ __pycache__/
 _wipe_report.txt
 boardcache/
 preview_key.txt
+lock_heal.json
+lock_heal.json.tmp*
+lock_heal.log

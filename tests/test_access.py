@@ -102,7 +102,9 @@ print("\n--- an access key opens it on their OWN account ---")
 t2 = fa.app.test_client()
 r = t2.post("/dev/preview", data={"key": acc})
 check("without being signed in it asks them to sign in first", r.status_code, 200)
-check("and does not let them in", b"need_signin" in r.data or b"Sign in" in r.data, True)
+# The page header always says "Sign in", so the old check here passed while the
+# form came back with no word of why (the 9.77.0 bug). Look for the note itself.
+check("and SAYS to sign in, on the page itself", b'id="pvSignin"' in r.data, True)
 with t2.session_transaction() as s:
     s["google_sub"] = "sub:real"
 r = t2.post("/dev/preview", data={"key": acc})

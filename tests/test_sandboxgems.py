@@ -54,8 +54,9 @@ check("no stray 30000 default is left",
       'body.get("gems", 30000)' in src, False)
 check("the sandbox default IS PREVIEW_CREDIT",
       'body.get("gems", PREVIEW_CREDIT)' in src, True)
+# One call since 9.77.0 (_preview_form renders the entry page for every case).
 check("the entry page quotes the same figure, not a literal",
-      src.count("gems=PREVIEW_CREDIT"), 2)
+      src.count("gems=PREVIEW_CREDIT") >= 1 and "gems=30000" not in src and "gems=1000000" not in src, True)
 
 print("\n--- entering a sandbox really hands over the million ---")
 cn = sqlite3.connect(fa.DB_PATH)

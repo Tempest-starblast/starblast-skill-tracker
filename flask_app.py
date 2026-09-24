@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.76.0"
+APP_VERSION = "9.77.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6261,6 +6261,26 @@ def game_end():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
+    # ONE RESULT, ONCE (9.77.0). Ratings are moved before the match row is
+    # written, and that write is INSERT OR IGNORE - so a result posted twice
+    # used to move everybody twice. The scorer now retries a post that failed
+    # (the 24 Sep outage dropped 16), and a post that timed out on its side
+    # may still have landed here, so a match already on record is answered
+    # and left alone.
+    _mid_in = str(data.get('match_id') or '')
+    if _mid_in:
+        try:
+            _gc = db(timeout=10)
+            _seen = (_gc.execute("SELECT 1 FROM matches WHERE match_id = ?",
+                                 (_mid_in,)).fetchone()
+                     or _gc.execute("SELECT 1 FROM held_results WHERE match_id = ? LIMIT 1",
+                                    (_mid_in,)).fetchone())
+            _gc.close()
+        except sqlite3.Error:
+            return jsonify({"error": "database busy, try again"}), 503
+        if _seen:
+            return jsonify({"status": "already recorded", "match_id": _mid_in}), 200
+
     # Before ANY of it reaches sqlite - see repair_surrogates. One broken
     # emoji in one player's name used to cost the whole match.
     data = repair_surrogates(data)
@@ -7778,6 +7798,23 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.77.0", "at": "2026-09-24T15:30:00Z", "changes": [
+        "The site was down from about 13:10 to 14:57 UTC today. One of its "
+        "web workers took the database's write lock and never let it go, so "
+        "every page waited on it and failed. It now notices a lock that has "
+        "been failing for three minutes and restarts itself - the same fix "
+        "that ended today's outage, which had to be done by hand.",
+        "Sixteen match results from the outage never reached the site. They "
+        "have been added with the times they were really played. Results that "
+        "fail to arrive are now sent again until they do, and a result that "
+        "arrives twice is only counted once.",
+        "Tester keys work again. A key pasted with a stray space, an "
+        "invisible character from Discord or a dash a phone had changed was "
+        "read as wrong - or, today, broke the page outright. Keys are cleaned "
+        "up before they are checked. A key that needs you signed in now says "
+        "so, and lets you in as soon as you sign in, instead of handing back "
+        "the same empty form. A key that does not work says that too.",
+    ]},
     {"version": "9.76.0", "at": "2026-09-24T08:00:00Z", "changes": [
         "A name flown by two ships at the same time never earns a win. The "
         "only exception is a second ship that turns up forty minutes or more "
@@ -14538,12 +14575,76 @@ def wardrobe_view(c, name):
             "anything": bool(hulls) or any(s["items"] for s in slots)}
 
 
+# STUCK-LOCK SELF-RELOAD (9.77.0). On 24 Sep a web worker took the write lock
+# on players.db at 13:10 and never let go; every request after it waited and
+# failed with "database is locked" until a reload at 14:56 killed the worker.
+# One touch of the wsgi file was the whole fix, so the site now does it
+# itself: a streak of lock failures with no quiet minute in it, lasting
+# LOCK_HEAL_AFTER_S, reloads the app - at most once per LOCK_HEAL_COOLDOWN_S,
+# so a lock that a reload cannot clear costs a reload a quarter-hour, not a
+# loop. The state is a file because the workers share nothing else.
+LOCK_HEAL_AFTER_S = 180
+LOCK_HEAL_QUIET_S = 60
+LOCK_HEAL_COOLDOWN_S = 900
+LOCK_HEAL_STATE = os.path.join(BASE_DIR, 'lock_heal.json')
+LOCK_HEAL_LOG = os.path.join(BASE_DIR, 'lock_heal.log')
+WSGI_FILE = '/var/www/starblastelo_pythonanywhere_com_wsgi.py'
+
+
+def note_lock_failure(now=None):
+    """Record one 'database is locked' failure; reload the app if the lock
+    has been failing for LOCK_HEAL_AFTER_S. Returns True when it reloaded.
+    Never raises - it runs inside the error page."""
+    now = time.time() if now is None else float(now)
+    try:
+        with open(LOCK_HEAL_STATE) as fh:
+            st = json.load(fh)
+    except (OSError, ValueError):
+        st = {}
+    first = float(st.get('first') or 0)
+    last = float(st.get('last') or 0)
+    if now - last > LOCK_HEAL_QUIET_S:
+        first = now                      # a quiet minute ended the last streak
+    healed = (now - first >= LOCK_HEAL_AFTER_S
+              and now - float(st.get('healed_at') or 0) >= LOCK_HEAL_COOLDOWN_S)
+    st.update(first=(now if healed else first), last=now)
+    if healed:
+        st['healed_at'] = now
+    try:
+        tmp = LOCK_HEAL_STATE + '.tmp%d' % os.getpid()
+        with open(tmp, 'w') as fh:
+            json.dump(st, fh)
+        os.replace(tmp, LOCK_HEAL_STATE)
+    except OSError:
+        pass
+    if healed:
+        msg = ("%s database locked for %d s - reloading the web app"
+               % (time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now)), int(now - first)))
+        print("[lock-heal] " + msg, flush=True)
+        try:
+            with open(LOCK_HEAL_LOG, 'a') as fh:
+                fh.write(msg + "\n")
+        except OSError:
+            pass
+        try:
+            os.utime(WSGI_FILE, None)
+        except OSError as e:
+            print("[lock-heal] could not touch %s: %s" % (WSGI_FILE, e), flush=True)
+    return healed
+
+
 @app.errorhandler(500)
 def error_500(err):
     """A page, not a blank one. On 23 Sep a tester used his key while the
     disk was full, the database could not be written, and what he saw was
     Flask's empty white screen - which he reasonably took for the site
     refusing him. Say what happened and what to do."""
+    _orig = getattr(err, 'original_exception', None)
+    if isinstance(_orig, sqlite3.OperationalError) and 'locked' in str(_orig):
+        try:
+            note_lock_failure()
+        except Exception:                      # noqa: BLE001 - never break the error page
+            pass
     return ('<!doctype html><meta charset="utf-8"><title>Something broke</title>'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;'
@@ -14557,46 +14658,98 @@ def error_500(err):
             '#bug-reports on Discord.</p></main>'), 500
 
 
+_KEY_DASHES = {ord(ch): '-' for ch in '‐‑‒–—―−﹣－'}
+
+
+def clean_key(text):
+    """The key a person meant, from what they pasted.
+
+    A key copied out of Discord, or typed on a phone, arrives with passengers:
+    a trailing space or newline, a zero-width or no-break space, a hyphen the
+    keyboard turned into a dash. Keys are made of letters, digits, '-' and '_'
+    only, so all of that can go. Letter case is kept - it is part of the key.
+    Until 9.77.0 none of this was done: a stray space made a good key read as
+    wrong, and any non-ASCII character crashed the page (24 Sep: every key
+    tried that day hit "Something broke")."""
+    s = unicodedata.normalize('NFKC', str(text or '')).translate(_KEY_DASHES)
+    return ''.join(ch for ch in s
+                   if not ch.isspace() and unicodedata.category(ch)[0] not in ('C', 'Z'))
+
+
+def same_secret(a, b):
+    """Constant-time equality that cannot raise. hmac.compare_digest refuses
+    str with non-ASCII in it - with a TypeError, which was a 500 page."""
+    return hmac.compare_digest(str(a or '').encode('utf-8'), str(b or '').encode('utf-8'))
+
+
+def _grant_access_key(c, kid):
+    """Let the signed-in visitor into the preview as themselves, with key kid.
+    The caller commits."""
+    _preview_key_used(c, kid)
+    # Test money, so they can try the whole shop rather than window-shop it.
+    me = my_player(c)
+    if me:
+        gem_grant(c, "player", me[1], PREVIEW_CREDIT, "preview-credit", "key%d" % kid)
+    session.pop('preview_pending', None)
+    session['preview'] = True
+    session['preview_key'] = kid
+    session['preview_kind'] = 'access'
+
+
+def _preview_form(status=200, **flags):
+    return render_template('preview_enter.html', page='preview', version=APP_VERSION,
+                           elo=SANDBOX_ELO_DEFAULT, gems=PREVIEW_CREDIT, **flags), status
+
+
 @app.route('/dev/preview', methods=['GET', 'POST'])
 def dev_preview():
     """A preview-key session: the sandbox account with the unreleased
     surfaces visible, and nothing an owner can do. GET is a bare form so the
     key travels in a POST body, never a URL. 404 unless some key can open
-    it; a wrong key is also a 404, so the route never confirms it exists."""
+    it; a wrong key is also a 404 - with the form again and a plain note, so
+    a tester is told what happened while the route still confirms nothing
+    the form itself does not."""
     if not preview_any_live():
         abort(404)
     if request.method == 'GET':
-        return render_template('preview_enter.html', page='preview',
-                               version=APP_VERSION,
-                               elo=SANDBOX_ELO_DEFAULT, gems=PREVIEW_CREDIT), 200
+        # Back from signing in with an access key already accepted: finish
+        # the job instead of making them find and paste the key again.
+        pend = session.get('preview_pending')
+        if pend and not preview_key_live(pend):
+            session.pop('preview_pending', None)     # expired or revoked meanwhile
+            pend = None
+        if pend and current_user():
+            conn = db()
+            c = conn.cursor()
+            _grant_access_key(c, pend)
+            conn.commit()
+            conn.close()
+            return redirect('/')
+        return _preview_form(need_signin=bool(pend))
     body = request.get_json(silent=True) or request.form or {}
-    given = str(body.get('key') or '')
+    given = clean_key(body.get('key'))
     conn = db()
     c = conn.cursor()
     kid, kind = preview_key_match(c, given)
-    master = bool(PREVIEW_KEY and given and hmac.compare_digest(given, PREVIEW_KEY))
+    master = bool(PREVIEW_KEY and given and same_secret(given, PREVIEW_KEY))
     if not kid and not master:
         conn.close()
-        abort(404)
+        return _preview_form(404, bad_key=bool(given))
     if kid and kind == "access":
         # An access key does not move anybody anywhere: it says "this person
         # may see the unreleased half of the site, as themselves". Everything
         # they then do is real - real gems, real claims, real events.
         if not current_user():
+            # Remember the key for this browser, so signing in brings them
+            # straight back in. It was the silent version of this - the same
+            # empty form handed back, the template never showing why - that
+            # made access keys look broken for days.
+            session['preview_pending'] = kid
             conn.close()
-            return render_template('preview_enter.html', page='preview', version=APP_VERSION,
-                                   elo=SANDBOX_ELO_DEFAULT, gems=PREVIEW_CREDIT,
-                                   need_signin=True), 200
-        _preview_key_used(c, kid)
-        # Test money, so they can try the whole shop rather than window-shop it.
-        me = my_player(c)
-        if me:
-            gem_grant(c, "player", me[1], PREVIEW_CREDIT, "preview-credit", "key%d" % kid)
+            return _preview_form(need_signin=True)
+        _grant_access_key(c, kid)
         conn.commit()
         conn.close()
-        session['preview'] = True
-        session['preview_key'] = kid
-        session['preview_kind'] = 'access'
         return redirect('/')
     # Each tester key has its own test account, so two testers at once do not
     # wipe each other's ships, gems and clan.
@@ -22839,7 +22992,7 @@ def perform_clan_create(c, sub_id, raw_tag, trusted=False, key=None, can_pay=Fal
 
     # A key from the site owner is checked first: it is the owner's yes in a
     # string, so it stands in for the approval, the price and the wait.
-    given = str(key or "").strip()
+    given = clean_key(key)          # a pasted key's stray spaces and dashes (9.77.0)
     kid = clan_key_match(c, given) if given else None
     if given and not kid:
         return 400, {"ok": False, "bad_key": True,

@@ -5,7 +5,11 @@
 .pvform{display:flex;flex-direction:column;gap:12px;margin-top:4px}
 .pvform label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted);font-weight:600}
 .pvform input{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;color:inherit;
-  padding:10px 12px;font:inherit;font-size:14px}
+  padding:10px 12px;font:inherit;font-size:14px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.pvnote{margin:0 0 14px;padding:11px 13px;border-radius:9px;font-size:13.5px;line-height:1.55}
+.pvnote.warn{background:rgba(255,196,92,.1);border:1px solid rgba(255,196,92,.4)}
+.pvnote.bad{background:rgba(255,110,110,.1);border:1px solid rgba(255,110,110,.4)}
+.pvnote a{color:var(--green,#66e6b8);font-weight:600}
 {% endblock %}
 {% block body %}
 <div class="pvwrap">
@@ -18,9 +22,19 @@
   </div></div>
 </div>
 <div class="card">
+  {% if need_signin %}
+  <p class="pvnote warn" id="pvSignin">Your key is good. It lets you in as yourself, so sign in
+    first: <a href="/auth/discord?next=/dev/preview">sign in with Discord</a>, or with Google
+    at the top of the page. You will come straight back here and be let in &mdash; no need to
+    paste the key again.</p>
+  {% elif bad_key %}
+  <p class="pvnote bad" id="pvBad">That key did not work. It may have expired, or part of it
+    may be missing &mdash; copy the whole key again, or ask for a new one.</p>
+  {% endif %}
   <form class="pvform" method="post">
     <label>Your key
-      <input name="key" type="password" autocomplete="off" autofocus placeholder="sbgem-..."></label>
+      <input name="key" type="text" autocomplete="off" autocorrect="off" autocapitalize="off"
+             spellcheck="false" autofocus placeholder="sbgem-..."></label>
     <button class="primary" type="submit">Enter the preview</button>
   </form>
 </div>
