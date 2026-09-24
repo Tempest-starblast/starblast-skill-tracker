@@ -63,9 +63,10 @@ cn.execute("INSERT INTO players(name,norm_name,elo,wins,losses) VALUES ('B','B',
 
 
 def add_match(match_id, sysid, played_at, reads, played_s):
+    # watch_s as game_end stores it since 9.73.1 - the scorer's own measure.
     cn.execute("INSERT INTO matches(match_id, sys_id, played_at, lobby_name, "
-               "tracked_reads, region, announced) VALUES (?,?,?,?,?,?,0)",
-               (match_id, sysid, played_at, "Lobby %s" % sysid, reads, 'america'))
+               "tracked_reads, region, announced, watch_s) VALUES (?,?,?,?,?,?,0,?)",
+               (match_id, sysid, played_at, "Lobby %s" % sysid, reads, 'america', played_s))
     row = cn.execute("SELECT id FROM matches WHERE match_id = ?", (match_id,)).fetchone()[0]
     for nm, won, d in (("A", 1, 20.0), ("B", 0, -20.0)):
         cn.execute("INSERT INTO match_players(match_row,name,norm_name,won,delta,played_s) "
@@ -125,10 +126,12 @@ check("2560s reads as 43 min", got["m-rep"]["tracked_minutes"], 43)
 print("\n--- a row with no played_s falls back to the real cadence ---")
 cn = sqlite3.connect(fa.DB_PATH)
 cn.execute("UPDATE match_players SET played_s = NULL WHERE match_row = ?", (old,))
+cn.execute("UPDATE matches SET watch_s = NULL WHERE id = ?", (old,))    # from before 9.73.1
 cn.commit()
 cn.close()
 got = feed()
-check("600 reads at 3.2s reads as 32 min", got["m-old"]["tracked_minutes"], 32)
+check("600 reads at the measured cadence reads as %d min" % round(600 * fa.RAW_READ_SECONDS / 60.0),
+      got["m-old"]["tracked_minutes"], int(round(600 * fa.RAW_READ_SECONDS / 60.0)))
 
 print("\n%d passed, %d failed" % (ok, fail))
 shutil.rmtree(TMP, ignore_errors=True)

@@ -195,7 +195,7 @@ repeatedly. One player was welcomed to Archon six times in three days.
 
 | | value | constant |
 |---|---|---|
-| Observer read cadence | ~**3.2 s** | `RAW_READ_SECONDS` |
+| Observer read cadence | ~**3.27 s** (measured) | `RAW_READ_SECONDS` |
 | Replays kept | **30 days**, then archived | `REPLAY_KEEP_DAYS` |
 | A result waits for its replay | **360 s** | `REPLAY_GRACE_SECONDS` |
 | Account disk quota | **3 GB** | `DISK_QUOTA_BYTES` |

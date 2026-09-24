@@ -96,10 +96,10 @@ print("  PASS  every tier name appears in the spec")
 
 print("\n--- operational limits that change ratings ---")
 check("replays kept 30 days", fa.REPLAY_KEEP_DAYS, 30)
-check("read cadence 3.2s", fa.RAW_READ_SECONDS, 3.2)
+check("read cadence 3.27s, as measured", fa.RAW_READ_SECONDS, 3.27)
 check("a result waits 360s for its replay", fa.REPLAY_GRACE_SECONDS, 360)
 check("disk quota is 3 GB", fa.DISK_QUOTA_BYTES, 3 * 1024 * 1024 * 1024)
-spec_says(r"3\.2", "the observer read cadence")
+spec_says(r"3\.27", "the observer read cadence")
 spec_says(r"\*\*30 days\*\*", "how long replays are kept")
 
 print("\n--- the rules that have no constant, only behaviour ---")

@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.73.0"
+APP_VERSION = "9.73.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -3716,7 +3716,10 @@ def init_db():
         c.execute("ALTER TABLE match_players ADD COLUMN deaths INTEGER")
     except sqlite3.OperationalError:
         pass
-    for _mcol in ("voided INTEGER DEFAULT 0", "void_reason TEXT", 'lobby_name TEXT', 'tracked_reads INTEGER'):
+    # watch_s: how long the scorer watched the match, in seconds, as it
+    # measured it (9.73.1). Before this it had to be inferred.
+    for _mcol in ("voided INTEGER DEFAULT 0", "void_reason TEXT", 'lobby_name TEXT', 'tracked_reads INTEGER',
+                  'watch_s INTEGER'):
         try:
             c.execute('ALTER TABLE matches ADD COLUMN ' + _mcol)
         except sqlite3.OperationalError:
@@ -5500,10 +5503,9 @@ def replays_index():
         want = pg * 10
         c.execute("SELECT 'm', m.id, '', m.lobby_name, m.sys_id, "
                   "COALESCE(m.region,'america'), m.played_at, "
-                  # The watch the scorer measured (see match_watch_seconds);
-                  # only a page's worth of rows, so the subquery is cheap.
-                  "COALESCE((SELECT MAX(mp.played_s) FROM match_players mp "
-                  "WHERE mp.match_row = m.id), COALESCE(m.tracked_reads, 0) * %s), "
+                  # The watch the scorer measured, else reads x the measured
+                  # cadence - the same rule as match_watch_seconds.
+                  "COALESCE(NULLIF(m.watch_s, 0), COALESCE(m.tracked_reads, 0) * %s), "
                   "'' FROM matches m" % RAW_READ_SECONDS + full_cond +
                   " ORDER BY m.played_at DESC, m.id DESC LIMIT ?", args + [want])
         got = c.fetchall()
@@ -6900,12 +6902,16 @@ def game_end():
             except (TypeError, ValueError):
                 pass
         _flood_json, _flood_max, _match_id = flood_json, flood_max, match_id
+        try:
+            _match_watch = int(data.get('watch_s') or 0) or None
+        except (TypeError, ValueError):
+            _match_watch = None
         c.execute("INSERT OR IGNORE INTO matches (match_id, sys_id, played_at, "
-                  "region, lobby_name, tracked_reads, flood, flood_max) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                  "region, lobby_name, tracked_reads, flood, flood_max, watch_s) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (match_id, sys_id, now_ts, str(data.get('region') or 'america'),
                    (str(data.get('lobby_name'))[:60] if data.get('lobby_name') else None),
-                   int(data.get('tracked_reads') or 0), flood_json, flood_max))
+                   int(data.get('tracked_reads') or 0), flood_json, flood_max, _match_watch))
         c.execute("SELECT id FROM matches WHERE match_id = ?", (match_id,))
         mrow = c.fetchone()
         if mrow:
@@ -7758,6 +7764,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.73.1", "at": "2026-09-24T01:00:00Z", "changes": [
+        "Match lengths, properly this time. 9.73.0 worked a match's length "
+        "out from how long its longest-present rated player was there, which "
+        "is only the whole match when someone was there from start to finish "
+        "\u2014 so Achernaluli said 120 minutes, not 136. The recorder measures "
+        "the length itself and sends it with every result; it is now kept "
+        "and shown. Older matches are worked out from the recorder's real "
+        "pace, a reading every 3.27 seconds.",
+    ]},
     {"version": "9.73.0", "at": "2026-09-24T00:30:00Z", "changes": [
         "Match lengths on the Replays page are right. Every scored match was "
         "shown about three times too long \u2014 Achernaluli #8848 said 417 "
@@ -13532,20 +13547,24 @@ def play_name_map(c):
 # The raw observer's read cadence, measured over live watches (1307 reads
 # across 70 minutes, 972 across 53, 797 across 43 - all ~3.2s). Only used to
 # estimate the length of matches recorded before the watch length was stored.
-RAW_READ_SECONDS = 3.2
+# Measured 24 Sep 2026: watch_s / tracked_reads over 363 results in the
+# scorer's journal - median 3.271, p10 3.247, p90 3.293. Was 3.2.
+RAW_READ_SECONDS = 3.27
 
 
 def match_watch_seconds(c, match_row, treads=0):
     """How long a scored match was watched, in seconds.
 
-    The scorer measures it (watch_s) and records each rated player's share
-    of it as match_players.played_s, so the largest played_s IS the watch.
-    Matches from before played_s existed fall back to reads x
-    RAW_READ_SECONDS. Never reads x 10: that was the retired browser
-    tracker's cadence, and it made every match three times too long."""
+    The scorer measures it and sends it as watch_s; since 9.73.1 it is kept
+    on the match. Older matches: reads x RAW_READ_SECONDS, within about 1%.
+
+    Not the largest played_s (9.73.0's rule): that is only the watch when a
+    rated player was there from first read to last, and Achernaluli #8848's
+    best was 88% - it showed 120 minutes for a 136-minute match. And never
+    reads x 10, the retired browser tracker's cadence, which made every
+    match three times too long."""
     try:
-        r = c.execute("SELECT MAX(played_s) FROM match_players WHERE match_row = ?",
-                      (match_row,)).fetchone()
+        r = c.execute("SELECT watch_s FROM matches WHERE id = ?", (match_row,)).fetchone()
         ws = (r[0] if r else None) or 0
     except sqlite3.Error:
         ws = 0
@@ -19674,16 +19693,8 @@ def bot_matches_undelivered():
                   "WHERE match_id = ? AND reason = 'dominance-flip' "
                   "ORDER BY name", (match_id,))
         exempt = [r[0] for r in c.fetchall()]
-        # The watch length, from the result's own seconds where we have them
-        # (match_players.played_s is the share of the watch each rated player
-        # was present for, so the largest is the watch itself). Falling back
-        # to reads x RAW_READ_SECONDS for anything recorded before that.
-        # It used to be reads x 10 - the browser tracker's cadence, retired -
-        # which reported a 70-minute match as 218.
-        _ws = c.execute("SELECT MAX(played_s) FROM match_players "
-                        "WHERE match_row = ?", (mid,)).fetchone()
-        _ws = (_ws[0] if _ws else None) or 0
-        mins = int(round((_ws or (treads or 0) * RAW_READ_SECONDS) / 60.0))
+        # The watch length - one rule everywhere, see match_watch_seconds.
+        mins = int(round(match_watch_seconds(c, mid, treads) / 60.0))
         # The journal replay, when one exists for this match - the bot appends
         # it as a link so the feed is where replays are found. A match is
         # replayable with EITHER a frozen score snapshot (match_replays) OR the

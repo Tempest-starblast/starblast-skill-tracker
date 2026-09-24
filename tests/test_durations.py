@@ -51,10 +51,10 @@ def check(name, got, want):
 READS, WATCH = 2503, 8189                   # Achernaluli #8848, 23 Sep
 cn = sqlite3.connect(fa.DB_PATH)
 c = cn.cursor()
-c.execute("INSERT INTO matches (match_id, sys_id, region, played_at, lobby_name, tracked_reads) "
-          "VALUES (?,?,?,datetime('now'),?,?)", ("dur-test-8848", 998848, "europe", "Achernaluli", READS))
+c.execute("INSERT INTO matches (match_id, sys_id, region, played_at, lobby_name, tracked_reads, watch_s) "
+          "VALUES (?,?,?,datetime('now'),?,?,?)", ("dur-test-8848", 998848, "europe", "Achernaluli", READS, WATCH))
 mid = c.lastrowid
-for i, share in enumerate((1.0, 0.842, 0.404)):
+for i, share in enumerate((0.88, 0.842, 0.404)):          # nobody there start to finish
     c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, score, played_s) "
               "VALUES (?,?,?,?,?,?,?)", (mid, "DURP%d" % i, "DURP%d" % i, 1, 10.0, 5000,
                                          int(round(WATCH * share))))
@@ -72,7 +72,9 @@ cn.commit()
 print("\n--- the helper ---")
 check("a scored match is its measured watch", fa.match_watch_seconds(c, mid, READS), WATCH)
 check("  about 136 minutes", round(fa.match_watch_seconds(c, mid, READS) / 60.0), 136)
-check("a match from before played_s falls back to reads x RAW_READ_SECONDS",
+check("  even though no rated player was there for all of it (9.73.0 said 120)",
+      round(fa.match_watch_seconds(c, mid, READS) / 60.0) != 120, True)
+check("a match from before watch_s was kept falls back to reads x RAW_READ_SECONDS",
       fa.match_watch_seconds(c, old, 1000), int(1000 * fa.RAW_READ_SECONDS))
 check("never reads x 10", fa.match_watch_seconds(c, mid, READS) != READS * 10, True)
 cn.close()
@@ -94,8 +96,8 @@ print("\n--- the replay page ---")
 # page's own match is written without a match_replays row.
 cn = sqlite3.connect(fa.DB_PATH)
 c = cn.cursor()
-c.execute("INSERT INTO matches (match_id, sys_id, region, played_at, lobby_name, tracked_reads) "
-          "VALUES (?,?,?,datetime('now','-2 minutes'),?,?)", ("dur-test-page", 998850, "europe", "Pagematch", READS))
+c.execute("INSERT INTO matches (match_id, sys_id, region, played_at, lobby_name, tracked_reads, watch_s) "
+          "VALUES (?,?,?,datetime('now','-2 minutes'),?,?,?)", ("dur-test-page", 998850, "europe", "Pagematch", READS, WATCH))
 page = c.lastrowid
 c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, score, played_s) "
           "VALUES (?,?,?,?,?,?,?)", (page, "DURPG", "DURPG", 1, 10.0, 5000, WATCH))
@@ -106,6 +108,22 @@ with fa.app.test_client() as tc:
 check("tracked_seconds is the measured watch", d.get("tracked_seconds"), WATCH)
 check("  so a full recording is not called partial (it was %d s)" % (READS * 10),
       d.get("tracked_seconds") != READS * 10, True)
+
+print("\n--- game_end keeps the watch the scorer sends ---")
+import json                                                     # noqa: E402
+fa._load_api_keys = lambda: {"test-key"}
+payload = {"match_id": "dur-test-ge", "sys_id": 998851, "region": "europe",
+           "winning_team": ["GEA", "GEB"], "losing_team_1": ["GEC", "GED"], "losing_team_2": [],
+           "scores": {"GEA": 9000, "GEB": 8000, "GEC": 7000, "GED": 6000},
+           "presence": {"GEA": 0.9, "GEB": 0.9, "GEC": 0.9, "GED": 0.9},
+           "watch_s": WATCH, "tracked_reads": READS}
+with fa.app.test_client() as tc:
+    tc.post("/api/game_end", data=json.dumps(payload), content_type="application/json",
+            headers={"X-API-Key": "test-key"})
+cn = sqlite3.connect(fa.DB_PATH)
+got = cn.execute("SELECT watch_s FROM matches WHERE match_id = 'dur-test-ge'").fetchone()
+cn.close()
+check("the stored watch is the scorer's", got[0] if got else None, WATCH)
 
 print("\n--- nothing multiplies reads by ten any more ---")
 src = io.open(os.path.join(ROOT, "flask_app.py"), encoding="utf-8").read()
