@@ -113,6 +113,31 @@ check("  and the key's use was counted",
       q.execute("SELECT uses FROM preview_keys WHERE kind='access'").fetchone()[0], 1)
 q.close()
 
+print("\n--- one access key, shared by everyone, lets each in as themselves ---")
+cn = sqlite3.connect(fa.DB_PATH)
+c = cn.cursor()
+_skid, SHARED = fa.preview_key_make(c, "Everyone", 1, "sub:owner", "access")
+for sub, nm in (("sub:one", "Shared One"), ("sub:two", "Shared Two"), ("sub:three", "Shared Three")):
+    c.execute("INSERT INTO players(name, norm_name, elo, wins, losses, google_sub, gems) VALUES (?,?,?,?,?,?,0)",
+              (nm, N(nm), 1400, 10, 10, sub))
+cn.commit()
+cn.close()
+for sub in ("sub:one", "sub:two", "sub:three"):
+    t = fa.app.test_client()
+    with t.session_transaction() as s:
+        s["google_sub"] = sub
+    r = t.post("/dev/preview", data={"key": SHARED})
+    with t.session_transaction() as s:
+        check("%s gets in as themselves" % sub,
+              (r.status_code, s.get("google_sub"), s.get("preview_kind")), (302, sub, "access"))
+    t.post("/dev/preview", data={"key": SHARED})          # entering it again
+q = sqlite3.connect(fa.DB_PATH)
+check("each got the test gems once, not once per entry",
+      sorted(r[0] for r in q.execute("SELECT gems FROM players WHERE google_sub IN ('sub:one','sub:two','sub:three')")),
+      [fa.PREVIEW_CREDIT] * 3)
+check("the key counts every use", q.execute("SELECT uses FROM preview_keys WHERE id=?", (_skid,)).fetchone()[0], 6)
+q.close()
+
 print("\n--- a remembered key that expires meanwhile is dropped ---")
 t = fa.app.test_client()
 t.post("/dev/preview", data={"key": ACC})
