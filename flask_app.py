@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.74.0"
+APP_VERSION = "9.75.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1266,6 +1266,10 @@ MIN_RATED_SCORE = 1000        # to collect a win (legacy: on FINAL score)
 # drive-by joiners. Falls back to MIN_RATED_SCORE on the final score for any
 # payload without peak_scores.
 MIN_RATED_PEAK = 2000
+# What a LOSER must have peaked at to be rated. The droplet's scorer applies
+# it (trueskill_scorer.MIN_LOCK_SCORE); mirrored here so the Info page and
+# RATING_SPEC can state it from the code rather than from memory.
+MIN_LOCK_SCORE = 100
 
 # Anchored to this file's own directory rather than a bare relative path,
 # since different hosts (PythonAnywhere vs the droplet) run this with
@@ -7764,6 +7768,25 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.75.0", "at": "2026-09-24T03:00:00Z", "changes": [
+        "The Info page says what the site actually does. Read against the "
+        "code card by card, it was wrong about: how fast results arrive "
+        "(about ten minutes, not one); how far one match can move you (up "
+        "to 280 while you are new and 160 after, not 200); who is paid at "
+        "half for joining late (winners only \u2014 a loss always counts in "
+        "full); the minimum score (a peak of 2,000 to be rated a winner and "
+        "100 a loser, not 1,000 either way); how a name is claimed (a ranked "
+        "Deathmatch game via /proveclaim, or the owner reviews it \u2014 a win "
+        "has not completed a claim since August); and how long replays "
+        "play (thirty days). Walking out on a losing side is now explained "
+        "there too. Every language is updated.",
+        "The same wrong claims about results arriving within a minute, and "
+        "claims completing on a win, are fixed on the Play, Account and "
+        "Settings pages.",
+        "The 9.74.0 note overstated how many wins the old rule cost: it is "
+        "669 across the last 364 matches, not 898. The first count was made "
+        "with a copy of the scorer that skipped the walk-out rule.",
+    ]},
     {"version": "9.74.0", "at": "2026-09-24T02:00:00Z", "changes": [
         "Everyone who plays is rated. A match used to rate only the top eight "
         "on each side, and the winners were picked by the score they "
@@ -7771,8 +7794,8 @@ CHANGELOG = [
         "the players who died winning it came last. Top Binz was on the "
         "winning side of a 136-minute match for 115 minutes and got nothing. "
         "Now anyone who was in the match for ten minutes and reached the "
-        "minimum score is rated, win or lose. Across the last 362 matches that "
-        "is 898 wins that should have counted and did not.",
+        "minimum score is rated, win or lose. Across the last 364 matches that "
+        "is 669 wins that should have counted and did not.",
         "Time only counts while the recorder was watching. If it is restarted "
         "mid-match, the seconds it was away are left out of everyone's time.",
         "Restarting the recorder no longer costs the matches in progress. It "
@@ -24372,7 +24395,13 @@ def info_page():
                            info=info_i18n.page(current_lang(),
                                                elo=STARTING_ELO, k=ELO_K,
                                                minscore=MIN_RATED_SCORE,
-                                               contact=CONTACT_HANDLE))
+                                               contact=CONTACT_HANDLE,
+                                               newgames=PROVISIONAL_GAMES,
+                                               knew=int(round(ELO_K * PROVISIONAL_K_MULT)),
+                                               kest=int(round(ELO_K * ESTABLISHED_K_MULT)),
+                                               minpeak=MIN_RATED_PEAK,
+                                               minlose=MIN_LOCK_SCORE,
+                                               replaydays=REPLAY_KEEP_DAYS))
 
 
 @app.context_processor

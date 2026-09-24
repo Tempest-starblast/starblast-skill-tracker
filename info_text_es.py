@@ -5,64 +5,40 @@ TITLE = "Información"
 SUB = "Cómo funciona este sitio, en resumen."
 SEARCH = "Buscar en esta página…"
 NOMATCH = "Nada en esta página coincide con eso."
-# Card 2 (which games count) states rules that changed on 16 Sep 2026:
-# no player minimum, a ten-minute match, top eight per team. Until this
-# file is retranslated the page shows the English card there.
-STALE = (2, 14)   # 9.74.0: no top-eight cap - English until retranslated
+STALE = ()
 FOOT = '¿Dudas? Pregunta a [[CONTACT]] en Discord.'
 
 CARDS = [
- ("Qué es esto",
-  '<p class="lead">Una clasificación de habilidad para el modo por equipos de Starblast.'
-  ' Juega partidas por equipos, gana, y tu puntuación sube. No hay nada que instalar ni'
-  ' que registrar &mdash; estás en la tabla en cuanto ganes una partida que estemos'
-  ' observando.</p>'),
+ ('Qué es esto',
+  '<p class="lead">Una clasificación de habilidad para el modo por equipos de Starblast. Juega partidas por equipos, gana y tu puntuación sube. Nada que instalar ni registrarse &mdash; apareces en la clasificación en cuanto juegas una partida que puntuamos.</p>'),
 
- ("Primeros pasos",
-  '<ol>'
-  '<li>Abre la pestaña <a href="/play">Jugar</a> y elige una partida marcada como'
-  ' observada.</li>'
+ ('Primeros pasos',
+  '<ol><li>Abre la pestaña <a href="/play">Jugar</a> y elige una partida.</li>'
   '<li>Pulsa <b>Jugar</b>. Tu nombre se copia, listo para pegarlo en Starblast.</li>'
-  '<li>Juega la partida. Al terminar, el resultado aparece aquí en menos de un minuto.</li>'
+  '<li>Juega. Cuando termine, el resultado aparece aquí en unos diez minutos.</li>'
   '</ol>'
-  '<p>Eso es todo lo necesario. Iniciar sesión es opcional y solo hace falta para los'
-  ' extras de más abajo.</p>'),
+  '<p>Eso es todo. Iniciar sesión es opcional y solo hace falta para los extras de más abajo.</p>'),
 
- ("Qué partidas cuentan",
-  '<p>Se observa cada partida por equipos en directo, desde el momento en que aparece la'
-  ' sala. No hay límite de cuántas a la vez ni un mínimo de jugadores para que una sala se'
-  ' detecte.</p><p>Para ser <b>puntuada</b>, una partida tiene que durar <b>al menos diez'
-  ' minutos</b>. Las más cortas se registran igualmente y se pueden ver después, pero no'
-  ' mueven la puntuación de nadie.</p><p>Dentro de una partida puntuada, los puntuados son'
-  ' los <b>ocho mejores por puntos</b> de cada equipo, y hacen falta unos <b>diez minutos en'
-  ' la partida</b> para ser uno de ellos &mdash; un ganador los necesita por muy pronto que'
-  ' haya llegado.</p><p>La pestaña <a href="/play">Jugar</a> muestra cada partida en directo'
-  ' y si el observador ya está en ella; una sala recién creada se detecta en unos segundos.'
-  ' Si una partida está en directo, cuenta.</p>'
-  '<p>El tiempo que pasas en partidas puntuadas se suma en tu perfil &mdash; el total de siempre, con las dos últimas semanas al lado. Lo mide el observador, así que sigue las mismas reglas que todo lo anterior: una partida sin puntuar, o una sala que nadie estaba observando, no cuenta nada. El reloj empezó el 21 de septiembre de 2026.</p>'),
+ ('Qué partidas cuentan',
+  '<p>Se vigila cada partida por equipos en directo, desde el momento en que aparece la sala. No hay límite de cuántas a la vez ni un mínimo de jugadores para que una sala se recoja.</p>'
+  '<p>Para <b>puntuar</b>, una partida tiene que durar <b>al menos diez minutos</b>. Las más cortas se graban igualmente y se pueden volver a ver, pero no mueven la puntuación de nadie.</p>'
+  '<p>Dentro de una partida puntuada se puntúa a <b>todo el que</b> estuvo en ella <b>diez minutos</b> y alcanzó la puntuación mínima, gane o pierda. Solo cuenta el tiempo que el vigilante vio.</p>'
+  '<p>La pestaña <a href="/play">Jugar</a> muestra cada partida en directo y si el vigilante ya está en ella; una sala nueva se recoge en pocos segundos. Si una partida está en directo, cuenta.</p>'
+  '<p>El tiempo que pasas en partidas puntuadas se suma en tu perfil &mdash; en total, con las dos últimas semanas al lado. Lo mide el vigilante, así que sigue las mismas reglas que todo lo anterior: una partida sin puntuar, o una sala que nadie vigilaba, no cuenta nada. El reloj empezó el 21 de septiembre de 2026.</p>'),
 
- ("Tu puntuación",
-  '<p>Todo el mundo empieza en <b>[[ELO]]</b>. Una partida te mueve como mucho <b>[[K]]</b>'
-  ' puntos.</p>'
-  '<p>Cuánto te mueves depende de a quién ganes. Ganar a un equipo más fuerte da casi todo'
-  ' el máximo; ganar a uno mucho más débil no da casi nada. Perder funciona igual pero al'
-  ' revés. Dos equipos parejos se mueven exactamente un punto.</p>'
-  '<p>La fuerza de un equipo es la media de todos sus jugadores, así que machacar a'
-  ' equipos débiles no te subirá &mdash; subir significa ganar a gente que también está'
-  ' bien valorada. Quiénes te acompañan también cuentan: tu cambio mezcla tu puntuación con la media de tu equipo &mdash; ganar llevando aliados débiles da más que la misma victoria en un equipo repleto de cracks, y perder con aliados débiles cuesta menos.</p>'),
+ ('Tu puntuación',
+  '<p>Todos empiezan en <b>[[ELO]]</b>. En tus primeras <b>[[NEWGAMES]]</b> partidas una sola partida puede moverte hasta <b>[[KNEW]]</b> puntos, para que encuentres tu nivel rápido; después, hasta <b>[[KEST]]</b>.</p>'
+  '<p>Cuánto te mueves depende de a quién ganas. Ganar a un bando más fuerte da casi el máximo; ganar a uno mucho más débil apenas da nada. Perder funciona igual, al revés.</p>'
+  '<p>La fuerza de un equipo es la media de todos sus miembros, así que ganar a equipos débiles no te subirá &mdash; subir significa ganar a gente que tiene una puntuación alta. También cuenta quién está a tu lado: tu cambio mezcla tu propia puntuación con la media de tu equipo, así que llevar a compañeros flojos a la victoria paga más que la misma victoria en un equipo cargado &mdash; y perder junto a compañeros flojos cuesta menos.</p>'),
 
- ("Completa y media",
-  '<p>Como el observador sigue cada partida desde su inicio, ve exactamente cuándo se unió'
-  ' tu nave. Juega desde el principio y cuentas <b>completa</b>; entra en una partida que ya'
-  ' está muy avanzada y cuenta a <b>la mitad</b> &mdash; tanto para ganadores como para'
-  ' perdedores. Se juzga por cuándo te uniste de verdad a la partida, no por cuándo pulsas'
-  ' Jugar.</p>'),
+ ('Completa y media',
+  '<p>Como el vigilante sigue cada partida desde el principio, ve exactamente cuándo tu nave se unió al bando que acabó ganando. Si te uniste en la primera mitad de la partida, la victoria cuenta <b>completa</b>. Si fue en la segunda mitad, cuenta <b>como mucho la mitad</b> &mdash; menos cuanto menos tiempo estuviste.</p>'
+  '<p>Una derrota siempre cuenta completa: llegar tarde no es una forma de perder menos. Se juzga por cuándo entraste de verdad, no por cuándo pulsaste Jugar.</p>'),
 
- ("Dos reglas que conviene saber",
-  '<p><b>Irse antes de tiempo no libra de la derrota.</b> A un equipo perdedor se le cobra'
-  ' con su plantilla más completa, no con quien siguiera ahí al final.</p>'
-  '<p><b>Una puntuación por debajo de [[MINSCORE]] no se valora</b>, ni ganando ni perdiendo. Estar'
-  ' sentado en una sala no es jugar.</p>'),
+ ('Reglas que conviene saber',
+  '<p><b>Hace falta puntuar, no solo estar.</b> Para puntuar tienes que haber llegado a <b>[[MINPEAK]]</b> en algún momento de la partida si tu bando ganó, o a <b>[[MINLOSE]]</b> si perdió. Estar en una sala no es jugar.</p>'
+  '<p><b>Irse antes no evita una derrota.</b> Se cobra a todos los que jugaron en el bando perdedor, estuvieran o no al final.</p>'
+  '<p><b>Abandonar un bando que parece perdido no te da su remontada.</b> Si tu bando tenía menos de un 25 % de opciones cuando te fuiste, y seguías fuera cuando ganó, más de diez minutos después, la victoria no es tuya. Tu página de cuenta lo explica.</p>'),
 
  ("Dos nombres",
   '<p><b>Tu nombre de cuenta</b> es la fila de la clasificación que te pertenece. Ahí vive'
@@ -114,15 +90,9 @@ CARDS = [
   ' eliminar el clan o tocar a otro colíder. Nadie puede quitar a alguien de su mismo rango'
   ' o superior.</p>'),
 
- ("Un nombre que ya está en la clasificación",
-  '<p>Escríbelo en <a href="/settings">Ajustes</a> y, si no es de nadie, es tuyo al'
-  ' momento. Si ya tiene un registro, la página te ofrece <b>reclamarlo</b>: pasa a ser'
-  ' tuyo la próxima vez que ese nombre gane una partida observada, que es como sabemos que'
-  ' de verdad eres tú y no alguien quedándose con tu puntuación.</p>'
-  '<p>Pasa lo mismo si un nombre que ya está en la tabla <b>se lee</b> igual que el que has'
-  ' escrito &mdash; un nombre normal frente a una versión con letras adornadas. Ahí es'
-  ' donde están cayendo tus partidas, así que se te ofrece esa fila. Si de verdad es otra'
-  ' persona, guarda tu nombre igualmente.</p>'),
+ ('Un nombre que ya está en la clasificación',
+  '<p>Escríbelo en <a href="/settings">Ajustes</a> y, si no es de nadie, es tuyo al momento. Si ya tiene un historial, la página te ofrece <b>reclamarlo</b>. Demuestra que es tuyo jugando una partida clasificada de Deathmatch &mdash; el comando <b>/proveclaim</b> del bot de Discord te guía &mdash; o espera a que [[CONTACT]] lo revise. Mientras la reclamación está abierta aparece en la página de ese jugador, para que el dueño real pueda denunciarla.</p>'
+  '<p>Lo mismo pasa si un nombre que ya está en la clasificación <b>se lee</b> igual que el que escribiste &mdash; un nombre normal frente a una versión con letras decoradas. Esa fila es donde están cayendo tus partidas, así que te ofrece esa. Si de verdad es otra persona, guarda tu nombre igualmente.</p>'),
 
  ("Llevar un clan",
   '<p>Los clanes se conceden a mano. Pídelo en la página <a href="/clans">Clanes</a> y'
@@ -152,21 +122,8 @@ CARDS = [
   '<p>El código del sitio es público, así que todo esto se puede comprobar en lugar de'
   ' creerlo sin más.</p>'),
 
- ("Preguntas frecuentes",
-  '<div class="qa">'
-  '<b>He ganado y no ha pasado nada.</b>'
-  ' Lo más probable es que la partida no fuera una de las observadas. La pestaña Jugar las'
-  ' lista antes de que entres.'
-  '<b>Mi nombre está dos veces en la tabla.</b>'
-  ' Una forma distinta de escribirlo cuenta como otro jugador, porque es lo único que'
-  ' reporta el juego. Reclama el que de verdad usas.'
-  '<b>Se ha reiniciado la clasificación.</b>'
-  ' Las puntuaciones todavía están en pruebas y pueden borrarse otra vez. Nada de lo que'
-  ' hagas se pierde; la tabla simplemente vuelve a empezar.'
-  '<b>Algo parece estar mal.</b>'
-  ' Dilo en <a href="/reports">Reportar</a> o cuéntaselo a [[CONTACT]] en Discord. Lo lee'
-  ' una persona.'
-  '</div>'),
+ ('Preguntas frecuentes',
+  '<div class="qa"><b>Gané y no pasó nada.</b> Los resultados tardan unos diez minutos en llegar después de que termina la partida. Si pasa más tiempo, suele ser una de estas cosas: la partida duró menos de diez minutos, no estuviste en ella los diez minutos que hacen falta, tu puntuación no llegó al mínimo, o dejaste tu bando cuando iba perdiendo y seguías fuera cuando ganó.<b>Mi nombre aparece dos veces.</b> Una grafía distinta cuenta como otro jugador, porque es lo único que informa el juego. Reclama el que usas de verdad.<b>La clasificación se reinició.</b> Las puntuaciones aún están en pruebas y pueden borrarse de nuevo. Nada de lo que hagas se pierde; la clasificación simplemente vuelve a empezar.<b>Algo parece mal.</b> Dilo en <a href="/reports">Reportar</a> o avisa a [[CONTACT]] en Discord. Lo lee una persona.</div>'),
  ("Divisiones",
   '<p>Tu división es tu posición entre todos los jugadores clasificados de la tabla histórica, no una puntuación, así que cambia cuando cambian los jugadores a tu alrededor. Los jugadores que aún están en sus primeras partidas no cuentan.</p>'
   '[[RANKS]]'),

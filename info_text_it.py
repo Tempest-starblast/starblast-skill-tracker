@@ -5,64 +5,40 @@ TITLE = "Info"
 SUB = "Come funziona questo sito, in breve."
 SEARCH = "Cerca in questa pagina…"
 NOMATCH = "Niente in questa pagina corrisponde."
-# Card 2 (which games count) states rules that changed on 16 Sep 2026:
-# no player minimum, a ten-minute match, top eight per team. Until this
-# file is retranslated the page shows the English card there.
-STALE = (2, 14)   # 9.74.0: no top-eight cap - English until retranslated
+STALE = ()
 FOOT = 'Domande? Chiedi a [[CONTACT]] su Discord.'
 
 CARDS = [
  ("Che cos'è",
-  '<p class="lead">Una classifica di abilità per la modalità a squadre di Starblast. Gioca'
-  ' partite a squadre, vinci, e il tuo punteggio sale. Niente da installare e niente'
-  ' iscrizioni &mdash; sei in classifica appena vinci una partita che stiamo'
-  ' osservando.</p>'),
+  '<p class="lead">Una classifica di abilità per la modalità a squadre di Starblast. Gioca partite a squadre, vinci e il tuo punteggio sale. Niente da installare e nessuna registrazione &mdash; sei in classifica appena giochi una partita che valutiamo.</p>'),
 
- ("Per iniziare",
-  '<ol>'
-  '<li>Apri la scheda <a href="/play">Gioca</a> e scegli una partita segnata come'
-  ' osservata.</li>'
+ ('Per iniziare',
+  '<ol><li>Apri la scheda <a href="/play">Gioca</a> e scegli una partita.</li>'
   '<li>Premi <b>Gioca</b>. Il tuo nome viene copiato, pronto da incollare in Starblast.</li>'
-  '<li>Gioca la partita. Alla fine il risultato compare qui entro un minuto.</li>'
+  '<li>Gioca. Quando la partita finisce, il risultato compare qui entro una decina di minuti.</li>'
   '</ol>'
   '<p>Non serve altro. Accedere è facoltativo e serve solo per gli extra qui sotto.</p>'),
 
- ("Quali partite contano",
-  '<p>Ogni partita a squadre dal vivo viene osservata, dal momento in cui la lobby compare.'
-  ' Non c&#39;è un limite a quante alla volta né un minimo di giocatori perché una lobby'
-  ' venga rilevata.</p><p>Per essere <b>valutata</b>, una partita deve durare <b>almeno'
-  ' dieci minuti</b>. Quelle più corte vengono comunque registrate e si possono rivedere, ma'
-  ' non muovono il punteggio di nessuno.</p><p>In una partita valutata, i giocatori valutati'
-  ' sono gli <b>otto migliori per punteggio</b> di ogni squadra, e servono circa <b>dieci'
-  ' minuti in partita</b> per essere tra loro &mdash; a un vincitore servono comunque, per'
-  ' quanto presto sia arrivato.</p><p>La scheda <a href="/play">Gioca</a> elenca ogni'
-  ' partita dal vivo e se l&#39;osservatore è già su di essa; una lobby appena creata viene'
-  ' rilevata in pochi secondi. Se una partita è dal vivo, conta.</p>'
-  '<p>Il tempo che passi nelle partite valide viene sommato sul tuo profilo &mdash; il totale di sempre, con le ultime due settimane accanto. Lo misura l&rsquo;osservatore, quindi valgono le stesse regole di sopra: una partita non valida, o una lobby che nessuno stava guardando, non conta nulla. Il conteggio è iniziato il 21 settembre 2026.</p>'),
+ ('Quali partite contano',
+  '<p>Ogni partita a squadre dal vivo viene seguita, dal momento in cui appare la stanza. Non c’è un limite a quante insieme né un minimo di giocatori perché una stanza venga presa.</p>'
+  '<p>Per essere <b>valutata</b>, una partita deve durare <b>almeno dieci minuti</b>. Quelle più brevi vengono comunque registrate e si possono rivedere, ma non cambiano il punteggio di nessuno.</p>'
+  '<p>In una partita valutata viene valutato <b>chiunque</b> ci sia stato per <b>dieci minuti</b> e abbia raggiunto il punteggio minimo, che vinca o perda. Conta solo il tempo che l’osservatore ha visto.</p>'
+  '<p>La scheda <a href="/play">Gioca</a> elenca ogni partita dal vivo e se l’osservatore c’è già; una stanza nuova viene presa in pochi secondi. Se una partita è dal vivo, conta.</p>'
+  '<p>Il tempo che passi in partite valutate si somma sul tuo profilo &mdash; in totale, con le ultime due settimane accanto. Lo misura l’osservatore, quindi segue le stesse regole di tutto il resto: una partita non valutata, o una stanza che nessuno seguiva, non conta. Il conteggio è iniziato il 21 settembre 2026.</p>'),
 
- ("Il tuo punteggio",
-  '<p>Si parte tutti da <b>[[ELO]]</b>. Una partita ti sposta al massimo di <b>[[K]]</b>'
-  ' punti.</p>'
-  '<p>Di quanto ti sposti dipende da chi batti. Battere una squadra più forte rende quasi'
-  ' il massimo; batterne una molto più debole non rende quasi nulla. Perdere funziona allo'
-  ' stesso modo, al contrario. Due squadre pari si spostano di esattamente un punto.</p>'
-  '<p>La forza di una squadra è la media di tutti i suoi giocatori, quindi accanirsi'
-  ' sulle squadre deboli non ti farà salire &mdash; salire vuol dire battere gente a sua'
-  ' volta ben valutata. Conta anche chi hai accanto: la tua variazione fonde il tuo punteggio con la media della squadra &mdash; trascinare alleati deboli alla vittoria rende più della stessa vittoria in una squadra fortissima, e perdere con alleati deboli costa meno.</p>'),
+ ('Il tuo punteggio',
+  '<p>Tutti partono da <b>[[ELO]]</b>. Nelle tue prime <b>[[NEWGAMES]]</b> partite una sola partita può spostarti fino a <b>[[KNEW]]</b> punti, così trovi in fretta il tuo livello; dopo, fino a <b>[[KEST]]</b>.</p>'
+  '<p>Quanto ti sposti dipende da chi batti. Battere uno schieramento più forte vale quasi il massimo; batterne uno molto più debole non vale quasi niente. Perdere funziona allo stesso modo, al contrario.</p>'
+  '<p>La forza di una squadra è la media di tutti i suoi membri, quindi battere squadre deboli non ti farà salire &mdash; salire vuol dire battere giocatori che hanno a loro volta un punteggio alto. Conta anche chi ti sta accanto: la tua variazione mescola il tuo punteggio con la media della tua squadra, quindi portare compagni deboli alla vittoria vale più della stessa vittoria in una squadra fortissima &mdash; e perdere accanto a compagni deboli costa meno.</p>'),
 
- ("Piena e metà",
-  '<p>Poiché l&#39;osservatore segue ogni partita fin dall&#39;inizio, vede esattamente'
-  ' quando la tua nave è entrata. Gioca fin dall&#39;inizio e conti <b>piena</b>; entra in'
-  ' una partita già bene avviata e conta a <b>metà</b> &mdash; per chi vince come per chi'
-  ' perde. Si giudica in base a quando sei entrato davvero nella partita, non a quando premi'
-  ' Gioca.</p>'),
+ ('Piena e metà',
+  '<p>Poiché l’osservatore segue ogni partita dall’inizio, vede esattamente quando la tua nave si è unita allo schieramento che poi ha vinto. Se ti sei unito nella prima metà della partita, la vittoria vale <b>per intero</b>. Nella seconda metà vale <b>al massimo la metà</b> &mdash; meno, quanto meno della partita hai visto.</p>'
+  '<p>Una sconfitta vale sempre per intero: arrivare tardi non è un modo per perdere meno. Conta quando sei entrato davvero, non quando hai premuto Gioca.</p>'),
 
- ("Due regole da sapere",
-  '<p><b>Andarsene in anticipo non evita la sconfitta.</b> Una squadra che perde viene'
-  ' addebitata con la sua formazione più completa, non con chi era ancora lì alla'
-  ' fine.</p>'
-  '<p><b>Un punteggio sotto [[MINSCORE]] non viene valutato affatto</b>, vinta o persa.'
-  ' Stare fermi in una lobby non è giocare.</p>'),
+ ('Regole da sapere',
+  '<p><b>Serve un punteggio, non solo un posto.</b> Per essere valutato devi aver raggiunto <b>[[MINPEAK]]</b> in qualche momento della partita se il tuo schieramento ha vinto, o <b>[[MINLOSE]]</b> se ha perso. Stare in una stanza non è giocare.</p>'
+  '<p><b>Andarsene prima non evita una sconfitta.</b> Viene addebitata a tutti quelli che hanno giocato per lo schieramento perdente, che fossero ancora lì alla fine o no.</p>'
+  '<p><b>Abbandonare uno schieramento che sembra battuto non ti dà la sua rimonta.</b> Se il tuo schieramento aveva meno del 25% di probabilità quando te ne sei andato, ed eri ancora via quando ha vinto, più di dieci minuti dopo, la vittoria non è tua. La tua pagina account lo spiega.</p>'),
 
  ("Due nomi",
   '<p><b>Il tuo nome account</b> è la riga della classifica che ti appartiene. Lì vive il'
@@ -114,15 +90,9 @@ CARDS = [
   ' il leader tranne eliminare il clan o toccare un altro co-leader. Nessuno può rimuovere'
   ' qualcuno del proprio ruolo o superiore.</p>'),
 
- ("Un nome già presente in classifica",
-  '<p>Scrivilo in <a href="/settings">Impostazioni</a> e, se non è di nessuno, è subito'
-  ' tuo. Se ha già un record, la pagina propone invece di <b>rivendicarlo</b>: diventa tuo'
-  ' la prossima volta che quel nome vince una partita osservata, ed è così che sappiamo che'
-  ' sei davvero tu e non qualcuno che si serve del tuo punteggio.</p>'
-  '<p>Lo stesso vale se un nome già in classifica <b>si legge</b> come quello che hai'
-  ' scritto &mdash; un nome semplice contro una versione in lettere ornate. È lì che stanno'
-  ' finendo le tue partite, quindi ti viene proposta quella riga. Se è davvero un&#39;altra'
-  ' persona, salva comunque il tuo nome.</p>'),
+ ('Un nome già presente in classifica',
+  '<p>Scrivilo nelle <a href="/settings">Impostazioni</a> e, se non è di nessuno, è subito tuo. Se ha già uno storico, la pagina ti propone invece di <b>rivendicarlo</b>. Dimostra che è tuo giocando una partita classificata di Deathmatch &mdash; il comando <b>/proveclaim</b> del bot Discord ti guida &mdash; oppure aspetta che [[CONTACT]] la esamini. Finché una rivendicazione è aperta compare sulla pagina di quel giocatore, così il vero proprietario può segnalarla.</p>'
+  '<p>Lo stesso succede se un nome già in classifica <b>si legge</b> come quello che hai scritto &mdash; un nome semplice contro una versione con lettere decorate. È lì che stanno arrivando le tue partite, quindi ti viene proposta quella riga. Se è davvero un’altra persona, salva comunque il tuo nome.</p>'),
 
  ("Gestire un clan",
   '<p>I clan si assegnano a mano. Chiedilo nella pagina <a href="/clans">Clan</a> e'
@@ -150,21 +120,8 @@ CARDS = [
   '<p>Il codice del sito è pubblico, quindi tutto questo si può verificare invece di'
   ' crederci sulla parola.</p>'),
 
- ("Domande frequenti",
-  '<div class="qa">'
-  '<b>Ho vinto e non è successo niente.</b>'
-  ' Probabilmente la partita non era tra quelle osservate. La scheda Gioca le elenca prima'
-  ' che tu entri.'
-  '<b>Il mio nome è due volte in classifica.</b>'
-  ' Una grafia diversa conta come un altro giocatore, perché è tutto quello che il gioco'
-  ' riporta. Rivendica quello con cui giochi davvero.'
-  '<b>La classifica è stata azzerata.</b>'
-  ' I punteggi sono ancora in prova e potrebbero essere cancellati di nuovo. Niente di'
-  ' quello che fai va perso; la classifica riparte e basta.'
-  '<b>Qualcosa non torna.</b>'
-  ' Dillo su <a href="/reports">Segnala</a> oppure scrivi a [[CONTACT]] su Discord. Lo'
-  ' legge una persona.'
-  '</div>'),
+ ('Domande frequenti',
+  '<div class="qa"><b>Ho vinto ma non è successo niente.</b> I risultati arrivano circa dieci minuti dopo la fine della partita. Se passa più tempo, di solito è una di queste cose: la partita è durata meno di dieci minuti, non ci sei stato per i dieci minuti necessari, il tuo punteggio non ha raggiunto il minimo, oppure hai lasciato il tuo schieramento mentre perdeva ed eri ancora via quando ha vinto.<b>Il mio nome compare due volte.</b> Una grafia diversa conta come un altro giocatore, perché è tutto ciò che il gioco comunica. Rivendica quello che usi davvero.<b>La classifica è stata azzerata.</b> I punteggi sono ancora in prova e potrebbero essere cancellati di nuovo. Niente di ciò che fai va perso; la classifica riparte semplicemente da capo.<b>Qualcosa non torna.</b> Dillo su <a href="/reports">Segnala</a> o avvisa [[CONTACT]] su Discord. Lo legge una persona.</div>'),
  ("Divisioni",
   '<p>La tua divisione è la tua posizione fra tutti i giocatori classificati della classifica generale, non un punteggio: cambia quindi quando si muovono i giocatori intorno a te. I giocatori ancora alle prime partite non vengono contati.</p>'
   '[[RANKS]]'),

@@ -86,5 +86,60 @@ check("the error page owns the fault without a fragment",
       "That is on us, not you." in app and "Not you. The page" not in app, False if "Not you. The page" in app else True)
 check("no changelog entry ends on a shrug", "Fair enough." in app, False)
 
+print("\n--- the Info page states the rules the code runs (9.75.0) ---")
+# Each of these was on the page and false when it was audited on 24 Sep.
+en_src = src("info_text_en.py")
+false_claims = (
+    ("results arrive within a minute", "within a minute"),
+    ("a claim completes when the name wins", "wins a tracked match"),
+    ("two even teams move by one point", "exactly one point"),
+    ("half stake for losers too", "winners and losers alike"),
+    ("one flat 1,000 floor win or lose", "[[MINSCORE]]"),
+    ("any replay can be played back forever", "any of them can be played back"),
+    ("on the board as soon as you win", "as soon as you win"),
+    ("a single K for everyone", "[[K]]"),
+)
+for what, phrase in false_claims:
+    check("English Info no longer says %s" % what, phrase in en_src, False)
+for rel in ("templates/play.html", "templates/account.html", "templates/settings.html"):
+    s = src(rel)
+    check("%s no longer says results land within a minute" % rel, "within a minute" in s, False)
+    check("%s no longer says a win completes a claim" % rel, "wins a tracked match" in s, False)
+
+import info_i18n                                                # noqa: E402
+with fa.app.test_request_context():
+    vals = dict(elo=fa.STARTING_ELO, k=fa.ELO_K, minscore=fa.MIN_RATED_SCORE,
+                contact=fa.CONTACT_HANDLE, newgames=fa.PROVISIONAL_GAMES,
+                knew=int(round(fa.ELO_K * fa.PROVISIONAL_K_MULT)),
+                kest=int(round(fa.ELO_K * fa.ESTABLISHED_K_MULT)),
+                minpeak=fa.MIN_RATED_PEAK, minlose=fa.MIN_LOCK_SCORE,
+                replaydays=fa.REPLAY_KEEP_DAYS)
+    rules = en.CARDS[3][1] + en.CARDS[5][1] + en.CARDS[16][1]
+    for tok in ("[[NEWGAMES]]", "[[KNEW]]", "[[KEST]]", "[[MINPEAK]]", "[[MINLOSE]]",
+                "[[REPLAYDAYS]]"):
+        check("  English Info states %s from the code" % tok, tok in rules, True)
+    check("the new-player swing is 280 and the settled one 160",
+          (vals["knew"], vals["kest"]), (280, 160))
+    for code, _label in i18n.LANGS:
+        pg = info_i18n.page(code, **vals)
+        text = "".join(str(c) for c in pg["cards"])
+        check("  %s: every token filled on the rendered page" % code,
+              bool(re.search(r"\[\[[A-Z]+\]\]", text)), False)
+        check("  %s: the new-player swing is on the page" % code, "280" in text, True)
+        m = importlib.import_module("info_text_" + code)
+        check("  %s: no card falls back to English" % code,
+              tuple(getattr(m, "STALE", ()) or ()), ())
+
+r = fa.app.test_client().get("/info")
+h = r.get_data(as_text=True)
+# A token is [[CAPS]]; the page's own script has [[523.25, 0], ...] in it.
+check("/info renders with the numbers in",
+      (r.status_code, bool(re.search(r"\[\[[A-Z]+\]\]", h)), "280" in h, "160" in h),
+      (200, False, True, True))
+for code in ("de", "zh", "fa"):
+    h = fa.app.test_client().get("/info?lang=" + code).get_data(as_text=True)
+    check("  /info?lang=%s has no unfilled token" % code,
+          bool(re.search(r"\[\[[A-Z]+\]\]", h)), False)
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)

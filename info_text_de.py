@@ -5,66 +5,40 @@ TITLE = "Info"
 SUB = "Wie diese Seite funktioniert, kurz gefasst."
 SEARCH = "Diese Seite durchsuchen…"
 NOMATCH = "Auf dieser Seite passt dazu nichts."
-# Card 2 (which games count) states rules that changed on 16 Sep 2026:
-# no player minimum, a ten-minute match, top eight per team. Until this
-# file is retranslated the page shows the English card there.
-STALE = (2, 14)   # 9.74.0: no top-eight cap - English until retranslated
+STALE = ()
 FOOT = 'Fragen? Frag [[CONTACT]] auf Discord.'
 
 CARDS = [
- ("Worum es geht",
-  '<p class="lead">Eine Stärkewertung für den Teammodus von Starblast. Spiel Teamspiele,'
-  ' gewinn, und deine Wertung steigt. Nichts zu installieren und nichts anzumelden'
-  ' &mdash; du stehst in der Rangliste, sobald du ein Spiel gewinnst, das wir gerade'
-  ' beobachten.</p>'),
+ ('Worum es geht',
+  '<p class="lead">Eine Skill-Rangliste für den Team-Modus von Starblast. Spiel Teamspiele, gewinne, und deine Wertung steigt. Nichts zu installieren und keine Anmeldung nötig &mdash; du stehst in der Rangliste, sobald du ein Spiel spielst, das wir werten.</p>'),
 
- ("Erste Schritte",
-  '<ol>'
-  '<li>Öffne den Reiter <a href="/play">Spielen</a> und wähle ein Spiel, das als beobachtet'
-  ' markiert ist.</li>'
-  '<li>Drück <b>Spielen</b>. Dein Name wird kopiert, fertig zum Einfügen in Starblast.</li>'
-  '<li>Spiel das Spiel. Wenn es endet, erscheint das Ergebnis hier innerhalb einer'
-  ' Minute.</li>'
+ ('Erste Schritte',
+  '<ol><li>Öffne den Tab <a href="/play">Spielen</a> und wähle ein Spiel.</li>'
+  '<li>Drück <b>Spielen</b>. Dein Name wird kopiert und kann direkt in Starblast eingefügt werden.</li>'
+  '<li>Spiel. Wenn das Spiel endet, erscheint das Ergebnis hier innerhalb von etwa zehn Minuten.</li>'
   '</ol>'
-  '<p>Mehr ist nicht nötig. Anmelden ist freiwillig und nur für die Extras weiter unten'
-  ' gedacht.</p>'),
+  '<p>Mehr ist nicht nötig. Anmelden ist freiwillig und nur für die Extras weiter unten gedacht.</p>'),
 
- ("Welche Spiele zählen",
-  '<p>Jedes laufende Teamspiel wird beobachtet, vom Moment an, in dem die Lobby auftaucht.'
-  ' Es gibt keine Grenze, wie viele gleichzeitig, und keine Mindestzahl an Spielern, damit'
-  ' eine Lobby erfasst wird.</p><p>Um <b>gewertet</b> zu werden, muss ein Spiel'
-  ' <b>mindestens zehn Minuten</b> laufen. Kürzere Spiele werden trotzdem aufgezeichnet und'
-  ' können nachgeschaut werden, aber sie bewegen niemandes Wertung.</p><p>In einem'
-  ' gewerteten Spiel werden pro Team die <b>acht Besten nach Punkten</b> gewertet, und du'
-  ' brauchst ungefähr <b>zehn Minuten im Spiel</b>, um dazuzugehören &mdash; ein Gewinner'
-  ' braucht das, egal wie früh er kam.</p><p>Der Reiter <a href="/play">Spielen</a> listet'
-  ' jedes laufende Spiel auf und ob der Beobachter schon dran ist; eine brandneue Lobby wird'
-  ' innerhalb weniger Sekunden erfasst. Läuft ein Spiel, zählt es.</p>'
-  '<p>Die Zeit, die du in gewerteten Spielen verbringst, wird in deinem Profil zusammengezählt &mdash; insgesamt, und daneben die letzten zwei Wochen. Der Beobachter misst sie, also gelten dieselben Regeln wie oben: ein ungewertetes Spiel oder eine Lobby, die niemand beobachtet hat, zählt nicht. Die Uhr läuft seit dem 21. September 2026.</p>'),
+ ('Welche Spiele zählen',
+  '<p>Jedes laufende Teamspiel wird beobachtet, ab dem Moment, in dem die Lobby erscheint. Es gibt keine Grenze, wie viele gleichzeitig, und keine Mindestzahl an Spielern, damit eine Lobby aufgenommen wird.</p>'
+  '<p>Um <b>gewertet</b> zu werden, muss ein Spiel <b>mindestens zehn Minuten</b> laufen. Kürzere Spiele werden trotzdem aufgezeichnet und können angesehen werden, verändern aber niemandes Wertung.</p>'
+  '<p>In einem gewerteten Spiel wird <b>jeder</b> gewertet, der <b>zehn Minuten</b> dabei war und die Mindestpunktzahl erreicht hat, ob Sieg oder Niederlage. Es zählt nur die Zeit, die der Beobachter gesehen hat.</p>'
+  '<p>Der Tab <a href="/play">Spielen</a> zeigt jedes laufende Spiel und ob der Beobachter schon dabei ist; eine neue Lobby wird innerhalb weniger Sekunden aufgenommen. Wenn ein Spiel läuft, zählt es.</p>'
+  '<p>Die Zeit, die du in gewerteten Spielen verbringst, wird in deinem Profil zusammengezählt &mdash; insgesamt und daneben die letzten zwei Wochen. Der Beobachter misst sie, also gelten dieselben Regeln wie oben: Ein ungewertetes Spiel oder eine Lobby, die niemand beobachtet hat, zählt nicht. Die Zählung begann am 21. September 2026.</p>'),
 
- ("Deine Wertung",
-  '<p>Alle starten bei <b>[[ELO]]</b>. Ein Spiel bewegt dich um höchstens <b>[[K]]</b>'
-  ' Punkte.</p>'
-  '<p>Wie weit es dich bewegt, hängt davon ab, wen du schlägst. Eine stärkere Seite zu'
-  ' schlagen bringt fast das Maximum; eine viel schwächere zu schlagen bringt fast nichts.'
-  ' Verlieren funktioniert genauso, nur andersherum. Zwei gleich starke Teams bewegen sich'
-  ' um genau einen Punkt.</p>'
-  '<p>Die Stärke eines Teams ist der Durchschnitt aller seiner Spieler. Schwache'
-  ' Teams abzufarmen bringt dich also nicht nach oben &mdash; aufsteigen heißt Leute zu'
-  ' schlagen, die selbst hoch bewertet sind. Wer neben dir spielt, zählt mit: dein Ausschlag mischt deine Wertung mit dem Teamdurchschnitt &mdash; schwache Verbündete zum Sieg zu tragen bringt mehr als derselbe Sieg im Star-Team, und eine Niederlage mit schwachen Verbündeten kostet weniger.</p>'),
+ ('Deine Wertung',
+  '<p>Alle starten bei <b>[[ELO]]</b>. In deinen ersten <b>[[NEWGAMES]]</b> Spielen kann dich ein einziges Spiel um bis zu <b>[[KNEW]]</b> Punkte bewegen, damit du schnell dein Niveau findest; danach um bis zu <b>[[KEST]]</b>.</p>'
+  '<p>Wie viel du dich bewegst, hängt davon ab, wen du schlägst. Eine stärkere Seite zu schlagen bringt fast das Maximum; eine viel schwächere bringt fast nichts. Verlieren funktioniert genauso, nur umgekehrt.</p>'
+  '<p>Die Stärke eines Teams ist der Durchschnitt aller Mitglieder, also bringt es nichts, schwache Teams abzufarmen &mdash; aufsteigen heißt, Leute zu schlagen, die selbst hoch gewertet sind. Auch wer neben dir spielt, zählt: Deine Veränderung mischt deine eigene Wertung mit dem Durchschnitt deines Teams, also bringt es mehr, schwache Mitspieler zum Sieg zu tragen, als derselbe Sieg in einem starken Team &mdash; und eine Niederlage mit schwachen Mitspielern kostet weniger.</p>'),
 
- ("Ganz und halb",
-  '<p>Weil der Beobachter jedes Spiel von Beginn an verfolgt, sieht er genau, wann dein'
-  ' Schiff dazugekommen ist. Bist du von früh an dabei, zählst du <b>ganz</b>; steigst du in'
-  ' ein Spiel ein, das schon gut im Gange ist, zählt es <b>halb</b> &mdash; für Gewinner wie'
-  ' Verlierer gleichermaßen. Es kommt darauf an, wann du dem Spiel tatsächlich beigetreten'
-  ' bist, nicht darauf, wann du auf Spielen drückst.</p>'),
+ ('Ganz und halb',
+  '<p>Weil der Beobachter jedes Spiel von Anfang an verfolgt, sieht er genau, wann dein Schiff zu der Seite kam, die am Ende gewann. In der ersten Hälfte des Spiels dazugekommen, zählt der Sieg <b>voll</b>. In der zweiten Hälfte zählt er <b>höchstens zur Hälfte</b> &mdash; weniger, je weniger vom Spiel du dabei warst.</p>'
+  '<p>Eine Niederlage zählt immer voll: Spät zu kommen ist kein Weg, weniger zu verlieren. Entscheidend ist, wann du wirklich beigetreten bist, nicht wann du auf Spielen gedrückt hast.</p>'),
 
- ("Zwei Regeln, die man kennen sollte",
-  '<p><b>Früh gehen erspart die Niederlage nicht.</b> Ein verlierendes Team wird mit seiner'
-  ' vollsten Aufstellung belastet, nicht mit denen, die am Ende noch da waren.</p>'
-  '<p><b>Ein Punktestand unter [[MINSCORE]] wird überhaupt nicht gewertet</b>, ob Sieg oder'
-  ' Niederlage. In einer Lobby zu sitzen ist kein Spielen.</p>'),
+ ('Regeln, die man kennen sollte',
+  '<p><b>Punkte zählen, nicht nur Anwesenheit.</b> Um gewertet zu werden, musst du im Spiel irgendwann <b>[[MINPEAK]]</b> erreicht haben, wenn deine Seite gewonnen hat, oder <b>[[MINLOSE]]</b>, wenn sie verloren hat. In einer Lobby zu sitzen ist kein Spielen.</p>'
+  '<p><b>Früh gehen verhindert keine Niederlage.</b> Jeder, der für die verlierende Seite gespielt hat, bekommt sie angerechnet, ob er am Ende noch da war oder nicht.</p>'
+  '<p><b>Wer eine scheinbar geschlagene Seite verlässt, bekommt ihr Comeback nicht.</b> Hatte deine Seite unter 25 % Siegchance, als du gegangen bist, und warst du noch weg, als sie mehr als zehn Minuten später gewann, gehört der Sieg nicht dir. Deine Kontoseite sagt es dir.</p>'),
 
  ("Zwei Namen",
   '<p><b>Dein Kontoname</b> ist die Zeile in der Rangliste, die dir gehört. Dort lebt deine'
@@ -119,16 +93,9 @@ CARDS = [
   ' anderen Co-Anführer anzufassen. Niemand kann jemanden des eigenen Rangs oder darüber'
   ' entfernen.</p>'),
 
- ("Ein Name, der schon in der Rangliste steht",
-  '<p>Tipp ihn in den <a href="/settings">Einstellungen</a> ein: Gehört er niemandem, ist'
-  ' er sofort deiner. Hat er schon eine Bilanz, bietet die Seite stattdessen an, ihn zu'
-  ' <b>beanspruchen</b>: Er wird deiner, sobald dieser Name das nächste Mal ein beobachtetes'
-  ' Spiel gewinnt. So wissen wir, dass du es wirklich bist und nicht jemand, der sich an'
-  ' deiner Wertung bedient.</p>'
-  '<p>Dasselbe passiert, wenn ein Name in der Rangliste sich <b>liest</b> wie der, den du'
-  ' eingegeben hast &mdash; ein schlichter Name gegen eine Fassung mit Zierbuchstaben. Dort'
-  ' landen deine Spiele, also wird dir diese Zeile angeboten. Ist es wirklich jemand'
-  ' anderes, speichere deinen Namen trotzdem.</p>'),
+ ('Ein Name, der schon in der Rangliste steht',
+  '<p>Gib ihn in den <a href="/settings">Einstellungen</a> ein, und wenn er niemandem gehört, ist er sofort deiner. Hat er schon eine Bilanz, bietet dir die Seite stattdessen an, ihn zu <b>beanspruchen</b>. Beweise, dass er dir gehört, indem du ein gewertetes Deathmatch-Spiel spielst &mdash; der Befehl <b>/proveclaim</b> des Discord-Bots führt dich durch &mdash; oder warte, bis [[CONTACT]] ihn prüft. Solange ein Anspruch offen ist, steht er auf der Seite dieses Spielers, damit der echte Besitzer ihn melden kann.</p>'
+  '<p>Dasselbe passiert, wenn ein Name in der Rangliste genauso <b>gelesen</b> wird wie der, den du eingegeben hast &mdash; ein normaler Name gegen eine Version mit verzierten Buchstaben. Dort landen deine Spiele, also wird dir diese Zeile angeboten. Ist es wirklich jemand anderes, speichere deinen Namen trotzdem.</p>'),
 
  ("Einen Clan führen",
   '<p>Clans werden von Hand vergeben. Frag auf der Seite <a href="/clans">Clans</a>, und'
@@ -158,21 +125,8 @@ CARDS = [
   '<p>Der Code der Seite ist öffentlich, all das lässt sich also nachprüfen statt nur'
   ' glauben.</p>'),
 
- ("Häufige Fragen",
-  '<div class="qa">'
-  '<b>Ich habe gewonnen, und nichts ist passiert.</b>'
-  ' Das Spiel war vermutlich keines der beobachteten. Der Reiter Spielen listet sie auf,'
-  ' bevor du einsteigst.'
-  '<b>Mein Name steht zweimal in der Rangliste.</b>'
-  ' Eine andere Schreibweise zählt als anderer Spieler, denn mehr meldet das Spiel nicht.'
-  ' Beanspruche den, unter dem du wirklich spielst.'
-  '<b>Die Rangliste wurde zurückgesetzt.</b>'
-  ' Die Wertungen werden noch getestet und können erneut gelöscht werden. Nichts, was du'
-  ' tust, ist umsonst; die Rangliste fängt nur wieder von vorne an.'
-  '<b>Da stimmt etwas nicht.</b>'
-  ' Sag es unter <a href="/reports">Melden</a> oder sag [[CONTACT]] auf Discord Bescheid.'
-  ' Das liest ein Mensch.'
-  '</div>'),
+ ('Häufige Fragen',
+  '<div class="qa"><b>Ich habe gewonnen, aber nichts ist passiert.</b> Ergebnisse kommen etwa zehn Minuten nach dem Ende eines Spiels an. Dauert es länger, ist es meist eines davon: Das Spiel lief weniger als zehn Minuten, du warst nicht die nötigen zehn Minuten dabei, deine Punktzahl hat das Minimum nicht erreicht, oder du hast deine Seite verlassen, als sie verlor, und warst noch weg, als sie gewann.<b>Mein Name steht zweimal in der Rangliste.</b> Eine andere Schreibweise zählt als anderer Spieler, weil das Spiel nur das meldet. Beanspruche den, unter dem du wirklich spielst.<b>Die Rangliste wurde zurückgesetzt.</b> Die Wertungen werden noch getestet und können wieder gelöscht werden. Nichts, was du tust, ist umsonst; die Rangliste fängt nur von vorn an.<b>Etwas stimmt nicht.</b> Sag es unter <a href="/reports">Melden</a> oder gib [[CONTACT]] auf Discord Bescheid. Ein Mensch liest es.</div>'),
  ("Divisionen",
   '<p>Deine Division ist dein Platz unter allen gewerteten Spielern der Gesamtrangliste, keine Wertungszahl — sie ändert sich also, wenn sich die Spieler um dich herum bewegen. Spieler in ihren ersten Partien zählen nicht mit.</p>'
   '[[RANKS]]'),

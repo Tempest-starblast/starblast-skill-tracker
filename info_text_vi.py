@@ -5,58 +5,40 @@ TITLE = "Thông tin"
 SUB = "Trang này hoạt động thế nào, nói ngắn gọn."
 SEARCH = "Tìm trong trang này…"
 NOMATCH = "Không có gì trên trang này khớp với đó."
-# Card 2 (which games count) states rules that changed on 16 Sep 2026:
-# no player minimum, a ten-minute match, top eight per team. Until this
-# file is retranslated the page shows the English card there.
-STALE = (2, 14)   # 9.74.0: no top-eight cap - English until retranslated
+STALE = ()
 FOOT = 'Có thắc mắc? Hỏi [[CONTACT]] trên Discord.'
 
 CARDS = [
- ("Đây là gì",
-  '<p class="lead">Bảng xếp hạng kỹ năng cho chế độ đồng đội của Starblast. Chơi trận đồng'
-  ' đội, thắng, và điểm của bạn tăng lên. Không phải cài gì, không phải đăng ký gì'
-  ' &mdash; bạn có tên trên bảng ngay khi thắng một trận mà chúng tôi đang theo dõi.</p>'),
+ ('Đây là gì',
+  '<p class="lead">Bảng xếp hạng kỹ năng cho chế độ đồng đội của Starblast. Chơi các trận đồng đội, thắng, và điểm của bạn tăng. Không cần cài đặt, không cần đăng ký &mdash; bạn có mặt trên bảng ngay khi chơi một trận mà chúng tôi tính điểm.</p>'),
 
- ("Bắt đầu thế nào",
-  '<ol>'
-  '<li>Mở thẻ <a href="/play">Chơi</a> và chọn một trận được đánh dấu là đang theo dõi.</li>'
-  '<li>Bấm <b>Chơi</b>. Tên của bạn được sao chép, sẵn sàng dán vào Starblast.</li>'
-  '<li>Chơi trận đó. Khi trận kết thúc, kết quả hiện ở đây trong vòng một phút.</li>'
+ ('Bắt đầu thế nào',
+  '<ol><li>Mở thẻ <a href="/play">Chơi</a> và chọn một trận.</li>'
+  '<li>Nhấn <b>Chơi</b>. Tên của bạn được sao chép, sẵn sàng dán vào Starblast.</li>'
+  '<li>Chơi. Khi trận kết thúc, kết quả xuất hiện ở đây trong khoảng mười phút.</li>'
   '</ol>'
   '<p>Chỉ cần vậy thôi. Đăng nhập là tuỳ bạn, và chỉ cần cho những phần thêm ở dưới.</p>'),
 
- ("Trận nào được tính",
-  '<p>Mọi trận đồng đội đang diễn ra đều được theo dõi, ngay từ lúc phòng xuất hiện. Không'
-  ' giới hạn số trận theo dõi cùng lúc, cũng không cần số người chơi tối thiểu để một phòng'
-  ' được bắt.</p><p>Để được <b>tính điểm</b>, một trận phải kéo dài <b>ít nhất mười'
-  ' phút</b>. Trận ngắn hơn vẫn được ghi lại và có thể xem lại, nhưng không làm thay đổi'
-  ' điểm của ai.</p><p>Trong một trận được tính điểm, mỗi đội có <b>tám người điểm cao'
-  ' nhất</b> được tính, và bạn cần khoảng <b>mười phút trong trận</b> để nằm trong số đó'
-  ' &mdash; người thắng cũng cần vậy, dù vào sớm đến đâu.</p><p>Thẻ <a href="/play">Chơi</a>'
-  ' liệt kê mọi trận đang diễn ra và cho biết trình theo dõi đã vào trận đó chưa; một phòng'
-  ' vừa mới lập sẽ được bắt trong vài giây. Nếu một trận đang diễn ra, nó được tính.</p>'
-  '<p>Thời gian bạn chơi trong các trận được tính điểm sẽ được cộng dồn trên hồ sơ của bạn &mdash; tổng từ trước đến nay, kèm hai tuần gần nhất bên cạnh. Trình theo dõi đo thời gian này, nên nó tuân theo cùng những quy tắc ở trên: trận không được tính điểm, hay phòng không ai theo dõi, đều không tính. Đồng hồ bắt đầu chạy từ ngày 21 tháng 9 năm 2026.</p>'),
+ ('Trận nào được tính',
+  '<p>Mọi trận đồng đội đang diễn ra đều được theo dõi, ngay từ lúc phòng xuất hiện. Không giới hạn số trận cùng lúc và không cần số người chơi tối thiểu để phòng được theo dõi.</p>'
+  '<p>Để được <b>tính điểm</b>, trận phải kéo dài <b>ít nhất mười phút</b>. Các trận ngắn hơn vẫn được ghi lại và có thể xem lại, nhưng không làm thay đổi điểm của ai.</p>'
+  '<p>Trong một trận được tính điểm, <b>tất cả</b> những ai có mặt <b>mười phút</b> và đạt điểm tối thiểu đều được tính, dù thắng hay thua. Chỉ thời gian mà hệ thống theo dõi thấy mới được tính.</p>'
+  '<p>Thẻ <a href="/play">Chơi</a> liệt kê mọi trận đang diễn ra và cho biết hệ thống đã theo dõi chưa; một phòng mới được theo dõi chỉ sau vài giây. Nếu trận đang diễn ra, nó được tính.</p>'
+  '<p>Thời gian bạn chơi trong các trận được tính điểm được cộng dồn trên hồ sơ của bạn &mdash; tổng cộng, và hai tuần gần nhất bên cạnh. Hệ thống theo dõi đo nó, nên nó theo cùng các quy tắc ở trên: một trận không tính điểm, hoặc một phòng không ai theo dõi, không được tính. Việc đếm bắt đầu từ ngày 21 tháng 9 năm 2026.</p>'),
 
- ("Điểm của bạn",
-  '<p>Ai cũng bắt đầu ở <b>[[ELO]]</b>. Một trận làm bạn thay đổi nhiều nhất <b>[[K]]</b>'
-  ' điểm.</p>'
-  '<p>Thay đổi bao nhiêu là tuỳ bạn thắng ai. Thắng đội mạnh hơn thì gần như được trọn'
-  ' vẹn; thắng đội yếu hơn nhiều thì gần như không được gì. Thua cũng vậy nhưng ngược lại.'
-  ' Hai đội ngang nhau thì thay đổi đúng một điểm.</p>'
-  '<p>Sức mạnh của một đội là trung bình của tất cả thành viên, nên cày đội yếu sẽ không'
-  ' kéo bạn lên &mdash; muốn lên thì phải thắng những người có điểm cao. Đồng đội của bạn cũng được tính: mức thay đổi trộn điểm của bạn với trung bình của đội, nên gánh đồng đội yếu đến chiến thắng được nhiều hơn cùng chiến thắng đó trong đội toàn cao thủ &mdash; và thua cùng đồng đội yếu mất ít hơn.</p>'),
+ ('Điểm của bạn',
+  '<p>Ai cũng bắt đầu từ <b>[[ELO]]</b>. Trong <b>[[NEWGAMES]]</b> trận đầu tiên, một trận có thể làm bạn thay đổi tới <b>[[KNEW]]</b> điểm, để bạn nhanh chóng tìm được trình độ của mình; sau đó, tới <b>[[KEST]]</b>.</p>'
+  '<p>Bạn thay đổi bao nhiêu phụ thuộc vào việc bạn thắng ai. Thắng một bên mạnh hơn được gần như tối đa; thắng một bên yếu hơn nhiều gần như không được gì. Thua cũng vậy, theo chiều ngược lại.</p>'
+  '<p>Sức mạnh của một đội là trung bình của mọi người trong đội, nên đánh các đội yếu sẽ không đưa bạn lên &mdash; leo hạng nghĩa là thắng những người có điểm cao. Người đứng cạnh bạn cũng quan trọng: mức thay đổi của bạn trộn điểm của chính bạn với trung bình đội, nên gánh đồng đội yếu tới chiến thắng được nhiều hơn cùng chiến thắng đó trong một đội toàn người mạnh &mdash; và thua cạnh đồng đội yếu mất ít hơn.</p>'),
 
- ("Trọn vẹn và một nửa",
-  '<p>Vì trình theo dõi bám mỗi trận ngay từ đầu, nó thấy chính xác lúc tàu của bạn vào'
-  ' trận. Chơi từ sớm thì bạn được tính <b>trọn vẹn</b>; bước vào một trận đã diễn ra khá'
-  ' lâu thì chỉ tính <b>một nửa</b> &mdash; cho cả bên thắng lẫn bên thua. Việc này căn cứ'
-  ' vào lúc bạn thật sự vào trận, chứ không phải lúc bạn bấm Chơi.</p>'),
+ ('Trọn vẹn và một nửa',
+  '<p>Vì hệ thống theo dõi mỗi trận từ đầu, nó biết chính xác khi nào tàu của bạn gia nhập bên cuối cùng giành chiến thắng. Gia nhập trong nửa đầu trận, chiến thắng được tính <b>trọn vẹn</b>. Gia nhập trong nửa sau, nó được tính <b>nhiều nhất là một nửa</b> &mdash; và càng ít nếu bạn có mặt càng ít.</p>'
+  '<p>Trận thua luôn được tính trọn vẹn: đến muộn không phải là cách để thua ít hơn. Việc tính dựa trên thời điểm bạn thật sự vào trận, không phải lúc bạn nhấn Chơi.</p>'),
 
- ("Hai điều nên biết",
-  '<p><b>Thoát sớm không tránh được trận thua.</b> Đội thua bị tính theo đội hình đông'
-  ' nhất của mình, chứ không phải theo ai còn trụ lại đến cuối.</p>'
-  '<p><b>Điểm dưới [[MINSCORE]] thì không được tính</b>, dù thắng hay thua. Ngồi trong phòng'
-  ' không phải là chơi.</p>'),
+ ('Những quy tắc nên biết',
+  '<p><b>Cần có điểm, không chỉ có mặt.</b> Để được tính điểm, bạn phải đạt <b>[[MINPEAK]]</b> vào một lúc nào đó trong trận nếu bên bạn thắng, hoặc <b>[[MINLOSE]]</b> nếu bên bạn thua. Ngồi trong phòng không phải là chơi.</p>'
+  '<p><b>Rời đi sớm không tránh được trận thua.</b> Tất cả những ai đã chơi cho bên thua đều bị tính thua, dù họ còn ở đó lúc kết thúc hay không.</p>'
+  '<p><b>Bỏ một bên trông như đã thua sẽ không cho bạn màn lội ngược dòng của họ.</b> Nếu bên bạn có dưới 25% cơ hội thắng khi bạn rời đi, và bạn vẫn vắng mặt khi họ thắng, hơn mười phút sau, thì chiến thắng không phải của bạn. Trang tài khoản của bạn sẽ ghi rõ.</p>'),
 
  ("Hai cái tên",
   '<p><b>Tên tài khoản</b> là dòng trên bảng xếp hạng thuộc về bạn. Điểm của bạn nằm ở đó,'
@@ -103,15 +85,9 @@ CARDS = [
   ' được thành viên thường; phó bang làm được mọi thứ bang chủ làm, trừ xoá bang và động đến'
   ' một phó bang khác. Không ai xoá được người cùng cấp hoặc cao hơn mình.</p>'),
 
- ("Một cái tên đã có trên bảng",
-  '<p>Gõ tên đó ở <a href="/settings">Cài đặt</a>: nếu chưa ai sở hữu, nó là của bạn ngay.'
-  ' Nếu nó đã có thành tích, trang sẽ mời bạn <b>nhận</b> tên đó: nó thành của bạn vào lần'
-  ' tới cái tên ấy thắng một trận được theo dõi &mdash; đó là cách chúng tôi biết đúng là'
-  ' bạn, chứ không phải ai đó lấy điểm của người khác.</p>'
-  '<p>Cũng vậy nếu một cái tên đã có trên bảng <b>đọc lên</b> giống hệt cái bạn vừa gõ'
-  ' &mdash; một tên chữ thường so với bản viết bằng chữ hoa mỹ. Các trận của bạn đang rơi'
-  ' vào dòng đó, nên trang sẽ mời bạn nhận dòng đó. Nếu đúng là người khác thật, cứ lưu tên'
-  ' của bạn như thường.</p>'),
+ ('Một cái tên đã có trên bảng',
+  '<p>Nhập nó trong <a href="/settings">Cài đặt</a> và, nếu chưa ai sở hữu, nó là của bạn ngay. Nếu nó đã có lịch sử, trang sẽ đề nghị bạn <b>xác nhận quyền sở hữu</b> thay vào đó. Hãy chứng minh nó là của bạn bằng cách chơi một trận Deathmatch xếp hạng &mdash; lệnh <b>/proveclaim</b> của bot Discord sẽ hướng dẫn bạn &mdash; hoặc chờ [[CONTACT]] xem xét. Khi yêu cầu còn mở, nó hiện trên trang của người chơi đó, để chủ thật có thể báo cáo.</p>'
+  '<p>Điều tương tự xảy ra nếu một tên đã có trên bảng <b>đọc</b> giống tên bạn nhập &mdash; một tên thường so với phiên bản dùng chữ trang trí. Các trận của bạn đang được ghi vào dòng đó, nên bạn được đề nghị dòng đó. Nếu đó thật sự là người khác, cứ lưu tên của bạn.</p>'),
 
  ("Làm bang chủ",
   '<p>Bang hội được cấp bằng tay. Hãy xin ở trang <a href="/clans">Bang hội</a>, rồi'
@@ -141,21 +117,8 @@ CARDS = [
   '<p>Mã nguồn của trang là công khai, nên tất cả những điều này có thể kiểm chứng chứ'
   ' không phải tin suông.</p>'),
 
- ("Câu hỏi thường gặp",
-  '<div class="qa">'
-  '<b>Tôi thắng rồi mà không thấy gì cả.</b>'
-  ' Nhiều khả năng trận đó không nằm trong số được theo dõi. Thẻ Chơi liệt kê chúng trước'
-  ' khi bạn vào.'
-  '<b>Tên tôi xuất hiện hai lần trên bảng.</b>'
-  ' Viết khác đi thì tính là người chơi khác, vì game chỉ báo về có vậy. Hãy nhận cái tên'
-  ' bạn thật sự dùng.'
-  '<b>Bảng xếp hạng bị đặt lại.</b>'
-  ' Điểm số vẫn đang trong giai đoạn thử và có thể bị xoá lần nữa. Không có gì bạn làm là'
-  ' uổng phí; bảng chỉ bắt đầu lại thôi.'
-  '<b>Có gì đó không đúng.</b>'
-  ' Hãy nói ở trang <a href="/reports">Báo cáo</a> hoặc nhắn [[CONTACT]] trên Discord. Sẽ'
-  ' có người đọc.'
-  '</div>'),
+ ('Câu hỏi thường gặp',
+  '<div class="qa"><b>Tôi thắng nhưng không có gì xảy ra.</b> Kết quả đến khoảng mười phút sau khi trận kết thúc. Nếu lâu hơn, thường là do một trong những điều sau: trận kéo dài dưới mười phút, bạn không có mặt đủ mười phút cần thiết, điểm của bạn chưa đạt mức tối thiểu, hoặc bạn đã rời bên mình khi họ đang thua và vẫn vắng mặt khi họ thắng.<b>Tên tôi xuất hiện hai lần.</b> Cách viết khác được tính là người chơi khác, vì trò chơi chỉ báo có vậy. Hãy xác nhận tên bạn thật sự dùng để chơi.<b>Bảng đã bị đặt lại.</b> Điểm vẫn đang được thử nghiệm và có thể bị xoá lại. Không có gì bạn làm là uổng phí; bảng chỉ bắt đầu lại.<b>Có gì đó không đúng.</b> Hãy báo ở <a href="/reports">Báo cáo</a> hoặc nói với [[CONTACT]] trên Discord. Một người thật sẽ đọc.</div>'),
  ("Hạng",
   '<p>Hạng của bạn là vị trí của bạn trong số tất cả người chơi đã được xếp hạng trên bảng tổng, không phải một số điểm — nên nó thay đổi khi những người quanh bạn thay đổi. Người chơi còn trong vài trận đầu tiên không được tính.</p>'
   '[[RANKS]]'),

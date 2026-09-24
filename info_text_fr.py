@@ -5,66 +5,40 @@ TITLE = "Infos"
 SUB = "Comment ce site fonctionne, en bref."
 SEARCH = "Rechercher sur cette page…"
 NOMATCH = "Rien sur cette page ne correspond."
-# Card 2 (which games count) states rules that changed on 16 Sep 2026:
-# no player minimum, a ten-minute match, top eight per team. Until this
-# file is retranslated the page shows the English card there.
-STALE = (2, 14)   # 9.74.0: no top-eight cap - English until retranslated
+STALE = ()
 FOOT = 'Des questions ? Demandez à [[CONTACT]] sur Discord.'
 
 CARDS = [
  ("Ce que c'est",
-  '<p class="lead">Un classement de niveau pour le mode équipe de Starblast. Jouez des'
-  ' parties en équipe, gagnez, et votre niveau monte. Rien à installer, aucune inscription'
-  ' &mdash; vous êtes dans le classement dès que vous gagnez une partie que nous'
-  ' observons.</p>'),
+  '<p class="lead">Un classement de niveau pour le mode équipe de Starblast. Jouez des parties en équipe, gagnez, et votre note monte. Rien à installer ni à créer &mdash; vous êtes au classement dès que vous jouez une partie que nous notons.</p>'),
 
- ("Pour commencer",
-  '<ol>'
-  '<li>Ouvrez l&#39;onglet <a href="/play">Jouer</a> et choisissez une partie marquée comme'
-  ' suivie.</li>'
+ ('Pour commencer',
+  '<ol><li>Ouvrez l’onglet <a href="/play">Jouer</a> et choisissez une partie.</li>'
   '<li>Appuyez sur <b>Jouer</b>. Votre nom est copié, prêt à coller dans Starblast.</li>'
-  '<li>Jouez la partie. À la fin, le résultat apparaît ici en moins d&#39;une minute.</li>'
+  '<li>Jouez. Quand la partie se termine, le résultat apparaît ici en une dizaine de minutes.</li>'
   '</ol>'
-  '<p>C&#39;est tout ce qu&#39;il faut. Se connecter est facultatif et ne sert que pour les'
-  ' options ci-dessous.</p>'),
+  '<p>C’est tout. Se connecter est facultatif et ne sert que pour les options ci-dessous.</p>'),
 
- ("Quelles parties comptent",
-  '<p>Chaque partie en équipe en cours est suivie, dès l&#39;instant où le salon apparaît.'
-  ' Il n&#39;y a pas de limite au nombre suivi en même temps, ni de minimum de joueurs pour'
-  ' qu&#39;un salon soit repéré.</p><p>Pour être <b>classée</b>, une partie doit durer <b>au'
-  ' moins dix minutes</b>. Les parties plus courtes sont quand même enregistrées et peuvent'
-  ' être revues, mais elles ne font bouger le niveau de personne.</p><p>Dans une partie'
-  ' classée, les joueurs classés sont les <b>huit meilleurs au score</b> de chaque équipe,'
-  ' et il faut environ <b>dix minutes dans la partie</b> pour en faire partie &mdash; un'
-  ' vainqueur en a besoin, si tôt qu&#39;il soit arrivé.</p><p>L&#39;onglet <a'
-  ' href="/play">Jouer</a> liste chaque partie en cours et indique si l&#39;observateur y'
-  ' est déjà ; un salon tout neuf est repéré en quelques secondes. Si une partie est en'
-  ' cours, elle compte.</p>'
-  '<p>Le temps que vous passez dans les matchs classés est totalisé sur votre profil &mdash; le total de toujours, avec les deux dernières semaines à côté. C&rsquo;est l&rsquo;observateur qui le mesure, donc les mêmes règles s&rsquo;appliquent : un match non classé, ou un salon que personne ne regardait, ne compte pas. Le compteur a démarré le 21 septembre 2026.</p>'),
+ ('Quelles parties comptent',
+  '<p>Chaque partie en équipe en direct est suivie, dès que la salle apparaît. Il n’y a pas de limite au nombre de parties à la fois ni de minimum de joueurs pour qu’une salle soit prise en compte.</p>'
+  '<p>Pour être <b>notée</b>, une partie doit durer <b>au moins dix minutes</b>. Les plus courtes sont quand même enregistrées et peuvent être revues, mais elles ne changent la note de personne.</p>'
+  '<p>Dans une partie notée, <b>tous ceux</b> qui y ont passé <b>dix minutes</b> et atteint le score minimum sont notés, victoire ou défaite. Seul compte le temps que l’observateur a vu.</p>'
+  '<p>L’onglet <a href="/play">Jouer</a> liste chaque partie en direct et indique si l’observateur y est déjà ; une nouvelle salle est prise en compte en quelques secondes. Si une partie est en direct, elle compte.</p>'
+  '<p>Le temps passé en parties notées s’additionne sur votre profil &mdash; au total, avec les deux dernières semaines à côté. C’est l’observateur qui le mesure, donc il suit les mêmes règles que tout le reste : une partie non notée, ou une salle que personne ne suivait, ne compte pas. Le compteur a démarré le 21 septembre 2026.</p>'),
 
- ("Votre niveau",
-  '<p>Tout le monde commence à <b>[[ELO]]</b>. Une partie vous déplace d&#39;au plus'
-  ' <b>[[K]]</b> points.</p>'
-  '<p>De combien vous bougez dépend de qui vous battez. Battre une équipe plus forte'
-  ' rapporte presque le maximum ; en battre une bien plus faible ne rapporte presque rien.'
-  ' La défaite fonctionne pareil, à l&#39;envers. Deux équipes de même force bougent'
-  ' d&#39;exactement un point.</p>'
-  '<p>La force d&#39;une équipe est la moyenne de tous ses joueurs : écraser des'
-  ' équipes faibles ne vous fera pas monter &mdash; monter veut dire battre des gens'
-  ' eux-mêmes bien classés. Vos coéquipiers comptent aussi : votre variation mélange votre score et la moyenne de votre équipe &mdash; porter des alliés faibles vers la victoire rapporte plus que la même victoire dans une équipe surpuissante, et perdre avec des alliés faibles coûte moins.</p>'),
+ ('Votre niveau',
+  '<p>Tout le monde commence à <b>[[ELO]]</b>. Pendant vos <b>[[NEWGAMES]]</b> premières parties, une seule partie peut vous faire bouger de <b>[[KNEW]]</b> points au plus, pour trouver vite votre niveau ; ensuite, de <b>[[KEST]]</b> au plus.</p>'
+  '<p>Ce que vous gagnez dépend de qui vous battez. Battre un camp plus fort rapporte presque le maximum ; battre un camp bien plus faible ne rapporte presque rien. Perdre fonctionne de la même façon, à l’envers.</p>'
+  '<p>La force d’une équipe est la moyenne de tous ses membres, donc battre des équipes faibles ne vous fera pas monter &mdash; monter, c’est battre des joueurs eux-mêmes bien notés. Vos coéquipiers comptent aussi : votre variation mélange votre propre note avec la moyenne de votre équipe, donc porter des alliés faibles jusqu’à la victoire rapporte plus que la même victoire dans une équipe très forte &mdash; et perdre aux côtés d’alliés faibles coûte moins.</p>'),
 
- ("Pleine et demie",
-  '<p>Comme l&#39;observateur suit chaque partie depuis son début, il voit exactement quand'
-  ' votre vaisseau est arrivé. Entrez tôt et vous comptez <b>pleinement</b> ; arrivez dans'
-  ' une partie déjà bien avancée et elle ne compte qu&#39;à <b>moitié</b> &mdash; pour les'
-  ' gagnants comme pour les perdants. Ce qui compte, c&#39;est le moment où vous avez'
-  ' vraiment rejoint la partie, pas celui où vous appuyez sur Jouer.</p>'),
+ ('Pleine et demie',
+  '<p>Comme l’observateur suit chaque partie depuis le début, il voit exactement quand votre vaisseau a rejoint le camp qui a fini par gagner. Rejoint dans la première moitié de la partie, la victoire compte <b>en entier</b>. Dans la seconde moitié, elle compte <b>au plus à moitié</b> &mdash; moins encore si vous avez été là peu de temps.</p>'
+  '<p>Une défaite compte toujours en entier : arriver tard n’est pas une façon de perdre moins. On juge sur le moment où vous êtes vraiment entré, pas sur celui où vous avez appuyé sur Jouer.</p>'),
 
- ("Deux règles à connaître",
-  '<p><b>Partir tôt n&#39;évite pas la défaite.</b> Une équipe perdante est comptée avec'
-  ' son effectif le plus complet, et non avec ceux qui étaient encore là à la fin.</p>'
-  '<p><b>Un score inférieur à [[MINSCORE]] n&#39;est pas classé du tout</b>, victoire ou'
-  ' défaite. Rester assis dans un salon, ce n&#39;est pas jouer.</p>'),
+ ('Règles à connaître',
+  '<p><b>Il faut marquer, pas seulement être là.</b> Pour être noté, vous devez avoir atteint <b>[[MINPEAK]]</b> à un moment de la partie si votre camp a gagné, ou <b>[[MINLOSE]]</b> s’il a perdu. Rester dans une salle, ce n’est pas jouer.</p>'
+  '<p><b>Partir tôt n’évite pas une défaite.</b> Tous ceux qui ont joué pour le camp perdant la subissent, qu’ils soient encore là à la fin ou non.</p>'
+  '<p><b>Quitter un camp qui semble battu ne vous donne pas sa remontée.</b> Si votre camp avait moins de 25 % de chances quand vous êtes parti, et que vous étiez encore absent quand il a gagné, plus de dix minutes après, la victoire n’est pas la vôtre. Votre page de compte l’indique.</p>'),
 
  ("Deux noms",
   '<p><b>Votre nom de compte</b> est la ligne du classement qui vous appartient. C&#39;est'
@@ -120,16 +94,9 @@ CARDS = [
   ' à un autre co-chef. Personne ne peut retirer quelqu&#39;un de son propre rang ou'
   ' au-dessus.</p>'),
 
- ("Un nom déjà présent au classement",
-  '<p>Tapez-le dans <a href="/settings">Paramètres</a> et, si personne ne le possède, il'
-  ' est à vous aussitôt. S&#39;il a déjà un bilan, la page propose plutôt de le'
-  ' <b>réclamer</b> : il devient vôtre la prochaine fois que ce nom gagne une partie'
-  ' suivie, ce qui nous confirme que c&#39;est bien vous et non quelqu&#39;un qui se sert'
-  ' dans votre niveau.</p>'
-  '<p>Même chose si un nom déjà au classement <b>se lit</b> comme celui que vous avez tapé'
-  ' &mdash; un nom simple face à une version en lettres fantaisie. C&#39;est là que vos'
-  ' parties atterrissent, donc c&#39;est cette ligne qui vous est proposée. Si c&#39;est'
-  ' vraiment quelqu&#39;un d&#39;autre, enregistrez votre nom quand même.</p>'),
+ ('Un nom déjà présent au classement',
+  '<p>Saisissez-le dans <a href="/settings">Paramètres</a> et, s’il n’appartient à personne, il est à vous tout de suite. S’il a déjà un historique, la page vous propose de le <b>réclamer</b>. Prouvez qu’il est à vous en jouant une partie classée en Deathmatch &mdash; la commande <b>/proveclaim</b> du bot Discord vous guide &mdash; ou attendez que [[CONTACT]] l’examine. Tant que la réclamation est ouverte, elle s’affiche sur la page de ce joueur, pour que le vrai propriétaire puisse la signaler.</p>'
+  '<p>Il se passe la même chose si un nom déjà au classement <b>se lit</b> comme celui que vous avez tapé &mdash; un nom simple face à une version en lettres décorées. C’est sur cette ligne que vos parties arrivent, donc c’est celle-là qui vous est proposée. S’il s’agit vraiment de quelqu’un d’autre, enregistrez quand même votre nom.</p>'),
 
  ("Diriger un clan",
   '<p>Les clans sont attribués à la main. Demandez sur la page <a href="/clans">Clans</a>'
@@ -158,21 +125,8 @@ CARDS = [
   '<p>Le code du site est public : tout cela peut donc être vérifié plutôt que cru sur'
   ' parole.</p>'),
 
- ("Questions fréquentes",
-  '<div class="qa">'
-  '<b>J&#39;ai gagné et rien ne s&#39;est passé.</b>'
-  ' La partie n&#39;était probablement pas suivie. L&#39;onglet Jouer les liste avant que'
-  ' vous entriez.'
-  '<b>Mon nom est deux fois au classement.</b>'
-  ' Une orthographe différente compte comme un autre joueur, car c&#39;est tout ce que le'
-  ' jeu rapporte. Réclamez celui sous lequel vous jouez vraiment.'
-  '<b>Le classement a été remis à zéro.</b>'
-  ' Les niveaux sont encore en test et peuvent être effacés à nouveau. Rien de ce que vous'
-  ' faites n&#39;est perdu ; le classement repart simplement de zéro.'
-  '<b>Quelque chose ne va pas.</b>'
-  ' Dites-le sur <a href="/reports">Signaler</a> ou prévenez [[CONTACT]] sur Discord.'
-  ' C&#39;est lu par une personne.'
-  '</div>'),
+ ('Questions fréquentes',
+  '<div class="qa"><b>J’ai gagné et rien ne s’est passé.</b> Les résultats arrivent une dizaine de minutes après la fin de la partie. Au-delà, c’est en général l’une de ces raisons : la partie a duré moins de dix minutes, vous n’y étiez pas pendant les dix minutes nécessaires, votre score n’a pas atteint le minimum, ou vous avez quitté votre camp alors qu’il perdait et vous étiez encore absent quand il a gagné.<b>Mon nom apparaît deux fois.</b> Une orthographe différente compte comme un autre joueur, car c’est tout ce que le jeu indique. Réclamez celui que vous utilisez vraiment.<b>Le classement a été remis à zéro.</b> Les notes sont encore en test et peuvent être effacées à nouveau. Rien de ce que vous faites n’est perdu ; le classement repart simplement de zéro.<b>Quelque chose semble faux.</b> Dites-le sur <a href="/reports">Signaler</a> ou prévenez [[CONTACT]] sur Discord. Une personne le lit.</div>'),
  ("Divisions",
   '<p>Votre division est votre place parmi tous les joueurs classés du classement général, et non une note : elle bouge donc quand les joueurs autour de vous bougent. Les joueurs encore dans leurs premiers matchs ne sont pas comptés.</p>'
   '[[RANKS]]'),

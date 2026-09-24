@@ -17,6 +17,12 @@ filled in at render time, so no number or handle is written down twice:
     [[MINSCORE]] the minimum score to be rated at all
     [[CONTACT]]  the Discord handle to ask
     [[RANKS]]    the rank ladder, built from ranks.py (raw HTML, ours)
+    [[NEWGAMES]] matches a player counts as new (PROVISIONAL_GAMES)
+    [[KNEW]]     the most one match moves a new player (ELO_K x 1.4)
+    [[KEST]]     the most one match moves an established one (ELO_K x 0.8)
+    [[MINPEAK]]  the peak a winner needs to be rated (MIN_RATED_PEAK)
+    [[MINLOSE]]  the peak a loser needs to be rated (MIN_LOCK_SCORE)
+    [[REPLAYDAYS]] how long a replay stays playable (REPLAY_KEEP_DAYS)
 
 A language file may also set STALE = (2, 7) - the indexes of its own cards
 that are known to be out of date. Those fall back to the English card, the
@@ -34,7 +40,9 @@ from markupsafe import escape
 import ranks
 
 TOKENS = (("[[ELO]]", "elo"), ("[[K]]", "k"), ("[[MINSCORE]]", "minscore"),
-          ("[[CONTACT]]", "contact"))
+          ("[[CONTACT]]", "contact"), ("[[NEWGAMES]]", "newgames"),
+          ("[[KNEW]]", "knew"), ("[[KEST]]", "kest"), ("[[MINPEAK]]", "minpeak"),
+          ("[[MINLOSE]]", "minlose"), ("[[REPLAYDAYS]]", "replaydays"))
 
 _CACHE = {}
 

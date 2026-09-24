@@ -9,19 +9,15 @@ NOMATCH = "Nothing on this page matches that."
 FOOT = 'Questions? Ask [[CONTACT]] on Discord.'
 
 CARDS = [
- ("What this is",
-  '<p class="lead">A skill ranking for Starblast team mode. Play team games, win, and your'
-  ' rating goes up. Nothing to install and nothing to sign up for &mdash; you are on the'
-  ' board as soon as you win a match we are watching.</p>'),
+ ('What this is',
+  '<p class="lead">A skill ranking for Starblast team mode. Play team games, win, and your rating goes up. Nothing to install and nothing to sign up for &mdash; you are on the board as soon as you play a match we rate.</p>'),
 
- ("Getting started",
-  '<ol>'
-  '<li>Open the <a href="/play">Play</a> tab and pick a match marked as tracked.</li>'
+ ('Getting started',
+  '<ol><li>Open the <a href="/play">Play</a> tab and pick a match.</li>'
   '<li>Press <b>Play</b>. Your name is copied, ready to paste into Starblast.</li>'
-  '<li>Play the game. When it ends, the result appears here within a minute.</li>'
+  '<li>Play the game. When it ends, the result appears here within about ten minutes.</li>'
   '</ol>'
-  '<p>That is all it takes. Signing in is optional and only needed for the extras'
-  ' below.</p>'),
+  '<p>That is all it takes. Signing in is optional and only needed for the extras below.</p>'),
 
  ("Which games count",
   '<p>Every live team match is watched, from the moment the lobby appears. There is no limit'
@@ -35,27 +31,19 @@ CARDS = [
   ' counts.</p>'
   '<p>The time you spend in rated matches is added up on your profile &mdash; all-time, with the last fortnight beside it. The watcher measures it, so it follows the same rules as everything above: an unrated match, or a lobby nobody was watching, counts nothing. The clock started on 21 September 2026.</p>'),
 
- ("Your rating",
-  '<p>Everyone starts at <b>[[ELO]]</b>. A match moves you by at most <b>[[K]]</b>'
-  ' points.</p>'
-  '<p>How much you move depends on who you beat. Beating a stronger side gains close to the'
-  ' full amount; beating a much weaker one gains almost nothing. Losing works the same in'
-  ' reverse. Two even teams move by exactly one point.</p>'
-  '<p>A team&#39;s strength is the average of everyone on it, so farming weak teams'
-  ' will not lift you &mdash; climbing means beating people who are rated highly'
-  ' themselves. Who stands beside you counts too: your swing blends your own rating with your team&#39;s average, so carrying weak allies to a win pays more than the same win inside a stacked team &mdash; and losing beside weak allies costs less.</p>'),
+ ('Your rating',
+  '<p>Everyone starts at <b>[[ELO]]</b>. In your first <b>[[NEWGAMES]]</b> matches one match can move you by up to <b>[[KNEW]]</b> points, so you find your level quickly; after that, by up to <b>[[KEST]]</b>.</p>'
+  '<p>How much you move depends on who you beat. Beating a stronger side gains close to the full amount; beating a much weaker one gains almost nothing. Losing works the same in reverse.</p>'
+  '<p>A team&#39;s strength is the average of everyone on it, so farming weak teams will not lift you &mdash; climbing means beating people who are rated highly themselves. Who stands beside you counts too: your swing blends your own rating with your team&#39;s average, so carrying weak allies to a win pays more than the same win inside a stacked team &mdash; and losing beside weak allies costs less.</p>'),
 
- ("Full and half",
-  '<p>Because the watcher follows every match from its start, it sees exactly when your ship'
-  ' joined. Play from early on and you count in <b>full</b>; walk into a game already well'
-  ' underway and it counts at <b>half</b> &mdash; for winners and losers alike. It is judged'
-  ' on when you actually joined the match, not on when you press Play.</p>'),
+ ('Full and half',
+  '<p>Because the watcher follows every match from its start, it sees exactly when your ship joined the side that went on to win. Join it in the first half of the match and the win counts in <b>full</b>. Join it in the second half and it counts for <b>at most half</b> &mdash; less, the less of the match you were there for.</p>'
+  '<p>A loss always counts in full: arriving late is not a way to lose less. It is judged on when you actually joined, not on when you pressed Play.</p>'),
 
- ("Two rules worth knowing",
-  '<p><b>Leaving early does not dodge a loss.</b> A losing team is charged as its fullest'
-  ' roster, not as whoever was still there at the end.</p>'
-  '<p><b>A score under [[MINSCORE]] is not rated at all</b>, win or lose. Sitting in a lobby is'
-  ' not playing.</p>'),
+ ('Rules worth knowing',
+  '<p><b>You need a score, not just a seat.</b> To be rated you must have reached <b>[[MINPEAK]]</b> at some point in the match if your side won, or <b>[[MINLOSE]]</b> if it lost. Sitting in a lobby is not playing.</p>'
+  '<p><b>Leaving early does not dodge a loss.</b> Everyone who played for the losing side is charged, whether or not they were still there at the end.</p>'
+  '<p><b>Walking out on a side that looks beaten does not earn you its comeback.</b> If your side had under a 25% chance of winning when you left, and you were still gone when it won, more than ten minutes later, the win is not yours. Your account page says so.</p>'),
 
  ("Two names",
   '<p><b>Your account name</b> is the row on the leaderboard that belongs to you. That is'
@@ -109,15 +97,9 @@ CARDS = [
   ' ordinary members; a co-leader does everything the leader can except delete the clan or'
   ' touch another co-leader. Nobody can remove someone of their own rank or above.</p>'),
 
- ("A name that is already on the board",
-  '<p>Type it in <a href="/settings">Settings</a> and, if nobody owns it, it is yours at'
-  ' once. If it already has a record the page offers to <b>claim</b> it instead: it becomes'
-  ' yours the next time that name wins a tracked match, which is how we know it is really'
-  ' you rather than someone helping themselves to your rating.</p>'
-  '<p>The same happens if a name already on the board <b>reads</b> the same as the one you'
-  ' typed &mdash; a plain name against a fancy-lettered version of it. That row is where'
-  ' your matches are landing, so it offers you that one instead. If it is genuinely someone'
-  ' else, save your name anyway.</p>'),
+ ('A name that is already on the board',
+  '<p>Type it in <a href="/settings">Settings</a> and, if nobody owns it, it is yours at once. If it already has a record the page offers to <b>claim</b> it instead. Prove it is yours by playing one ranked Deathmatch game &mdash; the Discord bot&#39;s <b>/proveclaim</b> walks you through it &mdash; or wait for [[CONTACT]] to review it. While a claim is open it shows on that player&#39;s page, so the real owner can report it.</p>'
+  '<p>The same happens if a name already on the board <b>reads</b> the same as the one you typed &mdash; a plain name against a fancy-lettered version of it. That row is where your matches are landing, so it offers you that one instead. If it is genuinely someone else, save your name anyway.</p>'),
 
  ("Running a clan",
   '<p>Clans are handed out by hand. Ask on the <a href="/clans">Clans</a> page and'
@@ -146,35 +128,17 @@ CARDS = [
   '<p>The site&#39;s code is public, so any of this can be checked rather than taken on'
   ' trust.</p>'),
 
- ("Common questions",
-  '<div class="qa">'
-  '<b>I won but nothing happened.</b>'
-  ' Every live match is watched now, so it is usually one of three things: the match ran'
-  ' under ten minutes, you were not in it for the ten minutes a rating needs, or your score'
-  ' never reached the minimum.'
-  '<b>My name is on the board twice.</b>'
-  ' A different spelling counts as a different player, because that is all the game reports.'
-  ' Claim the one you actually play under.'
-  '<b>The board reset.</b>'
-  ' Ratings are still being tested and may be wiped again. Nothing you do is wasted; the'
-  ' board just starts over.'
-  '<b>Something looks wrong.</b>'
-  ' Say so on <a href="/reports">Report</a> or tell [[CONTACT]] on Discord. It is read by a'
-  ' person.'
-  '</div>'),
+ ('Common questions',
+  '<div class="qa"><b>I won but nothing happened.</b> Results take about ten minutes to arrive after a match ends. After that it is usually one of these: the match ran under ten minutes, you were not in it for the ten minutes a rating needs, your score never reached the minimum, or you left your side while it was losing and were still gone when it won.<b>My name is on the board twice.</b> A different spelling counts as a different player, because that is all the game reports. Claim the one you actually play under.<b>The board reset.</b> Ratings are still being tested and may be wiped again. Nothing you do is wasted; the board just starts over.<b>Something looks wrong.</b> Say so on <a href="/reports">Report</a> or tell [[CONTACT]] on Discord. It is read by a person.</div>'),
  ("Ranks",
   '<p>Your division is your place among every ranked player on the all-time'
   ' board, not a rating number &mdash; so it moves as the players around you'
   ' move. Players still in their first few matches are not counted.</p>'
   '[[RANKS]]'),
- ("Replays",
-  '<p>Every watched match is recorded, and any of them can be played back from the'
-  ' <a href="/replays">Replays</a> page &mdash; the radar with each ship drawn as the hull it'
-  ' was actually flying, the stations module by module, the win chance, and the scoreboard'
-  ' moving the way it moved. Hover a pilot to find their ship on the map, or a ship to find'
-  ' their row.</p>'
-  '<p>A replay opens at the start of the match, not at the point the watcher began rating'
-  ' it.</p>'),
+ ('Replays',
+  '<p>Every watched match is recorded, and can be played back from the <a href="/replays">Replays</a> page for <b>[[REPLAYDAYS]] days</b> &mdash; the radar with each ship drawn as the hull it was actually flying, the stations module by module, the win chance, and the scoreboard moving the way it moved. Hover a pilot to find their ship on the map, or a ship to find their row.</p>'
+  '<p>After that the result and who played are kept, but not the playback. <b>Save</b> a replay and it is yours to keep and open again later.</p>'
+  '<p>A replay opens at the start of the match, not at the point the watcher began rating it.</p>'),
 
  ("Live matches",
   '<p>The <a href="/live">Live</a> tab is that same screen in real time: three team panels'

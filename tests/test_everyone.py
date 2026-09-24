@@ -111,8 +111,9 @@ spec = io.open(os.path.join(ROOT, "RATING_SPEC.md"), encoding="utf-8").read()
 check("the spec says no roster cap", "no roster cap" in spec.lower() or "**There is no roster cap**" in spec, True)
 for lang in ("es", "fr", "de", "it", "ru", "vi", "zh", "fa"):
     m = __import__("info_text_" + lang)
-    check("%s shows the English for the two changed cards" % lang,
-          set(getattr(m, "STALE", ())) >= {2, 14}, True)
+    # 9.75.0 translated the two changed cards, so nothing falls back now.
+    check("%s has the changed cards in its own language" % lang,
+          tuple(getattr(m, "STALE", ()) or ()), ())
 
 print("\n%d passed, %d failed" % (ok, fail))
 shutil.rmtree(TMP, ignore_errors=True)
