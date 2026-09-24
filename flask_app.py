@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.75.2"
+APP_VERSION = "9.76.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5964,12 +5964,14 @@ def my_held_results():
         'flood-cut': ("This match was swarmed by a flood of scripted ships. It is "
                       "rated as it stood when the swarm arrived, and the sides the "
                       "swarm landed on take no loss for it."),
-        'duplicate-name': ("Several ships were flying this name at once during this "
-                           "match, so there was no way to tell which one was you. "
-                           "When it is only two, the one that was there first keeps "
-                           "the name; with more than that, the result is set aside "
-                           "rather than guessed at. Checking in before you play ties "
-                           "the result to your own ship, which avoids this."),
+        'duplicate-name': ("Another ship was flying this name at the same time as "
+                           "yours during this match. When that happens a win does not "
+                           "count, unless the other ship turned up at least forty "
+                           "minutes after the name was first seen - there is no "
+                           "telling which of the two earned it. A loss still counts: "
+                           "the ship that was there first keeps the name. With three "
+                           "or more ships on one name, the result is set aside "
+                           "either way."),
         'left-while-losing': ("You left this match with more than ten minutes to go, "
                               "while your team was given less than a one-in-four "
                               "chance of winning. They came back and won it without "
@@ -6287,7 +6289,7 @@ def game_end():
 
         for _key in ('winning_team', 'losing_team_1', 'losing_team_2',
                      'all_players', 'half_elo', 'ambiguous', 'left_losing',
-                     'dominance_exempt'):
+                     'doubled_win', 'dominance_exempt'):
             _val = data.get(_key)
             if isinstance(_val, list):
                 data[_key] = [_to_account(str(x)) for x in _val]
@@ -6661,6 +6663,13 @@ def game_end():
     _amb = [(p, 1) for p in _in_w if skip_reason(p) == 'duplicate-name']
     _amb += [(p, 0) for p in _in_l
              if skip_reason(p, losing=True) == 'duplicate-name']
+    # Winners the scorer struck because a second ship flew their name at the
+    # same time, under forty minutes after the name was first seen (owner,
+    # 24 Sep 2026). Already absent from winning_team; recorded here with the
+    # same reason and the same account-holders-only gate as the rest.
+    _amb += [(p, 1) for p in (data.get('doubled_win') or [])
+             if isinstance(p, str) and p.strip()
+             and normalize_name(p) not in _rated_now]
     if _amb:
         _ak = sorted({normalize_name(p) for p, _w in _amb})
         _owned = set()
@@ -7769,6 +7778,14 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.76.0", "at": "2026-09-24T08:00:00Z", "changes": [
+        "A name flown by two ships at the same time never earns a win. The "
+        "only exception is a second ship that turns up forty minutes or more "
+        "after the name was first seen. A loss still counts: the ship that "
+        "was there first keeps the name. Dying and coming back on a new ship "
+        "is not affected, because that is never two ships at once. If this "
+        "costs you a win, your account page says so.",
+    ]},
     {"version": "9.75.2", "at": "2026-09-24T07:30:00Z", "changes": [
         "The name suggestions under the leaderboard search box drop down over "
         "the board again. They were being drawn underneath it.",

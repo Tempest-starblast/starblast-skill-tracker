@@ -117,7 +117,7 @@ h = cl.get("/api/my/held")
 body = h.get_data(as_text=True)
 check("the held endpoint answers", h.status_code, 200)
 check("and explains it in words, not just the reason code",
-      "no way to tell which one was you" in body, True)
+      "there is no telling which of the two earned it" in body, True)   # wording since 9.76.0
 check("the generic fallback is NOT what they get",
       "set aside for review" in body, False)
 

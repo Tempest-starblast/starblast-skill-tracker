@@ -138,7 +138,7 @@ on their account page. Nothing ever vanishes unexplained.
 | reason | what happened |
 |---|---|
 | `protected` | Protection is on and no check-in was found for this match |
-| `duplicate-name` | Three or more ships flew one name at once, or one ship sat on two teams — unattributable. Two ships on one name is not held: the first one keeps it (§8) |
+| `duplicate-name` | A win, when a second ship flew the name at the same time under 40 min after the name was first seen (§8). Or any result, when three or more ships flew one name at once or one ship sat on two teams |
 | `left-while-losing` | §6 above |
 | `dominance-flip` | Led every rival by a distance, then lost to a side that filled up mid-match |
 | `resurgence` | The winner had collapsed to almost nobody and came back |
@@ -168,6 +168,17 @@ any roster is built; the flood evidence still counts every ship. Owner's rule,
 24 Sep 2026, after a second ship under FAFA's name made his loss in
 Trappist-1 #7142 disappear. Three or more ships on one name is a swarm, not a
 player, and is still held as `duplicate-name`.
+
+**And never a win.** A name that a second ship flew while another ship already
+had it on the board is not paid a win, unless that second ship first appeared
+**40 minutes or more** after the name was first seen (`DOUBLE_WIN_GAP_S`).
+The scorer strikes it from the winners before any team strength is worked out
+and sends it as `doubled_win`; the site records a `duplicate-name` hold for
+account holders. Losses are unaffected. A player who dies and comes back on a
+new ship id is never on two ships at once, so is not caught. Owner's rule,
+24 Sep 2026: "none of the two person things should ever grant a win once you
+start being tracked or unless there's a 40 minute gap between sighting".
+Measured on 64 doubled matches (12 h): 14 winners struck.
 
 Protection still holds a protected account's result unless it was checked in.
 A check-in is valid for **7200 s** (`CHECKIN_VALID_SECONDS`).
