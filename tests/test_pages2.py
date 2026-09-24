@@ -76,6 +76,14 @@ check("deep link script kept", "URLSearchParams(location.search).get('q')" in h,
 r = app.get("/info?lang=de")
 check("German 200 with the German clans card", (r.status_code, "Dein Kontoname bist nur du" in r.get_data(as_text=True)), (200, True))
 
+print("\n--- the board search suggestions sit above the board ---")
+import re as _re                                                # noqa: E402
+h = app.get("/").get_data(as_text=True)
+m = _re.search(r"#qcard\{[^}]*z-index:(\d+)", h)
+check("the search card has a z-index above the table (9.75.2)", bool(m) and int(m.group(1)) > 0, True)
+check("  and below the period menu", bool(m) and int(m.group(1)) < 40, True)
+check("  the suggestion box is inside that card", h.find('id="qdd"') > h.find('id="qcard"') > 0, True)
+
 print("\n--- Changelog ---")
 r = app.get("/changelog")
 check("200", r.status_code, 200)
