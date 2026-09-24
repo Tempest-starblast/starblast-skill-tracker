@@ -106,7 +106,7 @@ print("\n--- it can use the shop like a player ---")
 r = cl.post("/shop/buy", json={"code": 202}).get_json()
 check("a purchase lands", r.get("ok"), True)
 check("balance debited", q("SELECT gems FROM players WHERE google_sub=?", (fa.SANDBOX_SUB,))[0][0],
-      12345 - fa.SHIP_TIER_PRICE[2])
+      12345 - fa.shop_price("ship", 202, fa.SHIP_TIER_PRICE[2])[0])   # today's price
 
 print("\n--- and leaves nothing behind ---")
 cl.post("/dev/restore")

@@ -134,7 +134,7 @@ print("\n--- buying ---")
 # the tier you have reached since 9.51.0
 seed(gems=5000, peak_div="delta")
 cl = client(OWNER)
-TRIDENT = by[202]["price"]
+TRIDENT = fa.shop_price("ship", 202, by[202]["price"])[0]   # today's price: it may be featured
 r = cl.post("/shop/buy", json={"code": 202}).get_json()          # Trident, tier 2
 check("a purchase lands", r.get("ok"), True)
 check("balance debited", bal(), 5000 - TRIDENT)

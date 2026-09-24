@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.72.0"
+APP_VERSION = "9.73.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5086,6 +5086,7 @@ def replay_data(mid):
         conn.close()
         return jsonify({"error": "No such match."}), 404
     m_name, m_region, m_played, m_sys, m_treads, m_flood, m_fmax = meta
+    m_watch_s = match_watch_seconds(c, mid, m_treads)
     # Flood evidence (several ships under one name at once), so the replay can say
     # why a flagged match shows no swarm on the radar: those accounts rarely spawn.
     try:
@@ -5127,7 +5128,7 @@ def replay_data(mid):
         return jsonify(dict(_flood_keys, **{
             "name": m_name or ("#%s" % m_sys), "region": m_region or "",
             "played_at": str(m_played or ""), "sys_id": m_sys,
-            "top": {}, "skill": {}, "tracked_seconds": int(m_treads or 0) * 10,
+            "top": {}, "skill": {}, "tracked_seconds": m_watch_s,
             "gaps": [], "stlay": None, "welcome": None,
             "prob_enabled": WIN_PROB_ENABLED,
             "players": players, "points": [], "no_score_chart": True,
@@ -5248,7 +5249,7 @@ def replay_data(mid):
         "top": p.get("top") or {}, "skill": pskill,
         # So the page can say "covers the last X of a ~Y-minute match"
         # when the recording is partial.
-        "tracked_seconds": int(m_treads or 0) * 10,
+        "tracked_seconds": m_watch_s,
         "gaps": [[round(a), round(b)] for a, b in _gaps],
         "stlay": p.get("stlay") or None,
         "welcome": p.get("welcome") or None,
@@ -5499,7 +5500,11 @@ def replays_index():
         want = pg * 10
         c.execute("SELECT 'm', m.id, '', m.lobby_name, m.sys_id, "
                   "COALESCE(m.region,'america'), m.played_at, "
-                  "COALESCE(m.tracked_reads, 0) * 10, '' FROM matches m" + full_cond +
+                  # The watch the scorer measured (see match_watch_seconds);
+                  # only a page's worth of rows, so the subquery is cheap.
+                  "COALESCE((SELECT MAX(mp.played_s) FROM match_players mp "
+                  "WHERE mp.match_row = m.id), COALESCE(m.tracked_reads, 0) * %s), "
+                  "'' FROM matches m" % RAW_READ_SECONDS + full_cond +
                   " ORDER BY m.played_at DESC, m.id DESC LIMIT ?", args + [want])
         got = c.fetchall()
         try:
@@ -7753,6 +7758,16 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.73.0", "at": "2026-09-24T00:30:00Z", "changes": [
+        "Match lengths on the Replays page are right. Every scored match was "
+        "shown about three times too long \u2014 Achernaluli #8848 said 417 "
+        "minutes and ran 136. The list was still counting each reading as "
+        "ten seconds, which is how the old tracker worked; the current one "
+        "reads every three. The replay page had the same mistake, and used "
+        "it to decide whether a recording was complete, so it could call a "
+        "full recording partial. Both now use the length the scorer "
+        "measured.",
+    ]},
     {"version": "9.72.0", "at": "2026-09-24T00:00:00Z", "changes": [
         "Achievements pay what they are worth. Measured over the 44 days "
         "since the wipe: nobody has 500 wins, or 1,000 games, or 50 survival "
@@ -13518,6 +13533,23 @@ def play_name_map(c):
 # across 70 minutes, 972 across 53, 797 across 43 - all ~3.2s). Only used to
 # estimate the length of matches recorded before the watch length was stored.
 RAW_READ_SECONDS = 3.2
+
+
+def match_watch_seconds(c, match_row, treads=0):
+    """How long a scored match was watched, in seconds.
+
+    The scorer measures it (watch_s) and records each rated player's share
+    of it as match_players.played_s, so the largest played_s IS the watch.
+    Matches from before played_s existed fall back to reads x
+    RAW_READ_SECONDS. Never reads x 10: that was the retired browser
+    tracker's cadence, and it made every match three times too long."""
+    try:
+        r = c.execute("SELECT MAX(played_s) FROM match_players WHERE match_row = ?",
+                      (match_row,)).fetchone()
+        ws = (r[0] if r else None) or 0
+    except sqlite3.Error:
+        ws = 0
+    return int(ws or (treads or 0) * RAW_READ_SECONDS)
 # How long a decided match waits for its replay before being announced without
 # one. The scorer is usually a minute or so behind the result.
 REPLAY_GRACE_SECONDS = 360

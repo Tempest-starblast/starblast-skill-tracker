@@ -127,7 +127,7 @@ check("they can actually buy something", r["ok"], True)
 t2.post("/dev/preview", data={"key": acc})
 check("redeeming again does not print a second million",
       fa.gem_balance(sqlite3.connect(fa.DB_PATH).cursor(), "player", N("Real Tester")),
-      fa.PREVIEW_CREDIT - fa.SHIP_TIER_PRICE[2])
+      fa.PREVIEW_CREDIT - fa.shop_price("ship", 202, fa.SHIP_TIER_PRICE[2])[0])   # today's price
 
 print("\n--- the banner tells them the truth ---")
 h = t2.get("/").get_data(as_text=True)
