@@ -138,7 +138,7 @@ on their account page. Nothing ever vanishes unexplained.
 | reason | what happened |
 |---|---|
 | `protected` | Protection is on and no check-in was found for this match |
-| `duplicate-name` | Two ships flew one name at once — unattributable |
+| `duplicate-name` | Three or more ships flew one name at once, or one ship sat on two teams — unattributable. Two ships on one name is not held: the first one keeps it (§8) |
 | `left-while-losing` | §6 above |
 | `dominance-flip` | Led every rival by a distance, then lost to a side that filled up mid-match |
 | `resurgence` | The winner had collapsed to almost nobody and came back |
@@ -157,6 +157,17 @@ on their account page. Nothing ever vanishes unexplained.
 3. **A clan tag.** The tag in any of its stylings, plus the name of a member of
    that clan, is that member — when exactly one member matches. Two members who
    read alike identify neither.
+
+**Two ships, one name.** When exactly two ships fly the same name at the same
+moment, the ship that was there first keeps the name — earliest sighting, ties
+to the lower ship id, which the game hands out in join order — and the later
+ship is left out for as long as both are on the board. Once the first ship is
+gone the later one is the name again, so a reconnect whose old ship lingers on
+the roster keeps its whole match. The scorer does this (`senior_only`) before
+any roster is built; the flood evidence still counts every ship. Owner's rule,
+24 Sep 2026, after a second ship under FAFA's name made his loss in
+Trappist-1 #7142 disappear. Three or more ships on one name is a swarm, not a
+player, and is still held as `duplicate-name`.
 
 Protection still holds a protected account's result unless it was checked in.
 A check-in is valid for **7200 s** (`CHECKIN_VALID_SECONDS`).

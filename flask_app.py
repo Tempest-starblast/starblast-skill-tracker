@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.75.0"
+APP_VERSION = "9.75.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -5964,11 +5964,12 @@ def my_held_results():
         'flood-cut': ("This match was swarmed by a flood of scripted ships. It is "
                       "rated as it stood when the swarm arrived, and the sides the "
                       "swarm landed on take no loss for it."),
-        'duplicate-name': ("Two ships were flying this name at once during this "
+        'duplicate-name': ("Several ships were flying this name at once during this "
                            "match, so there was no way to tell which one was you. "
-                           "The result is set aside rather than guessed at. Checking "
-                           "in before you play ties the result to your own ship, "
-                           "which avoids this."),
+                           "When it is only two, the one that was there first keeps "
+                           "the name; with more than that, the result is set aside "
+                           "rather than guessed at. Checking in before you play ties "
+                           "the result to your own ship, which avoids this."),
         'left-while-losing': ("You left this match with more than ten minutes to go, "
                               "while your team was given less than a one-in-four "
                               "chance of winning. They came back and won it without "
@@ -7768,6 +7769,16 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.75.1", "at": "2026-09-24T07:00:00Z", "changes": [
+        "When two ships fly the same name at the same time, the one that was "
+        "there first keeps the name and is rated; the later one is ignored for "
+        "as long as both are on the board. Until now neither was rated, win or "
+        "lose, so a second ship under your own name could make a loss "
+        "disappear. That is what happened to FAFA's loss in Trappist-1 #7142 "
+        "this morning. "
+        "Three or more ships on one name is a swarm, not a player, and is "
+        "still not rated.",
+    ]},
     {"version": "9.75.0", "at": "2026-09-24T03:00:00Z", "changes": [
         "The Info page says what the site actually does. Read against the "
         "code card by card, it was wrong about: how fast results arrive "
