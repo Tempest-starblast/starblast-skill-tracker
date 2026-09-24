@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.73.1"
+APP_VERSION = "9.74.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7764,6 +7764,25 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.74.0", "at": "2026-09-24T02:00:00Z", "changes": [
+        "Everyone who plays is rated. A match used to rate only the top eight "
+        "on each side, and the winners were picked by the score they "
+        "finished with \u2014 which Starblast knocks down every time you die, so "
+        "the players who died winning it came last. Top Binz was on the "
+        "winning side of a 136-minute match for 115 minutes and got nothing. "
+        "Now anyone who was in the match for ten minutes and reached the "
+        "minimum score is rated, win or lose. Across the last 362 matches that "
+        "is 898 wins that should have counted and did not.",
+        "Time only counts while the recorder was watching. If it is restarted "
+        "mid-match, the seconds it was away are left out of everyone's time.",
+        "Restarting the recorder no longer costs the matches in progress. It "
+        "picks each one up where it left it, from what it had already "
+        "written down, and checks with the game's own match clock that it is "
+        "still the same match. Before, every restart threw away every match "
+        "then being played.",
+        "Two lobbies with the same number in different regions could close "
+        "each other's matches early in the scorer. They are kept apart now.",
+    ]},
     {"version": "9.73.1", "at": "2026-09-24T01:00:00Z", "changes": [
         "Match lengths, properly this time. 9.73.0 worked a match's length "
         "out from how long its longest-present rated player was there, which "

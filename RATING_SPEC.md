@@ -70,15 +70,22 @@ is what `tools_rating_impact.py drift` looks for.
 
 | rule | value | constant |
 |---|---|---|
-| Rated players per side | top **8** by score | `LOCKED_ROSTER_SIZE` |
-| Minimum presence to be rated | **10 minutes** | `MIN_RATED_PRESENCE_S` |
+| Rated players per side | **everyone** who clears the floors below — no cap | — |
+| Minimum presence to be rated | **10 minutes**, of time actually observed | `MIN_RATED_PRESENCE_S` |
 | A loser must have scored at least | **100** | `MIN_LOCK_SCORE` |
 | "Joined late" means after | **30 s** | `LATE_JOIN_S` |
 | Winner's minimum score | **1000** | `MIN_RATED_SCORE` |
 | Winner's minimum peak score | **2000** | `MIN_RATED_PEAK` |
 
-- **Winners** are ranked on their *closing* score; **losers** on their *peak*, so
-  a high scorer wiped out by the end still counts as having been assembled.
+- **There is no roster cap** (since 9.74.0). Each side used to rate its top 8,
+  winners by *closing* score — which Starblast lowers on every death, so the
+  players who died winning the push ranked last. Every eligible player is now
+  rated; ineligible players are removed *before* anything else and count for
+  no one — including in their team's strength, on both sides.
+- Scores are judged on the **peak** a player reached, winners and losers alike.
+- **Presence is observed time.** A gap in the recording — the observer
+  restarting mid-match, which it now resumes from — is left out of everyone's
+  time (`GAP_S` = 15 s in `trueskill_scorer.py`).
 - A **winner** needs the full ten minutes however early they arrived.
 - A **loser** is excused only if they were *both* under the floor *and* joined
   late. An early quitter still takes the loss — dying on purpose is not an exit.

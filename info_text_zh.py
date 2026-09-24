@@ -8,7 +8,7 @@ NOMATCH = "本页没有匹配的内容。"
 # Card 2 (which games count) states rules that changed on 16 Sep 2026:
 # no player minimum, a ten-minute match, top eight per team. Until this
 # file is retranslated the page shows the English card there.
-STALE = ()
+STALE = (2, 14)   # 9.74.0: no top-eight cap - English until retranslated
 FOOT = '有问题？在 Discord 上找 [[CONTACT]]。'
 
 CARDS = [

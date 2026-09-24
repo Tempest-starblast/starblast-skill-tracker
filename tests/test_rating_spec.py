@@ -113,7 +113,10 @@ for pattern, label in (
         (r"gem_peak_level", "the tier authority"),
         (r"must not create or destroy rating", "conservation"),
         (r"duplicate-name", "the two-ships-one-name hold"),
-        (r"dominance-flip", "the flip exemption")):
+        (r"dominance-flip", "the flip exemption"),
+        (r"no roster cap", "that every eligible player is rated"),
+        (r"observed time", "that presence is observed time"),
+        (r"count for\s+no one", "that the ineligible count for no one")):
     spec_says(pattern, label)
 
 print("\n--- every held reason the code can emit is documented ---")
