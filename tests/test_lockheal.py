@@ -136,6 +136,43 @@ check("the second is answered 'already recorded'",
       (r2.status_code, (r2.get_json() or {}).get("status")), (200, "already recorded"))
 check("  and moves nothing", state(), after_one)
 
+print("\n--- a match with nobody to rate is answered, not a 500 (9.77.1) ---")
+# sb_raw_7596 (24 Sep 20:47): one rated winner, no losers. `mrow` was never
+# set, the event payout read it, and every retry got a 500 - jamming the
+# scorer's queue for five hours.
+# The real one: its only winner was "..............." - a name that reads as
+# nothing, so nobody at all was rated and `applied` stayed empty.
+lonely = {"match_id": "test-lonely-1", "sys_id": 7596, "region": "asia",
+          "winning_team": ["..............."], "losing_team_1": [], "losing_team_2": [],
+          "scores": {"...............": 2911}, "peak_scores": {"...............": 2911},
+          "presence": {"...............": 1.0},
+          "watch_s": 600, "tracked_reads": 184, "ended_at": "2026-09-24 20:47:31"}
+fa.app.config["TESTING"] = False
+fa.app.config["PROPAGATE_EXCEPTIONS"] = False
+r = tc.post("/api/game_end", data=json.dumps(lonely), content_type="application/json", headers=HDR)
+check("one winner and no losers is not a 500", r.status_code != 500, True)
+fa.app.config["TESTING"] = True
+fa.app.config["PROPAGATE_EXCEPTIONS"] = None
+
+print("\n--- a late result keeps the time it was played ---")
+import time as _t                                               # noqa: E402
+_now = _t.time()
+_ago = _t.strftime("%Y-%m-%d %H:%M:%S", _t.gmtime(_now - 5 * 3600))
+check("five hours late: stamped with its own end time", fa.result_played_at(_ago, now=_now), _ago)
+check("no end time: stamped now", fa.result_played_at(None, now=_now),
+      _t.strftime("%Y-%m-%d %H:%M:%S", _t.localtime(_now)))
+check("an end time in the future is not believed", fa.result_played_at(
+    _t.strftime("%Y-%m-%d %H:%M:%S", _t.gmtime(_now + 3600)), now=_now),
+    _t.strftime("%Y-%m-%d %H:%M:%S", _t.localtime(_now)))
+check("nor one older than three days", fa.result_played_at("2026-01-01 00:00:00", now=_now),
+      _t.strftime("%Y-%m-%d %H:%M:%S", _t.localtime(_now)))
+late = dict(payload, match_id="test-late-1", sys_id=4343, ended_at=_ago)
+tc.post("/api/game_end", data=json.dumps(late), content_type="application/json", headers=HDR)
+c = sqlite3.connect(fa.DB_PATH)
+check("the late match is on record at its real time",
+      c.execute("SELECT played_at FROM matches WHERE match_id='test-late-1'").fetchone(), (_ago,))
+c.close()
+
 print("\n%d passed, %d failed" % (ok, fail))
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if fail else 0)

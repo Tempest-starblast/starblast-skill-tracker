@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.77.0"
+APP_VERSION = "9.77.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6252,6 +6252,26 @@ def api_score_backfill():
                     "samples": samples}), 200
 
 
+RESULT_LATE_MAX_S = 3 * 86400
+
+
+def result_played_at(ended_at, now=None):
+    """When a result's match was played: the scorer's `ended_at` (UTC) when it
+    is believable, else now. A result retried after an outage arrives late,
+    and stamping it with the arrival time put hours-old matches at the top
+    of everyone's history (9.77.1). Believable = parses, not in the future,
+    not older than RESULT_LATE_MAX_S."""
+    now = time.time() if now is None else now
+    try:
+        t = calendar.timegm(time.strptime(str(ended_at or ''), '%Y-%m-%d %H:%M:%S'))
+    except (ValueError, TypeError, OverflowError):
+        t = None
+    if t is not None and t <= now + 60 and now - t <= RESULT_LATE_MAX_S:
+        return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t))
+    # The same stamp as before 9.77.1 (the host's clock, which is UTC).
+    return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))
+
+
 @app.route('/api/game_end', methods=['POST'])
 def game_end():
     if not api_key_ok(request.headers.get('X-API-Key')):
@@ -6903,9 +6923,15 @@ def game_end():
     # Write the match itself down. INSERT OR IGNORE plus the empty check
     # means a match reported twice is stored once, matching the elo guard.
     _flood_json, _flood_max, _match_id = None, 0, None
+    # Set only when a rating was applied; the event payout below reads it
+    # either way. Unset, a match with nobody to rate (one winner, no losers)
+    # raised UnboundLocalError - a 500 on every attempt, which from 9.49.0
+    # dropped such results silently and on 24-25 Sep jammed the scorer's
+    # retry queue behind one of them for five hours (9.77.1).
+    mrow = None
     if applied:
         match_id = str(data.get('match_id') or f"sys{sys_id}-{int(time.time())}")
-        now_ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        now_ts = result_played_at(data.get('ended_at'))
         flood_json, flood_max = summarize_flood(data.get('dup_names'))
         # A lobby holding far more ships than the 24 the mode allows is a
         # flood however the names read - the swarm rarely surfaces in the
@@ -7798,6 +7824,16 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.77.1", "at": "2026-09-25T02:00:00Z", "changes": [
+        "Match results stopped arriving at about 20:47 UTC last night. One "
+        "match in which nobody could be rated made the site fail every time "
+        "it was sent, and the new resending of missed results waited on it "
+        "instead of carrying on with the rest. The site no longer fails on "
+        "such a match, the results that were waiting have been added, and one "
+        "result that will not go in can no longer hold up the others.",
+        "A result that arrives late is recorded at the time its match was "
+        "actually played, not the time it arrived.",
+    ]},
     {"version": "9.77.0", "at": "2026-09-24T15:30:00Z", "changes": [
         "The site was down from about 13:10 to 14:57 UTC today. One of its "
         "web workers took the database's write lock and never let it go, so "
