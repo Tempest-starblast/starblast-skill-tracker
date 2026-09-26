@@ -1,0 +1,20 @@
+{#- A player's Alpha Orionis Wars rating - its own board, never the main one.
+    Needs `aow` from aow_card(); shows nothing without it. 9.78.0. -#}
+{% if aow %}
+<style>
+.aowcard{display:flex;align-items:center;gap:16px;flex-wrap:wrap;text-decoration:none;color:var(--text);
+  border-color:rgba(255,138,61,.45);
+  background:linear-gradient(120deg,rgba(255,122,48,.14),rgba(255,122,48,.03) 60%)}
+.aowcard:hover{border-color:rgba(255,160,90,.8)}
+.aowcard .aowc-k{font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#ffab6b}
+.aowcard .aowc-v{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;color:#ffd2ad;line-height:1}
+.aowcard .aowc-s{color:var(--muted);font-variant-numeric:tabular-nums}
+.aowcard .aowc-go{margin-left:auto;font-weight:600;color:#ffab6b;white-space:nowrap}
+</style>
+<a class="card aowcard" href="/aow" id="aowCard">
+  <span class="aowc-k">Alpha Orionis Wars</span>
+  <span class="aowc-v">{{ '%.0f'|format(aow.elo) }}</span>
+  <span class="aowc-s">AOW rating &middot; {{ aow.wins }}&ndash;{{ aow.losses }} &middot; #{{ aow.rank }} of {{ aow.of }}</span>
+  <span class="aowc-go">AOW board &rarr;</span>
+</a>
+{% endif %}

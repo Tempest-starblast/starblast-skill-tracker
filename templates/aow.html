@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Alpha Orionis Wars - Starblast Skill Leaderboard{% endblock %}
+{% block meta_description %}Alpha Orionis Wars, Starblast's monthly 230-player event: the America session countdown, the AOW rating board and every AOW result.{% endblock %}
+{% block css %}
+.aowhero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:end}
+.aowclock{font-size:44px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:1px;
+  color:#ffd2ad;line-height:1;text-shadow:0 0 22px rgba(255,120,40,.35)}
+.aowclock-l{font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#ffab6b;margin:0 0 6px}
+.aowcta{display:inline-block;margin-top:10px;padding:9px 16px;border-radius:10px;font-weight:700;
+  text-decoration:none;color:#1a0d05;background:linear-gradient(120deg,#ffb067,#ff7a2e)}
+.aowcta:hover{filter:brightness(1.08)}
+.aowcta:focus-visible,.aowlink:focus-visible{outline:2px solid #ffd2ad;outline-offset:2px}
+.aowrules{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.aowrules li{padding-left:18px;position:relative;line-height:1.55}
+.aowrules li::before{content:'';position:absolute;left:0;top:.62em;width:7px;height:7px;border-radius:2px;background:#ff8a3d}
+.aowrules b{color:#ffd2ad}
+.aownum{font-variant-numeric:tabular-nums}
+.aowlink{color:var(--text);text-decoration:none}
+.aowlink:hover{color:#ffab6b}
+.aowres{display:grid;gap:10px}
+.aowres-h{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin:0 0 10px}
+.aowres-h b{color:#ffd2ad}
+.aowres-h .m{color:var(--muted)}
+.aowteams{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.aowteam{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:rgba(0,0,0,.18)}
+.aowteam.won{border-color:rgba(102,230,184,.45)}
+.aowteam h3{margin:0 0 6px;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)}
+.aowteam.won h3{color:var(--green)}
+.aowteam ol{margin:0;padding:0;list-style:none;display:grid;gap:3px;max-height:260px;overflow:auto}
+.aowteam li{display:flex;gap:8px;justify-content:space-between;font-size:13.5px}
+.aowteam li .d{font-variant-numeric:tabular-nums;white-space:nowrap}
+.aowteam li .d.up{color:var(--green)}
+.aowteam li .d.dn{color:var(--red)}
+.aowheld{color:var(--muted);font-size:13px;margin:10px 0 0}
+.aowempty{color:var(--muted);margin:0}
+@media (max-width:640px){.aowhero{grid-template-columns:1fr}.aowclock{font-size:34px}}
+{% endblock %}
+{% block body %}
+<div class="pagehead" style="--ct:#ff8a3d">
+  <div class="phwho"><div class="phtext aowhero">
+    <div>
+      <p class="pheye">Starblast's monthly event</p>
+      <h1 class="phname">Alpha Orionis Wars</h1>
+      <p class="phsub">One team match, up to 230 players. The {{ region }} session is the one rated here &mdash;
+        <span id="aowWhen" data-start="{{ start }}">Sunday 27 September, 19:00 UTC</span>.</p>
+    </div>
+    <div id="aowClockBox" data-start="{{ start }}">
+      <p class="aowclock-l" id="aowClockL">{% if window and window.phase == 'live' %}Live now{% elif window and window.phase == 'over' %}Finished{% else %}Starts in{% endif %}</p>
+      <div class="aowclock" id="aowClock">&nbsp;</div>
+      <a class="aowcta" href="{{ join_url }}" target="_blank" rel="noopener">Join on starblast.io</a>
+    </div>
+  </div></div>
+</div>
+
+<div class="card">
+  <h2>How AOW is rated here</h2>
+  <ul class="aowrules">
+    <li>It has <b>its own rating</b>. Everyone starts at 1,000 and your board rating is not touched.</li>
+    <li>The board's rules, with the bars doubled for a bigger fight: <b>{{ presence_min }} minutes</b> in the match,
+      a peak of <b>{{ '{:,}'.format(win_peak) }}</b> to be rated a winner and <b>{{ '{:,}'.format(lose_peak) }}</b> a loser,
+      and the match must run {{ match_min }} minutes.</li>
+    <li>Only players already on the board are rated. A name that has only played AOW is not, and does not count toward anyone's team.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>AOW board</h2>
+  {% if board %}
+  <div class="tablewrap"><table>
+    <thead><tr><th class="rank">#</th><th>{{ t('Player') }}</th><th class="mid">AOW rating</th><th class="mid">{{ t('Record') }}</th></tr></thead>
+    <tbody>
+    {% for p in board %}
+    <tr><td class="rank aownum">{{ loop.index }}</td>
+      <td><a class="aowlink" href="/player/{{ p.name|urlencode }}">{{ p.name }}</a></td>
+      <td class="mid aownum">{{ '%.1f'|format(p.elo) }}</td>
+      <td class="mid aownum">{{ p.wins }}&ndash;{{ p.losses }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="aowempty">Nobody is rated yet. The board fills in when the {{ region }} session ends.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Results</h2>
+  {% if results %}
+  <div class="aowres">
+  {% for m in results %}
+    <div>
+      <p class="aowres-h"><b>{{ m.played_at }} UTC</b>
+        {% if m.lobby %}<span class="m">{{ m.lobby }}</span>{% endif %}
+        {% if m.minutes %}<span class="m">{{ m.minutes }} min tracked</span>{% endif %}
+        {% if m.counts %}<span class="m">{{ m.counts|sum }} ships</span>{% endif %}
+        {% if m.replay_key %}<a class="aowlink" href="/replay/r/{{ m.replay_key|urlencode }}">Replay &rarr;</a>{% endif %}</p>
+      <div class="aowteams">
+      {% for team in m.teams %}
+        <div class="aowteam{% if loop.index0 == m.winner %} won{% endif %}">
+          <h3>Team {{ loop.index }}{% if loop.index0 == m.winner %} &middot; won{% endif %}{% if m.counts and m.counts|length > loop.index0 %} &middot; {{ m.counts[loop.index0] }} ships{% endif %}</h3>
+          {% if team %}
+          <ol>{% for p in team %}<li><a class="aowlink" href="/player/{{ p.name|urlencode }}">{{ p.name }}</a>
+            <span class="d {{ 'up' if p.delta >= 0 else 'dn' }}">{{ '%+.1f'|format(p.delta) }}</span></li>{% endfor %}</ol>
+          {% else %}<p class="aowempty">Nobody rated.</p>{% endif %}
+        </div>
+      {% endfor %}
+      </div>
+      {% if m.held %}<p class="aowheld">Not rated: {% for why, n in m.held %}{{ n }} {{ why }}{{ ', ' if not loop.last }}{% endfor %}.</p>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  {% else %}
+  <p class="aowempty">No AOW match has been rated yet.</p>
+  {% endif %}
+</div>
+
+<script>
+(function(){
+  var box = document.getElementById('aowClockBox'), clock = document.getElementById('aowClock'),
+      label = document.getElementById('aowClockL'), when = document.getElementById('aowWhen');
+  var start = parseInt(box.getAttribute('data-start'), 10) * 1000;
+  try {
+    when.textContent = new Date(start).toLocaleString([], {weekday:'long', day:'numeric', month:'long',
+      hour:'numeric', minute:'2-digit', timeZoneName:'short'});
+  } catch (e) {}
+  var phase = null, players = null;
+  function two(n){ return (n < 10 ? '0' : '') + n; }
+  function paint(){
+    var left = Math.round((start - Date.now()) / 1000);
+    if(left > 0 && phase !== 'over'){
+      label.textContent = 'Starts in';
+      var d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600),
+          m = Math.floor((left % 3600) / 60), s = left % 60;
+      clock.textContent = (d ? d + 'd ' : '') + two(h) + ':' + two(m) + ':' + two(s);
+    } else if(phase === 'over'){
+      label.textContent = 'Finished'; clock.textContent = 'Results below';
+    } else {
+      label.textContent = 'Live now';
+      clock.textContent = players ? players + ' players' : 'In progress';
+    }
+  }
+  function poll(){
+    fetch('/api/aow/status').then(function(r){ return r.json(); }).then(function(d){
+      phase = d && d.phase; players = d && d.players; paint();
+    }).catch(function(){});
+  }
+  paint(); setInterval(paint, 1000); poll(); setInterval(poll, 60000);
+})();
+</script>
+{% endblock %}

@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.77.1"
+APP_VERSION = "9.78.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4407,6 +4407,8 @@ def init_db():
         linked_at   TEXT
     )''')
 
+    _init_aow_tables(c)      # Alpha Orionis Wars (9.78.0)
+
     # Keep the identity key in step with every row.
     for (row_name,) in c.execute("SELECT name FROM players").fetchall():
         c.execute("UPDATE players SET norm_name = ? WHERE name = ?",
@@ -7824,6 +7826,18 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.78.0", "at": "2026-09-26T23:30:00Z", "changes": [
+        "Alpha Orionis Wars, Starblast's monthly 230-player event, is tracked: "
+        "the America session, Sunday 27 September at 19:00 UTC. It has its own "
+        "AOW rating on your account, starting at 1,000, with the board's rules "
+        "and the bars doubled for a bigger fight — 20 minutes in the match, "
+        "a peak of 4,000 to be rated a winner and 200 a loser. Only players "
+        "already on the board are rated, and the board itself is not touched.",
+        "The AOW page has the countdown, the AOW board and every AOW result, "
+        "and the site wears the event's colours for the weekend. Discord gets "
+        "a reminder an hour and ten minutes before it starts, and the result "
+        "after.",
+    ]},
     {"version": "9.77.1", "at": "2026-09-25T02:00:00Z", "changes": [
         "Match results stopped arriving at about 20:47 UTC last night. One "
         "match in which nobody could be rated made the site fail every time "
@@ -11024,7 +11038,8 @@ def player_profile(name):
                            region_ranks=region_ranks, version=APP_VERSION,
                            contact=CONTACT_HANDLE, page='players', history=history,
                            ts_history=ts_history,
-                           by_region=by_region, primary=primary, bio_max=BIO_MAX)
+                           by_region=by_region, primary=primary, bio_max=BIO_MAX,
+                           aow=aow_card(player.get('norm_name') if player else None))
 
 
 @app.route('/rename', methods=['POST'])
@@ -24246,7 +24261,8 @@ def account_page():
                            discord_link=discord_link,
                            discord_can_link=bool(sub_id) and not is_discord_acct,
                            link_status=request.args.get('link'),
-                           wins_required=CLAIM_WINS_REQUIRED, bio_max=BIO_MAX)
+                           wins_required=CLAIM_WINS_REQUIRED, bio_max=BIO_MAX,
+                           aow=aow_card(normalize_name(account_name) if account_name else None))
 
 
 def perform_set_bio(c, sub_id, raw):
@@ -25259,6 +25275,475 @@ def leaderboard():
                            top_today=(top_scores_today(region)
                                       if mode == 'team' else []),
                            featured=_featured_for_page())
+
+
+# ============================================================================
+# ALPHA ORIONIS WARS (AOW) - 9.78.0, 26 Sep 2026
+# ============================================================================
+# Starblast's monthly official event: ONE team-mode match for up to ~230
+# players, on a private server the game finds through
+# starblast.io/battle-<Region>.json - never listed in simstatus, so the
+# observer is pointed at it on purpose (raw_observer.py) and the scorer posts
+# its result HERE, never to /api/game_end. Owner's rules:
+#   * only the America session;
+#   * a SEPARATE AOW rating on each account, starting at 1000, the board's
+#     own elo rules (team strength, three-way-and-up expectation, the blend,
+#     provisional K, late-join half stake, zero-sum balancing, the 500 floor);
+#   * the bars DOUBLED for a larger event - 20 minutes in the match, a peak
+#     of 4,000 to be rated a winner, 200 for a loser, a 20-minute match;
+#   * a player with no record on the board - somebody who only played AOW -
+#     is not rated and weighs on nobody's rating.
+# The main board is never touched by an AOW match.
+
+AOW_SESSION_START = 1790535600      # Sun 27 Sep 2026 19:00 UTC, from starblast.io's page script (america_ts)
+AOW_REGION = "america"
+AOW_REGION_LABEL = "America"
+AOW_STATUS_URL = "https://starblast.io/battle-America.json"
+AOW_JOIN_URL = "https://starblast.io/"
+AOW_MIN_WIN_PEAK = 2 * MIN_RATED_PEAK        # 4,000
+AOW_MIN_LOSE_PEAK = 2 * MIN_LOCK_SCORE       # 200
+AOW_MIN_PRESENCE_MIN = 20                    # applied by the scorer
+AOW_MIN_MATCH_MIN = 20                       # applied by the scorer
+AOW_SHOW_BEFORE_S = 48 * 3600                # the banner, and the theme with it
+AOW_SHOW_AFTER_S = 12 * 3600
+AOW_LIVE_MAX_S = 5 * 3600                    # longest we treat it as running
+_AOW_STATUS = {"at": 0.0, "players": None}
+AOW_HELD_WORDS = {
+    'aow-only': "no record on the board yet",
+    'low-score': "score under the bar",
+    'protected': "protected, no check-in",
+    'default-name': "the game's default name",
+    'unreadable-name': "a name that reads as nothing",
+    'duplicate-name': "several ships on the name",
+    'two-sides': "on two sides",
+    'left-while-losing': "left while the side looked beaten",
+    'doubled-name': "a second ship on the name",
+}
+
+
+def _init_aow_tables(c):
+    c.execute('''CREATE TABLE IF NOT EXISTS aow_ratings (
+        norm_name TEXT PRIMARY KEY, name TEXT, elo REAL DEFAULT 1000,
+        wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, updated_at TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS aow_matches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, match_id TEXT UNIQUE, sys_id INTEGER,
+        region TEXT, played_at TEXT, lobby_name TEXT, watch_s INTEGER,
+        tracked_reads INTEGER, teams INTEGER, winner INTEGER, replay_key TEXT,
+        team_counts TEXT, held TEXT, announced INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS aow_match_players (
+        match_row INTEGER, norm_name TEXT, name TEXT, played_as TEXT, team INTEGER,
+        won INTEGER, delta REAL, elo_after REAL, score INTEGER, half INTEGER DEFAULT 0)''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_aowmp_match ON aow_match_players(match_row)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_aowmp_name ON aow_match_players(norm_name)")
+    c.execute('''CREATE TABLE IF NOT EXISTS aow_announce (
+        kind TEXT PRIMARY KEY, delivered_at TEXT)''')
+
+
+def _aow_team_rating(keys, elo_map):
+    """team_rating's own formula, on keys that are already account keys."""
+    known = [elo_map[k] for k in keys if k in elo_map]
+    if not known:
+        return float(STARTING_ELO)
+    return (sum(known) + TEAM_PRIOR_WEIGHT * STARTING_ELO) / (len(known) + TEAM_PRIOR_WEIGHT)
+
+
+def aow_rate_match(c, data, teams_in, winner, sys_id):
+    """Rate one AOW match on the AOW board. teams_in: one list of in-game
+    names per team (index = team), already through the scorer's doubled
+    presence and loser-score bars. Returns counts. The caller commits."""
+    peaks = data.get('peak_scores') if isinstance(data.get('peak_scores'), dict) else {}
+    if not peaks and isinstance(data.get('scores'), dict):
+        peaks = data['scores']
+    presence = data.get('presence') if isinstance(data.get('presence'), dict) else {}
+    half = {str(n) for n in (data.get('half_elo') or [])}
+    amb = {normalize_name(str(n)) for n in (data.get('ambiguous') or [])}
+    held = {}
+    for n in (data.get('left_losing') or []):
+        held[str(n)] = 'left-while-losing'
+    for n in (data.get('doubled_win') or []):
+        held[str(n)] = 'doubled-name'
+
+    team_of, rows, clash = {}, [], set()
+    for ti, names in enumerate(teams_in):
+        for nm in (names or []):
+            nm = str(nm)
+            reason, prow = None, None
+            nk = normalize_name(nm)
+            if not nk:
+                reason = 'unreadable-name'
+            elif is_default_name(nm):
+                reason = 'default-name'
+            elif nk in amb:
+                reason = 'duplicate-name'
+            key = nk
+            if not reason:
+                try:
+                    acct = account_for_ingame_name(c, nm, sys_id)
+                except sqlite3.Error:
+                    acct = None
+                key = normalize_name(acct) if acct else nk
+                pk = peaks.get(nm)
+                bar = AOW_MIN_WIN_PEAK if ti == winner else AOW_MIN_LOSE_PEAK
+                if isinstance(pk, (int, float)) and pk < bar:
+                    reason = 'low-score'
+            if not reason:
+                prow = c.execute("SELECT name, COALESCE(wins,0)+COALESCE(losses,0), "
+                                 "COALESCE(strict_mode,0) FROM players WHERE norm_name = ?",
+                                 (key,)).fetchone()
+                if not prow or (prow[1] or 0) <= 0:
+                    reason = 'aow-only'
+                elif prow[2] and not c.execute(
+                        "SELECT 1 FROM name_bindings WHERE in_game_name = ? AND sys_id = ? LIMIT 1",
+                        (nm, sys_id)).fetchone():
+                    reason = 'protected'
+            if reason:
+                held[nm] = reason
+                continue
+            if key in team_of:
+                if team_of[key] != ti:
+                    clash.add(key)
+                continue                      # one account is one ship's worth
+            team_of[key] = ti
+            rows.append((ti, key, prow[0], nm))
+    if clash:
+        for ti, key, disp, nm in rows:
+            if key in clash:
+                held[nm] = 'two-sides'
+        rows = [r for r in rows if r[1] not in clash]
+
+    keys = [r[1] for r in rows]
+    cur = {}
+    for i in range(0, len(keys), 400):
+        ch = keys[i:i + 400]
+        for k, e, w, l in c.execute(
+                "SELECT norm_name, elo, COALESCE(wins,0), COALESCE(losses,0) FROM aow_ratings "
+                "WHERE norm_name IN (%s)" % ",".join("?" * len(ch)), ch).fetchall():
+            cur[k] = (float(e), int(w) + int(l))
+    elo_map = {k: (cur[k][0] if k in cur else float(STARTING_ELO)) for k in keys}
+    games = {k: (cur[k][1] if k in cur else 0) for k in keys}
+    by_team = {}
+    for ti, k, _d, _n in rows:
+        by_team.setdefault(ti, []).append(k)
+    team_r = {ti: _aow_team_rating(ks, elo_map) for ti, ks in by_team.items()}
+
+    # The board's formula, with "the other two teams" read as "every other
+    # team" - with three teams it is exactly what /api/game_end does.
+    pending = []
+    for ti, k, disp, nm in rows:
+        eff = (elo_map[k] + team_r[ti]) / 2
+        if ti == winner:
+            rivals = [r for t, r in team_r.items() if t != winner] or [float(STARTING_ELO)]
+            raw = ELO_K * (1 - win_expectation(eff, rivals))
+            is_half = nm in half or k in half
+            if is_half:
+                share = presence.get(nm)
+                raw *= 0.5 if share is None else max(LATE_JOIN_FLOOR, min(0.5, float(share)))
+            won = 1
+        else:
+            rivals = ([team_r.get(winner, float(STARTING_ELO))]
+                      + [r for t, r in team_r.items() if t not in (winner, ti)])
+            raw = ELO_K * win_expectation(eff, rivals)
+            is_half, won = False, 0
+        pending.append((ti, k, disp, nm, won, raw, k_factor(games[k]) / ELO_K, is_half))
+    tg = sum(p[5] for p in pending if p[4])
+    tl = sum(p[5] for p in pending if not p[4])
+    fg = fl = 1.0
+    if tg > 0 and tl > 0:
+        if tg > tl:
+            fg = tl / tg
+        else:
+            fl = tg / tl
+
+    try:
+        counts = json.dumps([int(x) for x in (data.get('team_counts') or [])])
+    except (TypeError, ValueError):
+        counts = None
+    c.execute("INSERT INTO aow_matches (match_id, sys_id, region, played_at, lobby_name, "
+              "watch_s, tracked_reads, teams, winner, replay_key, team_counts, held) "
+              "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+              (str(data.get('match_id')), sys_id, str(data.get('region') or AOW_REGION),
+               result_played_at(data.get('ended_at')),
+               (str(data.get('lobby_name'))[:60] if data.get('lobby_name') else None),
+               int(data.get('watch_s') or 0), int(data.get('tracked_reads') or 0),
+               len(teams_in), winner, (str(data.get('match_key'))[:120] if data.get('match_key') else None),
+               counts, json.dumps(held, ensure_ascii=False)))
+    mrow = c.lastrowid
+    now_s = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    for ti, k, disp, nm, won, raw, mult, is_half in pending:
+        before = elo_map[k]
+        if won:
+            after = before + raw * fg * mult
+        else:
+            after = max(500.0, before - raw * fl * mult)
+        after = round(after, 2)
+        if k in cur:
+            c.execute("UPDATE aow_ratings SET name = ?, elo = ?, wins = wins + ?, "
+                      "losses = losses + ?, updated_at = ? WHERE norm_name = ?",
+                      (disp, after, won, 1 - won, now_s, k))
+        else:
+            c.execute("INSERT INTO aow_ratings (norm_name, name, elo, wins, losses, updated_at) "
+                      "VALUES (?,?,?,?,?,?)", (k, disp, after, won, 1 - won, now_s))
+        pk = peaks.get(nm)
+        c.execute("INSERT INTO aow_match_players (match_row, norm_name, name, played_as, team, "
+                  "won, delta, elo_after, score, half) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                  (mrow, k, disp, nm, ti, won, round(after - before, 2), after,
+                   int(pk) if isinstance(pk, (int, float)) else None, 1 if is_half else 0))
+    print("[aow_end] %s: rated %d (%d winners), held %d"
+          % (data.get('match_id'), len(pending), sum(1 for p in pending if p[4]), len(held)),
+          flush=True)
+    return {"rated": len(pending), "held": len(held), "match_row": mrow}
+
+
+@app.route('/api/aow_end', methods=['POST'])
+def aow_end():
+    """The result of an AOW match, from the scorer. Rated on the AOW board
+    only. Payload: game_end's fields, with `teams` (one list of rated in-game
+    names per team) and `winner` (an index into it) in place of the
+    three fixed lists, so any number of teams can be rated."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    match_id = str(data.get('match_id') or '')
+    teams_in = data.get('teams')
+    try:
+        winner = int(data.get('winner'))
+    except (TypeError, ValueError):
+        winner = -1
+    if not match_id or not isinstance(teams_in, list) or not (0 <= winner < len(teams_in)):
+        return jsonify({"error": "match_id, teams and winner are required"}), 400
+    try:
+        sys_id = int(data.get('sys_id'))
+    except (TypeError, ValueError):
+        sys_id = None
+    conn = db()
+    c = conn.cursor()
+    if c.execute("SELECT 1 FROM aow_matches WHERE match_id = ?", (match_id,)).fetchone():
+        conn.close()
+        return jsonify({"status": "already recorded", "match_id": match_id}), 200
+    out = aow_rate_match(c, data, teams_in, winner, sys_id)
+    conn.commit()
+    conn.close()
+    return jsonify(dict(status="success", **out)), 200
+
+
+def aow_window(now=None):
+    """None outside the AOW weekend; else the banner's state."""
+    now = time.time() if now is None else now
+    if not (AOW_SESSION_START - AOW_SHOW_BEFORE_S <= now <= AOW_SESSION_START + AOW_SHOW_AFTER_S):
+        return None
+    if now < AOW_SESSION_START:
+        phase = "soon"
+    elif now < AOW_SESSION_START + AOW_LIVE_MAX_S:
+        phase = "live"
+    else:
+        phase = "over"
+    return {"start": AOW_SESSION_START, "in_s": int(AOW_SESSION_START - now), "phase": phase,
+            "region": AOW_REGION_LABEL}
+
+
+@app.context_processor
+def inject_aow():
+    try:
+        return {"aow_banner": aow_window()}
+    except Exception:                                 # noqa: BLE001 - a banner never breaks a page
+        return {"aow_banner": None}
+
+
+def _aow_fetch_players():
+    """Players in the AOW lobby right now, from Starblast's own status file,
+    or None. Its own function so the tests can stand in for the network."""
+    import urllib.request
+    req = urllib.request.Request(AOW_STATUS_URL, headers={"User-Agent": "starblastelo (AOW status)"})
+    return int(json.loads(urllib.request.urlopen(req, timeout=4).read().decode("utf-8")).get("players"))
+
+
+@app.route('/api/aow/status')
+def api_aow_status():
+    """Public: the countdown's target and the live headcount, cached 30 s so
+    a busy page cannot hammer starblast.io."""
+    now = time.time()
+    if now - _AOW_STATUS["at"] > 30:
+        try:
+            _AOW_STATUS["players"] = _aow_fetch_players()
+        except Exception:                             # noqa: BLE001
+            _AOW_STATUS["players"] = None
+        _AOW_STATUS["at"] = now
+    w = aow_window(now)
+    players = _AOW_STATUS["players"]
+    phase = (w or {}).get("phase") or ("soon" if now < AOW_SESSION_START else "over")
+    if phase == "live" and players is not None and players < 5 and now > AOW_SESSION_START + 3600:
+        phase = "over"                                # the game's own rule for "finished"
+    return jsonify({"starts_at": AOW_SESSION_START, "now": int(now), "phase": phase,
+                    "players": players, "region": AOW_REGION_LABEL})
+
+
+def aow_card(key):
+    """The AOW rating of one account key, for the account and profile pages;
+    None when they have not been rated in AOW."""
+    if not key:
+        return None
+    try:
+        conn = db(timeout=5)
+        c = conn.cursor()
+        r = c.execute("SELECT elo, wins, losses FROM aow_ratings WHERE norm_name = ?",
+                      (key,)).fetchone()
+        if not r:
+            conn.close()
+            return None
+        rank = c.execute("SELECT COUNT(*) FROM aow_ratings WHERE elo > ?", (r[0],)).fetchone()[0] + 1
+        of = c.execute("SELECT COUNT(*) FROM aow_ratings").fetchone()[0]
+        conn.close()
+        return {"elo": r[0], "wins": r[1], "losses": r[2], "rank": rank, "of": of}
+    except sqlite3.Error:
+        return None
+
+
+@app.route('/aow')
+def aow_page():
+    """Alpha Orionis Wars: the countdown, how it is rated here, the AOW board
+    and every AOW result."""
+    board, results = [], []
+    try:
+        conn = db(timeout=10)
+        c = conn.cursor()
+        board = [{"key": k, "name": n, "elo": e, "wins": w, "losses": l}
+                 for k, n, e, w, l in c.execute(
+                     "SELECT norm_name, name, elo, wins, losses FROM aow_ratings "
+                     "ORDER BY elo DESC, name LIMIT 300").fetchall()]
+        for (mid, played_at, lobby, watch_s, nteams, winner, rkey, counts, held_js) in c.execute(
+                "SELECT id, played_at, lobby_name, watch_s, teams, winner, replay_key, "
+                "team_counts, held FROM aow_matches ORDER BY id DESC LIMIT 10").fetchall():
+            teams = [[] for _ in range(max(1, nteams or 0))]
+            for tm, name, won, delta, score in c.execute(
+                    "SELECT team, name, won, delta, score FROM aow_match_players "
+                    "WHERE match_row = ? ORDER BY delta DESC", (mid,)).fetchall():
+                if tm is not None and 0 <= tm < len(teams):
+                    teams[tm].append({"name": name, "delta": delta, "score": score})
+            try:
+                held = json.loads(held_js or "{}")
+            except ValueError:
+                held = {}
+            why = {}
+            for _n, _r in held.items():
+                why[_r] = why.get(_r, 0) + 1
+            try:
+                counts = json.loads(counts) if counts else []
+            except ValueError:
+                counts = []
+            results.append({"id": mid, "played_at": played_at, "lobby": lobby,
+                            "minutes": int(round((watch_s or 0) / 60.0)), "winner": winner,
+                            "teams": teams, "counts": counts, "replay_key": rkey,
+                            "held": sorted(((AOW_HELD_WORDS.get(k, k), v) for k, v in why.items()),
+                                           key=lambda x: -x[1])})
+        conn.close()
+    except sqlite3.Error:
+        pass
+    return render_template('aow.html', page='aow', version=APP_VERSION, board=board,
+                           results=results, start=AOW_SESSION_START, region=AOW_REGION_LABEL,
+                           join_url=AOW_JOIN_URL, win_peak=AOW_MIN_WIN_PEAK,
+                           lose_peak=AOW_MIN_LOSE_PEAK, presence_min=AOW_MIN_PRESENCE_MIN,
+                           match_min=AOW_MIN_MATCH_MIN, window=aow_window())
+
+
+# ---- Discord: two reminders and each result, compact and ping-free ----------
+AOW_REMINDERS = (("reminder-hour", 3600, 600), ("reminder-ten", 600, -300))
+
+
+def _aow_md(name):
+    """A player's name, safe inside a Discord post: no stray bold, no pings."""
+    out = str(name or "?")
+    for ch in "\\*_~`|>":
+        out = out.replace(ch, "\\" + ch)
+    return out.replace("@", "@​")
+
+
+def aow_result_text(c, mrow):
+    m = c.execute("SELECT played_at, lobby_name, watch_s, winner, teams, team_counts "
+                  "FROM aow_matches WHERE id = ?", (mrow,)).fetchone()
+    if not m:
+        return None
+    played_at, lobby, watch_s, winner, nteams, counts = m
+    ps = c.execute("SELECT name, won, delta FROM aow_match_players WHERE match_row = ? "
+                   "ORDER BY delta DESC", (mrow,)).fetchall()
+    wins = [p for p in ps if p[1]]
+    losses = sorted([p for p in ps if not p[1]], key=lambda p: p[2])
+    try:
+        total = sum(json.loads(counts)) if counts else None
+    except (ValueError, TypeError):
+        total = None
+    lines = ["## ⚔️ Alpha Orionis Wars — result"]
+    head = "Team %d won" % ((winner or 0) + 1)
+    if total:
+        head += " · %d ships fought" % total
+    if watch_s:
+        head += " · tracked %d min" % int(round(watch_s / 60.0))
+    lines.append(head)
+    lines.append("%d players rated on the AOW board (%d winners, %d losers)."
+                 % (len(ps), len(wins), len(ps) - len(wins)))
+    if wins:
+        lines.append("\U0001F7E9 **Top winners** · " + ", ".join(
+            "%s (+%.1f)" % (_aow_md(n), d) for n, _w, d in wins[:8]))
+    if losses:
+        lines.append("\U0001F7E5 **Hardest losses** · " + ", ".join(
+            "%s (%.1f)" % (_aow_md(n), d) for n, _w, d in losses[:5]))
+    lines.append("-# Full results and the AOW board: <https://starblastelo.pythonanywhere.com/aow>")
+    return "\n".join(lines)[:1900]
+
+
+@app.route('/api/bot/aow/undelivered')
+def api_bot_aow_undelivered():
+    """AOW posts the bot has not made yet: a reminder an hour before, one ten
+    minutes before, and every AOW result. Each carries its finished text."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    now = time.time()
+    conn = db()
+    c = conn.cursor()
+    done = {r[0] for r in c.execute("SELECT kind FROM aow_announce").fetchall()}
+    out = []
+    when = time.strftime('%H:%M UTC', time.gmtime(AOW_SESSION_START))
+    for kind, lead, until in AOW_REMINDERS:
+        if kind in done:
+            continue
+        if AOW_SESSION_START - lead <= now < AOW_SESSION_START - until:
+            mins = max(1, int(round((AOW_SESSION_START - now) / 60.0)))
+            out.append({"kind": kind, "text": (
+                "## ⚔️ Alpha Orionis Wars — %s\n"
+                "The America session starts **<t:%d:R>** (%s). Up to 230 players, one match. "
+                "It is rated on its own AOW board here: 20 minutes in the match and a peak "
+                "of %s to be rated a winner.\n"
+                "-# Join from <%s> · AOW board: <https://starblastelo.pythonanywhere.com/aow>"
+                % ("starting in %d minutes" % mins if mins < 90 else "today", AOW_SESSION_START,
+                   when, "{:,}".format(AOW_MIN_WIN_PEAK), AOW_JOIN_URL))})
+    for (mrow,) in c.execute("SELECT id FROM aow_matches WHERE COALESCE(announced,0) = 0 "
+                             "ORDER BY id").fetchall():
+        txt = aow_result_text(c, mrow)
+        if txt:
+            out.append({"kind": "result-%d" % mrow, "text": txt})
+    conn.close()
+    return jsonify({"posts": out}), 200
+
+
+@app.route('/api/bot/aow/delivered', methods=['POST'])
+def api_bot_aow_delivered():
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    kinds = [str(k) for k in ((request.get_json(silent=True) or {}).get("kinds") or [])][:50]
+    conn = db()
+    c = conn.cursor()
+    stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    for k in kinds:
+        if k.startswith("result-"):
+            try:
+                c.execute("UPDATE aow_matches SET announced = 1 WHERE id = ?", (int(k[7:]),))
+            except ValueError:
+                continue
+        else:
+            c.execute("INSERT OR IGNORE INTO aow_announce (kind, delivered_at) VALUES (?, ?)",
+                      (k, stamp))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "marked": len(kinds)}), 200
 
 
 init_db()  # runs on import too, since WSGI hosts never execute __main__

@@ -1,0 +1,65 @@
+{#- Alpha Orionis Wars weekend: a strip at the top of every page and a warm
+    Orion glow behind the site, from two days before the America session to
+    half a day after. Needs `aow_banner` (inject_aow). 9.78.0. -#}
+{% if aow_banner %}
+<style>
+.aowglow{position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(ellipse 70% 55% at 88% -12%, rgba(255,112,36,.16), transparent 70%),
+    radial-gradient(ellipse 55% 45% at -6% 108%, rgba(255,86,24,.10), transparent 70%)}
+.aowstrip{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 14px;
+  padding:10px 16px;border-radius:12px;text-decoration:none;color:var(--text);
+  border:1px solid rgba(255,138,61,.42);
+  background:linear-gradient(120deg,rgba(255,110,40,.16),rgba(255,110,40,.04) 70%)}
+.aowstrip:hover{border-color:rgba(255,168,100,.8)}
+.aowstrip .aowk{font-weight:800;letter-spacing:.3px;color:#ffab6b}
+.aowstrip .aowt{font-variant-numeric:tabular-nums;color:var(--muted)}
+.aowstrip.live .aowt{color:#ffd2ad;font-weight:600}
+.aowstrip .aowgo{margin-left:auto;font-weight:600;color:#ffab6b;white-space:nowrap}
+@media (prefers-reduced-motion:no-preference){
+  .aowstrip.live .aowk::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;
+    background:#ff8a3d;margin-right:8px;vertical-align:1px;animation:aowpulse 1.6s ease-in-out infinite}
+  @keyframes aowpulse{50%{opacity:.25}}
+}
+</style>
+<div class="aowglow" aria-hidden="true"></div>
+{% if page != 'aow' %}
+<a class="aowstrip {{ aow_banner.phase }}" href="/aow" id="aowstrip" data-start="{{ aow_banner.start }}" data-phase="{{ aow_banner.phase }}">
+  <span class="aowk">Alpha Orionis Wars</span>
+  <span class="aowt" id="aowt">{{ aow_banner.region }} session{% if aow_banner.phase == 'soon' %} &middot; starts in {{ aow_banner.in_s // 3600 }} h {{ (aow_banner.in_s % 3600) // 60 }} m{% elif aow_banner.phase == 'live' %} &middot; live now{% else %} &middot; results{% endif %}</span>
+  <span class="aowgo">AOW board &rarr;</span>
+</a>
+<script>
+(function(){
+  var el = document.getElementById('aowstrip'), t = document.getElementById('aowt');
+  if(!el || !t) return;
+  var start = parseInt(el.getAttribute('data-start'), 10) * 1000;
+  var when = new Date(start).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'});
+  var players = null;
+  function paint(){
+    var left = Math.round((start - Date.now()) / 1000);
+    if(left > 0){
+      var h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
+      t.textContent = 'America session · ' + when + ' · starts in ' +
+        (h ? h + ' h ' + m + ' m' : m + ' m ' + (s < 10 ? '0' : '') + s + ' s');
+    } else if(el.getAttribute('data-phase') !== 'over'){
+      el.classList.add('live');
+      t.textContent = 'Live now' + (players ? ' · ' + players + ' players fighting' : '') +
+        ' · join on starblast.io';
+    } else {
+      el.classList.remove('live');
+      t.textContent = 'America session · the results are in';
+    }
+  }
+  function poll(){
+    fetch('/api/aow/status').then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.phase) el.setAttribute('data-phase', d.phase);
+      players = d && d.players; paint();
+    }).catch(function(){});
+  }
+  paint(); setInterval(paint, 1000);
+  if(Date.now() > start - 600000){ poll(); setInterval(poll, 60000); }
+})();
+</script>
+{% endif %}
+{% endif %}
