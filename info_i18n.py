@@ -42,7 +42,9 @@ import ranks
 TOKENS = (("[[ELO]]", "elo"), ("[[K]]", "k"), ("[[MINSCORE]]", "minscore"),
           ("[[CONTACT]]", "contact"), ("[[NEWGAMES]]", "newgames"),
           ("[[KNEW]]", "knew"), ("[[KEST]]", "kest"), ("[[MINPEAK]]", "minpeak"),
-          ("[[MINLOSE]]", "minlose"), ("[[REPLAYDAYS]]", "replaydays"))
+          ("[[MINLOSE]]", "minlose"), ("[[REPLAYDAYS]]", "replaydays"),
+          ("[[GEMWIN]]", "gemwin"), ("[[GEMLOSS]]", "gemloss"), ("[[GEMDAY]]", "gemday"),
+          ("[[GEMSURV]]", "gemsurv"), ("[[GEMCLAN]]", "gemclan"))
 
 _CACHE = {}
 

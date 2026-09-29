@@ -174,4 +174,14 @@ CARDS = [
   ' ends.</p>'
   '<p>Pressing <b>Join</b> checks you in for that lobby and opens it, so joining a friend'
   ' counts exactly as pressing Play does.</p>'),
+ ('Gems',
+  '<p>Gems are earned by playing. A rated win pays <b>[[GEMWIN]]</b>, a loss [[GEMLOSS]],'
+  ' your first win of the day [[GEMDAY]] more and a survival win [[GEMSURV]]. Achievements'
+  ' and the day&#39;s objectives pay more, claimed on the <a href="/achievements">Achievements</a>'
+  ' page &mdash; everything your record has already earned is there to claim.</p>'
+  '<p>Spend them in the <a href="/shop">Shop</a>: hulls to wear as your emblem, banners, name'
+  ' styles, frames, effects and titles. Your colour always shows your rank; what you buy only'
+  ' changes the look.</p>'
+  '<p>Clans earn too. Every member win puts [[GEMCLAN]] in the clan&#39;s treasury, which its'
+  ' leaders spend on member pay and in the clan&#39;s tab of the Shop.</p>'),
 ]

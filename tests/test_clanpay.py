@@ -18,6 +18,9 @@ TMP = tempfile.mkdtemp(prefix="cpay")
 shutil.copy("players.db", os.path.join(TMP, "players.db"))
 
 import flask_app as fa                                          # noqa: E402
+RELEASED = fa.GEMS_PUBLIC
+fa.GEMS_PUBLIC = False   # this suite checks the PREVIEW's gating (still in the code);
+                         # the released site is checked in test_gemspublic
 
 fa.DB_PATH = os.path.join(TMP, "players.db")
 fa.LIVE_DB_PATH = os.path.join(TMP, "live.db")

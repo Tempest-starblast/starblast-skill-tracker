@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.79.0"
+APP_VERSION = "9.80.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -342,7 +342,7 @@ def account_norm_for(c, sub_id):
 # Not launched. While this is False, gems exist and accrue but ONLY the site
 # owner can see any of it - the pages, the balances, the achievements. Flip it
 # to True to open it to everybody; nothing else has to change.
-GEMS_PUBLIC = False
+GEMS_PUBLIC = True
 # What a rated result pays. A loss pays something on purpose: a night that
 # goes badly should still move you forward, or the cheapest way to protect a
 # balance becomes not playing the matches you might lose.
@@ -7834,6 +7834,26 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.80.0", "at": "2026-09-29T21:00:00Z", "changes": [
+        "Gems are here. You earn them by playing: every rated win, a little for "
+        "a loss, more for your first win of the day and for survival wins. "
+        "Achievements and the day's objectives pay more, claimed on the "
+        "Achievements page.",
+        "Everyone starts at zero, clans too - but nothing you have done is "
+        "lost. Your wins, ranks and stats all stand, so every achievement "
+        "your record has already earned is waiting there to be claimed.",
+        "The Shop has hulls to wear as your emblem, banners, name styles, "
+        "frames, effects and titles, with a few on sale each day. Your colour "
+        "always shows your rank; what you buy only changes the look.",
+        "Clans earn from every member win into a treasury their leaders "
+        "spend on member pay and on the clan's own looks and perks. Players "
+        "without a clan can list themselves as free agents for clans to hire. "
+        "A clan can now also be started for 7,500 gems; asking still works "
+        "and is still free.",
+        "Signed in, the front page is now your own page - your record, your "
+        "gems and what to claim. The leaderboard is one tab over.",
+        "The test accounts made while this was being built are gone.",
+    ]},
     {"version": "9.79.0", "at": "2026-09-29T20:00:00Z", "changes": [
         "Days with a win are counted from your match history, back to the "
         "start of the board, instead of only from the middle of September.",
@@ -24781,7 +24801,10 @@ def info_page():
                                                kest=int(round(ELO_K * ESTABLISHED_K_MULT)),
                                                minpeak=MIN_RATED_PEAK,
                                                minlose=MIN_LOCK_SCORE,
-                                               replaydays=REPLAY_KEEP_DAYS))
+                                               replaydays=REPLAY_KEEP_DAYS,
+                                               gemwin=GEM_WIN, gemloss=GEM_LOSS,
+                                               gemday=GEM_DAILY_FIRST_WIN,
+                                               gemsurv=GEM_SURVIVAL_WIN, gemclan=GEM_CLAN_WIN))
 
 
 @app.context_processor

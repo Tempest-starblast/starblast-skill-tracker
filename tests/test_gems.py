@@ -24,6 +24,9 @@ TMP = tempfile.mkdtemp(prefix="gemtest")
 shutil.copy("players.db", os.path.join(TMP, "players.db"))
 
 import flask_app as fa                                          # noqa: E402
+RELEASED = fa.GEMS_PUBLIC
+fa.GEMS_PUBLIC = False   # this suite checks the PREVIEW's gating (still in the code);
+                         # the released site is checked in test_gemspublic
 
 fa.DB_PATH = os.path.join(TMP, "players.db")
 fa.LIVE_DB_PATH = os.path.join(TMP, "live.db")
@@ -192,7 +195,7 @@ check("buying the same thing twice is refused",
 check("balance still equals the ledger", bal(cn, "LONER"), ledger_sum(cn, "player", "LONER"))
 
 print("\n--- nobody but the owner can see any of it ---")
-check("the flag is off", fa.GEMS_PUBLIC, False)
+check("the gems are released (9.80.0)", RELEASED, True)
 cl = fa.app.test_client()
 check("signed out -> 404", cl.get("/achievements").status_code, 404)
 cl = fa.app.test_client()

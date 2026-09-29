@@ -18,6 +18,9 @@ TMP = tempfile.mkdtemp(prefix="agents")
 shutil.copy("players.db", os.path.join(TMP, "players.db"))
 
 import flask_app as fa                                          # noqa: E402
+RELEASED = fa.GEMS_PUBLIC
+fa.GEMS_PUBLIC = False   # this suite checks the PREVIEW's gating (still in the code);
+                         # the released site is checked in test_gemspublic
 import ranks                                                    # noqa: E402
 
 fa.DB_PATH = os.path.join(TMP, "players.db")
