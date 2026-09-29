@@ -67,8 +67,14 @@ for i in range(6):
     c.execute("INSERT INTO players(name, norm_name, elo, wins, losses) VALUES (?,?,?,?,?)", ("F%d" % i, "F%d" % i, 1400, 1, 1))
     c.execute("INSERT INTO friends(a, b, requester, state, asked_at, acted_at) VALUES (?,?,?,?,?,?)",
               (min(OWN, "F%d" % i), max(OWN, "F%d" % i), OWN, "accepted", "2026-09-01", "2026-09-01"))
-for d in range(8):
-    fa.gem_grant(c, "player", OWN, fa.GEM_DAILY_FIRST_WIN, "daily-win", "2026-09-0%d" % (d + 1))
+# Days with a win come from the matches since 9.79.0 (they were daily-win
+# ledger rows). The five above are five days; three more winning days, with
+# no score and no deaths so the other totals here stay as they were.
+for d in range(3):
+    c.execute("INSERT INTO matches(match_id, sys_id, played_at, lobby_name, region) VALUES (?,?,?,?,?)",
+              ("md%d" % d, 200 + d, "2026-09-0%d 10:00:00" % (d + 1), "Alpha", "america"))
+    c.execute("INSERT INTO match_players(match_row, name, norm_name, won, delta, score, deaths) VALUES (?,?,?,?,?,?,?)",
+              (c.lastrowid, "Owner One", OWN, 1, 1.0, 0, 0))
 fa.gem_grant(c, "player", OWN, 150000, "backfill", "v1")
 cn.commit()
 cn.close()

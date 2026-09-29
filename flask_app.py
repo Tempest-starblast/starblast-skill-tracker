@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.78.0"
+APP_VERSION = "9.79.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -915,9 +915,9 @@ def _ach_extra():
     add("games-100", "Milestones", "Committed", "Play 100 rated matches.", 1200, "gem", lambda f: (f["games"], 100))
     add("games-500", "Milestones", "Lifer", "Play 500 rated matches.", 8000, "gem", lambda f: (f["games"], 500))
     add("games-1000", "Milestones", "Old guard", "Play 1,000 rated matches.", 25000, "gem", lambda f: (f["games"], 1000))
-    # days-with-a-win has only been counted since 17 Sep; the daily players
-    # go 7 for 7. A month of them is a month of showing up; a hundred is a
-    # season.
+    # days-with-a-win counts days with a rated win, from the matches (9.79.0;
+    # it was ledger rows from 17 Sep before). The daily players go 7 for 7. A
+    # month of them is a month of showing up; a hundred is a season.
     add("days-7", "Milestones", "A week of wins", "Win on 7 different days.", 300, "star", lambda f: (f["days"], 7))
     add("days-30", "Milestones", "A month of wins", "Win on 30 different days.", 3000, "star", lambda f: (f["days"], 30))
     add("days-100", "Milestones", "Devoted", "Win on 100 different days.", 15000, "star", lambda f: (f["days"], 100))
@@ -1050,10 +1050,18 @@ def _ach_facts(c, nn):
         f["cos"] = owned_cosmetics(c, nn)
         f["bought_cos"] = sum(1 for i in f["cos"] if not COSMETIC_BY_ID[i]["via"])
         sp = c.execute("SELECT COALESCE(-SUM(CASE WHEN amount < 0 AND reason = 'purchase' THEN amount ELSE 0 END), 0), "
-                       "COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0), "
-                       "SUM(CASE WHEN reason = 'daily-win' THEN 1 ELSE 0 END) "
+                       "COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) "
                        "FROM gem_ledger WHERE owner_kind = 'player' AND owner = ?", (nn,)).fetchone()
-        f["spent"], f["earned"], f["days"] = int(sp[0] or 0), int(sp[1] or 0), int(sp[2] or 0)
+        f["spent"], f["earned"] = int(sp[0] or 0), int(sp[1] or 0)
+        # Days with a win, from the matches themselves (9.79.0). It was a count
+        # of 'daily-win' ledger rows, which began only on 17 Sep and went with
+        # the ledger when the economy restarted at zero for the release; the
+        # wins it counts are a record of play, and they are all still here.
+        dw = c.execute("SELECT COUNT(DISTINCT substr(m.played_at, 1, 10)) FROM match_players mp "
+                       "JOIN matches m ON m.id = mp.match_row "
+                       "WHERE mp.norm_name = ? AND mp.won = 1 AND COALESCE(m.voided, 0) = 0",
+                       (nn,)).fetchone()
+        f["days"] = int(dw[0] or 0) if dw else 0
         # Score and deaths come from the rated matches themselves, back past
         # any wipe: what you did happened, whatever the record shows.
         sc = c.execute("SELECT COALESCE(MAX(score), 0), COALESCE(SUM(score), 0), COALESCE(SUM(deaths), 0) "
@@ -7826,6 +7834,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.79.0", "at": "2026-09-29T20:00:00Z", "changes": [
+        "Days with a win are counted from your match history, back to the "
+        "start of the board, instead of only from the middle of September.",
+    ]},
     {"version": "9.78.0", "at": "2026-09-26T23:30:00Z", "changes": [
         "Alpha Orionis Wars, Starblast's monthly 230-player event, is tracked: "
         "the America session, Sunday 27 September at 19:00 UTC. It has its own "
@@ -15457,6 +15469,137 @@ def gems_visible():
     """Whether the person looking is allowed to see any of this yet: everyone
     once released; until then the owner, or a preview-key session."""
     return GEMS_PUBLIC or is_site_owner() or preview_session_ok()
+
+
+# ---- THE RELEASE RESET (9.79.0, owner 29 Sep 2026) ---------------------------
+# "Remove all the test accounts ... start everyone at 0 gems, but achievements
+# should be claimable ... all the stats are saved ... the clan stuff, treasury,
+# etc starts at 0." One time, before GEMS_PUBLIC goes on. Everything bought,
+# worn, rented, contracted or banked in the preview goes - including tester
+# keys' million-gem credits and what they bought with them - and the ledger is
+# kept aside in gem_ledger_prerelease rather than lost. Ratings, matches,
+# peaks and every other stat are untouched, so every achievement they have
+# earned is waiting to be claimed from zero.
+GEM_RELEASE_CONFIRM = "START EVERYONE AT ZERO"
+
+
+def gem_release_reset(c):
+    """Do it on cursor c, inside the caller's transaction. Returns a report."""
+    rep = {}
+    # 1. The test accounts: every sandbox, with everything it owned.
+    subs = [r[0] for r in c.execute("SELECT DISTINCT google_sub FROM players "
+                                    "WHERE google_sub LIKE 'test:sandbox%'").fetchall()]
+    rep["test_accounts"] = [r[0] for r in c.execute(
+        "SELECT name FROM players WHERE google_sub LIKE 'test:sandbox%' ORDER BY name").fetchall()]
+    # Clans only test accounts ran - every admin a sandbox - found before the
+    # admins go. Built-in clans have no admins, so they are never among them.
+    test_clans = [r[0] for r in c.execute(
+        "SELECT clan FROM clan_admins GROUP BY clan "
+        "HAVING SUM(CASE WHEN google_sub LIKE 'test:sandbox%' THEN 0 ELSE 1 END) = 0").fetchall()]
+    for sub in subs:
+        _wipe_sandbox(c, sub)
+    other = {}
+    for (tb,) in c.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
+                           "AND name NOT LIKE 'sqlite_%'").fetchall():
+        if tb == "players":
+            continue
+        cols = {x[1] for x in c.execute("PRAGMA table_info(\"%s\")" % tb).fetchall()}
+        for col in ("google_sub", "sub", "account_sub"):
+            if col in cols:
+                n = c.execute("DELETE FROM \"%s\" WHERE \"%s\" LIKE 'test:sandbox%%'"
+                              % (tb, col)).rowcount
+                if n:
+                    other[tb] = other.get(tb, 0) + n
+    rep["test_rows"] = other
+    gone = []
+    for tag in test_clans:
+        if c.execute("SELECT 1 FROM players WHERE clan = ? LIMIT 1", (tag,)).fetchone():
+            continue                      # a real player is in it: it stays
+        for (tb,) in c.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
+                               "AND name NOT LIKE 'sqlite_%'").fetchall():
+            if tb in ("players", "clans"):
+                continue
+            cols = {x[1] for x in c.execute("PRAGMA table_info(\"%s\")" % tb).fetchall()}
+            if "clan" in cols:
+                c.execute("DELETE FROM \"%s\" WHERE clan = ?" % tb, (tag,))
+        c.execute("DELETE FROM clans WHERE tag = ?", (tag,))
+        gone.append(tag)
+    rep["test_clans_removed"] = gone
+    # 2. Tester keys: there is nothing left to preview.
+    rep["tester_keys_revoked"] = c.execute(
+        "UPDATE preview_keys SET revoked_at = ? WHERE revoked_at IS NULL", (_stamp(),)).rowcount
+    # 3. Every gem, everywhere, back to zero - the history kept aside.
+    rep["gems_before"] = {
+        "players": int(c.execute("SELECT COALESCE(SUM(gems), 0) FROM players").fetchone()[0]),
+        "clans": int(c.execute("SELECT COALESCE(SUM(gems), 0) FROM clans").fetchone()[0])}
+    c.execute("CREATE TABLE gem_ledger_prerelease AS SELECT * FROM gem_ledger")
+    rep["ledger_rows_archived"] = c.execute("SELECT COUNT(*) FROM gem_ledger_prerelease").fetchone()[0]
+    c.execute("DELETE FROM gem_ledger")
+    rep["players_reset"] = c.execute(
+        "UPDATE players SET gems = 0, display_ship = NULL, cosmetics = NULL, contract_clan = NULL, "
+        "contract_until = NULL, contract_rate = 0 WHERE COALESCE(gems, 0) != 0 "
+        "OR display_ship IS NOT NULL OR cosmetics IS NOT NULL OR contract_clan IS NOT NULL "
+        "OR contract_until IS NOT NULL OR COALESCE(contract_rate, 0) != 0").rowcount
+    rep["clans_reset"] = c.execute(
+        "UPDATE clans SET gems = 0, cosmetics = NULL, member_rate = 0, mod_rate = 0, "
+        "coleader_slots = 0 WHERE COALESCE(gems, 0) != 0 OR cosmetics IS NOT NULL "
+        "OR COALESCE(member_rate, 0) != 0 OR COALESCE(mod_rate, 0) != 0 "
+        "OR COALESCE(coleader_slots, 0) != 0").rowcount
+    for tb in ("clan_perks", "contract_escrow", "free_agents"):
+        rep[tb + "_cleared"] = c.execute("DELETE FROM %s" % tb).rowcount
+    rep["invite_bonuses_cleared"] = c.execute(
+        "UPDATE clan_invites SET gems = 0 WHERE COALESCE(gems, 0) != 0").rowcount
+    # Co-leaders past the free two - bought slots are gone. Reported, never
+    # demoted: nobody loses a role over this.
+    rep["clans_over_coleader_cap"] = [r[0] for r in c.execute(
+        "SELECT clan FROM clan_admins WHERE COALESCE(role, 'leader') = 'coleader' "
+        "GROUP BY clan HAVING COUNT(*) > ?", (CLAN_COLEADER_MAX,)).fetchall()]
+    rep["gems_after"] = {
+        "players": int(c.execute("SELECT COALESCE(SUM(gems), 0) FROM players").fetchone()[0]),
+        "clans": int(c.execute("SELECT COALESCE(SUM(gems), 0) FROM clans").fetchone()[0]),
+        "ledger_rows": int(c.execute("SELECT COUNT(*) FROM gem_ledger").fetchone()[0])}
+    return rep
+
+
+@app.route('/api/dev/gem-release', methods=['POST'])
+def api_dev_gem_release():
+    """Run the release reset. Key-gated; a dry run unless {"apply": true,
+    "confirm": GEM_RELEASE_CONFIRM}; refused once gems are public and once it
+    has been done (gem_ledger_prerelease exists), so it can never wipe a live
+    economy. A dry run does the whole thing and rolls it back, so its report is
+    exactly what applying would do."""
+    if not api_key_ok(request.headers.get('X-API-Key')):
+        return jsonify({"error": "Unauthorized"}), 401
+    if GEMS_PUBLIC:
+        return jsonify({"error": "gems are public - the release reset is closed"}), 403
+    body = request.get_json(silent=True) or {}
+    apply = bool(body.get("apply")) and body.get("confirm") == GEM_RELEASE_CONFIRM
+    conn = db(timeout=30)
+    c = conn.cursor()
+    if c.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                 "AND name = 'gem_ledger_prerelease'").fetchone():
+        conn.close()
+        return jsonify({"error": "already done - gem_ledger_prerelease exists"}), 409
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        rep = gem_release_reset(c)
+        if apply:
+            conn.commit()
+        else:
+            conn.rollback()
+    except sqlite3.Error as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": "database: %s" % e}), 503
+    conn.close()
+    for _cache in ("_COS_CACHE", "_CLAN_COS_CACHE", "_PREVIEW_OK_CACHE"):
+        try:
+            globals()[_cache].clear()
+        except (KeyError, AttributeError):
+            pass
+    print("[gem-release] %s: %s" % ("APPLIED" if apply else "dry run",
+                                   json.dumps(rep, ensure_ascii=False)[:1500]), flush=True)
+    return jsonify(dict(applied=apply, **rep)), 200
 
 
 def gem_balance(c, kind, owner):
