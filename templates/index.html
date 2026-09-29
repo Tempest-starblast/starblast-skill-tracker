@@ -198,6 +198,34 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 .modebar a.on{color:var(--text);border-color:var(--accent,#66E6B8);box-shadow:inset 0 0 0 1px var(--accent,#66E6B8)}
 .betatag{font-size:9px;letter-spacing:.5px;color:#66E6B8;border:1px solid #66E6B855;border-radius:4px;padding:1px 4px;text-transform:uppercase;font-weight:700}
 .svbeta{margin:-4px 0 14px;font-size:12.5px;line-height:1.6;color:var(--dim);max-width:64ch}
+/* A player's title on the board (9.81.0): the profile's chip at row size.
+   It may shorten, never push the row wider - on a phone the name comes first. */
+.who .rcost{display:inline-block;flex:0 1 auto;min-width:0;max-width:13em;height:17px;
+  padding:0 7px;line-height:15px;font-size:9.5px;letter-spacing:.9px;
+  overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){.who .rcost{max-width:8em;padding:0 5px;letter-spacing:.5px}}
+/* The player card: hover a name, or tap the emblem on a phone. It wears the
+   player's own banner and frame, so it is the profile in miniature. */
+.pcard{position:fixed;z-index:70;width:310px;max-width:calc(100vw - 16px)}
+.pcard[hidden]{display:none}
+.pcard-in{border:1px solid var(--line);border-radius:14px;padding:14px 16px;color:var(--text);
+  background:#060b14;box-shadow:0 18px 44px rgba(0,0,0,.6)}
+.pc-top{display:flex;gap:12px;align-items:center}
+.pc-emb{flex:none;width:52px;height:52px;display:flex;align-items:center;justify-content:center}
+.pc-id{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.pc-name{font-weight:800;font-size:16px;line-height:1.25;display:flex;gap:6px;align-items:center;
+  flex-wrap:wrap;overflow-wrap:anywhere}
+.pc-name .badge{margin:0}
+.pc-tier{font-size:12px;font-weight:700;letter-spacing:.3px}
+.pc-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;margin:12px 0 0;
+  font-variant-numeric:tabular-nums}
+.pc-stats b{display:block;font-size:15px}
+.pc-stats span{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+.pc-bio{margin:10px 0 0;color:var(--muted);font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.pc-go{display:inline-block;margin-top:10px;font-weight:700;color:var(--green);text-decoration:none}
+.pc-go:hover{text-decoration:underline}
+.pc-go:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.who .remb{cursor:pointer}
 {% endblock %}
 {% block body %}
 {% macro board(p=1, per=none, reg=none, term=none, md=none) -%}
@@ -388,8 +416,8 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% for p in leaderboard %}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}"{% if p.mine %} class="mine"{% endif %}>
   <td class="rank">{{ p.rank }}</td>
-  <td class="clanc">{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% else %}<span class="nocl" aria-label="No clan">&mdash;</span>{% endif %}</td>
-  <td><span class="who"><span class="remb">{% if p.division %}{{ rank_emblem(p.emblem or p.division.ship, 16, p.emblem_color or p.division.color, p.division.name ~ ' tier', 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}{% endif %}</span><a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}</span></td>
+  <td class="clanc">{% if p.clan %}<a class="badge{% if p.clan_cls %} cbadge {{ p.clan_cls }}{% endif %}" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% else %}<span class="nocl" aria-label="No clan">&mdash;</span>{% endif %}</td>
+  <td><span class="who"><span class="remb">{% if p.division %}{{ rank_emblem(p.emblem or p.division.ship, 16, p.emblem_color or p.division.color, p.division.name ~ ' tier', 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}{% endif %}</span><a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}" data-card="{{ p.name }}">{% if p.name_cls %}<span class="cosn {{ p.name_cls }}">{{ p.display }}</span>{% else %}{{ p.display }}{% endif %}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}{% if p.title %}<span class="cost rcost{% if p.title.earned %} earned{% endif %}" title="{{ p.title.text }}">{{ p.title.text }}</span>{% endif %}</span></td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
     href="/?{% if mode == 'survival' %}mode=survival&amp;{% endif %}period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
@@ -411,8 +439,8 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 {% for p in me_rows %}
 <tr class="youfoot">
   <td class="rank">{{ p.rank }}</td>
-  <td class="clanc">{% if p.clan %}<a class="badge" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% else %}<span class="nocl" aria-label="No clan">&mdash;</span>{% endif %}</td>
-  <td><span class="who"><span class="remb"></span><a class="pname" href="/player/{{ p.name|urlencode }}">{{ p.display }}</a><span class="youtag">you</span>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}</span></td>
+  <td class="clanc">{% if p.clan %}<a class="badge{% if p.clan_cls %} cbadge {{ p.clan_cls }}{% endif %}" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% else %}<span class="nocl" aria-label="No clan">&mdash;</span>{% endif %}</td>
+  <td><span class="who"><span class="remb"></span><a class="pname" href="/player/{{ p.name|urlencode }}" data-card="{{ p.name }}">{% if p.name_cls %}<span class="cosn {{ p.name_cls }}">{{ p.display }}</span>{% else %}{{ p.display }}{% endif %}</a><span class="youtag">you</span>{% if p.title %}<span class="cost rcost{% if p.title.earned %} earned{% endif %}" title="{{ p.title.text }}">{{ p.title.text }}</span>{% endif %}{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}</span></td>
   {% if region == 'all' %}<td class="mid">{% if p.region_label %}{{ p.region_label }}{% else %}-{% endif %}</td>{% endif %}
   <td class="mid">{{ p.record }}</td>
   <td class="mid">{{ p.winrate }}</td>
@@ -526,5 +554,77 @@ function filter(){
 }
 
 
+</script>
+<div class="pcard" id="pcard" hidden role="dialog" aria-label="Player card"></div>
+<script>
+/* The player card (9.81.0). Hover a name on a desktop, focus it with the
+   keyboard, or tap the emblem beside it on a phone. The card is fetched the
+   first time and kept, so the board itself carries none of it. */
+(function(){
+  var card = document.getElementById('pcard');
+  var wrap = document.querySelector('.tablewrap');
+  if(!card || !wrap) return;
+  var cache = {}, cur = null, showT = null, hideT = null;
+  var canHover = !!(window.matchMedia && window.matchMedia('(hover: hover)').matches);
+  function place(anchor){
+    var r = anchor.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
+    var x = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+    var y = r.bottom + 8;
+    if(y + h > window.innerHeight - 8) y = Math.max(8, r.top - h - 8);
+    card.style.left = x + 'px'; card.style.top = y + 'px';
+  }
+  function open(anchor, name){
+    if(!name) return;
+    cur = name;
+    var show = function(html){
+      if(cur !== name) return;
+      card.innerHTML = html; card.hidden = false; place(anchor);
+    };
+    if(cache[name]) return show(cache[name]);
+    fetch('/player/' + encodeURIComponent(name) + '/card')
+      .then(function(r){ return r.ok ? r.text() : ''; })
+      .then(function(h){ if(h){ cache[name] = h; show(h); } })
+      .catch(function(){});
+  }
+  function close(){ cur = null; card.hidden = true; }
+  function nameOf(el){ return el && el.getAttribute('data-card'); }
+  if(canHover){
+    wrap.addEventListener('mouseover', function(e){
+      var a = e.target.closest && e.target.closest('a.pname');
+      if(!a) return;
+      clearTimeout(hideT); clearTimeout(showT);
+      showT = setTimeout(function(){ open(a, nameOf(a)); }, 260);
+    });
+    wrap.addEventListener('mouseout', function(e){
+      var a = e.target.closest && e.target.closest('a.pname');
+      if(!a) return;
+      clearTimeout(showT); hideT = setTimeout(close, 260);
+    });
+    card.addEventListener('mouseenter', function(){ clearTimeout(hideT); });
+    card.addEventListener('mouseleave', function(){ hideT = setTimeout(close, 200); });
+  }
+  wrap.addEventListener('focusin', function(e){
+    var a = e.target.closest && e.target.closest('a.pname');
+    if(a) open(a, nameOf(a));
+  });
+  wrap.addEventListener('focusout', function(e){
+    if(e.target.closest && e.target.closest('a.pname')) hideT = setTimeout(close, 200);
+  });
+  wrap.addEventListener('click', function(e){
+    var em = e.target.closest && e.target.closest('.remb');
+    if(!em) return;
+    var a = em.parentNode && em.parentNode.querySelector('a.pname');
+    if(!a) return;
+    if(!card.hidden && cur === nameOf(a)) return close();
+    open(em, nameOf(a));
+  });
+  document.addEventListener('click', function(e){
+    if(card.hidden || card.contains(e.target)) return;
+    if(e.target.closest && e.target.closest('.remb')) return;
+    close();
+  });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') close(); });
+  window.addEventListener('scroll', function(){ if(!card.hidden) close(); }, {passive: true});
+})();
 </script>
 {% endblock %}

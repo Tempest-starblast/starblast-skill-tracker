@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.80.0"
+APP_VERSION = "9.81.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7834,6 +7834,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.81.0", "at": "2026-09-30T02:00:00Z", "changes": [
+        "Your looks show on the leaderboard: your name in the name style you "
+        "wear, your title beside it, and your clan's tag in the look the clan "
+        "bought.",
+        "Hover a name on the leaderboard - or tap the ship beside it on a "
+        "phone - for that player's card: their banner, frame and effect, "
+        "tier, rank, record, best rank and the start of their bio, with a "
+        "link to the full profile.",
+    ]},
     {"version": "9.80.0", "at": "2026-09-29T21:00:00Z", "changes": [
         "Gems are here. You earn them by playing: every rated win, a little for "
         "a loss, more for your first win of the day and for survival wins. "
@@ -10831,6 +10840,49 @@ def player_ships(name):
         "best": ({"score": b[0], "won": bool(b[1]), "mid": b[2],
                   "at": str(b[3] or "")[:16], "lobby": b[4] or ""} if b else None),
     }), 200
+
+
+@app.route('/player/<name>/card')
+def player_card(name):
+    """The player card the leaderboard opens on hover (9.81.0): the profile in
+    miniature, wearing the player's own banner, frame, effect, name style and
+    title. An HTML fragment, fetched once per name and kept by the page."""
+    nn = normalize_name(name)
+    if not nn:
+        abort(404)
+    try:
+        conn = db(timeout=5)
+        c = conn.cursor()
+        row = c.execute("SELECT name, elo, COALESCE(wins, 0), COALESCE(losses, 0), clan, bio, "
+                        "peak_rank FROM players WHERE norm_name = ?", (nn,)).fetchone()
+        shown = clan_display(c, row[4]) if row and row[4] else None
+        conn.close()
+    except sqlite3.Error:
+        abort(503)
+    if not row:
+        abort(404)
+    pname, elo, wins, losses, clan, bio, peak_rank = row
+    played = wins + losses
+    allowed = gems_visible()
+    division = division_map().get(nn) if played >= PROVISIONAL_GAMES else None
+    emblem, emblem_color, mythic = worn_emblem(nn, display_ship_map() if allowed else {}, allowed)
+    try:
+        ranks_now = board_rank_map('team', 'all', ALL_REGIONS)
+    except sqlite3.Error:
+        ranks_now = {}
+    bio_line = " ".join(str(bio or "").split())
+    if len(bio_line) > 140:
+        bio_line = bio_line[:139].rstrip() + "…"
+    html = render_template(
+        '_player_card.html', name=pname, elo=elo or 0, wins=wins, losses=losses,
+        played=played, winrate=(f"{round(100 * wins / played)}%" if played else "-"),
+        rank=ranks_now.get(nn), rank_of=len(ranks_now), peak_rank=peak_rank,
+        clan=clan, clan_shown=shown or clan, d=division, emblem=emblem,
+        emblem_color=emblem_color, mythic=mythic, bio=bio_line, newgames=PROVISIONAL_GAMES,
+        cos=cosmetic_view(nn, allowed), cv=(clan_view(clan, allowed) if clan else {}))
+    resp = app.response_class(html, mimetype="text/html")
+    resp.headers["Cache-Control"] = "public, max-age=30"
+    return resp
 
 
 @app.route('/player/<name>')
@@ -25408,6 +25460,19 @@ def leaderboard():
             "has_account": nn in _accounts,
         }
         d["emblem"], d["emblem_color"], d["mythic"] = worn_emblem(nn, _shipmap, _ships_ok)
+        # The looks people buy to be seen in (9.81.0): their name style and
+        # title on every row, and their clan's tag look on its badge. Same
+        # viewer gate as the worn hull, and read from the one-minute maps - not
+        # the board cache - so a look just put on shows within the minute.
+        _cv = cosmetic_view(nn, _ships_ok)
+        if _cv.get("name"):
+            d["name_cls"] = _cv["name"]["cls"]
+        if _cv.get("title"):
+            d["title"] = _cv["title"]
+        if clan:
+            _clv = clan_view(clan, _ships_ok)
+            if _clv.get("tag"):
+                d["clan_cls"] = _clv["tag"]
         if clan:
             d["clan_display"] = disp
         if nn in _mine:

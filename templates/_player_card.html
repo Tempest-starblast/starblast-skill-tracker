@@ -1,0 +1,23 @@
+{#- The player card the leaderboard opens on hover (9.81.0): a fragment, fetched
+    by the page and dropped into #pcard. Styled by index.html's .pcard rules and
+    the shop's own cosmetic classes. -#}
+<div class="pcard-in{% if cos.banner %} cosb {{ cos.banner.cls }}{% endif %}{% if cos.frame %} cosf {{ cos.frame.cls }}{% endif %}">
+  <div class="pc-top">
+    <div class="pc-emb{% if cos.fx %} cosx {{ cos.fx.cls }}{% endif %}">{% if d %}{{ rank_emblem(emblem or d.ship, 46, emblem_color or d.color, d.name ~ ' tier', 'rank-emblem mythic' if mythic else 'rank-emblem')|safe }}{% elif emblem %}{{ rank_emblem(emblem, 46, emblem_color or '#8b949e', 'Unranked', 'rank-emblem mythic' if mythic else 'rank-emblem')|safe }}{% else %}{{ rank_emblem(101, 46, '#8b949e', 'Fly')|safe }}{% endif %}</div>
+    <div class="pc-id">
+      <div class="pc-name">{% if clan %}<span class="badge{% if cv.tag %} cbadge {{ cv.tag }}{% endif %}">{{ clan_shown }}</span>{% endif %}<span class="{% if cos.name %}cosn {{ cos.name.cls }}{% endif %}">{{ name }}</span></div>
+      {% if cos.title %}<span class="cost{% if cos.title.earned %} earned{% endif %}">{{ cos.title.text }}</span>{% endif %}
+      {% if d %}<span class="pc-tier" style="color:{{ d.color }}">{{ d.name }} tier</span>{% elif played < newgames %}<span class="pc-tier" style="color:var(--muted)">New &middot; rating still settling</span>{% endif %}
+    </div>
+  </div>
+  <div class="pc-stats">
+    <div><span>Rank</span><b>{% if rank %}#{{ rank }}{% else %}&ndash;{% endif %}</b></div>
+    <div><span>{{ t('Skill') }}</span><b>{{ '%.0f'|format(elo) }}</b></div>
+    <div><span>{{ t('Record') }}</span><b>{{ wins }}&ndash;{{ losses }}</b></div>
+    <div><span>{{ t('Win%') }}</span><b>{{ winrate }}</b></div>
+    <div><span>Best rank</span><b>{% if peak_rank %}#{{ peak_rank }}{% else %}&ndash;{% endif %}</b></div>
+    <div><span>Matches</span><b>{{ played }}</b></div>
+  </div>
+  {% if bio %}<p class="pc-bio">{{ bio }}</p>{% endif %}
+  <a class="pc-go" href="/player/{{ name|urlencode }}">View profile &rarr;</a>
+</div>
