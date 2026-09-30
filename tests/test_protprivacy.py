@@ -77,7 +77,10 @@ print("\n--- and nothing draws it any more ---")
 for path in ("/", "/leaderboard"):
     h = stranger.get(path).get_data(as_text=True)
     check("no lock on %s" % path, "lockm" in h and "Protected - only matches" in h, False)
-    check("   accounts still show their tick on %s" % path, "Has an account" in h, True)
+    # No check mark on the board since 9.81.1 (owner: "remove the check marks");
+    # an account is still marked by its green underline.
+    check("   no check mark on %s" % path, "Has an account" in h, False)
+    check("   accounts still marked by the underline on %s" % path, "pname acct" in h, True)
 h = stranger.get("/clan/L7").get_data(as_text=True)
 check("no lock on a clan page", "Protected - only matches" in h, False)
 check("and the legend no longer explains one", "means a protected rating" in h, False)

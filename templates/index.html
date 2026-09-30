@@ -110,7 +110,10 @@ tbody tr{scroll-margin-top:84px}
 th.clanc,td.clanc{white-space:nowrap;padding-right:4px}
 td.clanc .badge{margin:0}
 td.clanc .nocl{color:var(--dim,#5d7f93);display:inline-block;width:1.2em;text-align:center}
-.who{display:inline-flex;align-items:center;gap:6px;max-width:100%;vertical-align:middle}
+/* Name and title share a text baseline, so their lettering sits on one line
+   (centred boxes left the title 2px high of the name); the emblem centres. */
+.who{display:inline-flex;align-items:baseline;gap:6px;max-width:100%;vertical-align:middle}
+.who .remb{align-self:center}
 .who .remb{flex:none;width:16px;height:16px;margin:0;display:inline-flex;align-items:center;
   justify-content:center}
 .remb svg{vertical-align:middle}
@@ -417,7 +420,7 @@ a.ghost:hover{background:#2a2a2a;color:#fff}
 <tr id="p-{{ p.name|urlencode }}" data-key="{{ p.search }}"{% if p.mine %} class="mine"{% endif %}>
   <td class="rank">{{ p.rank }}</td>
   <td class="clanc">{% if p.clan %}<a class="badge{% if p.clan_cls %} cbadge {{ p.clan_cls }}{% endif %}" href="/clan/{{ p.clan }}">{{ p.clan_display or p.clan }}</a>{% else %}<span class="nocl" aria-label="No clan">&mdash;</span>{% endif %}</td>
-  <td><span class="who"><span class="remb">{% if p.division %}{{ rank_emblem(p.emblem or p.division.ship, 16, p.emblem_color or p.division.color, p.division.name ~ ' tier', 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}{% endif %}</span><a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}" data-card="{{ p.name }}">{% if p.name_cls %}<span class="cosn {{ p.name_cls }}">{{ p.display }}</span>{% else %}{{ p.display }}{% endif %}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.has_account %}<span class="tick" role="img" aria-label="Has an account" title="Has an account on the site">&#10003;</span>{% endif %}{% if p.title %}<span class="cost rcost{% if p.title.earned %} earned{% endif %}" title="{{ p.title.text }}">{{ p.title.text }}</span>{% endif %}</span></td>
+  <td><span class="who"><span class="remb">{% if p.division %}{{ rank_emblem(p.emblem or p.division.ship, 16, p.emblem_color or p.division.color, p.division.name ~ ' tier', 'rank-emblem mythic' if p.mythic else 'rank-emblem')|safe }}{% endif %}</span><a class="pname{% if p.has_account %} acct{% endif %}" href="/player/{{ p.name|urlencode }}" data-card="{{ p.name }}">{% if p.name_cls %}<span class="cosn {{ p.name_cls }}">{{ p.display }}</span>{% else %}{{ p.display }}{% endif %}</a>{% if p.provisional %}<span class="prov" title="Fewer than 5 matches - this rating is still settling">NEW</span>{% endif %}{% if p.title %}<span class="cost rcost{% if p.title.earned %} earned{% endif %}" title="{{ p.title.text }}">{{ p.title.text }}</span>{% endif %}</span></td>
   {% if region == 'all' %}<td class="mid">{% if p.region %}<a class="rlink"
     href="/?{% if mode == 'survival' %}mode=survival&amp;{% endif %}period={{ period }}&amp;region={{ p.region }}&amp;find={{ p.name|urlencode }}"
     title="Plays mostly here - open the {{ p.region_label }} leaderboard at this player">{{ p.region_label }}</a>{% else %}-{% endif %}</td>{% endif %}
