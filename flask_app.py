@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.81.1"
+APP_VERSION = "9.81.2"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -6755,6 +6755,28 @@ def game_end():
         losing_all = [p for p in losing_all if normalize_name(p) not in _both]
         losing_team_1 = [p for p in losing_team_1 if normalize_name(p) not in _both]
         losing_team_2 = [p for p in losing_team_2 if normalize_name(p) not in _both]
+    # ONE ACCOUNT, ONE RESULT (9.81.2). Two in-game names can resolve to the
+    # same account - a clan-tag name and a check-in binding, say - and each
+    # entry used to be rated, so the account took the result twice
+    # (@vulcan, Vetaedes #1368, 2 Oct: -72.1 twice). Keep the first entry.
+    def _once(names, seen):
+        out = []
+        for _p in names:
+            _k = normalize_name(_p)
+            if _k in seen:
+                continue
+            seen.add(_k)
+            out.append(_p)
+        return out
+    _n_before = len(winning_team) + len(losing_all)
+    winning_team = _once(winning_team, set())
+    losing_all = _once(losing_all, set())
+    _seen_l = set()
+    losing_team_1 = _once(losing_team_1, _seen_l)
+    losing_team_2 = _once(losing_team_2, _seen_l)
+    if len(winning_team) + len(losing_all) < _n_before:
+        print("[game_end] sys=%s an account listed twice - rated once"
+              % (sys_id,), flush=True)
     _lost = [p for p in _in_l if p not in losing_all]
     print("[game_end] sys=%s region=%s got W=%d L=%d -> kept W=%d L=%d%s"
           % (sys_id, data.get('region'), len(_in_w), len(_in_l),
@@ -7834,6 +7856,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.81.2", "at": "2026-10-02T16:00:00Z", "changes": [
+        "A player can only be rated once per match. When two names in one "
+        "match both counted for the same account, the account took the "
+        "result twice; those extra results have been taken back.",
+    ]},
     {"version": "9.81.1", "at": "2026-09-30T03:00:00Z", "changes": [
         "The leaderboard no longer puts a check mark after the names of "
         "players with an account - the green underline still marks them - "
