@@ -29,7 +29,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.82.0"
+APP_VERSION = "9.82.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4468,7 +4468,10 @@ def init_db():
                   "ALTER TABLE clans ADD COLUMN member_pp INTEGER DEFAULT 0",
                   "ALTER TABLE clans ADD COLUMN mod_pp INTEGER DEFAULT 0",
                   "ALTER TABLE clans ADD COLUMN member_pct INTEGER DEFAULT 0",
-                  "ALTER TABLE clans ADD COLUMN mod_pct INTEGER DEFAULT 0"):
+                  "ALTER TABLE clans ADD COLUMN mod_pct INTEGER DEFAULT 0",
+                  "ALTER TABLE match_players ADD COLUMN place INTEGER",
+                  "ALTER TABLE matches ADD COLUMN order_basis TEXT",
+                  "ALTER TABLE matches ADD COLUMN team_out_s TEXT"):
         try:
             c.execute(_stmt)
         except sqlite3.OperationalError as _e:
@@ -7109,8 +7112,9 @@ def game_end():
                     # watch - that is what it has always meant (7.0.4).
                     _share = presence.get(normalize_name(pname), 1.0)
                     _played = int(round(_watch_s * _share)) if _watch_s else None
-                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as, team, ship, deaths, played_s) "
-                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    _tm = team_of.get(normalize_name(pname), 'win' if won else 'lose1')
+                    c.execute("INSERT INTO match_players (match_row, name, norm_name, won, delta, half, score, played_as, team, ship, deaths, played_s, place) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                               (mrow[0], pname, normalize_name(pname), won, delta,
                                1 if normalize_name(pname) in half_elo else 0,
                                raw_score, played_as,
@@ -7120,7 +7124,20 @@ def game_end():
                                or _ships_by_name.get(pname),
                                _deaths_by_name.get(played_as)
                                or _deaths_by_name.get(pname),
-                               _played))
+                               _played, _team_places(data).get(_tm)))
+
+    # ---- How the teams finished (9.82.1) -----------------------------------
+    # The scorer reads the order off the station telemetry. Kept on the match
+    # whether or not it could name the losers' places, with how it knew.
+    try:
+        if mrow and isinstance(data.get('places'), dict):
+            _outs = data.get('team_out_s') if isinstance(data.get('team_out_s'), dict) else {}
+            c.execute("UPDATE matches SET order_basis = ?, team_out_s = ? WHERE id = ?",
+                      (str(data.get('order_basis') or '')[:20] or None,
+                       json.dumps({str(k): v for k, v in _outs.items()})[:200] if _outs else None,
+                       mrow[0]))
+    except (sqlite3.Error, TypeError, ValueError):
+        pass
 
     # ---- A hosted event -------------------------------------------------
     # If this match was the event lobby we put up, the winning side is paid
@@ -7145,7 +7162,8 @@ def game_end():
             for _nm in losing_team_2:
                 _lose_of[normalize_name(_nm)] = 'lose2'
             _paid = award_match_gems(c, applied, _match_id,
-                                     second=_second_place_team(applied, _lose_of, final_scores))
+                                     second=_second_place_team(applied, _lose_of, final_scores,
+                                                               _team_places(data)))
             if _paid:
                 print("[game_end] sys=%s gems paid to %d players (%d total)"
                       % (sys_id, len(_paid), sum(g for _n, g in _paid)), flush=True)
@@ -8105,6 +8123,15 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.82.1", "at": "2026-10-08T03:00:00Z", "changes": [
+        "Team matches now record how the teams finished. When a station is "
+        "destroyed the match knows it, so the winner is first and the team "
+        "whose station stood longer is second. A 2nd place earns its clan "
+        "points from the real finishing order, not from a guess off the "
+        "scoreboard (which got it wrong more often than right). When two "
+        "stations fall too close together to tell, no order is claimed and "
+        "the old guess is used.",
+    ]},
     {"version": "9.82.0", "at": "2026-10-08T01:00:00Z", "changes": [
         "Clans now have points. A team win earns your clan 10 points, a team "
         "2nd place (in a three-team match) 5, a survival win 30 and a survival "
@@ -16850,8 +16877,40 @@ def award_match_gems(c, applied, match_id, second=None):
     return out
 
 
-def _second_place_team(applied, team_of, scores):
-    """The accepted losers of the better-scoring losing team in a THREE-team
+def _team_places(data):
+    """The finishing order the scorer recorded - {'win': 1, 'lose1': 2|3,
+    'lose2': 2|3} - or {} when it did not send one or could not tell. Only a
+    clean order is accepted: two different places from {2, 3} for the losers."""
+    raw = data.get('places') if isinstance(data, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for k in ('win', 'lose1', 'lose2'):
+        try:
+            v = int(raw.get(k))
+        except (TypeError, ValueError):
+            continue
+        if v in (1, 2, 3):
+            out[k] = v
+    if 'lose1' in out and 'lose2' in out and {out['lose1'], out['lose2']} == {2, 3}:
+        return out
+    if 'lose1' in out and 'lose2' not in out and out['lose1'] == 2:
+        return out                      # a two-team match: the other side was second
+    return {k: v for k, v in out.items() if k == 'win'}
+
+
+def _second_place_team(applied, team_of, scores, places=None):
+    """The accepted losers who finished second in a THREE-team match, as
+    normalized names - or an empty set.
+
+    From 9.82.1 the order is the one the scorer recorded: the station that
+    stood longer finished second (finish_order.py). Without one - an older
+    scorer, or two stations falling too close together to tell - it falls back
+    to the scoreboard guess below, which agrees with the real order only 4 times
+    in 10 (measured on 101 matches), so the real order is preferred whenever
+    it exists.
+
+    The scoreboard guess: the accepted losers of the better-scoring losing team in a THREE-team
     match, as normalized names - or an empty set. The scorer lists the losing
     teams by team number, not by how they finished, so the finish is read off
     the scoreboard: the losing team whose rated players scored more between
@@ -16861,6 +16920,13 @@ def _second_place_team(applied, team_of, scores):
     try:
         tot = {'lose1': 0, 'lose2': 0}
         has = {'lose1': set(), 'lose2': set()}
+        if places and 'lose1' in places and 'lose2' in places:
+            for player, won, _d in applied:
+                t = team_of.get(normalize_name(player))
+                if not won and t in has:
+                    has[t].add(normalize_name(player))
+            second = 'lose1' if places['lose1'] == 2 else 'lose2'
+            return has[second]
         for player, won, _d in applied:
             if won:
                 continue
