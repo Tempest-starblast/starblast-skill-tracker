@@ -17,6 +17,7 @@ import hmac
 import hashlib
 import zlib
 import calendar
+import functools
 import threading
 from datetime import timedelta
 import i18n
@@ -28,7 +29,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.81.3"
+APP_VERSION = "9.81.4"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1922,6 +1923,16 @@ BLOCKED_EXACT = {
 
 
 def normalize_name(name):
+    """Identity key for a player name (memoized, 9.81.3: a board rebuild asks
+    for ~25,000 of these and a Unicode fold is the slow part of each; the
+    answer depends on nothing but the text)."""
+    try:
+        return _normalize_name_cached(name)
+    except TypeError:                # an unhashable argument: do it the long way
+        return _normalize_name_raw(name)
+
+
+def _normalize_name_raw(name):
     """Identity key for a player name.
 
     OCR reads the same person inconsistently - BERU has appeared as
@@ -1953,6 +1964,8 @@ def normalize_name(name):
     recomposed = unicodedata.normalize('NFKC', stripped)
     return ''.join(ch for ch in recomposed if ch.isalnum()).upper()
 
+
+_normalize_name_cached = functools.lru_cache(maxsize=100000)(_normalize_name_raw)
 
 # Look-alike letters that NFKC leaves alone but a human reads as a Latin
 # letter: Cyrillic and Greek glyphs used to "draw" a Latin name. Grouped by
@@ -7809,6 +7822,52 @@ def _page_lock(key):
         return lk
 
 
+PAGE_DIR = os.path.join(BASE_DIR, 'pagecache')
+
+
+def _page_file(key):
+    return os.path.join(PAGE_DIR, hashlib.sha1(repr(key).encode('utf-8', 'replace')).hexdigest())
+
+
+def _page_load(key):
+    """The newest copy of a page from this worker or, failing that, from the
+    shared folder every worker writes to (the site runs 3 workers, so without
+    it one visit in three met a worker that had never built the page)."""
+    hit = _PAGE_CACHE.get(key)
+    if hit and time.time() - hit[0] < PAGE_CACHE_FRESH_S:
+        return hit
+    try:
+        path = _page_file(key)
+        mt = os.stat(path).st_mtime
+        if hit is None or mt > hit[0]:
+            with open(path, 'rb') as fh:
+                mime, _, body = fh.read().partition(b'\n')
+            hit = (mt, body, mime.decode('ascii', 'replace'))
+            _PAGE_CACHE[key] = hit
+    except (OSError, ValueError):
+        pass
+    return hit
+
+
+def _page_store(key, body, mime):
+    now = time.time()
+    _PAGE_CACHE[key] = (now, body, mime)
+    try:
+        os.makedirs(PAGE_DIR, exist_ok=True)
+        path = _page_file(key)
+        tmp = '%s.tmp%d' % (path, os.getpid())
+        with open(tmp, 'wb') as fh:
+            fh.write(mime.encode('ascii', 'replace') + b'\n' + body)
+        os.replace(tmp, path)
+        if int(now) % 50 == 0:                       # now and then, drop the long-dead
+            for fn in os.listdir(PAGE_DIR):
+                fp = os.path.join(PAGE_DIR, fn)
+                if now - os.stat(fp).st_mtime > PAGE_CACHE_STALE_S:
+                    os.remove(fp)
+    except (OSError, ValueError):
+        pass
+
+
 def _page_cache_key():
     if request.method != 'GET' or request.endpoint not in PAGE_CACHE_ENDPOINTS:
         return None
@@ -7841,7 +7900,7 @@ def _page_cache_get():
         return None
     request.environ['sb.pkey'] = key
     now = time.time()
-    hit = _PAGE_CACHE.get(key)
+    hit = _page_load(key)
     if hit and now - hit[0] < PAGE_CACHE_FRESH_S:
         return _page_cache_serve(hit, 'hit')
     lk = _page_lock(key)
@@ -7851,7 +7910,7 @@ def _page_cache_get():
     else:
         if not lk.acquire(timeout=20):
             return None                                 # give up waiting, render it ourselves
-        hit = _PAGE_CACHE.get(key)
+        hit = _page_load(key)
         if hit and time.time() - hit[0] < PAGE_CACHE_FRESH_S:
             lk.release()
             return _page_cache_serve(hit, 'hit')        # filled while we waited
@@ -7871,7 +7930,7 @@ def _page_cache_put(resp):
                 if len(_PAGE_CACHE) >= PAGE_CACHE_MAX:
                     for k in sorted(_PAGE_CACHE, key=lambda k: _PAGE_CACHE[k][0])[:PAGE_CACHE_MAX // 4]:
                         _PAGE_CACHE.pop(k, None)
-                _PAGE_CACHE[key] = (time.time(), body, resp.mimetype)
+                _page_store(key, body, resp.mimetype)
         elif (request.method != 'GET' and not request.path.startswith('/api/')
               and request.method != 'OPTIONS'):
             _PAGE_CACHE.clear()
@@ -7985,6 +8044,13 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.81.4", "at": "2026-10-07T22:00:00Z", "changes": [
+        "The leaderboard, clans, player and clan pages open faster again: "
+        "all three of the site's workers now share the pages they have built, "
+        "so a visit no longer depends on which worker it lands on, and "
+        "rebuilding the leaderboard no longer spends half a second turning "
+        "25,000 player names into their lookup keys.",
+    ]},
     {"version": "9.81.3", "at": "2026-10-07T21:00:00Z", "changes": [
         "The site was down for about 35 hours (6 Oct 08:12 to 7 Oct 19:07 UTC) "
         "and is back; the 204 matches played in that time have been added to "
