@@ -18,6 +18,7 @@ import hashlib
 import zlib
 import calendar
 import functools
+import tempfile
 import threading
 from datetime import timedelta
 import i18n
@@ -29,7 +30,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.81.4"
+APP_VERSION = "9.81.5"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7822,7 +7823,10 @@ def _page_lock(key):
         return lk
 
 
-PAGE_DIR = os.path.join(BASE_DIR, 'pagecache')
+# The web server's own temp folder, not the home folder: home is network
+# storage, where a worker can keep seeing "no such file" for seconds after
+# another worker made it. The workers share this machine's /tmp.
+PAGE_DIR = os.path.join(tempfile.gettempdir(), 'sb_pagecache')
 
 
 def _page_file(key):
@@ -8044,6 +8048,11 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.81.5", "at": "2026-10-07T23:00:00Z", "changes": [
+        "The pages the site's workers share are now kept where every worker "
+        "sees them at once, so a visit lands on a ready page every time, not "
+        "two times in three.",
+    ]},
     {"version": "9.81.4", "at": "2026-10-07T22:00:00Z", "changes": [
         "The leaderboard, clans, player and clan pages open faster again: "
         "all three of the site's workers now share the pages they have built, "
