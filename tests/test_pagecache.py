@@ -6,6 +6,7 @@ change."""
 import io
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -30,7 +31,7 @@ os.makedirs(fa._BOARD_DIR, exist_ok=True)
 fa.init_db()
 fa.app.config["TESTING"] = True
 fa.app.config["PAGE_CACHE_TESTING"] = True
-fa.PAGE_DIR = os.path.join(TMP, "pagecache")
+fa.PAGE_DB = os.path.join(TMP, "pagecache.db")
 ok = fail = 0
 
 
@@ -71,16 +72,23 @@ fa.PAGE_CACHE_ENDPOINTS = frozenset(("_t_cached", "_t_cookie", "info_page"))
 
 def reset():
     fa._PAGE_CACHE.clear()
-    shutil.rmtree(fa.PAGE_DIR, ignore_errors=True)
+    if os.path.exists(fa.PAGE_DB):
+        os.remove(fa.PAGE_DB)
+
+
+def db_age(key, secs):
+    c = sqlite3.connect(fa.PAGE_DB)
+    c.execute("UPDATE pages SET at = ? WHERE k = ?", (time.time() - secs, fa._page_id(key)))
+    c.commit()
+    c.close()
 
 
 def age(key, secs):
-    """Make a stored page look secs old - in memory and on disk."""
+    """Make a stored page look secs old - in memory and in the shared store."""
     e = fa._PAGE_CACHE[key]
     fa._PAGE_CACHE[key] = (time.time() - secs, e[1], e[2])
-    f = fa._page_file(key)
-    if os.path.exists(f):
-        os.utime(f, (time.time() - secs,) * 2)
+    if os.path.exists(fa.PAGE_DB):
+        db_age(key, secs)
 
 
 def get(path, cookie=None, **kw):
@@ -164,20 +172,22 @@ fa.app.view_functions["_t_cached"] = orig
 reset()
 calls.clear()
 get("/_t_cached")
-check("a built page is written where every worker can read it", len(os.listdir(fa.PAGE_DIR)), 1)
+c = sqlite3.connect(fa.PAGE_DB)
+check("a built page is written where every worker can read it", c.execute("SELECT COUNT(*) FROM pages").fetchone()[0], 1)
+c.close()
 fa._PAGE_CACHE.clear()                            # a worker that never built it
 w = get("/_t_cached")
 check("a different worker serves it without building",
       (w.headers.get("X-Page-Cache"), w.get_data(as_text=True), len(calls)), ("hit", "v1", 1))
-f = next(os.path.join(fa.PAGE_DIR, n) for n in os.listdir(fa.PAGE_DIR))
-os.utime(f, (time.time() - fa.PAGE_CACHE_STALE_S - 5,) * 2)
+k = next(iter(fa._PAGE_CACHE))
+db_age(k, fa.PAGE_CACHE_STALE_S + 5)
 fa._PAGE_CACHE.clear()
-check("a long-dead file is not served", (get("/_t_cached").headers.get("X-Page-Cache"), len(calls)), (None, 2))
-good_dir = fa.PAGE_DIR
-fa.PAGE_DIR = os.path.join(TMP, "no", "such", "\0dir")
+check("a long-dead copy is not served", (get("/_t_cached").headers.get("X-Page-Cache"), len(calls)), (None, 2))
+good_db = fa.PAGE_DB
+fa.PAGE_DB = os.path.join(TMP, "no", "such", "dir", "p.db")
 fa._PAGE_CACHE.clear()
-check("an unusable folder never breaks a page", get("/_t_cached").status_code, 200)
-fa.PAGE_DIR = good_dir
+check("an unusable store never breaks a page", get("/_t_cached").status_code, 200)
+fa.PAGE_DB = good_db
 
 print("\n%d passed, %d failed" % (ok, fail))
 shutil.rmtree(TMP, ignore_errors=True)

@@ -18,7 +18,6 @@ import hashlib
 import zlib
 import calendar
 import functools
-import tempfile
 import threading
 from datetime import timedelta
 import i18n
@@ -30,7 +29,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.81.5"
+APP_VERSION = "9.81.6"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -7823,32 +7822,42 @@ def _page_lock(key):
         return lk
 
 
-# The web server's own temp folder, not the home folder: home is network
-# storage, where a worker can keep seeing "no such file" for seconds after
-# another worker made it. The workers share this machine's /tmp.
-PAGE_DIR = os.path.join(tempfile.gettempdir(), 'sb_pagecache')
+# One small database of its own, kept apart from players.db so it can never add
+# to that file's lock traffic. The 3 workers see neither each other's memory nor
+# a common /tmp, and a file in the home folder can look missing to a worker for
+# seconds after another made it - a database is the one thing they all agree on.
+PAGE_DB = os.path.join(BASE_DIR, 'pagecache.db')
 
 
-def _page_file(key):
-    return os.path.join(PAGE_DIR, hashlib.sha1(repr(key).encode('utf-8', 'replace')).hexdigest())
+def _page_conn():
+    conn = sqlite3.connect(PAGE_DB, timeout=2)
+    conn.execute("PRAGMA busy_timeout = 2000")
+    conn.execute("PRAGMA synchronous = OFF")        # a cache: losing it costs one rebuild
+    conn.execute("CREATE TABLE IF NOT EXISTS pages (k TEXT PRIMARY KEY, at REAL, mime TEXT, body BLOB)")
+    return conn
+
+
+def _page_id(key):
+    return hashlib.sha1(repr(key).encode('utf-8', 'replace')).hexdigest()
 
 
 def _page_load(key):
     """The newest copy of a page from this worker or, failing that, from the
-    shared folder every worker writes to (the site runs 3 workers, so without
-    it one visit in three met a worker that had never built the page)."""
+    shared database every worker writes to (the site runs 3 workers, so
+    without it one visit in three met a worker that had never built the page)."""
     hit = _PAGE_CACHE.get(key)
     if hit and time.time() - hit[0] < PAGE_CACHE_FRESH_S:
         return hit
     try:
-        path = _page_file(key)
-        mt = os.stat(path).st_mtime
-        if hit is None or mt > hit[0]:
-            with open(path, 'rb') as fh:
-                mime, _, body = fh.read().partition(b'\n')
-            hit = (mt, body, mime.decode('ascii', 'replace'))
+        conn = _page_conn()
+        try:
+            row = conn.execute("SELECT at, mime, body FROM pages WHERE k = ?", (_page_id(key),)).fetchone()
+        finally:
+            conn.close()
+        if row and (hit is None or row[0] > hit[0]):
+            hit = (row[0], bytes(row[2]), row[1])
             _PAGE_CACHE[key] = hit
-    except (OSError, ValueError):
+    except (sqlite3.Error, OSError, ValueError):
         pass
     return hit
 
@@ -7857,18 +7866,16 @@ def _page_store(key, body, mime):
     now = time.time()
     _PAGE_CACHE[key] = (now, body, mime)
     try:
-        os.makedirs(PAGE_DIR, exist_ok=True)
-        path = _page_file(key)
-        tmp = '%s.tmp%d' % (path, os.getpid())
-        with open(tmp, 'wb') as fh:
-            fh.write(mime.encode('ascii', 'replace') + b'\n' + body)
-        os.replace(tmp, path)
-        if int(now) % 50 == 0:                       # now and then, drop the long-dead
-            for fn in os.listdir(PAGE_DIR):
-                fp = os.path.join(PAGE_DIR, fn)
-                if now - os.stat(fp).st_mtime > PAGE_CACHE_STALE_S:
-                    os.remove(fp)
-    except (OSError, ValueError):
+        conn = _page_conn()
+        try:
+            conn.execute("INSERT OR REPLACE INTO pages (k, at, mime, body) VALUES (?,?,?,?)",
+                         (_page_id(key), now, mime, body))
+            if int(now) % 50 == 0:                   # now and then, drop the long-dead
+                conn.execute("DELETE FROM pages WHERE at < ?", (now - PAGE_CACHE_STALE_S,))
+            conn.commit()
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError, ValueError):
         pass
 
 
@@ -8048,6 +8055,10 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.81.6", "at": "2026-10-07T23:30:00Z", "changes": [
+        "The pages the site's workers share now live in a small database of "
+        "their own, because the workers could not see each other's files.",
+    ]},
     {"version": "9.81.5", "at": "2026-10-07T23:00:00Z", "changes": [
         "The pages the site's workers share are now kept where every worker "
         "sees them at once, so a visit lands on a ready page every time, not "
