@@ -19,8 +19,11 @@ Two things keep this honest:
 Used by the scorer (trueskill_scorer.build_game_end) and read by the site."""
 
 MIN_GAP_S = 5.0      # reads come every ~3 s; closer than two reads is a coin toss
-# When a match ends every station can read dead at once, so two stations that
-# "went out" in the last half-minute say nothing about which lasted longer.
+# When a match ends every station can read dead at once - the winner's too - so
+# two losers that "went out" in the last half-minute then say nothing about which
+# lasted longer. With the winner's station still standing there is no blur: the
+# match ends exactly when the second-to-last station falls, so a close finish
+# between the two losers is real and is trusted down to MIN_GAP_S.
 END_WINDOW_S = 30.0
 
 
@@ -88,8 +91,9 @@ def finish_order(reads, winner, losing):
         elif ta is None or tb is None:
             basis_ok = True                  # one stood to the end, the other did not
         else:
-            basis_ok = (abs(ta - tb) >= MIN_GAP_S
-                        and not (ta >= end_s - END_WINDOW_S and tb >= end_s - END_WINDOW_S))
+            blur = (out.get(winner) is not None
+                    and ta >= end_s - END_WINDOW_S and tb >= end_s - END_WINDOW_S)
+            basis_ok = abs(ta - tb) >= MIN_GAP_S and not blur
         if not basis_ok:
             return {"places": places, "out_s": out, "basis": "unknown"}
         a_later = ta is None or (tb is not None and ta > tb)
