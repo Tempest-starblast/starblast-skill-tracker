@@ -1,5 +1,5 @@
 from flask import (Flask, request, jsonify, render_template, session, redirect, url_for,
-                   abort, g, has_request_context)
+                   abort, g, has_request_context, Response)
 import re
 import bisect
 import html
@@ -28,7 +28,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.81.2"
+APP_VERSION = "9.81.3"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -1310,6 +1310,11 @@ def db(timeout=None):
     # locks hit inside a statement SQLite is already executing. Both are
     # needed, and they are cheap.
     conn.execute("PRAGMA busy_timeout = %d" % int(timeout * 1000))
+    # 9.81.3: the default 2 MB page cache is thrown away with every connection,
+    # and on this host each page read is a slow system call, so a profile that
+    # touches 600 scattered rows took 170 ms where a warm cache takes 2. The
+    # cache only fills as far as a request actually reads.
+    conn.execute("PRAGMA cache_size = -16384")
     return conn
 
 
@@ -4417,10 +4422,19 @@ def init_db():
 
     _init_aow_tables(c)      # Alpha Orionis Wars (9.78.0)
 
-    # Keep the identity key in step with every row.
-    for (row_name,) in c.execute("SELECT name FROM players").fetchall():
-        c.execute("UPDATE players SET norm_name = ? WHERE name = ?",
-                  (normalize_name(row_name), row_name))
+    # Keep the identity key in step with every row. Only the rows that are
+    # out of step are written (9.81.3): this used to rewrite every player on
+    # every start - ~20,000 updates under the write lock at each reload.
+    for (row_name, row_norm) in c.execute("SELECT name, norm_name FROM players").fetchall():
+        _nn = normalize_name(row_name)
+        if row_norm != _nn:
+            c.execute("UPDATE players SET norm_name = ? WHERE name = ?", (_nn, row_name))
+    # Covering index (9.81.3): a player's history, totals and region split
+    # read everything they need from this one index instead of fetching each of
+    # their match rows from all over the table - 170 ms became 2 ms for a
+    # player with 640 matches. Built once, ~1 s. Last, so every column exists.
+    c.execute("CREATE INDEX IF NOT EXISTS idx_mp_cover ON match_players("
+              "norm_name, match_row, won, delta, half, score, played_as, played_s)")
     conn.commit()
     conn.close()
 
@@ -7763,6 +7777,121 @@ def _req_start():
     request.environ['sb.t0'] = time.perf_counter()
 
 
+# ---- PAGE CACHE (9.81.3) -----------------------------------------------------
+# The heavy public pages (board, clans, a player, a clan) are rendered once and
+# served from memory for PAGE_CACHE_FRESH_S. When one has aged out, the first
+# visitor re-renders it and everyone arriving meanwhile is handed the last copy
+# instead of queueing behind the database - so a slow query costs one visitor,
+# not all of them. Each web worker keeps its own copy, so a page can be at most
+# FRESH seconds behind. Anything that changes data (a non-GET outside /api/)
+# empties this worker's cache and marks the user's browser "fresh" for a
+# minute, so people always see their own change at once. Keyed by path, query,
+# cookies and language: a signed-in view is never shown to anyone else.
+PAGE_CACHE_ENDPOINTS = frozenset(('leaderboard', 'clans_page', 'player_profile', 'clan_page'))
+PAGE_CACHE_FRESH_S = 20
+PAGE_CACHE_STALE_S = 600
+PAGE_CACHE_MAX = 300
+PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024
+PAGE_FRESH_COOKIE = 'sbfresh'
+PAGE_FRESH_WINDOW_S = 60
+_PAGE_CACHE = {}                 # key -> (stored_at, body, mimetype)
+_PAGE_LOCKS = {}
+_PAGE_LOCKS_GUARD = threading.Lock()
+
+
+def _page_lock(key):
+    with _PAGE_LOCKS_GUARD:
+        lk = _PAGE_LOCKS.get(key)
+        if lk is None:
+            if len(_PAGE_LOCKS) > 2000:
+                _PAGE_LOCKS.clear()
+            lk = _PAGE_LOCKS[key] = threading.Lock()
+        return lk
+
+
+def _page_cache_key():
+    if request.method != 'GET' or request.endpoint not in PAGE_CACHE_ENDPOINTS:
+        return None
+    if app.config.get('TESTING') and not app.config.get('PAGE_CACHE_TESTING'):
+        return None                  # tests flip settings between page loads
+    if request.args.get('nocache'):
+        return None
+    fresh = request.cookies.get(PAGE_FRESH_COOKIE)
+    if fresh:
+        try:
+            if time.time() - float(fresh) < PAGE_FRESH_WINDOW_S:
+                return None
+        except ValueError:
+            pass
+    return (request.full_path, request.headers.get('Cookie', ''),
+            (request.headers.get('Accept-Language') or '')[:40])
+
+
+def _page_cache_serve(hit, how):
+    resp = Response(hit[1], mimetype=hit[2])
+    resp.headers['X-Page-Cache'] = how
+    request.environ['sb.phit'] = True
+    return resp
+
+
+@app.before_request
+def _page_cache_get():
+    key = _page_cache_key()
+    if key is None:
+        return None
+    request.environ['sb.pkey'] = key
+    now = time.time()
+    hit = _PAGE_CACHE.get(key)
+    if hit and now - hit[0] < PAGE_CACHE_FRESH_S:
+        return _page_cache_serve(hit, 'hit')
+    lk = _page_lock(key)
+    if hit and now - hit[0] < PAGE_CACHE_STALE_S:
+        if not lk.acquire(blocking=False):
+            return _page_cache_serve(hit, 'stale')     # someone is re-rendering it
+    else:
+        if not lk.acquire(timeout=20):
+            return None                                 # give up waiting, render it ourselves
+        hit = _PAGE_CACHE.get(key)
+        if hit and time.time() - hit[0] < PAGE_CACHE_FRESH_S:
+            lk.release()
+            return _page_cache_serve(hit, 'hit')        # filled while we waited
+    request.environ['sb.plock'] = lk
+    return None
+
+
+@app.after_request
+def _page_cache_put(resp):
+    try:
+        key = request.environ.get('sb.pkey')
+        if (key is not None and not request.environ.get('sb.phit')
+                and resp.status_code == 200 and not resp.direct_passthrough
+                and 'Set-Cookie' not in resp.headers):
+            body = resp.get_data()
+            if len(body) <= PAGE_CACHE_MAX_BYTES:
+                if len(_PAGE_CACHE) >= PAGE_CACHE_MAX:
+                    for k in sorted(_PAGE_CACHE, key=lambda k: _PAGE_CACHE[k][0])[:PAGE_CACHE_MAX // 4]:
+                        _PAGE_CACHE.pop(k, None)
+                _PAGE_CACHE[key] = (time.time(), body, resp.mimetype)
+        elif (request.method != 'GET' and not request.path.startswith('/api/')
+              and request.method != 'OPTIONS'):
+            _PAGE_CACHE.clear()
+            resp.set_cookie(PAGE_FRESH_COOKIE, '%.0f' % time.time(), max_age=PAGE_FRESH_WINDOW_S,
+                            secure=True, httponly=True, samesite='Lax', path='/')
+    except Exception as e:                                # a cache must never break a page
+        print("[page-cache] %s" % str(e)[:100], flush=True)
+    return resp
+
+
+@app.teardown_request
+def _page_cache_release(exc):
+    lk = request.environ.pop('sb.plock', None)
+    if lk is not None:
+        try:
+            lk.release()
+        except RuntimeError:
+            pass
+
+
 @app.after_request
 def _req_done(resp):
     try:
@@ -7856,6 +7985,22 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.81.3", "at": "2026-10-07T21:00:00Z", "changes": [
+        "The site was down for about 35 hours (6 Oct 08:12 to 7 Oct 19:07 UTC) "
+        "and is back; the 204 matches played in that time have been added to "
+        "everyone's record with their real end times, so no result was lost. "
+        "A stuck database lock stopped the site from starting, and the check "
+        "that normally clears such a lock could not run.",
+        "The site now starts even when the database is locked, so that check "
+        "can do its job, and the scorer keeps retrying undelivered results for "
+        "up to 3 days instead of giving up after 20 tries.",
+        "Pages are much quicker. A player profile that read its whole match "
+        "history from scattered places now reads it in one pass (about 170 ms "
+        "of database work became 2 ms for a player with 640 matches), the "
+        "clans page asks the database two questions instead of fifty, and the "
+        "busiest pages are kept ready for 20 seconds so repeat visits open at "
+        "once. Starting the site no longer rewrites every player row.",
+    ]},
     {"version": "9.81.2", "at": "2026-10-02T16:00:00Z", "changes": [
         "A player can only be rated once per match. When two names in one "
         "match both counted for the same account, the account took the "
@@ -24361,18 +24506,26 @@ def clans_page():
     themes = {r[0]: (r[2] or "") for r in _clanmeta}
     shown = clan_display_map(c)
     rows = []
+    # Two passes over the tables for the whole directory, not two queries per
+    # clan (9.81.3: 24 queries and 1.3 s on the page; the survival sum alone
+    # ran once per clan, ~80 ms each).
+    _members = {}
+    c.execute("SELECT clan, elo, COALESCE(wins, 0), COALESCE(losses, 0) FROM players "
+              "WHERE clan IS NOT NULL AND clan != '' AND " + NOT_SANDBOX)
+    for _t, _e, _w, _l in c.fetchall():
+        _members.setdefault(_t, []).append((_e, _w, _l))
+    c.execute("SELECT p.clan, COALESCE(SUM(s.wins), 0) FROM survival_players s "
+              "JOIN players p ON p.norm_name = s.norm_name "
+              "WHERE p.clan IS NOT NULL AND p.clan != '' AND " + NOT_SANDBOX + " GROUP BY p.clan")
+    _surv = dict(c.fetchall())
     for tag in sorted(all_clan_tags(c)):
-        c.execute("SELECT elo, COALESCE(wins, 0), COALESCE(losses, 0) "
-                  "FROM players WHERE clan = ? AND " + NOT_SANDBOX, (tag,))
-        got = c.fetchall()
+        got = _members.get(tag, [])
         elos = [r[0] for r in got]
         wins = sum(r[1] for r in got)
         losses = sum(r[2] for r in got)
         played = wins + losses
         avg = sum(elos) / len(elos) if elos else 0.0
-        surv = c.execute("SELECT COALESCE(SUM(s.wins), 0) FROM survival_players s "
-                         "JOIN players p ON p.norm_name = s.norm_name "
-                         "WHERE p.clan = ? AND " + NOT_SANDBOX, (tag,)).fetchone()[0]
+        surv = _surv.get(tag, 0)
         rows.append({
             "tag": tag,
             "size": len(elos),
@@ -26009,7 +26162,48 @@ def api_bot_aow_delivered():
     return jsonify({"ok": True, "marked": len(kinds)}), 200
 
 
-init_db()  # runs on import too, since WSGI hosts never execute __main__
+# 7 Oct 2026: a stale lock on players.db made init_db() raise at import, so the
+# app never loaded, the lock self-heal (which lives inside the app) never ran,
+# and the site sat on PythonAnywhere's 500 page for 35 hours. A lock now costs
+# the app its start-up schema check, not its life: the app loads, requests
+# that need the database fail on their own and trip the self-heal, and the
+# schema check is retried on later requests until it goes through.
+_DB_READY = [False]
+_DB_INIT_TRY = [0.0]
+DB_INIT_RETRY_S = 30
+DB_INIT_IMPORT_TRIES = 2
+
+
+def ensure_db_ready(tries=1, pause=3):
+    """Run init_db() once successfully. A locked database is not fatal: it
+    returns False and the caller carries on. Anything else still raises."""
+    if _DB_READY[0]:
+        return True
+    _DB_INIT_TRY[0] = time.time()
+    for i in range(max(1, tries)):
+        try:
+            init_db()
+            _DB_READY[0] = True
+            return True
+        except sqlite3.OperationalError as e:
+            if 'locked' not in str(e).lower():
+                raise
+            print("[init_db] database is locked (try %d of %d)" % (i + 1, tries), flush=True)
+            if i + 1 < tries:
+                time.sleep(pause)
+    return False
+
+
+@app.before_request
+def _db_ready_retry():
+    if not _DB_READY[0] and time.time() - _DB_INIT_TRY[0] >= DB_INIT_RETRY_S:
+        try:
+            ensure_db_ready()
+        except sqlite3.Error:
+            pass
+
+
+ensure_db_ready(DB_INIT_IMPORT_TRIES)  # runs on import too, since WSGI hosts never execute __main__
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
