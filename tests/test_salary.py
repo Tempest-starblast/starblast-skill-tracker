@@ -152,13 +152,24 @@ check("no stray salary rows", q("SELECT COUNT(*) FROM gem_ledger WHERE reason='s
 check("balances reconcile", reconciled(), 0)
 
 print("\n--- an application with an ask ---")
+def legacy_ask(app_id, ask):
+    """An application made before 9.82.0 could carry a gem ask; applying now
+    ignores one, so such a row is made by hand."""
+    cx = sqlite3.connect(fa.DB_PATH)
+    cx.execute("UPDATE clan_invites SET gems = ? WHERE id = ?", (ask, app_id))
+    cx.commit()
+    cx.close()
+
+
+# 9.82.0: an application carries a note, not an ask; an ask made earlier is still honoured.
 seed(2000)
-r = client(NEW2).post("/clan/apply", json={"clan": "TST", "name": "NEWGUY2", "gems": 500})
+r = client(NEW2).post("/clan/apply", json={"clan": "TST", "name": "NEWGUY2", "gems": 500, "note": "I play every evening"})
 check("applied", r.status_code, 200)
-check("the reply confirms the ask", "500 gems" in r.get_json()["message"], True)
-app = q("SELECT id, gems FROM clan_invites WHERE name='NEWGUY2' AND direction='application'")
-check("the ask is on the row", app and app[0][1] == 500, True)
+check("the reply does not promise an ask", "500 gems" in r.get_json()["message"], False)
+app = q("SELECT id, gems, note FROM clan_invites WHERE name='NEWGUY2' AND direction='application'")
+check("no ask on the row, the note is", (app[0][1], app[0][2]), (0, "I play every evening"))
 app_id = app[0][0]
+legacy_ask(app_id, 500)
 cn = sqlite3.connect(fa.DB_PATH)
 apps = fa.clan_applications(cn.cursor(), "TST")
 cn.close()
@@ -173,8 +184,9 @@ check("balances reconcile", reconciled(), 0)
 
 print("\n--- an ask the treasury cannot cover ---")
 seed(400)
-r = client(NEW2).post("/clan/apply", json={"clan": "TST", "name": "NEWGUY2", "gems": 900})
+r = client(NEW2).post("/clan/apply", json={"clan": "TST", "name": "NEWGUY2"})
 app_id = q("SELECT id FROM clan_invites WHERE name='NEWGUY2' AND direction='application'")[0][0]
+legacy_ask(app_id, 900)
 r = client(BOSS).post("/clan/application/respond", json={"id": app_id, "accept": True})
 check("acceptance refused", r.status_code, 400)
 check("both numbers are in the message", "900" in r.get_json()["message"] and "400" in r.get_json()["message"], True)

@@ -157,6 +157,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
       <div class="mcstats">
         <span class="mcstat"><b class="skill">{{ m.elo }}</b>{{ t('Skill') }}</span>
         <span class="mcstat"><b>{{ m.wins }}-{{ m.losses }}</b>{{ t('Record') }}</span>
+        <span class="mcstat"><b>{{ '{:,}'.format(m.points) }}</b>Points</span>
         <span class="mcstat"><b>{{ m.winrate }}</b>{{ t('Win%') }}</span>
         {%- if m.joined %}
         <span class="mcstat mcjoined"><b>{{ m.joined }}</b>{{ t('Joined') }}</span>
@@ -203,6 +204,40 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
   <p class="msg" id="memberMsg"></p>
   {% endif %}
 </div>
+{% if clan.can_manage %}
+<div class="card">
+  <h2>Removed from the clan</h2>
+  <p class="desc">When you remove someone you can tell them why. They see it on their account page and, if they use Discord, in a message from the bot.
+     This is the clan&#39;s record of who was removed, by whom and why.</p>
+  {% for r in clan.removals %}
+  <div class="mcrow">
+    <div>
+      <a class="pname" href="/player/{{ r.name|urlencode }}">{{ r.name }}</a>
+      <div class="cmeta">{{ r.at[:16] }} &middot; by {{ r.removed_by }}{% if r.reason_label %} &middot; <b>{{ r.reason_label }}</b>{% endif %}</div>
+      {% if r.message %}<div class="appnote">&ldquo;{{ r.message }}&rdquo;</div>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">Nobody has been removed.</p>
+  {% endfor %}
+</div>
+<dialog id="removeDlg" style="max-width:420px;width:92vw;border-radius:12px;border:1px solid var(--line);background:var(--card,#161616);color:var(--text);padding:18px">
+  <h2 style="margin:0 0 6px" id="removeTitle">Remove member</h2>
+  <p class="desc" style="margin:0 0 10px">They will be told why. Pick a reason, add a message, or both.</p>
+  <label for="removeReason" style="font-size:13px;color:var(--muted)">Reason</label>
+  <select id="removeReason" style="width:100%;margin:4px 0 10px">
+    <option value="">No reason given</option>
+    {% for code, label in removal_reasons %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+  </select>
+  <label for="removeNote" style="font-size:13px;color:var(--muted)">Message (optional)</label>
+  <textarea id="removeNote" maxlength="300" rows="3" style="width:100%;box-sizing:border-box;margin:4px 0 12px;resize:vertical"
+     placeholder="For example: your name is too close to another member's."></textarea>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="ghost" onclick="document.getElementById('removeDlg').close()">Keep them</button>
+    <button class="danger" onclick="confirmRemove()">Remove</button>
+  </div>
+</dialog>
+{% endif %}
 </section>
 
 {% if clan.can_manage %}
@@ -211,8 +246,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 <div class="card">
   <h2>Waiting to join</h2>
   <p class="desc">Anyone can ask to join from the clan's public page. Accepting puts them
-     on the roster straight away.{% if gems_on %} An ask is paid from the treasury
-     (<b style="color:#8ef3ff">{{ '{:,}'.format(clan.treasury or 0) }}</b> gems) when you accept.{% endif %}</p>
+     on the roster straight away. Each application carries the note the player wrote about why they want to join.</p>
   {% for a in clan.applications %}
   <div class="mcrow">
     <div>
@@ -220,6 +254,7 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
       <div class="cmeta">Rank #{{ a.rank }} &middot; skill {{ a.elo }} &middot;
         {{ a.wins }}-{{ a.losses }} &middot; {{ a.winrate }}{% if gems_on and a.gems %} &middot;
         <b style="color:#8ef3ff">asks {{ '{:,}'.format(a.gems) }} gems</b>{% endif %}</div>
+      {% if a.note %}<div class="appnote">&ldquo;{{ a.note }}&rdquo;</div>{% else %}<div class="cmeta">No note.</div>{% endif %}
     </div>
     <div style="white-space:nowrap">
       <button class="primary" onclick="decideApp({{ a.id }}, true)">{{ t('Accept') }}</button>
@@ -384,19 +419,45 @@ button.tiny{font-size:.8em;padding:2px 9px;line-height:1.5}
 
 <div class="card" id="payCard">
   <h2>What the clan pays</h2>
-  <p class="desc">Every rated member win puts <b>{{ pay_rates.clan }}</b> in the treasury (<b>{{ pay_rates.sclan }}</b> for a
-     survival win). As leader you take <b>{{ pay_rates.leader }}</b> / {{ pay_rates.sleader }} of each, and every co-leader
-     <b>{{ pay_rates.coleader }}</b> / {{ pay_rates.scoleader }} (at most {{ coleader_cap }} co-leaders). Everyone else is paid what you set
-     here, per win, out of that win&#39;s own deposit &mdash; so it can never run the treasury dry. The most is
-     {{ rate_max }} a win ({{ rate_max * 2 }} in survival). A hired free agent&#39;s contract rate overrides these while it runs.</p>
+  <p class="desc">A result earns the clan <b>points</b> &mdash; team win <b>{{ points_table['team-win'] }}</b>, team 2nd place <b>{{ points_table['team-2nd'] }}</b>,
+     survival win <b>{{ points_table['survival-win'] }}</b>, survival top 3 <b>{{ points_table['survival-top3'] }}</b> &mdash; and the gems follow the points.
+     A team win puts <b>{{ pay_rates.clan }}</b> in the treasury (<b>{{ pay_rates.sclan }}</b> for a survival win); a 2nd place or top 3 puts in half.
+     By default the leader takes <b>{{ pay_rates.leader }}</b> / {{ pay_rates.sleader }} of a win and every co-leader
+     <b>{{ pay_rates.coleader }}</b> / {{ pay_rates.scoleader }} (at most {{ coleader_cap }} co-leaders). Everyone else is paid out of that result&#39;s own
+     deposit, the way you choose below &mdash; so it can never run the treasury dry. A hired free agent&#39;s contract rate overrides these while it runs.</p>
   {% if clan.is_leader %}
-  <div class="row" style="flex-wrap:wrap;gap:12px">
+  <div class="row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+    <label style="display:flex;flex-direction:column;gap:4px">Pay members by
+      <select id="payMode" onchange="payModeShow()" style="min-width:12em">
+        <option value="win"{% if clan.pay.mode == 'win' %} selected{% endif %}>A set amount per win</option>
+        <option value="point"{% if clan.pay.mode == 'point' %} selected{% endif %}>A set amount per point</option>
+        <option value="percent"{% if clan.pay.mode == 'percent' %} selected{% endif %}>A percent of the deposit</option>
+      </select></label>
+  </div>
+  <div class="row paymode" data-mode="win" style="flex-wrap:wrap;gap:12px;margin-top:10px">
     <label style="display:flex;align-items:center;gap:8px">Members <input type="number" id="payMember" min="0" max="{{ rate_max }}" step="1" value="{{ clan.member_rate }}" style="width:90px"> per win</label>
     <label style="display:flex;align-items:center;gap:8px">Moderators <input type="number" id="payMod" min="0" max="{{ rate_max }}" step="1" value="{{ clan.mod_rate }}" style="width:90px"> per win</label>
-    <button class="primary" onclick="savePay()">Save pay</button>
+    <span class="desc" style="margin:0">Most {{ rate_max }} a win ({{ rate_max * 2 }} in survival); a 2nd place or top 3 pays half.</span>
   </div>
+  <div class="row paymode" data-mode="point" style="flex-wrap:wrap;gap:12px;margin-top:10px" hidden>
+    <label style="display:flex;align-items:center;gap:8px">Members <input type="number" id="payMemberPP" min="0" max="{{ pp_max }}" step="1" value="{{ clan.pay.member_pp }}" style="width:90px"> gems per point</label>
+    <label style="display:flex;align-items:center;gap:8px">Moderators <input type="number" id="payModPP" min="0" max="{{ pp_max }}" step="1" value="{{ clan.pay.mod_pp }}" style="width:90px"> gems per point</label>
+    <span class="desc" style="margin:0">At {{ pp_max }} a team win pays {{ pp_max * points_table['team-win'] }} and a survival win {{ pp_max * points_table['survival-win'] }}, but never more than that result puts in the treasury. Survival pays the most because it is worth the most points.</span>
+  </div>
+  <div class="row paymode" data-mode="percent" style="flex-wrap:wrap;gap:12px;margin-top:10px" hidden>
+    <label style="display:flex;align-items:center;gap:8px">Members <input type="number" id="payMemberPct" min="0" max="100" step="1" value="{{ clan.pay.member_pct }}" style="width:90px"> % of the deposit</label>
+    <label style="display:flex;align-items:center;gap:8px">Moderators <input type="number" id="payModPct" min="0" max="100" step="1" value="{{ clan.pay.mod_pct }}" style="width:90px"> % of the deposit</label>
+    <span class="desc" style="margin:0">A team win&#39;s deposit is {{ pay_rates.clan }} and a survival win&#39;s {{ pay_rates.sclan }}, so the same percent pays survival players more.</span>
+  </div>
+  <div class="row" style="flex-wrap:wrap;gap:12px;margin-top:14px">
+    <label style="display:flex;align-items:center;gap:8px">Your cut <input type="number" id="leaderCut" min="0" max="{{ pay_rates.leader }}" step="1" value="{{ clan.pay.leader_cut }}" style="width:90px"> (up to {{ pay_rates.leader }})</label>
+    <label style="display:flex;align-items:center;gap:8px">Each co-leader <input type="number" id="coleaderCut" min="0" max="{{ pay_rates.coleader }}" step="1" value="{{ clan.pay.coleader_cut }}" style="width:90px"> (up to {{ pay_rates.coleader }})</label>
+    <span class="desc" style="margin:0">Take less and the difference goes to the treasury, which gives members more to be paid from.</span>
+  </div>
+  <div class="row" style="margin-top:12px"><button class="primary" onclick="savePay()">Save pay</button></div>
   {% else %}
-  <p class="desc">Members are paid <b>{{ clan.member_rate }}</b> a win and moderators <b>{{ clan.mod_rate }}</b>. Only the leader changes that.</p>
+  <p class="desc">Pay mode: <b>{{ {'win': 'a set amount per win', 'point': 'a set amount per point', 'percent': 'a percent of the deposit'}[clan.pay.mode] }}</b>.
+     Members <b>{{ clan.member_rate }}</b> a win and moderators <b>{{ clan.mod_rate }}</b> (in win mode). Only the leader changes that.</p>
   {% endif %}
   <p class="desc" style="margin-top:10px">Left the treasury this week: <b>{{ '{:,}'.format(clan.paid_week.total) }}</b>
      &mdash; {{ '{:,}'.format(clan.paid_week['member-pay']) }} member pay,
@@ -627,14 +688,34 @@ async function addMember(){
     if (r.ok) reloadSoon();
   }catch(e){ say('memberMsg', false, 'Server connection error.'); }
 }
+let REMOVING = '';
 async function removeMember(name){
+  REMOVING = name;
+  const dlg = document.getElementById('removeDlg');
+  if (!dlg || !dlg.showModal){
+    // An old browser without <dialog>: remove without a reason.
+    return sendRemove(name, '', '');
+  }
+  document.getElementById('removeTitle').textContent = 'Remove ' + name;
+  document.getElementById('removeReason').value = '';
+  document.getElementById('removeNote').value = '';
+  dlg.showModal();
+}
+async function confirmRemove(){
+  const dlg = document.getElementById('removeDlg');
+  const reason = document.getElementById('removeReason').value;
+  const note = document.getElementById('removeNote').value;
+  dlg.close();
+  return sendRemove(REMOVING, reason, note);
+}
+async function sendRemove(name, reason, note){
   try{
-    const [r, d] = await post('/clan/remove', {name: name});
+    const [r, d] = await post('/clan/remove', {name: name, reason: reason, message: note});
     say('memberMsg', r.ok, d.message);
     if (r.ok) reloadSoon();
   }catch(e){ say('memberMsg', false, 'Server connection error.'); }
 }
-const REMOVE_ASK = 'Yes, remove them';
+const REMOVE_ASK = 'Remove them...';
 const REMOVE_NO = 'No, keep them';
 const IS_LEADER = {{ (clan.is_leader if clan else False)|tojson }};
 const RANK_CHOICES = [
@@ -693,11 +774,20 @@ async function saveRegion(){
     if (d.ok) reloadSoon();
   }catch(e){ say('regionMsg', false, 'Server connection error.'); }
 }
+function payModeShow(){
+  const m = document.getElementById('payMode');
+  if (!m) return;
+  document.querySelectorAll('.paymode').forEach(function(e){ e.hidden = e.dataset.mode !== m.value; });
+}
+payModeShow();
 async function savePay(){
   try{
-    const [r, d] = await post('/clan/pay', {clan: TAG,
-                              member_rate: document.getElementById('payMember').value,
-                              mod_rate: document.getElementById('payMod').value});
+    const val = function(id){ const e = document.getElementById(id); return e ? e.value : undefined; };
+    const [r, d] = await post('/clan/pay', {clan: TAG, mode: val('payMode'),
+                              member_rate: val('payMember'), mod_rate: val('payMod'),
+                              member_pp: val('payMemberPP'), mod_pp: val('payModPP'),
+                              member_pct: val('payMemberPct'), mod_pct: val('payModPct'),
+                              leader_cut: val('leaderCut'), coleader_cut: val('coleaderCut')});
     say('payMsg', d.ok, d.message);
     if (d.ok) reloadSoon();
   }catch(e){ say('payMsg', false, 'Server connection error.'); }

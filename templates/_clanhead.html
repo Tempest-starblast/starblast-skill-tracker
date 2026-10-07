@@ -75,9 +75,14 @@
     <div class="chnum"><span>{{ t('Record') }}</span><b>{{ clan.wins }}-{{ clan.losses }}</b></div>
     <div class="chnum"><span>{{ t('Win%') }}</span><b class="green">{{ clan.winrate }}</b></div>
     <div class="chnum"><span>Survival</span><b>{{ clan.surv_wins }}</b></div>
+    <div class="chnum" title="Points the members have earned the clan: a team win 10, a team 2nd place 5, a survival win 30, a survival top 3 15"><span>Points</span><b class="blue">{{ '{:,}'.format(clan.points or 0) }}</b>{% if clan.points_place %}<span style="font-size:12px;letter-spacing:0;text-transform:none;color:#b9d6e4;font-weight:600"> #{{ clan.points_place }}</span>{% endif %}</div>
     {%- if gems_on and clan.treasury is not none %}
     <div class="chnum"><span>Treasury</span><b class="gold">{{ '{:,}'.format(clan.treasury) }}</b></div>
-    {%- if clan.member_rate %}
+    {%- if clan.pay and clan.pay.mode == 'point' and clan.pay.member_pp %}
+    <div class="chnum" title="What a member is paid by the clan for each point a result earns"><span>Member pay</span><b class="gold">+{{ clan.pay.member_pp }}<span style="font-size:12px;letter-spacing:0;text-transform:none;color:#b9d6e4;font-weight:600"> /point</span></b></div>
+    {%- elif clan.pay and clan.pay.mode == 'percent' and clan.pay.member_pct %}
+    <div class="chnum" title="The share of a result's own deposit a member is paid"><span>Member pay</span><b class="gold">{{ clan.pay.member_pct }}%<span style="font-size:12px;letter-spacing:0;text-transform:none;color:#b9d6e4;font-weight:600"> of deposit</span></b></div>
+    {%- elif clan.member_rate and (not clan.pay or clan.pay.mode == 'win') %}
     <div class="chnum" title="What a member is paid by the clan for each rated win, out of the win's own deposit"><span>Member pay</span><b class="gold">+{{ clan.member_rate }}<span style="font-size:12px;letter-spacing:0;text-transform:none;color:#b9d6e4;font-weight:600"> / win</span></b></div>
     {%- endif %}
     {%- endif %}

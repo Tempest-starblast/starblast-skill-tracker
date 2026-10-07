@@ -88,6 +88,33 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
   {% if is_owner %}<a href="#owner" data-panel="owner" class="own">Owner</a>{% endif %}
 </nav>
 
+{% if clan_notices %}
+<div class="card" id="clanNotices">
+  <h2>About your clan</h2>
+  {% for n in clan_notices %}
+  <div class="cnotice" data-id="{{ n.id }}" style="margin:0 0 12px">
+    <p style="margin:0"><b>{{ n.removed_by }}</b> removed you from
+       <a href="/clan/{{ n.clan|urlencode }}">{{ n.clan }}</a>{% if n.reason_label %} &mdash; <b>{{ n.reason_label }}</b>{% endif %}.</p>
+    {% if n.message %}<div class="appnote">&ldquo;{{ n.message }}&rdquo;</div>{% endif %}
+    <p class="cmeta" style="margin:4px 0 6px">{{ n.at[:16] }} UTC</p>
+    <button class="ghost" onclick="dismissClanNotice({{ n.id }}, this)">Got it</button>
+  </div>
+  {% endfor %}
+</div>
+<script>
+async function dismissClanNotice(id, btn){
+  try{
+    const r = await fetch('/clan/notice/seen', {method:'POST', headers:{'Content-Type':'application/json'},
+                                                body: JSON.stringify({id: id})});
+    if (r.ok){
+      const box = btn.closest('.cnotice'); box.remove();
+      if (!document.querySelector('.cnotice')) document.getElementById('clanNotices').remove();
+    }
+  }catch(e){}
+}
+</script>
+{% endif %}
+
 {# ---------------------------------------------------------- overview #}
 {% if wardrobe %}
 <section class="panel" data-panel="wardrobe" hidden>

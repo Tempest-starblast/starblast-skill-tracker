@@ -29,7 +29,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.81.6"
+APP_VERSION = "9.82.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -370,6 +370,22 @@ GEM_SURVIVAL_COLEADER_WIN = 50
 # leave the treasury lower than it found it - no payroll, no debt.
 CLAN_RATE_MAX = 100
 CLAN_COLEADER_MAX = 2
+# CLAN POINTS (9.82.0). What a member's result earns their clan, ranking both
+# the clans and the members inside them. Owner's values, 7 Oct 2026. They also
+# size the gems: a result is paid as a fraction of a win in its mode (a second
+# place or a top-three is half a win), so the clan's deposit, the officers' cuts
+# and the member's pay all scale with the points.
+CLAN_POINTS = {'team-win': 10, 'team-2nd': 5, 'survival-win': 30, 'survival-top3': 15}
+CLAN_POINT_LABELS = {'team-win': 'Team win', 'team-2nd': 'Team 2nd place',
+                     'survival-win': 'Survival win', 'survival-top3': 'Survival top 3'}
+# A top three only means something when the field is bigger than three.
+SURV_TOP3_MIN_FIELD = 6
+# How the clan pays a member for a result: "win" is a flat sum per win
+# (the original way), "point" a sum per point, "percent" a share of that
+# result's own deposit. The ceiling per point is the old per-win ceiling spread
+# over a team win's ten points.
+CLAN_PAY_MODES = ('win', 'point', 'percent')
+CLAN_PP_MAX = 10
 # Once a day, on your first win, so somebody with one match in them is not
 # simply left behind by somebody with twenty.
 GEM_DAILY_FIRST_WIN = 250
@@ -4442,6 +4458,34 @@ def init_db():
         _nn = normalize_name(row_name)
         if row_norm != _nn:
             c.execute("UPDATE players SET norm_name = ? WHERE name = ?", (_nn, row_name))
+    # Clan points, application notes, removal reasons, officer cuts and pay
+    # modes (9.82.0). Columns are added one by one and only "already there" is
+    # ignored - a lock must not be mistaken for a column that exists.
+    for _stmt in ("ALTER TABLE clan_invites ADD COLUMN note TEXT",
+                  "ALTER TABLE clans ADD COLUMN leader_cut INTEGER",
+                  "ALTER TABLE clans ADD COLUMN coleader_cut INTEGER",
+                  "ALTER TABLE clans ADD COLUMN pay_mode TEXT",
+                  "ALTER TABLE clans ADD COLUMN member_pp INTEGER DEFAULT 0",
+                  "ALTER TABLE clans ADD COLUMN mod_pp INTEGER DEFAULT 0",
+                  "ALTER TABLE clans ADD COLUMN member_pct INTEGER DEFAULT 0",
+                  "ALTER TABLE clans ADD COLUMN mod_pct INTEGER DEFAULT 0"):
+        try:
+            c.execute(_stmt)
+        except sqlite3.OperationalError as _e:
+            if 'duplicate column' not in str(_e).lower():
+                raise
+    c.execute("CREATE TABLE IF NOT EXISTS clan_points ("
+              "id INTEGER PRIMARY KEY AUTOINCREMENT, clan TEXT NOT NULL, "
+              "norm_name TEXT NOT NULL, name TEXT, kind TEXT NOT NULL, "
+              "points INTEGER NOT NULL, ref TEXT NOT NULL, at TEXT NOT NULL)")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_clan_points ON clan_points(clan, norm_name, ref)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_clan_points_clan ON clan_points(clan, at)")
+    c.execute("CREATE TABLE IF NOT EXISTS clan_removals ("
+              "id INTEGER PRIMARY KEY AUTOINCREMENT, clan TEXT NOT NULL, name TEXT NOT NULL, "
+              "norm_name TEXT NOT NULL, removed_by TEXT, removed_by_name TEXT, reason TEXT, "
+              "message TEXT, at TEXT NOT NULL, notified INTEGER DEFAULT 0, seen INTEGER DEFAULT 0)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_clan_removals_nn ON clan_removals(norm_name, at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_clan_removals_clan ON clan_removals(clan, at)")
     # Covering index (9.81.3): a player's history, totals and region split
     # read everything they need from this one index instead of fetching each of
     # their match rows from all over the table - 170 ms became 2 ms for a
@@ -7095,7 +7139,13 @@ def game_end():
     # rating rather than needing a second set of their own.
     try:
         if applied and _match_id:
-            _paid = award_match_gems(c, applied, _match_id)
+            _lose_of = {}
+            for _nm in losing_team_1:
+                _lose_of[normalize_name(_nm)] = 'lose1'
+            for _nm in losing_team_2:
+                _lose_of[normalize_name(_nm)] = 'lose2'
+            _paid = award_match_gems(c, applied, _match_id,
+                                     second=_second_place_team(applied, _lose_of, final_scores))
             if _paid:
                 print("[game_end] sys=%s gems paid to %d players (%d total)"
                       % (sys_id, len(_paid), sum(g for _n, g in _paid)), flush=True)
@@ -8055,6 +8105,26 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.82.0", "at": "2026-10-08T01:00:00Z", "changes": [
+        "Clans now have points. A team win earns your clan 10 points, a team "
+        "2nd place (in a three-team match) 5, a survival win 30 and a survival "
+        "top 3 15. The clans page ranks clans by points, all time or this week "
+        "(average skill is one click away), and each clan's page ranks its "
+        "members by the points they have earned it. Points count from today.",
+        "Gems follow the points: a 2nd place or a top 3 puts half of what a win "
+        "does into the clan's treasury. A leader now chooses how members are "
+        "paid - a set amount per win, per point, or a percent of the result's "
+        "deposit, so survival can pay members more - and can take a smaller cut "
+        "for themselves and their co-leaders. Whatever they leave goes to the "
+        "treasury, so no gems are made or lost by choosing.",
+        "Asking to join a clan now takes a note instead of a gem ask: say why "
+        "you want to join and the clan's leaders read it with your application, "
+        "on the website and in Discord.",
+        "When a leader removes a member they can give a reason (conflicting "
+        "names, sabotage, unknown identity, inactive, broke the rules) and a "
+        "message. The member sees it on their account page, and on Discord if "
+        "they use it; the clan keeps a log of who was removed and why.",
+    ]},
     {"version": "9.81.6", "at": "2026-10-07T23:30:00Z", "changes": [
         "The pages the site's workers share now live in a small database of "
         "their own, because the workers could not see each other's files.",
@@ -12636,6 +12706,8 @@ def apply_survival_round(c, round_key, ended_at, data, protected=None):
             # Gems hang off the rating: a round that is not rated pays
             # nothing, and a rebuild of the board pays each round once.
             award_survival_gems(c, k, round_key)
+        elif place in (2, 3) and n >= SURV_TOP3_MIN_FIELD:
+            award_survival_placement(c, k, round_key)
     return n
 
 
@@ -15650,6 +15722,15 @@ def clan_page(tag):
     conn.close()
 
     rows.sort(key=leaderboard_sort_key)
+    # Members are ranked by the points they have earned the clan (9.82.0); skill
+    # breaks a tie, which is also the order the roster had before.
+    _pc = db()
+    try:
+        _cpts = clan_member_points(_pc.cursor(), known)
+        _cpts_week = clan_member_points(_pc.cursor(), known, 'week')
+    finally:
+        _pc.close()
+    rows.sort(key=lambda r: -_cpts.get(normalize_name(r[0]), 0))
     # Each member's skill division (top-X% ship rank), the same one shown on
     # the leaderboard and their profile. `ranks` is a local dict here (place
     # within the clan), so reach the module via division_map() instead.
@@ -15689,7 +15770,15 @@ def clan_page(tag):
             "division": (_divmap.get(normalize_name(name))
                          if played >= PROVISIONAL_GAMES else None),
             "joined": join_date(joined),
+            "points": _cpts.get(normalize_name(name), 0),
+            "points_week": _cpts_week.get(normalize_name(name), 0),
         })
+    # Place by points; members level on points share a place.
+    _last, _place = None, 0
+    for _i, _m in enumerate(members, 1):
+        if _m["points"] != _last:
+            _place, _last = _i, _m["points"]
+        _m["pplace"] = _place if _m["points"] > 0 else None
 
     # The sum of the members' own records, which is every match they have
     # ever played rather than only those since clan tracking began.
@@ -15728,6 +15817,16 @@ def clan_page(tag):
         "surv_rounds": surv_rounds,
     }
     clan["applications"] = apps
+    _pc2 = db()
+    try:
+        _pcc = _pc2.cursor()
+        clan["points"] = sum(_cpts.values())
+        clan["points_week"] = sum(_cpts_week.values())
+        clan["points_place"], clan["points_of"] = clan_points_rank(_pcc, known)
+        clan["points_kinds"] = clan_points_by_kind(_pcc, known)
+        clan["removals"] = []
+    finally:
+        _pc2.close()
     clan["region"] = region_key
     clan["region_label"] = REGION_LABELS.get(region_key, "")
     clan["regions"] = REGIONS
@@ -15744,6 +15843,7 @@ def clan_page(tag):
     clan["display"] = clan_display(c2, known)
     clan["treasury"] = gem_balance(c2, "clan", known) if _ships_ok_c else None
     clan["member_rate"], clan["mod_rate"] = clan_pay_rates(c2, known) if _ships_ok_c else (0, 0)
+    clan["pay"] = clan_pay_settings(c2, known) if _ships_ok_c else None
     clan["paid_week"] = clan_paid_week(c2, known) if _ships_ok_c else None
     clan["cv"] = clan_view(known, _ships_ok_c, c2)
     if _ships_ok_c:
@@ -15754,7 +15854,7 @@ def clan_page(tag):
     clan["is_leader"] = clan["your_role"] == 'leader'
     conn2.close()
     return render_template('clan.html', clan=clan, version=APP_VERSION,
-                           contact=CONTACT_HANDLE, page='clans',
+                           contact=CONTACT_HANDLE, page='clans', points_table=CLAN_POINTS,
                            client_id=GOOGLE_CLIENT_ID, role_help=CLAN_ROLE_HELP)
 
 
@@ -16027,28 +16127,168 @@ def clan_member_rate(c, tag, nn):
     return mod_rate if role == 'moderator' else member_rate
 
 
-def clan_pay_member_win(c, tag, nn, ref, survival=False):
-    """The clan side of one member win, all in the caller's transaction:
-    the treasury's deposit, the leader's and co-leaders' cuts (minted, like
-    the deposit), and the member's own per-win pay taken back out of that
-    deposit. Returns what the member was paid by the clan."""
-    deposit = GEM_SURVIVAL_CLAN_WIN if survival else GEM_CLAN_WIN
+def clan_pay_settings(c, tag):
+    """The clan's payout choices: how members are paid (win / point / percent),
+    the number for each role in that mode, and the officers' cuts. Cuts are
+    stored for a TEAM win; a survival win pays twice that, as it always has.
+    A clan that never chose anything pays exactly as before."""
+    out = {"mode": "win", "member_pp": 0, "mod_pp": 0, "member_pct": 0, "mod_pct": 0,
+           "leader_cut": GEM_LEADER_WIN, "coleader_cut": GEM_COLEADER_WIN}
+    try:
+        r = c.execute("SELECT pay_mode, COALESCE(member_pp, 0), COALESCE(mod_pp, 0), "
+                      "COALESCE(member_pct, 0), COALESCE(mod_pct, 0), leader_cut, coleader_cut "
+                      "FROM clans WHERE tag = ?", (tag,)).fetchone()
+    except sqlite3.Error:
+        r = None
+    if not r:
+        return out
+    if r[0] in CLAN_PAY_MODES:
+        out["mode"] = r[0]
+    out["member_pp"] = max(0, min(CLAN_PP_MAX, int(r[1] or 0)))
+    out["mod_pp"] = max(0, min(CLAN_PP_MAX, int(r[2] or 0)))
+    out["member_pct"] = max(0, min(100, int(r[3] or 0)))
+    out["mod_pct"] = max(0, min(100, int(r[4] or 0)))
+    # A cut can only go DOWN from the standard one: lowering it moves the
+    # difference into the treasury, so no gems are made or lost by choosing.
+    if r[5] is not None:
+        out["leader_cut"] = max(0, min(GEM_LEADER_WIN, int(r[5])))
+    if r[6] is not None:
+        out["coleader_cut"] = max(0, min(GEM_COLEADER_WIN, int(r[6])))
+    return out
+
+
+def clan_points_add(c, tag, nn, name, kind, ref):
+    """One result's points for one member, once. Returns the points added."""
+    pts = CLAN_POINTS.get(kind, 0)
+    if not (tag and nn and pts):
+        return 0
+    c.execute("INSERT OR IGNORE INTO clan_points (clan, norm_name, name, kind, points, ref, at) "
+              "VALUES (?,?,?,?,?,?,?)", (tag, nn, name, kind, pts, str(ref), _stamp()))
+    return pts if c.rowcount else 0
+
+
+def _points_since(period):
+    """The earliest timestamp a period counts from ('' = all time)."""
+    if period == 'week':
+        return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(time.time() - 7 * 86400))
+    return ''
+
+
+def clan_points_totals(c, period='all'):
+    """{clan tag: points} - the number every clan is ranked by."""
+    since = _points_since(period)
+    q = "SELECT clan, SUM(points) FROM clan_points" + (" WHERE at >= ?" if since else "") + " GROUP BY clan"
+    try:
+        return {t: int(n or 0) for t, n in c.execute(q, (since,) if since else ()).fetchall()}
+    except sqlite3.Error:
+        return {}
+
+
+def clan_member_points(c, tag, period='all'):
+    """{normalized name: points contributed to this clan}."""
+    since = _points_since(period)
+    q = ("SELECT norm_name, SUM(points) FROM clan_points WHERE clan = ?"
+         + (" AND at >= ?" if since else "") + " GROUP BY norm_name")
+    try:
+        return {n: int(v or 0) for n, v in c.execute(q, (tag, since) if since else (tag,)).fetchall()}
+    except sqlite3.Error:
+        return {}
+
+
+def clan_points_by_kind(c, tag):
+    """{kind: (results, points)} for one clan, all time."""
+    try:
+        return {k: (int(n), int(v or 0)) for k, n, v in c.execute(
+            "SELECT kind, COUNT(*), SUM(points) FROM clan_points WHERE clan = ? GROUP BY kind", (tag,))}
+    except sqlite3.Error:
+        return {}
+
+
+def clan_points_rank(c, tag, period='all'):
+    """(place, of_how_many) among clans with any points; place is None when
+    this clan has none yet."""
+    totals = clan_points_totals(c, period)
+    mine = totals.get(tag, 0)
+    if mine <= 0:
+        return None, len([1 for v in totals.values() if v > 0])
+    return 1 + sum(1 for v in totals.values() if v > mine), len([1 for v in totals.values() if v > 0])
+
+
+def clan_pay_member_win(c, tag, nn, ref, survival=False, kind=None):
+    """The clan side of one member result, all in the caller's transaction.
+
+    Points first: the result is worth CLAN_POINTS[kind] to the clan's ranking.
+    Gems follow the points. A result is paid as a fraction of a win in its mode
+    (a win is all of it, a second place or top three half), so the treasury's
+    deposit, the leader's and co-leaders' cuts (minted, like the deposit) and the
+    member's own pay all grow with the points. A cut the clan has lowered is not
+    minted; the difference goes into the treasury's deposit instead. The member
+    is paid out of that deposit, by the clan's mode, and never more than it.
+    Returns what the member was paid by the clan."""
+    kind = kind or ('survival-win' if survival else 'team-win')
+    survival = kind.startswith('survival')
+    pts = CLAN_POINTS[kind]
+    full = CLAN_POINTS['survival-win' if survival else 'team-win']
+    frac = pts / float(full)
     reason = "survival-member-win" if survival else "member-win"
-    gem_grant(c, "clan", tag, deposit, reason, ref)
+    row = c.execute("SELECT name FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    clan_points_add(c, tag, nn, row[0] if row else nn, kind, ref)
+
+    cfg = clan_pay_settings(c, tag)
+    base = GEM_SURVIVAL_CLAN_WIN if survival else GEM_CLAN_WIN
+    deposit = int(round(base * frac))
+    cuts = []                                    # (officer, minted)
+    saved = 0
     for officer, role in gem_clan_officers_by_role(c, tag):
         if role == 'leader':
-            cut = GEM_SURVIVAL_LEADER_WIN if survival else GEM_LEADER_WIN
+            std = GEM_SURVIVAL_LEADER_WIN if survival else GEM_LEADER_WIN
+            chosen = cfg["leader_cut"] * (2 if survival else 1)
         else:
-            cut = GEM_SURVIVAL_COLEADER_WIN if survival else GEM_COLEADER_WIN
+            std = GEM_SURVIVAL_COLEADER_WIN if survival else GEM_COLEADER_WIN
+            chosen = cfg["coleader_cut"] * (2 if survival else 1)
+        std_part = int(round(std * frac))
+        cut = int(round(min(std, chosen) * frac))
+        saved += max(0, std_part - cut)
+        cuts.append((officer, cut))
+    deposit += saved
+    gem_grant(c, "clan", tag, deposit, reason, ref)
+    for officer, cut in cuts:
         gem_grant(c, "player", officer, cut, reason, ref)
-    rate = clan_member_rate(c, tag, nn)
-    if rate <= 0:
+
+    pay = clan_member_pay(c, tag, nn, cfg, pts, frac, survival, deposit)
+    if pay <= 0:
         return 0
-    pay = min(rate * (2 if survival else 1), deposit)
+    pay = min(pay, deposit)
     if gem_clan_charge(c, tag, pay, "member-pay", ref) != "ok":
         return 0
     escrow_tick(c, nn=nn)          # a win is as good a moment as any to pay up
     return gem_grant(c, "player", nn, pay, "clan-pay", ref)
+
+
+def clan_member_pay(c, tag, nn, cfg, pts, frac, survival, deposit):
+    """What the clan owes THIS member for a result worth `pts`. Officers have
+    their cuts instead. A hired agent's contract names its own flat rate."""
+    try:
+        r = c.execute("SELECT google_sub, contract_clan, contract_until, COALESCE(contract_rate, 0) "
+                      "FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    except sqlite3.Error:
+        return 0
+    if not r:
+        return 0
+    sub, cclan, cuntil, crate = r
+    role = clan_role(c, sub, tag) if sub else ""
+    if role in ('leader', 'coleader'):
+        return 0
+    if contract_until(cclan, cuntil, tag) and crate:
+        return int(max(0, min(CLAN_RATE_MAX, int(crate))) * (2 if survival else 1) * frac)
+    is_mod = role == 'moderator'
+    mode = cfg["mode"]
+    if mode == 'point':
+        return int((cfg["mod_pp"] if is_mod else cfg["member_pp"]) * pts)
+    if mode == 'percent':
+        return int(deposit * (cfg["mod_pct"] if is_mod else cfg["member_pct"]) / 100.0)
+    member_rate, mod_rate = clan_pay_rates(c, tag)
+    return int((mod_rate if is_mod else member_rate) * (2 if survival else 1) * frac)
 
 
 def clan_paid_week(c, tag):
@@ -16562,7 +16802,7 @@ def gem_peak_level(c, nn):
     return ranks.RANK_BY_KEY.get(r[0], {}).get("level", 0)
 
 
-def award_match_gems(c, applied, match_id):
+def award_match_gems(c, applied, match_id, second=None):
     """Gems for one rated result.
 
     Reads `applied` - the list the rating itself was just written from - so a
@@ -16582,6 +16822,13 @@ def award_match_gems(c, applied, match_id):
         got = gem_grant(c, "player", nn, GEM_WIN if won else GEM_LOSS,
                         "win" if won else "loss", match_id)
         if not won:
+            # Second place in a three-team match earns the clan half a win's
+            # points and gems (9.82.0). Only for a player the rating accepted.
+            if second and nn in second:
+                _row = c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
+                if _row and _row[0]:
+                    got += clan_pay_member_win(c, _row[0], nn, "%s#%s" % (match_id, nn),
+                                               kind='team-2nd')
             if got:
                 out.append((player, got))
             continue
@@ -16601,6 +16848,45 @@ def award_match_gems(c, applied, match_id):
         if got:
             out.append((player, got))
     return out
+
+
+def _second_place_team(applied, team_of, scores):
+    """The accepted losers of the better-scoring losing team in a THREE-team
+    match, as normalized names - or an empty set. The scorer lists the losing
+    teams by team number, not by how they finished, so the finish is read off
+    the scoreboard: the losing team whose rated players scored more between
+    them. A two-team match has no second place (the other side simply lost), a
+    tie names nobody, and a losing team with no rated player cannot be judged -
+    all conservative, because a point is easier to add later than to take back."""
+    try:
+        tot = {'lose1': 0, 'lose2': 0}
+        has = {'lose1': set(), 'lose2': set()}
+        for player, won, _d in applied:
+            if won:
+                continue
+            nn = normalize_name(player)
+            t = team_of.get(nn)
+            if t in tot:
+                try:
+                    tot[t] += int((scores or {}).get(player) or 0)
+                except (TypeError, ValueError):
+                    pass
+                has[t].add(nn)
+        if not (has['lose1'] and has['lose2']) or tot['lose1'] == tot['lose2']:
+            return set()
+        return has['lose2'] if tot['lose2'] > tot['lose1'] else has['lose1']
+    except Exception:
+        return set()
+
+
+def award_survival_placement(c, nn, round_key):
+    """A top-three finish (not the win) in a survival round: points and gems to
+    the player's clan at half a win. Players with no clan earn nothing here -
+    the placement pays the clan, not the pilot."""
+    row = c.execute("SELECT clan FROM players WHERE norm_name = ?", (nn,)).fetchone()
+    if not (row and row[0]):
+        return 0
+    return clan_pay_member_win(c, row[0], nn, "%s#%s" % (round_key, nn), kind='survival-top3')
 
 
 def award_survival_gems(c, nn, round_key):
@@ -18762,6 +19048,118 @@ def clan_leave():
                     "message": f"You have left {left}."}), 200
 
 
+# Why a member was removed (9.82.0). A leader picks one and may add a message;
+# the member is told on their account page and, if they use Discord, by DM, and
+# the clan keeps a log of every removal.
+REMOVAL_REASONS = (("names", "Conflicting names"),
+                   ("sabotage", "Sabotage or griefing"),
+                   ("identity", "Unknown identity"),
+                   ("inactive", "Inactive"),
+                   ("rules", "Broke the clan rules"),
+                   ("other", "Other"))
+REMOVAL_REASON_LABEL = dict(REMOVAL_REASONS)
+
+
+def clan_removal_record(c, clan, stored_name, actor_sub, reason, message):
+    """Log one removal by a clan officer. Does NOT commit. Returns the row id."""
+    try:
+        actor_name = account_name_for(c, actor_sub) if actor_sub else ''
+    except sqlite3.Error:
+        actor_name = ''
+    c.execute("INSERT INTO clan_removals (clan, name, norm_name, removed_by, removed_by_name, "
+              "reason, message, at) VALUES (?,?,?,?,?,?,?,?)",
+              (clan, stored_name, normalize_name(stored_name), actor_sub or '',
+               actor_name or '', reason or '', message or '', _stamp()))
+    return c.lastrowid
+
+
+def clan_removal_view(row):
+    rid, clan, name, by_name, reason, message, at = row[:7]
+    return {"id": rid, "clan": clan, "name": name, "removed_by": by_name or "a clan officer",
+            "reason": reason or "", "reason_label": REMOVAL_REASON_LABEL.get(reason or "", ""),
+            "message": message or "", "at": at}
+
+
+def clan_notices_for(c, norm_name, unseen_only=True):
+    """Removals addressed to one player, newest first."""
+    if not norm_name:
+        return []
+    q = ("SELECT id, clan, name, removed_by_name, reason, message, at FROM clan_removals "
+         "WHERE norm_name = ?" + (" AND COALESCE(seen, 0) = 0" if unseen_only else "")
+         + " ORDER BY id DESC LIMIT 10")
+    return [clan_removal_view(r) for r in c.execute(q, (norm_name,)).fetchall()]
+
+
+def clan_removal_log(c, tag, limit=30):
+    """What a clan's officers see: who was removed, by whom, and why."""
+    return [clan_removal_view(r) for r in c.execute(
+        "SELECT id, clan, name, removed_by_name, reason, message, at FROM clan_removals "
+        "WHERE clan = ? ORDER BY id DESC LIMIT ?", (tag, int(limit))).fetchall()]
+
+
+@app.route('/clan/notice/seen', methods=['POST'])
+def clan_notice_seen():
+    """The removed player dismisses a message about their removal."""
+    sub_id = current_user()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in first."}), 401
+    try:
+        rid = int((request.get_json(silent=True) or {}).get('id'))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "No such message."}), 400
+    conn = db()
+    c = conn.cursor()
+    me = my_player(c)
+    if not me:
+        conn.close()
+        return jsonify({"ok": False, "message": "No such message."}), 404
+    c.execute("UPDATE clan_removals SET seen = 1 WHERE id = ? AND norm_name = ?", (rid, me[1]))
+    n = c.rowcount
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": bool(n)}), (200 if n else 404)
+
+
+@app.route('/api/bot/clan/removals/undelivered')
+def bot_clan_removals_undelivered():
+    """Removals the bot has not yet told the removed player about - only players
+    whose account is tied to a Discord can be reached. Pulled by the bot so a
+    removal made while it was restarting is not lost."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT r.id, r.clan, r.name, r.removed_by_name, r.reason, r.message, r.at, p.google_sub "
+              "FROM clan_removals r JOIN players p ON p.norm_name = r.norm_name "
+              "WHERE COALESCE(r.notified, 0) = 0 ORDER BY r.id LIMIT 25")
+    out = []
+    for r in c.fetchall():
+        sub = r[7] or ''
+        did = sub[8:] if sub.startswith('discord:') else ''
+        if not did and sub:
+            ld = c.execute("SELECT discord_id FROM discord_links WHERE account_sub = ?", (sub,)).fetchone()
+            did = ld[0] if ld else ''
+        row = clan_removal_view(r)
+        row["discord_id"] = did
+        out.append(row)
+    conn.close()
+    return jsonify({"removals": out}), 200
+
+
+@app.route('/api/bot/clan/removals/delivered', methods=['POST'])
+def bot_clan_removals_delivered():
+    """Mark removals as told, so a player is messaged once."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(i) for i in (request.json or {}).get('ids', []) if str(i).isdigit()]
+    if ids:
+        conn = db()
+        conn.cursor().executemany("UPDATE clan_removals SET notified = 1 WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        conn.close()
+    return jsonify({"ok": True, "marked": len(ids)}), 200
+
+
 @app.route('/clan/remove', methods=['POST'])
 def clan_remove():
     """Take a clan tag off a name by hand, or let detection resume.
@@ -18821,6 +19219,18 @@ def clan_remove():
         conn.close()
         return jsonify({"message": f"'{stored_name}' has no clan tag."}), 400
 
+    # An officer's removal carries a reason and an optional message (9.82.0).
+    reason, note = '', ''
+    if by_admin:
+        reason = str(data.get('reason') or '').strip()
+        if reason and reason not in REMOVAL_REASON_LABEL:
+            conn.close()
+            return jsonify({"message": "Pick one of the listed reasons."}), 400
+        note, bad = clean_clan_note(data.get('message'), REMOVAL_MESSAGE_MAX)
+        if bad:
+            conn.close()
+            return jsonify({"message": bad}), 400
+
     # The lock only exists to stop automatic detection undoing a correction.
     # An admin does not need it - their clan is curated, so detection already
     # skips it - and setting it would let one clan's admin permanently stop a
@@ -18829,9 +19239,12 @@ def clan_remove():
     c.execute("UPDATE players SET clan = NULL, clan_locked = ?, contract_clan = NULL, "
               "contract_until = NULL WHERE name = ?",
               (0 if by_admin else 1, stored_name))
+    if by_admin:
+        clan_removal_record(c, clan, stored_name, current_user(), reason, note)
     conn.commit()
     conn.close()
-    return jsonify({"message": f"'{stored_name}' is no longer listed under {clan}."}), 200
+    return jsonify({"message": f"'{stored_name}' is no longer listed under {clan}."
+                               + (" They have been told why." if (by_admin and (reason or note)) else "")}), 200
 
 
 @app.route('/clan/code', methods=['POST'])
@@ -20074,14 +20487,15 @@ def bot_clan_apps_undelivered():
         return jsonify({"error": "Unauthorized"}), 401
     conn = db()
     c = conn.cursor()
-    c.execute("SELECT id, clan, name, COALESCE(gems, 0) FROM clan_invites "
+    c.execute("SELECT id, clan, name, COALESCE(gems, 0), note FROM clan_invites "
               "WHERE direction = 'application' AND status = 'pending' "
               "AND COALESCE(notified, 0) = 0 ORDER BY created_at LIMIT 25")
     pending = c.fetchall()
     out = []
-    for app_id, clan, name, ask in pending:
+    for app_id, clan, name, ask, note in pending:
         row = applicant_stats(c, name)
         row["gems"] = ask or 0
+        row["note"] = note or ""
         # Only leaders who signed in through Discord can be sent a DM.
         c.execute("SELECT google_sub FROM clan_admins WHERE clan = ?", (clan,))
         leaders = [r[0][8:] for r in c.fetchall()
@@ -23205,8 +23619,57 @@ def clan_leader_state_route():
                     "contact": CONTACT_HANDLE}), 200
 
 
+APPLY_NOTE_MAX = 500
+REMOVAL_MESSAGE_MAX = 300
+
+
+def clean_clan_note(text, limit):
+    """A free-text note typed into a clan form: control characters out, spaces
+    tidied, cut to the limit, and screened the way bios are. Returns
+    (clean_text, error) - error is a sentence for the user, or ''."""
+    nl = chr(10)
+    t = ''.join(ch for ch in str(text or '') if ch == nl or ch >= ' ')
+    t = nl.join(' '.join(line.split()) for line in t.strip().split(nl))
+    while nl * 3 in t:
+        t = t.replace(nl * 3, nl * 2)
+    if len(t) > limit:
+        return '', "That is %d characters; the limit is %d." % (len(t), limit)
+    if t and bio_blocked(t):
+        return '', "That note has a word we do not allow. Please reword it."
+    return t, ''
+
+
 @app.route('/clan/apply', methods=['POST'])
 def clan_apply():
+    return _clan_apply_core(current_user(), request.json or {})
+
+
+@app.route('/api/bot/clan/apply', methods=['POST'])
+def bot_clan_apply():
+    """The same application, from Discord: the bot names the Discord user, and the
+    name they apply with is the one on their account unless they typed another.
+    Every rule is the website's (9.82.0: the Discord command had no route before)."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_id = _bot_sub()
+    if not sub_id:
+        return jsonify({"ok": False, "message": "Sign in on the website with Discord first."}), 200
+    data = dict(request.json or {})
+    if not str(data.get('name') or '').strip():
+        conn = db()
+        try:
+            data['name'] = account_name_for(conn.cursor(), sub_id) or ''
+        finally:
+            conn.close()
+    resp = _clan_apply_core(sub_id, data)
+    body, status = resp if isinstance(resp, tuple) else (resp, 200)
+    j = body.get_json() or {}
+    # The bot's _call() turns any 4xx into a generic error, so a refusal is
+    # returned as a 200 with ok: false and the real sentence.
+    return jsonify({"ok": status == 200, "message": j.get("message", "")}), 200
+
+
+def _clan_apply_core(sub_id, data):
     """Ask a clan to take you. Its admin decides.
 
     Mirrors clan_add() from the other side, and uses the same evidence test,
@@ -23215,7 +23678,6 @@ def clan_apply():
     else. If it has no owner there is nobody to check, so the clan's tag must
     genuinely be in the name, exactly as a direct add would require.
     """
-    data = request.json or {}
     name = str(data.get('name', '')).strip()
     if not name:
         return jsonify({"message": "Enter your player name."}), 400
@@ -23251,7 +23713,7 @@ def clan_apply():
                                    f"that clan first."}), 400
 
     if owner_sub:
-        if current_user() != owner_sub:
+        if sub_id != owner_sub:
             conn.close()
             return jsonify({"message": "That name belongs to an account. Sign in with it on "
                                        "Settings before applying."}), 403
@@ -23267,14 +23729,20 @@ def clan_apply():
         conn.close()
         return jsonify({"message": f"'{stored_name}' already has something pending with {known}."}), 400
 
-    _ask = _gem_amount(data)
+    # 9.82.0: an application carries a note - whatever the applicant wants the
+    # clan to know - instead of a gem ask. The leader reads it where applications
+    # are decided (website and Discord).
+    note, bad = clean_clan_note(data.get('note'), APPLY_NOTE_MAX)
+    if bad:
+        conn.close()
+        return jsonify({"message": bad}), 400
     c.execute("INSERT INTO clan_invites (clan, name, invited_by, created_at, status, "
-              "direction, gems) VALUES (?, ?, ?, ?, 'pending', 'application', ?)",
-              (known, stored_name, current_user(), time.strftime('%Y-%m-%d %H:%M:%S'), _ask))
+              "direction, gems, note) VALUES (?, ?, ?, ?, 'pending', 'application', 0, ?)",
+              (known, stored_name, sub_id, time.strftime('%Y-%m-%d %H:%M:%S'), note or None))
     conn.commit()
     conn.close()
     return jsonify({"message": f"Applied to {known}. Their admin has to accept it."
-                               + (f" You asked for {_ask:,} gems on joining." if _ask else "")}), 200
+                               + (" Your note went with it." if note else "")}), 200
 
 
 @app.route('/clan/application/respond', methods=['POST'])
@@ -23684,14 +24152,14 @@ def applicant_stats(c, name):
 
 def clan_applications(c, tag):
     """Everyone waiting on this clan, with the numbers a leader wants."""
-    c.execute("SELECT id, name, created_at, COALESCE(gems, 0) FROM clan_invites "
+    c.execute("SELECT id, name, created_at, COALESCE(gems, 0), note FROM clan_invites "
               "WHERE clan = ? AND direction = 'application' AND status = 'pending' "
               "ORDER BY created_at", (tag,))
     out = []
-    for app_id, name, created, ask in c.fetchall():
+    for app_id, name, created, ask, note in c.fetchall():
         row = applicant_stats(c, name)
         row.update({"id": app_id, "clan": tag, "created_at": created,
-                    "joined": join_date(created), "gems": ask or 0})
+                    "joined": join_date(created), "gems": ask or 0, "note": note or ""})
         out.append(row)
     return out
 
@@ -24035,14 +24503,42 @@ def clan_pay_route():
             return max(0, min(CLAN_RATE_MAX, int(v or 0)))
         except (TypeError, ValueError):
             return 0
-    member_rate, mod_rate = _rate(body.get("member_rate")), _rate(body.get("mod_rate"))
-    c.execute("UPDATE clans SET member_rate = ?, mod_rate = ? WHERE tag = ?",
-              (member_rate, mod_rate, known))
+    def _bound(v, hi, default):
+        try:
+            return max(0, min(hi, int(v)))
+        except (TypeError, ValueError):
+            return default
+    cur = clan_pay_settings(c, known)
+    cur_member, cur_mod = clan_pay_rates(c, known)
+    member_rate = _rate(body["member_rate"]) if "member_rate" in body else cur_member
+    mod_rate = _rate(body["mod_rate"]) if "mod_rate" in body else cur_mod
+    mode = str(body.get("mode") or cur["mode"])
+    if mode not in CLAN_PAY_MODES:
+        conn.close()
+        return jsonify({"ok": False, "message": "Pay by win, by point or by percent."}), 400
+    member_pp = _bound(body.get("member_pp"), CLAN_PP_MAX, cur["member_pp"]) if "member_pp" in body else cur["member_pp"]
+    mod_pp = _bound(body.get("mod_pp"), CLAN_PP_MAX, cur["mod_pp"]) if "mod_pp" in body else cur["mod_pp"]
+    member_pct = _bound(body.get("member_pct"), 100, cur["member_pct"]) if "member_pct" in body else cur["member_pct"]
+    mod_pct = _bound(body.get("mod_pct"), 100, cur["mod_pct"]) if "mod_pct" in body else cur["mod_pct"]
+    # The officers' cuts can only be lowered from the standard; the difference
+    # goes to the treasury, so choosing makes no gems and loses none.
+    leader_cut = _bound(body.get("leader_cut"), GEM_LEADER_WIN, cur["leader_cut"]) if "leader_cut" in body else cur["leader_cut"]
+    coleader_cut = _bound(body.get("coleader_cut"), GEM_COLEADER_WIN, cur["coleader_cut"]) if "coleader_cut" in body else cur["coleader_cut"]
+    c.execute("UPDATE clans SET member_rate = ?, mod_rate = ?, pay_mode = ?, member_pp = ?, mod_pp = ?, "
+              "member_pct = ?, mod_pct = ?, leader_cut = ?, coleader_cut = ? WHERE tag = ?",
+              (member_rate, mod_rate, mode, member_pp, mod_pp, member_pct, mod_pct,
+               leader_cut, coleader_cut, known))
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "member_rate": member_rate, "mod_rate": mod_rate,
-                    "message": f"{known} now pays members +{member_rate} and moderators "
-                               f"+{mod_rate} per win, out of each win's deposit."}), 200
+    how = {"win": f"members +{member_rate} and moderators +{mod_rate} per win",
+           "point": f"members {member_pp} and moderators {mod_pp} gems per point",
+           "percent": f"members {member_pct}% and moderators {mod_pct}% of each result's deposit"}[mode]
+    return jsonify({"ok": True, "member_rate": member_rate, "mod_rate": mod_rate, "mode": mode,
+                    "member_pp": member_pp, "mod_pp": mod_pp, "member_pct": member_pct,
+                    "mod_pct": mod_pct, "leader_cut": leader_cut, "coleader_cut": coleader_cut,
+                    "message": f"{known} now pays {how}, out of each result's own deposit. "
+                               f"Your cut is {leader_cut}, each co-leader's {coleader_cut}; "
+                               f"what you leave goes to the treasury."}), 200
 
 
 @app.route('/clan/shop/buy', methods=['POST'])
@@ -24492,6 +24988,8 @@ def my_clan_page():
     role_color_keys = clan_role_color_keys(c, tag)
     _shown = clan_display(c, tag)
     rows.sort(key=leaderboard_sort_key)
+    _mpts = clan_member_points(c, tag)
+    rows.sort(key=lambda r: -_mpts.get(normalize_name(r[0]), 0))
     members = []
     for name, elo, wins, losses, owner_sub, joined, protected, _cclan, _cuntil in rows:
         wins = wins or 0
@@ -24499,6 +24997,7 @@ def my_clan_page():
         played = wins + losses
         _role = roles.get(owner_sub, "")
         members.append({
+            "points": _mpts.get(normalize_name(name), 0),
             "name": name, "display": display_name(name, tag, _shown),
             "role": _role,
             "role_label": role_label_for(_role, role_labels),
@@ -24543,6 +25042,10 @@ def my_clan_page():
         "theme": clan_theme, "theme_color": CLAN_THEMES.get(clan_theme, ""),
         "role_colors": role_colors, "role_color_keys": role_color_keys,
         "applications": clan_applications(c, tag),
+        "points": sum(_mpts.values()),
+        "points_place": clan_points_rank(c, tag)[0],
+        "pay": clan_pay_settings(c, tag),
+        "removals": clan_removal_log(c, tag),
         "treasury": gem_balance(c, "clan", tag),
         "member_rate": clan_pay_rates(c, tag)[0], "mod_rate": clan_pay_rates(c, tag)[1],
         "paid_week": clan_paid_week(c, tag),
@@ -24574,6 +25077,8 @@ def my_clan_page():
                            palette=CLAN_PALETTE, themes=CLAN_THEMES,
                            role_help=CLAN_ROLE_HELP,
                            role_default_color=CLAN_ROLE_DEFAULT_COLOR,
+                           removal_reasons=REMOVAL_REASONS, pp_max=CLAN_PP_MAX,
+                           points_table=CLAN_POINTS, point_labels=CLAN_POINT_LABELS,
                            rate_max=CLAN_RATE_MAX, coleader_cap=clan_coleader_cap(db().cursor(), tag),
                            pay_rates={"leader": GEM_LEADER_WIN, "coleader": GEM_COLEADER_WIN,
                                       "clan": GEM_CLAN_WIN, "sleader": GEM_SURVIVAL_LEADER_WIN,
@@ -24628,12 +25133,26 @@ def clans_page():
             "theme_color": CLAN_THEMES.get(themes.get(tag, ""), ""),
             "curated": tag in curated,
         })
+    by = 'skill' if request.args.get('by') == 'skill' else 'points'
+    period = 'week' if request.args.get('period') == 'week' else 'all'
+    _pts = clan_points_totals(c, period)
     conn.close()
-    ranked = [r for r in rows if r["size"] >= CLAN_RANK_MIN]
-    small = [r for r in rows if r["size"] < CLAN_RANK_MIN]
-    # Highest average first. Size breaks a tie: holding an average across
-    # more people is the harder thing to have done.
-    ranked.sort(key=lambda r: (-r["avg"], -r["size"], r["tag"]))
+    for r in rows:
+        r["points"] = _pts.get(r["tag"], 0)
+    if by == 'points':
+        # Ranked by the points the members have earned it (9.82.0); average
+        # skill, then size, settle a tie - so before anyone has earned a point
+        # the order is the one the skill view shows. A small clan that has
+        # earned points is ranked too: those points are real.
+        ranked = [r for r in rows if r["size"] >= CLAN_RANK_MIN or r["points"] > 0]
+        small = [r for r in rows if not (r["size"] >= CLAN_RANK_MIN or r["points"] > 0)]
+        ranked.sort(key=lambda r: (-r["points"], -r["avg"], -r["size"], r["tag"]))
+    else:
+        ranked = [r for r in rows if r["size"] >= CLAN_RANK_MIN]
+        small = [r for r in rows if r["size"] < CLAN_RANK_MIN]
+        # Highest average first. Size breaks a tie: holding an average across
+        # more people is the harder thing to have done.
+        ranked.sort(key=lambda r: (-r["avg"], -r["size"], r["tag"]))
     for place, row in enumerate(ranked, 1):
         row["place"] = place
     small.sort(key=lambda r: (-r["size"], r["tag"]))
@@ -24657,6 +25176,8 @@ def clans_page():
         for row in ranked + small:
             row["perks"] = live.get(row["tag"], {})
     return render_template('clans.html', clans=ranked, small=small, featured=featured,
+                           by=by, period=period, points_table=CLAN_POINTS,
+                           point_labels=CLAN_POINT_LABELS,
                            clan_cost=CLAN_START_COST,
                            total=len(rows), rank_min=CLAN_RANK_MIN,
                            version=APP_VERSION, contact=CONTACT_HANDLE,
@@ -24738,9 +25259,13 @@ def account_page():
         discord_link = ({"handle": ld.get('display') or ld.get('username') or '',
                          "own": False} if ld else None)
     wardrobe = wardrobe_view(c, account_name) if (account_name and gems_visible()) else None
+    try:
+        clan_notices = clan_notices_for(c, normalize_name(account_name)) if account_name else []
+    except sqlite3.Error:
+        clan_notices = []
     conn.close()
     return render_template('account.html', version=APP_VERSION,
-                           wardrobe=wardrobe,
+                           wardrobe=wardrobe, clan_notices=clan_notices,
                            contact=CONTACT_HANDLE, client_id=GOOGLE_CLIENT_ID,
                            account_name=account_name, signed_in=bool(sub_id),
                            acct=acct, page='account',

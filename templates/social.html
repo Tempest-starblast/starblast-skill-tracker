@@ -392,11 +392,9 @@
   var MY_NAME={{ (me or '')|tojson }};
   function applyTo(tag, btn){
     var extra={};
-    {% if gems_on %}
-    var g=window.prompt('Ask for a joining bonus, in gems? 0 for none.', '0');
-    if(g===null) return;
-    extra.gems=Math.max(0, parseInt(g,10)||0);
-    {% endif %}
+    var n=window.prompt('Tell the clan why you want to join (optional, up to 500 characters).', '');
+    if(n===null) return;
+    extra.note=n;
     btn.disabled=true;
     fetch('/clan/apply', {method:'POST', headers:{'Content-Type':'application/json'},
                           body:JSON.stringify(Object.assign({clan:tag, name:MY_NAME}, extra))})

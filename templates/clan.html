@@ -59,6 +59,9 @@
   </div>
   <div class="er">
     <p class="desc" id="joinText">Sign in at the top of the page to apply.</p>
+    <label for="applyNote" id="applyNoteLbl" style="display:none;font-size:13px;color:var(--muted)">Tell them why you want to join (optional)</label>
+    <textarea id="applyNote" maxlength="500" rows="3" style="display:none;width:100%;box-sizing:border-box;resize:vertical"
+      placeholder="Who you are, what you play, how active you are - anything that helps them decide."></textarea>
     <button class="primary big" id="applyBtn" onclick="applyToClan()" style="display:none">{{ t('Apply to join') }}</button>
     <a class="primary big" id="manageBtn" href="/myclan" style="display:none;text-decoration:none">Manage this clan</a>
     <button class="ghost" id="leaveBtn" onclick="leaveClan()" style="display:none;align-self:flex-start">{{ t('Leave this clan') }}</button>
@@ -78,6 +81,7 @@
 <table class="roster">
 <thead><tr>
   <th class="rank">#</th><th>{{ t('Player') }}</th><th class="mid">{{ t('Rank') }}</th>
+  <th class="mid" title="Points earned for the clan: this week in brackets">Points</th>
   <th class="mid">{{ t('Record') }}</th><th class="mid">{{ t('Win%') }}</th><th class="num">{{ t('Skill') }}</th>
   <th class="mid">{{ t('Joined') }}</th>
 </tr></thead>
@@ -85,10 +89,10 @@
 {% for m in clan.members %}
 <tr data-role="{{ m.role }}" data-name="{{ m.name }}">
   <td class="rank">
-    {%- if loop.index == 1 %}<span class="medal">&#129351;</span>
-    {%- elif loop.index == 2 %}<span class="medal">&#129352;</span>
-    {%- elif loop.index == 3 %}<span class="medal">&#129353;</span>
-    {%- else %}{{ loop.index }}{% endif -%}
+    {%- if m.pplace == 1 %}<span class="medal">&#129351;</span>
+    {%- elif m.pplace == 2 %}<span class="medal">&#129352;</span>
+    {%- elif m.pplace == 3 %}<span class="medal">&#129353;</span>
+    {%- elif m.pplace %}{{ m.pplace }}{% else %}&ndash;{% endif -%}
   </td>
   <td class="who"><span class="pn">
     {%- if m.division %}<span class="remb">{{ rank_emblem(m.emblem or m.division.ship, 16, m.emblem_color or m.division.color, m.division.name ~ ' tier', 'rank-emblem mythic' if m.mythic else 'rank-emblem')|safe }}</span>{% endif %}
@@ -96,13 +100,14 @@
     {%- if m.has_account %}<span class="ptick" title="Has an account">&#10003;</span>{% endif %}</span></td>
   <td class="mid"><button type="button" class="rolechip" style="--rc:{{ m.role_color }}"
       onclick="roleHelp(this,'{{ m.role or 'player' }}')" title="What this role can do">{{ m.role_label or t('Member') }}</button></td>
+  <td class="mid"><b>{{ '{:,}'.format(m.points) }}</b>{% if m.points_week %} <span style="color:var(--dim);font-size:12px">({{ m.points_week }})</span>{% endif %}</td>
   <td class="mid">{{ m.wins }}-{{ m.losses }}</td>
   <td class="mid">{{ m.winrate }}</td>
   <td class="skill">{{ m.elo }}</td>
   <td class="mid">{{ m.joined or '&mdash;'|safe }}</td>
 </tr>
 {% else %}
-<tr><td colspan="7" class="empty">Nobody is in {{ clan.display or clan.tag }} right now.</td></tr>
+<tr><td colspan="8" class="empty">Nobody is in {{ clan.display or clan.tag }} right now.</td></tr>
 {% endfor %}
 </tbody>
 </table>
@@ -114,7 +119,10 @@
   (a match won by two clanmates counts twice); survival is every survival round a member has won.
   A <span class="ptick">&#10003;</span> or green underline means an account; a
   Tap a role to see what it can do.
-  The # is the member's place within {{ clan.display or clan.tag }}.</p>
+  The # is the member's place within {{ clan.display or clan.tag }} by the points they have earned it:
+  a team win is {{ points_table['team-win'] }}, a team 2nd place {{ points_table['team-2nd'] }},
+  a survival win {{ points_table['survival-win'] }} and a survival top 3 {{ points_table['survival-top3'] }}.
+  Points count from the day the clan points system started; players who have left keep their points in the clan's total.</p>
 <p class="msg" id="meMsg"></p>
 <p class="foot" style="margin-top:14px">Listed here by mistake? Open your player page and use
 Remove clan tag, or ask {{ contact }} on Discord.</p>
@@ -191,20 +199,16 @@ async function refresh(){
       text.textContent = 'You are in ' + me.clan + '. Leave it first to apply here.';
     } else {
       text.textContent = 'Your application goes to whoever runs the clan.';
-      show('applyBtn', true);
+      show('applyBtn', true); show('applyNote', true); show('applyNoteLbl', true);
     }
   }catch(e){}
 }
 async function applyToClan(){
-  const extra = {};
-  {% if gems_on %}
-  const g = window.prompt('Ask for a joining bonus, in gems? 0 for none.', '0');
-  if (g === null) return;
-  extra.gems = Math.max(0, parseInt(g, 10) || 0);
-  {% endif %}
+  const note = (document.getElementById('applyNote') || {}).value || '';
   try{
-    const [r, d] = await post('/clan/apply', Object.assign({clan: TAG, name: MY_NAME}, extra));
+    const [r, d] = await post('/clan/apply', {clan: TAG, name: MY_NAME, note: note});
     say('applyMsg', r.ok, d.message);
+    if (r.ok){ show('applyBtn', false); show('applyNote', false); show('applyNoteLbl', false); }
   }catch(e){ say('applyMsg', false, 'Server connection error.'); }
 }
 async function leaveClan(){

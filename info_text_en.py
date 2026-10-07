@@ -183,5 +183,16 @@ CARDS = [
   ' styles, frames, effects and titles. Your colour always shows your rank; what you buy only'
   ' changes the look.</p>'
   '<p>Clans earn too. Every member win puts [[GEMCLAN]] in the clan&#39;s treasury, which its'
-  ' leaders spend on member pay and in the clan&#39;s tab of the Shop.</p>'),
+  ' leaders spend on member pay and in the clan&#39;s tab of the Shop.</p>'
+  '<p><b>Clan points.</b> Every rated result a member earns their clan counts as points: a team'
+  ' win <b>10</b>, a team 2nd place in a three-team match <b>5</b>, a survival win <b>30</b> and'
+  ' a survival top 3 <b>15</b>. The <a href="/clans">clans page</a> ranks clans by their points'
+  ' (all time or this week), and each clan&#39;s page ranks its members by the points they have'
+  ' earned it. Gems follow the points: a 2nd place or top 3 puts half of what a win does into'
+  ' the treasury.</p>'
+  '<p>A clan&#39;s leader chooses how members are paid &mdash; a set amount per win, a set amount per'
+  ' point, or a percent of the result&#39;s deposit &mdash; and can take a smaller cut for themselves'
+  ' and their co-leaders; whatever they leave goes to the treasury. Someone applying to a clan'
+  ' can write a note about why, and when a leader removes a member they can say why: the member'
+  ' sees it on their account page, and on Discord if they use it.</p>'),
 ]
