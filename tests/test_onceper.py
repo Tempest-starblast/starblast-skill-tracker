@@ -50,7 +50,7 @@ cn.commit()
 cn.close()
 # Both "SHIPNINE" and "VULCANX" resolve to the VULCANX account.
 real = fa.account_for_ingame_name
-fa.account_for_ingame_name = lambda c, nm, sys_id=None: "VULCANX" if nm == "SHIPNINE" else real(c, nm, sys_id)
+fa.account_for_ingame_name = lambda c, nm, sys_id=None, window=None: "VULCANX" if nm == "SHIPNINE" else real(c, nm, sys_id, window)
 names = ["ONCEW1", "ONCEW2", "ONCEL1", "VULCANX", "SHIPNINE"]
 payload = {"match_id": "once-1", "sys_id": 1368, "region": "america",
            "winning_team": ["ONCEW1", "ONCEW2"], "losing_team_1": ["ONCEL1"],

@@ -24,6 +24,12 @@ input:disabled + .slider{opacity:.45;cursor:not-allowed}
 .hd{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
 .hd.up{color:var(--green)}.hd.dn{color:var(--red)}
 .hhalf{color:var(--amber);font-size:11px;letter-spacing:.5px}
+.hrep{font-size:11px;font-weight:700;letter-spacing:.3px;color:var(--amber);border:1px solid currentColor;border-radius:5px;padding:0 6px}
+.hrep.ok{color:var(--green)}
+.hrep.no{color:var(--muted)}
+.hrepbtn{font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;color:var(--muted);background:transparent;
+  border:1px solid var(--line);border-radius:5px;padding:1px 8px}
+.hrepbtn:hover,.hrepbtn:focus-visible{color:var(--text);border-color:var(--text)}
 .hrow.new{background:rgba(153,221,255,.07);border-left:2px solid var(--blue);padding-left:8px}
 .hnew{color:var(--blue);font-size:11px;letter-spacing:.5px;font-weight:700}
 .bio-card #accBio{width:100%;box-sizing:border-box;resize:vertical;min-height:104px;font:inherit;
@@ -230,10 +236,57 @@ async function dismissClanNotice(id, btn){
     <span>{{ m.when }}</span>
     {% if m.half %}<span class="hhalf">HALF</span>{% endif %}
     {% if m.unseen %}<span class="hnew">NEW</span>{% endif %}
+    {% if m.refunded is not none %}<span class="hrep ok" title="Reported and approved: the loss was taken back">Refunded {{ '%+.1f'|format(-m.refunded) }}</span>
+    {% elif m.report == 'pending' %}<span class="hrep" title="Waiting for a decision">Reported</span>
+    {% elif m.report == 'denied' %}<span class="hrep no" title="The report was turned down">Report denied</span>
+    {% elif m.reportable %}<button type="button" class="hrepbtn" onclick="openReport({{ m.mid }}, this)" title="This loss should not count against you? Ask for it back.">Report</button>{% endif %}
     <span class="hd {{ 'up' if m.delta >= 0 else 'dn' }}">{{ '%+.2f'|format(m.delta) }}</span>
   </div>
   {% endfor %}
+  <p class="desc" style="margin-top:10px">A loss that should not count against you - your name flown by someone else,
+     bots deciding the match, a match you were never in - can be reported for {{ report_days }} days. If it is approved,
+     the rating comes back and the loss comes off your record.</p>
 </div>
+<dialog id="reportDlg" style="max-width:440px;width:92vw;border-radius:12px;border:1px solid var(--line);background:var(--card,#161616);color:var(--text);padding:18px">
+  <h2 style="margin:0 0 6px">Report this match</h2>
+  <p class="desc" style="margin:0 0 10px">What happened? The site owner reviews every report.</p>
+  <label for="reportReason" style="font-size:13px;color:var(--muted)">Reason</label>
+  <select id="reportReason" style="width:100%;margin:4px 0 10px">
+    {% for code, label in report_reasons %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+  </select>
+  <label for="reportNote" style="font-size:13px;color:var(--muted)">Details (optional)</label>
+  <textarea id="reportNote" maxlength="500" rows="3" style="width:100%;box-sizing:border-box;margin:4px 0 12px;resize:vertical"
+    placeholder="For example: I was offline then; someone copied my name."></textarea>
+  <p class="msg" id="reportMsg" style="margin:0 0 8px"></p>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="ghost" type="button" onclick="document.getElementById('reportDlg').close()">Cancel</button>
+    <button class="primary" type="button" onclick="sendReport()">Send report</button>
+  </div>
+</dialog>
+<script>
+let REPORT_MID = 0, REPORT_BTN = null;
+function openReport(mid, btn){
+  REPORT_MID = mid; REPORT_BTN = btn;
+  document.getElementById('reportNote').value = '';
+  document.getElementById('reportMsg').textContent = '';
+  document.getElementById('reportDlg').showModal();
+}
+async function sendReport(){
+  const m = document.getElementById('reportMsg');
+  try{
+    const r = await fetch('/match/report', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({match_row: REPORT_MID, reason: document.getElementById('reportReason').value,
+                            note: document.getElementById('reportNote').value})});
+    const d = await r.json();
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err'); m.textContent = d.message || '';
+    if (r.ok && REPORT_BTN){
+      const chip = document.createElement('span'); chip.className = 'hrep'; chip.textContent = 'Reported';
+      REPORT_BTN.replaceWith(chip);
+      setTimeout(function(){ document.getElementById('reportDlg').close(); }, 1400);
+    }
+  }catch(e){ m.className = 'msg err'; m.textContent = 'Server connection error.'; }
+}
+</script>
 {% elif acct %}
 <div class="card emptyover">
   <p class="desc" style="margin:0">No rated matches yet. Press Play, join a team match, and your

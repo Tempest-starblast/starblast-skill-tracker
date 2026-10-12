@@ -29,7 +29,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.82.1"
+APP_VERSION = "9.83.0"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -4471,7 +4471,9 @@ def init_db():
                   "ALTER TABLE clans ADD COLUMN mod_pct INTEGER DEFAULT 0",
                   "ALTER TABLE match_players ADD COLUMN place INTEGER",
                   "ALTER TABLE matches ADD COLUMN order_basis TEXT",
-                  "ALTER TABLE matches ADD COLUMN team_out_s TEXT"):
+                  "ALTER TABLE matches ADD COLUMN team_out_s TEXT",
+                  "ALTER TABLE match_players ADD COLUMN refunded REAL",
+                  "ALTER TABLE merge_requests ADD COLUMN notified INTEGER DEFAULT 0"):
         try:
             c.execute(_stmt)
         except sqlite3.OperationalError as _e:
@@ -4489,6 +4491,14 @@ def init_db():
               "message TEXT, at TEXT NOT NULL, notified INTEGER DEFAULT 0, seen INTEGER DEFAULT 0)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_clan_removals_nn ON clan_removals(norm_name, at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_clan_removals_clan ON clan_removals(clan, at)")
+    # A player asks for one loss to be taken back (9.83.0); the owner decides.
+    c.execute("CREATE TABLE IF NOT EXISTS match_reports ("
+              "id INTEGER PRIMARY KEY AUTOINCREMENT, match_row INTEGER NOT NULL, "
+              "norm_name TEXT NOT NULL, name TEXT, sub TEXT, reason TEXT, note TEXT, "
+              "delta REAL, status TEXT DEFAULT 'pending', created_at TEXT, decided_at TEXT, "
+              "decided_by TEXT, decided_note TEXT, notified INTEGER DEFAULT 0, told INTEGER DEFAULT 0)")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_match_reports ON match_reports(match_row, norm_name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_match_reports_status ON match_reports(status, id)")
     # Covering index (9.81.3): a player's history, totals and region split
     # read everything they need from this one index instead of fetching each of
     # their match rows from all over the table - 170 ms became 2 ms for a
@@ -6399,10 +6409,22 @@ def game_end():
         _seen = {}
         _played_as = {}
         _sys = data.get('sys_id')
+        # The window the match was played in, so a play name that was in force
+        # then still finds its account after its owner has moved to another.
+        _win = None
+        try:
+            _end_s = str(data.get('ended_at') or '')[:19]
+            _end_t = (calendar.timegm(time.strptime(_end_s, '%Y-%m-%d %H:%M:%S'))
+                      if _end_s else time.time())
+            _span = max(0, int(data.get('watch_s') or 0))
+            _win = (time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(_end_t - _span)),
+                    time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(_end_t)))
+        except (TypeError, ValueError, OverflowError):
+            _win = None
 
         def _to_account(nm):
             if nm not in _seen:
-                _seen[nm] = account_for_ingame_name(_c, nm, _sys) or nm
+                _seen[nm] = account_for_ingame_name(_c, nm, _sys, _win) or nm
             acct = _seen[nm]
             # Keep the original spelling against the account it was
             # credited to, so the match can show what they were called
@@ -8123,6 +8145,21 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.83.0", "at": "2026-10-12T12:00:00Z", "changes": [
+        "You can now report a match that cost you rating when it should not "
+        "have - someone else flying your name, bots deciding it, a match you "
+        "were never in. Use Report beside the loss on Your account (for 7 "
+        "days after it was played). If it is approved, the rating comes back "
+        "and the loss comes off your record, and you are told on Discord.",
+        "A result now goes to whoever had that play name while the match was "
+        "being played. Before, it went by the play name at the moment the "
+        "result arrived, so switching to your other name straight after a "
+        "match could send that match to the bare name instead of to you.",
+        "Matches no longer go missing when the tracker starts a new recording "
+        "file. Every match being played at that moment used to lose its "
+        "start and go unrated; the five lost that way on 11 Oct have been "
+        "added.",
+    ]},
     {"version": "9.82.1", "at": "2026-10-08T03:00:00Z", "changes": [
         "Team matches now record how the teams finished. When a station is "
         "destroyed the match knows it, so the winner is first and the team "
@@ -14193,7 +14230,50 @@ def _fresh_enough(played_at, seconds):
         return False
 
 
-def account_for_ingame_name(c, name, sys_id=None):
+def play_name_during(c, key, start, end):
+    """The account whose play name was `key` (normalised) at any moment of the
+    window [start, end] - UTC '%Y-%m-%d %H:%M:%S' strings - from play_name_log.
+    None unless exactly one account had it, and never an account name that is
+    somebody else's (9.83.0).
+
+    A result is matched to an account when it is posted, about a minute after
+    the match ends. Someone who plays two names and sets the next one before
+    the last result lands used to lose that result to the bare name: fafa's win
+    in Hybalius 2 (11 Oct) went to a one-match row for that reason."""
+    if not (key and start and end):
+        return None
+    try:
+        rows = c.execute("SELECT sub, name, at FROM play_name_log WHERE at <= ? ORDER BY sub, at",
+                         (end,)).fetchall()
+    except sqlite3.Error:
+        return None
+    by_sub = {}
+    for sub, nm, at in rows:
+        by_sub.setdefault(sub, []).append((at or '', normalize_name(nm or '')))
+    hits = set()
+    for sub, entries in by_sub.items():
+        in_force = None
+        during = []
+        for at, nk in entries:
+            if at <= start:
+                in_force = nk                     # the name it carried when the match began
+            else:
+                during.append(nk)                 # names it switched to while it ran
+        if key == in_force or key in during:
+            hits.add(sub)
+    if len(hits) != 1:
+        return None
+    sub = hits.pop()
+    acct = account_name_for(c, sub)
+    if not acct:
+        return None
+    other = c.execute("SELECT google_sub FROM players WHERE norm_name = ?", (key,)).fetchone()
+    if other and other[0] and other[0] != sub:
+        return None                               # somebody's ACCOUNT name outranks a play name
+    return acct
+
+
+def account_for_ingame_name(c, name, sys_id=None, window=None):
     """The account this in-game name belongs to, or None.
 
     First a check-in binding for THIS lobby - proof that one particular ship
@@ -14219,6 +14299,10 @@ def account_for_ingame_name(c, name, sys_id=None):
     hit = play_name_map(c).get(key)
     if hit:
         return hit[1]
+    if window:
+        during = play_name_during(c, key, window[0], window[1])
+        if during:
+            return during
     return clan_member_for_tagged_name(c, name)
 
 
@@ -23566,17 +23650,36 @@ def dev_merges_decide(rid):
     if status != 'pending':
         conn.close()
         return redirect('/dev/merges')
+    perform_merge_decision(c, rid, action == 'approve', note)
+    conn.commit()
+    conn.close()
+    return redirect('/dev/merges')
+
+
+def perform_merge_decision(c, rid, approve, note=''):
+    """Approve or reject one merge request - the /dev/merges page and the
+    owner's Discord buttons both come here. Does NOT commit. Returns a dict
+    with ok, status and a sentence; an approval that cannot be carried out is
+    left pending with the reason, never marked done."""
+    row = c.execute("SELECT from_norm, to_norm, status, from_name, to_name, google_sub "
+                    "FROM merge_requests WHERE id = ?", (rid,)).fetchone()
+    if not row:
+        return {"ok": False, "message": "That request no longer exists."}
+    from_norm, to_norm, status, from_name, to_name, sub = row
+    if status != 'pending':
+        return {"ok": False, "already": status, "message": "That request was already %s." % status}
     now = time.strftime('%Y-%m-%d %H:%M:%S')
-    if action == 'approve':
+    out = {"from_name": from_name, "to_name": to_name, "google_sub": sub,
+           "discord_id": discord_id_for_sub(c, sub)}
+    if approve:
         summary = perform_name_merge(c, from_norm, to_norm)
         if not summary.get("ok"):
             # Say why and leave it pending, rather than marking a request done
             # when nothing was moved.
             c.execute("UPDATE merge_requests SET decided_note = ? WHERE id = ?",
                       (summary.get("error", "could not be merged"), rid))
-            conn.commit()
-            conn.close()
-            return redirect('/dev/merges')
+            out.update(ok=False, message="Not merged: %s" % summary.get("error", "could not be merged"))
+            return out
         c.execute("UPDATE merge_requests SET status = 'approved', decided_at = ?, "
                   "decided_note = ? WHERE id = ?",
                   (now, note or ("moved %d matches" % summary["matches_moved"]), rid))
@@ -23588,12 +23691,311 @@ def dev_merges_decide(rid):
                   "AND id != ?",
                   (now, "another account's request for this name was approved",
                    from_norm, rid))
-    else:
-        c.execute("UPDATE merge_requests SET status = 'rejected', decided_at = ?, "
-                  "decided_note = ? WHERE id = ?", (now, note, rid))
+        out.update(ok=True, status='approved', matches=summary.get("matches_moved", 0),
+                   message="Merged %s into %s (%d matches moved)."
+                           % (from_name, to_name, summary.get("matches_moved", 0)))
+        return out
+    c.execute("UPDATE merge_requests SET status = 'rejected', decided_at = ?, "
+              "decided_note = ? WHERE id = ?", (now, note, rid))
+    out.update(ok=True, status='rejected', message="Request to merge %s turned down." % from_name)
+    return out
+
+
+def discord_id_for_sub(c, sub):
+    """The Discord id an account can be messaged at, or ''."""
+    sub = str(sub or '')
+    if sub.startswith('discord:'):
+        return sub[8:]
+    try:
+        r = c.execute("SELECT discord_id FROM discord_links WHERE account_sub = ?", (sub,)).fetchone()
+    except sqlite3.Error:
+        r = None
+    return r[0] if r else ''
+
+
+def _merge_card(c, rid, fn, fnorm, tn, tnorm, reason, sub, created):
+    fr = c.execute("SELECT COALESCE(wins,0), COALESCE(losses,0), ROUND(COALESCE(elo,1000),1) "
+                   "FROM players WHERE norm_name = ?", (fnorm,)).fetchone()
+    tr = c.execute("SELECT COALESCE(wins,0), COALESCE(losses,0), ROUND(COALESCE(elo,1000),1) "
+                   "FROM players WHERE norm_name = ?", (tnorm,)).fetchone()
+    rivals = c.execute("SELECT COUNT(*) FROM merge_requests WHERE from_norm = ? AND status = 'pending'",
+                       (fnorm,)).fetchone()[0]
+    return {"id": rid, "from_name": fn, "to_name": tn, "reason": reason or "",
+            "requester": account_name_for(c, sub) or "", "when": (created or '')[:16],
+            "from_rec": list(fr) if fr else None, "to_rec": list(tr) if tr else None,
+            "rivals": rivals, "proof": "%s/merge/proof/%d" % (SITE_ROOT, rid)}
+
+
+@app.route('/api/bot/merges/undelivered')
+def bot_merges_undelivered():
+    """Merge requests the owner has not yet been shown on Discord (9.83.0)."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    out = [_merge_card(c, *r) for r in c.execute(
+        "SELECT id, from_name, from_norm, to_name, to_norm, reason, google_sub, created_at "
+        "FROM merge_requests WHERE status = 'pending' AND COALESCE(notified, 0) = 0 "
+        "ORDER BY id LIMIT 20").fetchall()]
+    conn.close()
+    return jsonify({"merges": out}), 200
+
+
+@app.route('/api/bot/merges/delivered', methods=['POST'])
+def bot_merges_delivered():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(i) for i in (request.json or {}).get('ids', []) if str(i).isdigit()]
+    if ids:
+        conn = db()
+        conn.cursor().executemany("UPDATE merge_requests SET notified = 1 WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        conn.close()
+    return jsonify({"ok": True, "marked": len(ids)}), 200
+
+
+@app.route('/api/bot/merges/decide', methods=['POST'])
+def bot_merges_decide():
+    """The owner pressed Approve or Deny on a merge card in their DMs."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    try:
+        rid = int(data.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Which request?"}), 200
+    decision = str(data.get('decision') or '').lower()
+    if decision not in ('approved', 'denied'):
+        return jsonify({"ok": False, "message": "Unknown decision."}), 200
+    conn = db()
+    c = conn.cursor()
+    res = perform_merge_decision(c, rid, decision == 'approved',
+                                 "decided on Discord by %s" % str(data.get('decided_by') or '')[:60])
     conn.commit()
     conn.close()
-    return redirect('/dev/merges')
+    return jsonify(res), 200
+
+
+# ---- Reporting a match (9.83.0) -------------------------------------------------
+# A player who lost rating to a match that should not count against them - their
+# name flown by someone else, a flood that decided it, a match they were never in -
+# asks for that one loss back. The owner decides on Discord or at /dev/reports;
+# an approved report takes the loss off their rating and their record.
+REPORT_REASONS = (("impostor", "Someone else was flying my name"),
+                  ("bots", "Bots decided the match"),
+                  ("notme", "I was not in this match"),
+                  ("bug", "Disconnected or the game glitched"),
+                  ("other", "Something else"))
+REPORT_REASON_LABEL = dict(REPORT_REASONS)
+REPORT_WINDOW_DAYS = 7
+REPORT_NOTE_MAX = 500
+
+
+def _report_view(c, r):
+    rid, mrow, nn, name, sub, reason, note, delta, status, created, decided_at, dnote = r[:12]
+    m = c.execute("SELECT played_at, sys_id, COALESCE(region,''), COALESCE(lobby_name,''), match_id "
+                  "FROM matches WHERE id = ?", (mrow,)).fetchone()
+    return {"id": rid, "match_row": mrow, "norm_name": nn, "name": name or nn, "sub": sub or "",
+            "reason": reason or "", "reason_label": REPORT_REASON_LABEL.get(reason or "", reason or ""),
+            "note": note or "", "delta": delta, "status": status, "when": (created or '')[:16],
+            "decided_at": (decided_at or '')[:16], "decided_note": dnote or "",
+            "played_at": (m[0] or '')[:16] if m else '', "sys_id": m[1] if m else None,
+            "region": m[2] if m else '', "lobby": m[3] if m else '',
+            "replay": "%s/replay/%d" % (SITE_ROOT, mrow)}
+
+
+_REPORT_COLS = ("id, match_row, norm_name, name, sub, reason, note, delta, status, created_at, "
+                "decided_at, decided_note")
+
+
+def perform_match_report(c, sub_id, match_row, reason, note):
+    """File a report for one of this account's own rated losses. Does NOT
+    commit. Returns (http status, payload)."""
+    acct = account_name_for(c, sub_id) if sub_id else None
+    if not acct:
+        return 401, {"ok": False, "message": "Sign in with the account that played the match."}
+    if reason not in REPORT_REASON_LABEL:
+        return 400, {"ok": False, "message": "Pick one of the listed reasons."}
+    note, bad = clean_clan_note(note, REPORT_NOTE_MAX)
+    if bad:
+        return 400, {"ok": False, "message": bad}
+    try:
+        match_row = int(match_row)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "message": "Which match?"}
+    nn = normalize_name(acct)
+    row = c.execute("SELECT mp.won, mp.delta, mp.refunded, m.played_at FROM match_players mp "
+                    "JOIN matches m ON m.id = mp.match_row WHERE mp.match_row = ? AND mp.norm_name = ?",
+                    (match_row, nn)).fetchone()
+    if not row:
+        return 404, {"ok": False, "message": "That match is not on your record."}
+    won, delta, refunded, played_at = row
+    if won or delta is None or delta >= 0 or refunded is not None:
+        return 400, {"ok": False, "message": "Only a match that cost you rating can be reported."}
+    cutoff = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(time.time() - REPORT_WINDOW_DAYS * 86400))
+    if (played_at or '') < cutoff:
+        return 400, {"ok": False, "message": "Matches can be reported for %d days after they are played."
+                                            % REPORT_WINDOW_DAYS}
+    if c.execute("SELECT 1 FROM match_reports WHERE match_row = ? AND norm_name = ?",
+                 (match_row, nn)).fetchone():
+        return 400, {"ok": False, "message": "You have already reported this match."}
+    c.execute("INSERT INTO match_reports (match_row, norm_name, name, sub, reason, note, delta, status, "
+              "created_at) VALUES (?,?,?,?,?,?,?,'pending',?)",
+              (match_row, nn, acct, sub_id, reason, note or None, float(delta), _stamp()))
+    return 200, {"ok": True, "id": c.lastrowid,
+                 "message": "Reported. If it is approved, the %.1f you lost comes back." % -float(delta)}
+
+
+def perform_report_decision(c, rid, approve, decided_by='', note=''):
+    """Approve (take the loss back) or deny one report. Does NOT commit."""
+    row = c.execute("SELECT " + _REPORT_COLS + " FROM match_reports WHERE id = ?", (rid,)).fetchone()
+    if not row:
+        return {"ok": False, "message": "That report no longer exists."}
+    v = _report_view(c, row)
+    if v["status"] != 'pending':
+        return {"ok": False, "already": v["status"], "message": "That report was already %s." % v["status"]}
+    now = _stamp()
+    v["discord_id"] = discord_id_for_sub(c, v["sub"])
+    if approve:
+        mp = c.execute("SELECT delta, refunded FROM match_players WHERE match_row = ? AND norm_name = ?",
+                       (v["match_row"], v["norm_name"])).fetchone()
+        if not mp or mp[1] is not None or mp[0] is None or mp[0] >= 0:
+            c.execute("UPDATE match_reports SET status = 'denied', decided_at = ?, decided_by = ?, "
+                      "decided_note = ? WHERE id = ?",
+                      (now, decided_by[:80], "nothing left to take back", rid))
+            v.update(ok=True, status='denied', message="Nothing to take back - closed.")
+            return v
+        loss = float(mp[0])
+        c.execute("UPDATE players SET elo = ROUND(elo - ?, 2), losses = MAX(0, COALESCE(losses, 0) - 1) "
+                  "WHERE norm_name = ?", (loss, v["norm_name"]))
+        c.execute("UPDATE match_players SET refunded = delta, delta = 0 WHERE match_row = ? AND norm_name = ?",
+                  (v["match_row"], v["norm_name"]))
+        c.execute("UPDATE match_reports SET status = 'approved', decided_at = ?, decided_by = ?, "
+                  "decided_note = ? WHERE id = ?", (now, decided_by[:80], note[:300] or None, rid))
+        v.update(ok=True, status='approved', refund=round(-loss, 2),
+                 message="Approved: %s gets %.1f back and the loss comes off their record." % (v["name"], -loss))
+        return v
+    c.execute("UPDATE match_reports SET status = 'denied', decided_at = ?, decided_by = ?, "
+              "decided_note = ? WHERE id = ?", (now, decided_by[:80], note[:300] or None, rid))
+    v.update(ok=True, status='denied', message="Report from %s turned down." % v["name"])
+    return v
+
+
+@app.route('/match/report', methods=['POST'])
+def match_report_route():
+    data = request.get_json(silent=True) or {}
+    conn = db()
+    c = conn.cursor()
+    status, payload = perform_match_report(c, current_user(), data.get('match_row'),
+                                           str(data.get('reason') or ''), data.get('note'))
+    if status == 200:
+        conn.commit()
+    conn.close()
+    return jsonify(payload), status
+
+
+@app.route('/dev/reports')
+def dev_reports():
+    if not is_site_owner():
+        return redirect('/')
+    conn = db()
+    c = conn.cursor()
+    rows = [_report_view(c, r) for r in c.execute(
+        "SELECT " + _REPORT_COLS + " FROM match_reports ORDER BY (status = 'pending') DESC, id DESC LIMIT 100")]
+    conn.close()
+    return render_template('dev_reports.html', page='reports', version=APP_VERSION, rows=rows)
+
+
+@app.route('/dev/reports/<int:rid>', methods=['POST'])
+def dev_reports_decide(rid):
+    if not is_site_owner():
+        return jsonify({"ok": False, "message": "Not authorised."}), 403
+    conn = db()
+    c = conn.cursor()
+    perform_report_decision(c, rid, str(request.form.get('action') or '') == 'approve',
+                            "site owner", str(request.form.get('note') or ''))
+    conn.commit()
+    conn.close()
+    return redirect('/dev/reports')
+
+
+@app.route('/api/bot/matchreports/undelivered')
+def bot_matchreports_undelivered():
+    """Reports the owner has not yet been shown on Discord."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    out = [_report_view(c, r) for r in c.execute(
+        "SELECT " + _REPORT_COLS + " FROM match_reports WHERE status = 'pending' "
+        "AND COALESCE(notified, 0) = 0 ORDER BY id LIMIT 20").fetchall()]
+    conn.close()
+    return jsonify({"reports": out}), 200
+
+
+@app.route('/api/bot/matchreports/delivered', methods=['POST'])
+def bot_matchreports_delivered():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(i) for i in (request.json or {}).get('ids', []) if str(i).isdigit()]
+    if ids:
+        conn = db()
+        conn.cursor().executemany("UPDATE match_reports SET notified = 1 WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        conn.close()
+    return jsonify({"ok": True, "marked": len(ids)}), 200
+
+
+@app.route('/api/bot/matchreports/decide', methods=['POST'])
+def bot_matchreports_decide():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    try:
+        rid = int(data.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Which report?"}), 200
+    decision = str(data.get('decision') or '').lower()
+    if decision not in ('approved', 'denied'):
+        return jsonify({"ok": False, "message": "Unknown decision."}), 200
+    conn = db()
+    c = conn.cursor()
+    res = perform_report_decision(c, rid, decision == 'approved',
+                                  "Discord: %s" % str(data.get('decided_by') or '')[:60])
+    conn.commit()
+    conn.close()
+    return jsonify(res), 200
+
+
+@app.route('/api/bot/matchreports/outcomes')
+def bot_matchreports_outcomes():
+    """Decided reports whose player has not been told yet - decided on Discord
+    or on the site, the player hears about it the same way."""
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = db()
+    c = conn.cursor()
+    out = []
+    for r in c.execute("SELECT " + _REPORT_COLS + " FROM match_reports WHERE status IN ('approved','denied') "
+                       "AND COALESCE(told, 0) = 0 ORDER BY id LIMIT 20").fetchall():
+        v = _report_view(c, r)
+        v["discord_id"] = discord_id_for_sub(c, v["sub"])
+        out.append(v)
+    conn.close()
+    return jsonify({"outcomes": out}), 200
+
+
+@app.route('/api/bot/matchreports/told', methods=['POST'])
+def bot_matchreports_told():
+    if not bot_authorised():
+        return jsonify({"error": "Unauthorized"}), 401
+    ids = [int(i) for i in (request.json or {}).get('ids', []) if str(i).isdigit()]
+    if ids:
+        conn = db()
+        conn.cursor().executemany("UPDATE match_reports SET told = 1 WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        conn.close()
+    return jsonify({"ok": True, "marked": len(ids)}), 200
 
 
 @app.route('/dev/moves')
@@ -25283,12 +25685,18 @@ def account_page():
             played = wins + losses
             by_region = [r for r in region_split(c, name) if r["played"]]
             c.execute("SELECT mp.won, mp.delta, COALESCE(mp.half,0), m.played_at, "
-                      "COALESCE(mp.seen, 0) "
+                      "COALESCE(mp.seen, 0), m.id, mp.refunded, "
+                      "(SELECT status FROM match_reports r WHERE r.match_row = m.id AND r.norm_name = mp.norm_name) "
                       "FROM match_players mp JOIN matches m ON m.id = mp.match_row "
                       "WHERE mp.norm_name = ? AND m.played_at > COALESCE((SELECT wiped_before FROM players WHERE norm_name = mp.norm_name), '') ORDER BY m.played_at DESC LIMIT 10",
                       (normalize_name(name),))
+            _rep_cut = time.strftime('%Y-%m-%d %H:%M:%S',
+                                     time.gmtime(time.time() - REPORT_WINDOW_DAYS * 86400))
             recent = [{"won": r[0], "delta": r[1] or 0, "half": r[2],
-                       "when": str(r[3])[:16], "unseen": not r[4]}
+                       "when": str(r[3])[:16], "unseen": not r[4], "mid": r[5],
+                       "refunded": r[6], "report": r[7] or "",
+                       "reportable": (not r[0] and (r[1] or 0) < 0 and r[6] is None and not r[7]
+                                      and str(r[3] or '') >= _rep_cut)}
                       for r in c.fetchall()]
             # This render IS the notification. Clear every owned name,
             # not just the shown ten, so the counter matches what the
@@ -25332,6 +25740,7 @@ def account_page():
     conn.close()
     return render_template('account.html', version=APP_VERSION,
                            wardrobe=wardrobe, clan_notices=clan_notices,
+                           report_reasons=REPORT_REASONS, report_days=REPORT_WINDOW_DAYS,
                            contact=CONTACT_HANDLE, client_id=GOOGLE_CLIENT_ID,
                            account_name=account_name, signed_in=bool(sub_id),
                            acct=acct, page='account',
