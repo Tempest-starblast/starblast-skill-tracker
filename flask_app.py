@@ -29,7 +29,7 @@ import shadow_elo
 
 app = Flask(__name__)
 
-APP_VERSION = "9.83.0"
+APP_VERSION = "9.83.1"
 
 # Google Search Console ownership token (the "HTML tag" method). Empty until
 # the owner adds the site in Search Console and pastes the token here; it is
@@ -8145,6 +8145,19 @@ def public_entries(entries):
     return out
 
 CHANGELOG = [
+    {"version": "9.83.1", "at": "2026-10-13T01:00:00Z", "changes": [
+        "Joining a match by hopping between teams no longer costs you the win. "
+        "The ships you leave behind for a few seconds while switching used to "
+        "count as a second person flying your name, and the win was taken "
+        "away. Now your name has to be on another ship at the same time as "
+        "yours for more than 5 minutes before that happens - two people "
+        "really flying one name are still caught. Maidness's win in "
+        "Albatiraraph (12 Oct) has been given back.",
+        "Asking to merge a name that shows on a roster without its clan tag "
+        "now works: the request finds the copy of your name recorded with the "
+        "tag in front instead of saying the two names are the same, and the "
+        "merge page offers it to you directly.",
+    ]},
     {"version": "9.83.0", "at": "2026-10-12T12:00:00Z", "changes": [
         "You can now report a match that cost you rating when it should not "
         "have - someone else flying your name, bots deciding it, a match you "
@@ -23262,10 +23275,19 @@ def merge_page():
     my_names, reqs = [], []
     conn = db()
     c = conn.cursor()
+    twins = []
     if sub_id:
         my_names = [r[0] for r in c.execute(
             "SELECT name FROM players WHERE google_sub = ? "
             "ORDER BY (COALESCE(wins,0)+COALESCE(losses,0)) DESC, name", (sub_id,)).fetchall()]
+        # Your own name recorded with a clan tag in front, on a row of its own:
+        # offered as a one-click merge, since its name on rosters looks like yours.
+        for _mn in my_names:
+            for _tn, _tnorm in tagged_twins(c, normalize_name(_mn), normalize_name(_mn)):
+                _rec = c.execute("SELECT COALESCE(wins,0), COALESCE(losses,0) FROM players WHERE norm_name = ?",
+                                 (_tnorm,)).fetchone()
+                twins.append({"name": _tn, "into": _mn, "wins": _rec[0] if _rec else 0,
+                              "losses": _rec[1] if _rec else 0})
         for rid, fn, tn, reason, status, created, note in c.execute(
                 "SELECT id, from_name, to_name, reason, status, created_at, decided_note "
                 "FROM merge_requests WHERE google_sub = ? ORDER BY id DESC LIMIT 20",
@@ -23274,7 +23296,32 @@ def merge_page():
                          "status": status, "when": (created or '')[:16], "note": note})
     conn.close()
     return render_template('merge.html', page='merge', version=APP_VERSION,
-                           signed_in=bool(sub_id), my_names=my_names, requests=reqs)
+                           signed_in=bool(sub_id), my_names=my_names, requests=reqs, twins=twins)
+
+
+def tagged_twins(c, typed_norm, exclude_norm=None):
+    """Unowned rows whose name is the typed name with a clan tag in front -
+    "【🔥IS】REDWING🦅" for "REDWING🦅" (9.83.1). Rosters show names with the clan
+    tag taken off, so that is what people type when they ask for a merge; the
+    row's real identity also carries the tag (ISREDWING), so it never matched.
+    Returns [(name, norm_name)], best match first."""
+    if not typed_norm:
+        return []
+    out = []
+    try:
+        rows = c.execute("SELECT name, norm_name, clan FROM players WHERE norm_name LIKE ? "
+                         "AND (google_sub IS NULL OR google_sub = '')",
+                         ("%" + typed_norm,)).fetchall()
+    except sqlite3.Error:
+        return []
+    for name, nn, clan in rows:
+        if nn == typed_norm or nn == exclude_norm:
+            continue
+        prefix = nn[:len(nn) - len(typed_norm)]
+        if prefix and (prefix == normalize_name(clan or '') or prefix == normalize_name(
+                detect_clan(name, all_clan_tags(c)) or '')):
+            out.append((name, nn))
+    return out
 
 
 @app.route('/merge/request', methods=['POST'])
@@ -23293,7 +23340,21 @@ def merge_request_submit():
     if not from_norm or not to_norm:
         return jsonify({"ok": False, "message": "That name can't be read."}), 400
     if from_norm == to_norm:
-        return jsonify({"ok": False, "message": "Those are the same name."}), 400
+        # The same letters as your own name: usually the copy of it that was
+        # recorded WITH your clan tag in front, which rosters show without it.
+        _cn = db()
+        try:
+            _twins = tagged_twins(_cn.cursor(), from_norm)
+        finally:
+            _cn.close()
+        if len(_twins) == 1:
+            from_name, from_norm = _twins[0]
+        elif len(_twins) > 1:
+            return jsonify({"ok": False, "message": "More than one name matches that: %s. Type the one "
+                            "you mean exactly as it appears on its profile page."
+                            % ", ".join(t[0] for t in _twins[:5])}), 400
+        else:
+            return jsonify({"ok": False, "message": "Those are the same name."}), 400
     proof = request.files.get('proof')
     blob = proof.read() if proof is not None else b''
     if not blob:

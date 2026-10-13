@@ -187,6 +187,28 @@ check("FAFA's win lands on his account, not on the bare name",
        q("SELECT COUNT(*) FROM match_players WHERE norm_name='NAMEA'")[0][0]), (1, 0))
 check("and it remembers the name he flew", q("SELECT played_as FROM match_players WHERE norm_name='FAFAMAIN'"), [("NAMEA",)])
 
+print("\n--- a merge from the name a roster shows (clan tag hidden) ---")
+w("DELETE FROM merge_requests")
+w("DELETE FROM clans WHERE tag = 'IS'")
+w("INSERT INTO clans (tag, created_by, created_at) VALUES ('IS', 'x', '2026-01-01')")
+w("INSERT INTO players (name, norm_name, elo, wins, losses, google_sub, clan) VALUES ('RedWing 🦅', 'REDWING', 1780, 19, 15, 'sub:rw', 'IS')")
+w("INSERT INTO players (name, norm_name, elo, wins, losses, clan) VALUES ('【🔥IS】REDWING🦅', 'ISREDWING', 1119, 2, 2, 'IS')")
+h = client("sub:rw").get("/merge").get_data(as_text=True)
+check("the merge page offers the tagged twin", "【🔥IS】REDWING🦅 (2-2)" in h, True)
+r = client("sub:rw").post("/merge/request", data={"from_name": "REDWING🦅", "to_name": "RedWing 🦅",
+                          "reason": "the same me, with the clan tag",
+                          "proof": (io.BytesIO(b"fakepng"), "p.png", "image/png")},
+                          content_type="multipart/form-data")
+check("typing the name the roster shows now works", (r.status_code, r.get_json()["ok"]), (200, True))
+check("and the request is for the tagged row", q("SELECT from_name, from_norm, to_norm FROM merge_requests"),
+      [("【🔥IS】REDWING🦅", "ISREDWING", "REDWING")])
+w("DELETE FROM merge_requests")
+w("UPDATE players SET name = 'X', norm_name = 'X' WHERE norm_name = 'ISREDWING'")
+r = client("sub:rw").post("/merge/request", data={"from_name": "REDWING🦅", "to_name": "RedWing 🦅",
+                          "reason": "the same me", "proof": (io.BytesIO(b"fakepng"), "p.png", "image/png")},
+                          content_type="multipart/form-data")
+check("with no such twin it is still the same name", (r.status_code, "same name" in r.get_json()["message"]), (400, True))
+
 print("\n%d passed, %d failed" % (ok, fail))
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if fail else 0)

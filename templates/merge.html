@@ -39,6 +39,11 @@
 {% else %}
 <div class="mgcard">
   <h2>Request a merge</h2>
+  {% if twins %}
+  <p style="margin:0 0 10px;font-size:14px">These look like your name recorded with a clan tag in front (rosters hide the tag):
+    {% for t in twins %}<button type="button" class="ghost" style="margin:4px 6px 0 0"
+      onclick="document.getElementById('fromn').value = {{ t.name|tojson }}; document.getElementById('ton').value = {{ t.into|tojson }};">{{ t.name }} ({{ t.wins }}-{{ t.losses }})</button>{% endfor %}</p>
+  {% endif %}
   <form class="mgform" id="mgform">
     <label for="fromn">The name to merge (the one you played under)</label>
     <input type="text" id="fromn" name="from_name" placeholder="exact in-game name" required>
